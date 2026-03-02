@@ -5,6 +5,7 @@ from agent_core import action
     description="Performs a mouse click at the specified screen coordinates (or at the current cursor position if no coordinates are provided). Supports left, right, and middle buttons, as well as single and double clicks.",
     mode="GUI",
     action_sets=["gui_interaction"],
+    parallelizable=False,
     input_schema={
         "x": {
             "type": "integer",

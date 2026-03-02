@@ -28,40 +28,26 @@ def _strip_decorator(source_code: str) -> str:
     """
     Strips the @action decorator and any other decorators from function source code.
     Returns only the function definition and body.
+    Supports both sync (def) and async (async def) functions.
+
+    Uses AST parsing which provides exact line numbers for function definitions,
+    making this approach robust regardless of decorator complexity.
     """
     try:
-        # Parse the source code into an AST
         tree = ast.parse(source_code)
 
-        # Find the first function definition
+        # Find the first function definition (sync or async)
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                # Get the function's source lines (excluding decorators)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # AST lineno is 1-based, gives the line where 'def' or 'async def' starts
+                func_line = node.lineno - 1  # Convert to 0-based index
                 lines = source_code.split('\n')
+                return '\n'.join(lines[func_line:])
 
-                # Find the function definition line (starts with 'def ')
-                func_start = None
-                for i, line in enumerate(lines):
-                    stripped = line.strip()
-                    if stripped.startswith('def '):
-                        func_start = i
-                        break
-
-                if func_start is not None:
-                    # Return everything from the function definition onwards
-                    return '\n'.join(lines[func_start:])
-
-        # If no function found, return original (shouldn't happen)
+        # No function found, return original
         return source_code
-    except Exception as e:
-        # If AST parsing fails, try regex fallback
-        import re
-        # Match function definition and everything after it
-        match = re.search(r'^def\s+\w+.*', source_code, re.MULTILINE)
-        if match:
-            return source_code[match.start():]
-        # Last resort: return original
-        logger.warning(f"Could not strip decorator: {e}")
+    except SyntaxError as e:
+        logger.warning(f"Could not parse source code: {e}")
         return source_code
 
 
@@ -83,6 +69,9 @@ class ActionMetadata:
     # Action sets this action belongs to (e.g., ["file_operations", "core"])
     # Used for static action list compilation instead of RAG retrieval
     action_sets: List[str] = field(default_factory=list)
+    # Whether this action can be executed in parallel with other actions.
+    # Set to False for: write operations, GUI actions, state changes, send_message, etc.
+    parallelizable: bool = True
 
     @property
     def display_name(self) -> str:
@@ -259,7 +248,8 @@ class ActionRegistry:
             "output_schema": meta.output_schema,
             "requirements": meta.requirements,
             "code": main_code_str,
-            "platform_overrides": {}
+            "platform_overrides": {},
+            "parallelizable": meta.parallelizable,
         }
 
         # 3. Handle Platform Overrides
@@ -386,7 +376,8 @@ def action(
     output_schema: Optional[Dict[str, Any]] = None,
     requirement: Optional[List[str]] = None,
     test_payload: Optional[Dict[str, Any]] = None,
-    action_sets: Optional[List[str]] = None
+    action_sets: Optional[List[str]] = None,
+    parallelizable: bool = True,
 ):
     """
     Decorator used by developers to register functions as actions.
@@ -405,6 +396,8 @@ def action(
         test_payload: Test data for simulated execution
         action_sets: List of action set names this action belongs to
                      (e.g., ["file_operations", "core"])
+        parallelizable: Whether this action can run in parallel with others.
+                        Set to False for write operations, GUI actions, state changes, etc.
     """
     # Normalize platforms input to a list of lowercase strings
     if platforms is None:
@@ -427,7 +420,8 @@ def action(
             output_schema=output_schema or {},
             requirements=requirement or [],
             test_payload=test_payload,
-            action_sets=action_sets or []
+            action_sets=action_sets or [],
+            parallelizable=parallelizable,
         )
 
         # 2. Create the full registration object

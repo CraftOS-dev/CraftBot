@@ -19,6 +19,7 @@ from agent_core import action
     default=False,
     mode="ALL",
     action_sets=["core"],  # Always available
+    parallelizable=False,
     input_schema={
         "action_sets": {
             "type": "array",
@@ -95,6 +96,7 @@ def add_action_sets(input_data: dict) -> dict:
     default=False,
     mode="ALL",
     action_sets=["core"],  # Always available
+    parallelizable=False,
     input_schema={
         "action_sets": {
             "type": "array",

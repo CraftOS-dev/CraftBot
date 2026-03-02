@@ -5,6 +5,7 @@ from agent_core import action
         description="Use this action to deliver a detailed text update that will be recorded in the conversation log and event stream. Avoid revealing internal or sensitive information and do not mention conversation identifiers. This action does not perform work; it only communicates status to the user.",
         default=True,
         action_sets=["core"],
+        parallelizable=False,
         input_schema={
                 "message": {
                         "type": "string",

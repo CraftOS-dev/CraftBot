@@ -1,0 +1,11 @@
+{
+  "owner": "longmaba",
+  "slug": "google-sheet",
+  "displayName": "Skill to manage and update google sheet",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769952098353,
+    "commit": "https://github.com/clawdbot/skills/commit/e9a5aa11bdff856c7cbc4779fa53eb80e2c34599"
+  },
+  "history": []
+}

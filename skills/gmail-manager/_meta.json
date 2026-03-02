@@ -1,0 +1,11 @@
+{
+  "owner": "pepperbotts",
+  "slug": "gmail-manager",
+  "displayName": "Gmail Manager",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769737576903,
+    "commit": "https://github.com/clawdbot/skills/commit/e164a65a609ab23214a5d795a21fabaad5c5e62b"
+  },
+  "history": []
+}

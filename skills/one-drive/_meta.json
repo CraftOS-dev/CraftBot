@@ -1,0 +1,22 @@
+{
+  "owner": "byungkyu",
+  "slug": "one-drive",
+  "displayName": "Microsoft OneDrive",
+  "latest": {
+    "version": "1.0.3",
+    "publishedAt": 1771502013396,
+    "commit": "https://github.com/openclaw/skills/commit/2c17f1417c0105ec8bd46077707e9bf7cc06ffc9"
+  },
+  "history": [
+    {
+      "version": "1.0.2",
+      "publishedAt": 1770761958547,
+      "commit": "https://github.com/openclaw/skills/commit/ab4a4e82e2d3e54c79e9f057d690242871537f10"
+    },
+    {
+      "version": "1.0.0",
+      "publishedAt": 1770462975318,
+      "commit": "https://github.com/openclaw/skills/commit/c5bff8ec04a692232e0e5f9c4b5b1e6a46e5f3fd"
+    }
+  ]
+}

@@ -128,6 +128,9 @@ class BytePlusCacheManager:
             caching_config["prefix"] = True
         payload["caching"] = caching_config
 
+        # Enforce JSON output format (Responses API uses text.format, not response_format)
+        payload["text"] = {"format": {"type": "json_object"}}
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Database interface module - re-exports from agent_core.
+Database interface module for CraftBot.
 
-All database implementations are now in agent_core.
+Re-exports the base DatabaseInterface from agent_core which includes
+parallel action logging capabilities.
 """
 
-# Re-export from agent_core
-from agent_core import DatabaseInterface
+from agent_core.core.database_interface import DatabaseInterface
 
 __all__ = ["DatabaseInterface"]

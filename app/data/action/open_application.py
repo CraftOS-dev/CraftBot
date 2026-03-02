@@ -5,6 +5,7 @@ from agent_core import action
         description="Launches a Windows application (executable) with optional command-line arguments.",
         mode="GUI",
         action_sets=["gui_interaction"],
+        parallelizable=False,
         input_schema={
                 "exe_path": {
                         "type": "string",

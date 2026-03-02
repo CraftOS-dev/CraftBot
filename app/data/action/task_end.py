@@ -11,6 +11,7 @@ from agent_core import action
     default=True,
     mode="CLI",
     action_sets=["core"],
+    parallelizable=False,
     input_schema={
         "status": {
             "type": "string",
@@ -62,6 +63,8 @@ def end_task(input_data: dict) -> dict:
     summary = input_data.get("summary")
     errors = input_data.get("errors", [])
     simulated_mode = input_data.get("simulated_mode", False)
+    # Extract session_id injected by ActionManager - this identifies the specific task to end
+    session_id = input_data.get("_session_id")
 
     if status not in ("complete", "abort"):
         return {
@@ -79,14 +82,16 @@ def end_task(input_data: dict) -> dict:
         res = asyncio.run(iai.InternalActionInterface.mark_task_completed(
             message=reason,
             summary=summary,
-            errors=errors
+            errors=errors,
+            task_id=session_id,  # Pass specific task ID to end
         ))
     else:
         # Map 'abort' to a cancellation by default
         res = asyncio.run(iai.InternalActionInterface.mark_task_cancel(
             reason=reason,
             summary=summary,
-            errors=errors
+            errors=errors,
+            task_id=session_id,  # Pass specific task ID to end
         ))
 
     if isinstance(res, dict) and res.get("status") == "ok":

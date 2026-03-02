@@ -75,9 +75,10 @@ class ActionRouter:
         self,
         query: str,
         action_type: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Default action selection function when not in a task.
+        Supports parallel action selection - returns a list of actions.
         For now, only choosing between chat, ignore or create and start task.
 
         Args:
@@ -85,8 +86,8 @@ class ActionRouter:
             action_type: Optional type filter forwarded to the LLM.
 
         Returns:
-            Dict[str, Any]: Parsed decision containing ``action_name`` and
-            ``parameters`` ready for execution or creation.
+            List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
+            ``parameters``, and ``reasoning`` for execution.
         """
         conversation_mode_actions = ["send_message", "task_start", "ignore"]
         action_candidates = []
@@ -110,14 +111,30 @@ class ActionRouter:
             action_candidates=self._format_candidates(action_candidates),
         )
 
-        decision = await self._prompt_for_decision(prompt, is_task=False)
+        max_retries = 3
+        for attempt in range(max_retries):
+            decision = await self._prompt_for_decision(prompt, is_task=False)
 
-        logger.debug(
-            f"Action router selected action={decision.get('action_name')} "
-            f"with parameters={decision.get('parameters')}"
-        )
+            # Parse parallel action decisions
+            actions = self._parse_parallel_action_decisions(decision)
 
-        return decision
+            if not actions:
+                # Empty action list - return empty decision
+                return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
+
+            # Validate and filter parallel actions (GUI_mode=False for conversation)
+            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
+
+            if validated_actions:
+                action_names = [a.get("action_name") for a in validated_actions]
+                logger.info(f"[PARALLEL] Conversation mode selected {len(validated_actions)} action(s): {action_names}")
+                return validated_actions
+
+            logger.warning(
+                f"No valid actions found during conversation selection attempt {attempt + 1}"
+            )
+
+        raise ValueError("Invalid selected action returned by LLM after retries.")
 
     @profile("action_router_select_action_in_task", OperationCategory.ACTION_ROUTING)
     async def select_action_in_task(
@@ -126,9 +143,10 @@ class ActionRouter:
         action_type: Optional[str] = None,
         GUI_mode=False,
         session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         When a task is running, this action selection will be used.
+        Supports parallel action selection - returns a list of actions.
 
         Args:
             query: Task-level instruction for the next step.
@@ -137,8 +155,8 @@ class ActionRouter:
             session_id: Optional session ID for session-specific state lookup.
 
         Returns:
-            Dict[str, Any]: Decision payload with ``action_name``, ``parameters``,
-            and ``reasoning`` for execution.
+            List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
+            ``parameters``, and ``reasoning`` for execution.
         """
         action_candidates = []
 
@@ -184,17 +202,23 @@ class ActionRouter:
                 session_id=session_id,
             )
 
-            selected_action_name = decision.get("action_name", "")
-            if selected_action_name == "":
-                return decision
+            # Parse parallel action decisions (handles both old and new format)
+            actions = self._parse_parallel_action_decisions(decision)
 
-            selected_action = self.action_library.retrieve_action(selected_action_name)
-            if selected_action is not None and _is_visible_in_mode(selected_action, GUI_mode):
-                decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
-                return decision
+            if not actions:
+                # Empty action list - return empty decision for backward compatibility
+                return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
+
+            # Validate and filter parallel actions
+            validated_actions = self._validate_parallel_actions(actions, GUI_mode)
+
+            if validated_actions:
+                action_names = [a.get("action_name") for a in validated_actions]
+                logger.info(f"[PARALLEL] Selected {len(validated_actions)} action(s): {action_names}")
+                return validated_actions
 
             logger.warning(
-                f"Received invalid action name '{selected_action_name}' during selection attempt {attempt + 1}"
+                f"No valid actions found during selection attempt {attempt + 1}"
             )
 
         raise ValueError("Invalid selected action returned by LLM after retries.")
@@ -204,17 +228,18 @@ class ActionRouter:
         self,
         query: str,
         session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Action selection for simple task mode - streamlined without todo workflow.
+        Supports parallel action selection - returns a list of actions.
 
         Args:
             query: Task-level instruction for the next step.
             session_id: Optional session ID for session-specific state lookup.
 
         Returns:
-            Dict[str, Any]: Decision payload with ``action_name``, ``parameters``,
-            and ``reasoning`` for execution.
+            List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
+            ``parameters``, and ``reasoning`` for execution.
         """
         action_candidates = []
 
@@ -260,17 +285,23 @@ class ActionRouter:
                 session_id=session_id,
             )
 
-            selected_action_name = decision.get("action_name", "")
-            if selected_action_name == "":
-                return decision
+            # Parse parallel action decisions (handles both old and new format)
+            actions = self._parse_parallel_action_decisions(decision)
 
-            selected_action = self.action_library.retrieve_action(selected_action_name)
-            if selected_action is not None and _is_visible_in_mode(selected_action, GUI_mode=False):
-                decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
-                return decision
+            if not actions:
+                # Empty action list - return empty decision for backward compatibility
+                return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
+
+            # Validate and filter parallel actions
+            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
+
+            if validated_actions:
+                action_names = [a.get("action_name") for a in validated_actions]
+                logger.info(f"[PARALLEL] Simple task selected {len(validated_actions)} action(s): {action_names}")
+                return validated_actions
 
             logger.warning(
-                f"Received invalid action name '{selected_action_name}' during simple task selection attempt {attempt + 1}"
+                f"No valid actions found during simple task selection attempt {attempt + 1}"
             )
 
         raise ValueError("Invalid selected action returned by LLM after retries.")
@@ -546,6 +577,89 @@ class ActionRouter:
         if isinstance(parameters, dict):
             return parameters
         return {}
+
+    def _parse_parallel_action_decisions(self, decision: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Parse LLM response for parallel action format.
+
+        Expected format: {"reasoning": "...", "actions": [{...}, {...}]}
+
+        Returns:
+            List of action decisions, each with action_name, parameters, and reasoning.
+        """
+        if decision is None:
+            return []
+
+        reasoning = decision.get("reasoning", "")
+
+        # Parse "actions" array format
+        if "actions" in decision and isinstance(decision["actions"], list):
+            actions = []
+            for action in decision["actions"]:
+                if isinstance(action, dict) and action.get("action_name"):
+                    action["reasoning"] = reasoning
+                    action["parameters"] = self._ensure_parameters(action.get("parameters"))
+                    actions.append(action)
+            return actions
+
+        return []
+
+    def _validate_parallel_actions(
+        self,
+        actions: List[Dict[str, Any]],
+        GUI_mode: bool
+    ) -> List[Dict[str, Any]]:
+        """
+        Validate and filter parallel actions.
+
+        Rules:
+        - Max 10 actions per batch
+        - If any action is non-parallelizable (action.parallelizable=False), return only first action
+        - Validate each action exists and is visible in current mode
+
+        Args:
+            actions: List of parsed action decisions.
+            GUI_mode: Whether in GUI mode.
+
+        Returns:
+            Validated list of actions (may be reduced to 1 if non-parallelizable detected).
+        """
+        if not actions:
+            return []
+
+        # Cap at 10 actions
+        actions = actions[:10]
+
+        # Check for non-parallelizable actions by looking up each action's parallelizable attribute
+        has_non_parallel = False
+        for action_dict in actions:
+            action_name = action_dict.get("action_name", "")
+            if action_name:
+                act = self.action_library.retrieve_action(action_name)
+                if act and not getattr(act, "parallelizable", True):
+                    has_non_parallel = True
+                    break
+
+        if has_non_parallel and len(actions) > 1:
+            logger.warning(
+                f"[PARALLEL] Non-parallelizable action detected in batch of {len(actions)}. "
+                f"Using only first action: {actions[0].get('action_name')}"
+            )
+            actions = [actions[0]]
+
+        # Validate each action exists and is visible
+        validated = []
+        for action in actions:
+            action_name = action.get("action_name", "")
+            if not action_name:
+                continue
+            act = self.action_library.retrieve_action(action_name)
+            if act and _is_visible_in_mode(act, GUI_mode):
+                validated.append(action)
+            else:
+                logger.warning(f"[PARALLEL] Action '{action_name}' not found or not visible, skipping")
+
+        return validated
 
     def _build_candidates_from_compiled_list(
         self,

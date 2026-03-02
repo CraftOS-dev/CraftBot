@@ -5,6 +5,7 @@ from agent_core import action
     description="Scrolls the active window one viewport up or down (≈90 % of the screen height, leaving ~10 % overlap).",
     mode="GUI",
     action_sets=["gui_interaction"],
+    parallelizable=False,
     input_schema={
         "direction": {
             "type": "string",

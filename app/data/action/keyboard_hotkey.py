@@ -5,6 +5,7 @@ from agent_core import action
     description="Sends arbitrary keystrokes or key-combination shortcuts to the currently focused window (e.g., 'ctrl+c', ['alt+tab', 'f5']).",
     mode="GUI",
     action_sets=["gui_interaction"],
+    parallelizable=False,
     input_schema={
         "keys": {
             "type": [

@@ -41,3 +41,4 @@ python-dotenv
 scikit-learn
 watchdog
 telethon
+croniter>=2.0.0        # Cron expression parsing for scheduler

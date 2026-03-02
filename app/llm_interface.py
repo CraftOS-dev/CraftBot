@@ -407,8 +407,8 @@ class BytePlusCacheManager:
         """
         prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
 
-        # Enable JSON mode for reasoning calls
-        json_mode = call_type in (LLMCallType.REASONING, LLMCallType.GUI_REASONING)
+        # Always enable JSON mode for all calls
+        json_mode = True
 
         if prompt_hash in self._prefix_cache_registry:
             # Use existing prefix cache - chain from stored response_id
@@ -637,8 +637,8 @@ class GeminiCacheManager:
         import time
         cache_key = self._make_cache_key(system_prompt, call_type)
 
-        # Enable JSON mode for reasoning calls
-        json_mode = call_type in (LLMCallType.REASONING, LLMCallType.GUI_REASONING)
+        # Always enable JSON mode for all calls
+        json_mode = True
 
         # Check if we have an existing cache
         if cache_key in self._cache_registry:
@@ -1608,9 +1608,8 @@ class LLMInterface:
                 "max_tokens": self.max_tokens,
             }
 
-            # Enable JSON mode for reasoning calls to ensure valid JSON output
-            if call_type in (LLMCallType.REASONING, LLMCallType.GUI_REASONING):
-                request_kwargs["response_format"] = {"type": "json_object"}
+            # Always enforce JSON output format
+            request_kwargs["response_format"] = {"type": "json_object"}
 
             # Add prompt_cache_key when call_type is provided for better cache routing
             # This helps when alternating between different call types (reasoning, action_selection)
@@ -1770,6 +1769,7 @@ class LLMInterface:
                     system_prompt=system_prompt,
                     temperature=self.temperature,
                     max_output_tokens=self.max_tokens,
+                    json_mode=True,
                 )
 
             # Extract response data
@@ -1970,6 +1970,7 @@ class LLMInterface:
                 # Wire through sampling + output control
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
+                # Note: response_format not supported by all BytePlus models (e.g., kimi)
                 # "stream": False,  # default is non-streaming
             }
             headers = {
@@ -2063,8 +2064,8 @@ class LLMInterface:
             if not self._anthropic_client:
                 raise RuntimeError("Anthropic client was not initialised.")
 
-            # Enable JSON mode for reasoning calls via prefilling
-            json_mode = call_type in (LLMCallType.REASONING, LLMCallType.GUI_REASONING)
+            # Always enable JSON mode via prefilling
+            json_mode = True
 
             # Build the message with optional system prompt
             messages = [{"role": "user", "content": user_prompt}]

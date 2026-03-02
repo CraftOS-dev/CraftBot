@@ -42,12 +42,18 @@ Complex Task Workflow:
 
 Critical Rules:
 - DO NOT use 'send_message' to claim task completion without actually doing the work.
-- This is action selection is for conversation mode, it only has limited actions. Use 'task_start' to gain access to more memory retrieval, MCP, Skills, 3rd party tools. 
+- This is action selection is for conversation mode, it only has limited actions. Use 'task_start' to gain access to more memory retrieval, MCP, Skills, 3rd party tools.
 - Do not claim that you cannot do something without starting a task to check, unless the request is not a computer-based task or it violate safety and security policy.
 </rules>
 
+<parallel_actions>
+You MAY start multiple independent tasks in parallel by including multiple task_start actions.
+Example: User asks "research topic A and topic B" → start both tasks simultaneously.
+Only task_start can be parallelized. send_message and ignore must run alone.
+</parallel_actions>
+
 <notes>
-- The action_name MUST be one of the listed actions. 
+- The action_name MUST be one of the listed actions.
 - Provide every required parameter for the chosen action, respecting the expected type, description, and example.
 - Keep parameter values concise and directly useful for execution.
 - Always use double quotes around strings so the JSON is valid.
@@ -56,11 +62,35 @@ Critical Rules:
 <output_format>
 Return ONLY a valid JSON object with this structure and no extra commentary:
 {{
-  "action_name": "<name of the chosen action, or empty string if none apply>",
-  "parameters": {{
-    "<parameter name>": <value>,
-    "...": <value>
-  }}
+  "reasoning": "<brief reasoning about what actions to take>",
+  "actions": [
+    {{
+      "action_name": "<name of the chosen action>",
+      "parameters": {{
+        "<parameter name>": <value>
+      }}
+    }}
+  ]
+}}
+
+For parallel actions, include multiple entries in the "actions" array.
+For a single action, use an array with one entry.
+
+Example (single action):
+{{
+  "reasoning": "User asked about weather, starting a simple task",
+  "actions": [
+    {{"action_name": "task_start", "parameters": {{"task": "Check weather", "task_mode": "simple"}}}}
+  ]
+}}
+
+Example (parallel actions - starting multiple tasks):
+{{
+  "reasoning": "User asked to research two topics, starting both tasks in parallel",
+  "actions": [
+    {{"action_name": "task_start", "parameters": {{"task": "Research topic A", "task_mode": "complex"}}}},
+    {{"action_name": "task_start", "parameters": {{"task": "Research topic B", "task_mode": "complex"}}}}
+  ]
 }}
 </output_format>
 
@@ -135,6 +165,30 @@ File Reading Best Practices:
 - DO NOT repeatedly read entire large files - use targeted reading with offset/limit
 </rules>
 
+<parallel_actions>
+Parallel Action Execution:
+When multiple actions are completely independent (no action depends on another's output),
+you SHOULD batch up to 10 of them in a single step to maximize efficiency.
+
+Good candidates for parallelization:
+- Multiple read_file() calls for different files
+- Multiple web_search() or memory_search() calls
+- Any combination of read-only operations
+Example: read_file("a.txt") + read_file("b.txt") + grep_files("pattern")
+Example: web_search("query1") + web_search("query2") + memory_search("topic")
+
+Never parallelize these:
+- Write/mutate operations: write_file, stream_edit, clipboard_write
+- GUI interactions: mouse_click, mouse_move, keyboard_type, scroll, etc.
+- Task/state management: task_end, task_update_todos, set_mode, wait
+- Action set changes: add_action_sets, remove_action_sets
+- send_message
+
+RULES:
+1. Never parallelize an action that depends on another action's output.
+2. If any selected action is non-parallelizable, it must be the ONLY action in that step.
+</parallel_actions>
+
 <reasoning_protocol>
 Before selecting an action, you MUST reason through these steps:
 1. Identify the current todo from the [todos] event (marked [>] in_progress or first [ ] pending).
@@ -157,11 +211,34 @@ Before selecting an action, you MUST reason through these steps:
 Return ONLY a valid JSON object with this structure and no extra commentary:
 {{
   "reasoning": "<chain-of-thought about current todo, its phase, completion status, and decision>",
-  "action_name": "<name of the chosen action, or empty string if none apply>",
-  "parameters": {{
-    "<parameter name>": <value>,
-    "...": <value>
-  }}
+  "actions": [
+    {{
+      "action_name": "<name of the chosen action>",
+      "parameters": {{
+        "<parameter name>": <value>
+      }}
+    }}
+  ]
+}}
+
+For parallel actions, include multiple entries in the "actions" array.
+For a single action, use an array with one entry.
+
+Example (single action):
+{{
+  "reasoning": "Need to update todos to track progress",
+  "actions": [
+    {{"action_name": "task_update_todos", "parameters": {{"todos": [...]}}}}
+  ]
+}}
+
+Example (parallel actions):
+{{
+  "reasoning": "Need to read two config files to understand the setup",
+  "actions": [
+    {{"action_name": "read_file", "parameters": {{"path": "config.json"}}}},
+    {{"action_name": "read_file", "parameters": {{"path": "settings.yaml"}}}}
+  ]
 }}
 </output_format>
 
@@ -283,6 +360,30 @@ Critical Rules:
 - If stuck or error, use 'task_end' with status 'abort'
 </rules>
 
+<parallel_actions>
+Parallel Action Execution:
+When multiple actions are completely independent (no action depends on another's output),
+you SHOULD batch up to 10 of them in a single step to maximize efficiency.
+
+Good candidates for parallelization:
+- Multiple read_file() calls for different files
+- Multiple web_search() or memory_search() calls
+- Any combination of read-only operations
+Example: read_file("a.txt") + read_file("b.txt") + grep_files("pattern")
+Example: web_search("query1") + web_search("query2") + memory_search("topic")
+
+Never parallelize these:
+- Write/mutate operations: write_file, stream_edit, clipboard_write
+- GUI interactions: mouse_click, mouse_move, keyboard_type, scroll, etc.
+- Task/state management: task_end, wait
+- Action set changes: add_action_sets, remove_action_sets
+- send_message
+
+RULES:
+1. Never parallelize an action that depends on another action's output.
+2. If any selected action is non-parallelizable, it must be the ONLY action in that step.
+</parallel_actions>
+
 <reasoning_protocol>
 Before selecting an action, quickly reason through:
 1. What is the goal of this simple task?
@@ -302,9 +403,16 @@ Before selecting an action, quickly reason through:
 Return ONLY a valid JSON object:
 {{
   "reasoning": "<brief reasoning about current state and what action to take>",
-  "action_name": "<action name>",
-  "parameters": {{ ... }}
+  "actions": [
+    {{
+      "action_name": "<action name>",
+      "parameters": {{ ... }}
+    }}
+  ]
 }}
+
+For parallel actions, include multiple entries in the "actions" array.
+For a single action, use an array with one entry.
 </output_format>
 
 <actions>

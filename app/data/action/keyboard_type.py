@@ -5,6 +5,7 @@ from agent_core import action
     description="Types the given text at the current keyboard focus in any active application window.",
     mode="GUI",
     action_sets=["gui_interaction"],
+    parallelizable=False,
     input_schema={
         "text": {
             "type": "string",

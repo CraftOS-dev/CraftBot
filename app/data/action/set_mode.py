@@ -6,6 +6,7 @@ from agent_core import action
     mode="ALL",
     default=True,
     action_sets=["core"],
+    parallelizable=False,
     input_schema={
         "target_mode": {
             "type": "string",

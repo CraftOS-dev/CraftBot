@@ -1,0 +1,11 @@
+{
+  "owner": "kenxcomp",
+  "slug": "ai-news-collectors",
+  "displayName": "ai-news-collectors",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1770615394344,
+    "commit": "https://github.com/openclaw/skills/commit/14386a8435b75c1598cfc842911dcd34a4ed467c"
+  },
+  "history": []
+}

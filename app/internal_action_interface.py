@@ -23,6 +23,8 @@ import mss, mss.tools, os
 if TYPE_CHECKING:
     from app.context_engine import ContextEngine
     from app.gui.gui_module import GUIModule
+    from app.scheduler import SchedulerManager
+    from app.proactive import ProactiveManager
 
 
 class InternalActionInterface:
@@ -40,6 +42,8 @@ class InternalActionInterface:
     context_engine: Optional["ContextEngine"] = None
     gui_module: Optional["GUIModule"] = None
     memory_manager: Optional[MemoryManager] = None
+    scheduler: Optional["SchedulerManager"] = None
+    proactive_manager: Optional["ProactiveManager"] = None
 
     @classmethod
     def initialize(
@@ -50,7 +54,8 @@ class InternalActionInterface:
         vlm_interface: Optional[VLMInterface] = None,
         context_engine: Optional["ContextEngine"] = None,
         gui_module: Optional["GUIModule"] = None,
-        memory_manager: MemoryManager | None = None
+        memory_manager: MemoryManager | None = None,
+        scheduler: Optional["SchedulerManager"] = None
     ):
         """
         Register the shared interfaces that actions depend on.
@@ -65,7 +70,8 @@ class InternalActionInterface:
         cls.vlm_interface = vlm_interface
         cls.context_engine = context_engine
         cls.gui_module = gui_module
-        cls.memory_manager = memory_manager 
+        cls.memory_manager = memory_manager
+        cls.scheduler = scheduler 
 
     # ─────────────────────── LLM Access for Actions ───────────────────────
 
@@ -197,6 +203,7 @@ class InternalActionInterface:
         task_description: str,
         task_mode: str = "complex",
         session_id: Optional[str] = None,
+        original_query: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create a new task with automatic skill and action set selection.
@@ -210,6 +217,8 @@ class InternalActionInterface:
             task_mode: Task execution mode - "simple" for quick tasks, "complex" for multi-step work.
             session_id: Optional session ID to use as task_id. If provided,
                        ensures session_id == task_id for event stream isolation.
+            original_query: Optional original user message to log to the task's
+                           event stream before the task_start event.
 
         Returns:
             Dictionary with task_id, action_sets, action_count, and selected_skills.
@@ -233,15 +242,20 @@ class InternalActionInterface:
         # Note: Session caches are now created automatically by TaskManager.create_task()
         # for complex tasks, so we don't need to create them here
         # Pass session_id so task_id == session_id for event stream isolation
+        # Pass original_query to log user message to the task's event stream
         task_id = cls.task_manager.create_task(
             task_name, task_description,
             mode=task_mode,
             action_sets=all_action_sets,
             selected_skills=selected_skills,
             session_id=session_id,
+            original_query=original_query,
         )
-        task: Optional[Task] = cls.task_manager.get_task()
-        cls.state_manager.add_to_active_task(task)
+        # Use get_task_by_id instead of get_task() to handle parallel task creation
+        # get_task() returns the global active task which can be overwritten by concurrent tasks
+        task: Optional[Task] = cls.task_manager.get_task_by_id(task_id)
+        if task:
+            cls.state_manager.add_to_active_task(task)
 
         return {
             "task_id": task_id,
@@ -655,20 +669,29 @@ class InternalActionInterface:
         cls,
         message: Optional[str] = None,
         summary: Optional[str] = None,
-        errors: Optional[List[str]] = None
+        errors: Optional[List[str]] = None,
+        task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Mark the current session task as completed."""
+        """Mark a specific task as completed.
+
+        Args:
+            message: Completion message/reason.
+            summary: Summary of what was accomplished.
+            errors: List of errors encountered.
+            task_id: Specific task ID to complete. If None, uses current task (legacy behavior).
+        """
         try:
-            # Get task_id before marking as completed (task will be cleared)
-            task_id = cls._get_current_task_id()
+            # Use provided task_id or fall back to current task (legacy behavior)
+            effective_task_id = task_id or cls._get_current_task_id()
             ok = await cls.task_manager.mark_task_completed(
                 message=message,
                 summary=summary,
-                errors=errors or []
+                errors=errors or [],
+                task_id=effective_task_id,
             )
             # End session cache if task was successfully completed
-            if ok and task_id:
-                cls._end_task_session_cache(task_id)
+            if ok and effective_task_id:
+                cls._end_task_session_cache(effective_task_id)
             return {"status": "ok" if ok else "error"}
         except Exception as e:
             logger.error(f"[InternalActions] mark_task_completed failed: {e}", exc_info=True)
@@ -679,20 +702,29 @@ class InternalActionInterface:
         cls,
         reason: Optional[str] = None,
         summary: Optional[str] = None,
-        errors: Optional[List[str]] = None
+        errors: Optional[List[str]] = None,
+        task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Cancel the current session task."""
+        """Cancel a specific task.
+
+        Args:
+            reason: Reason for cancellation.
+            summary: Summary of what was done before cancellation.
+            errors: List of errors encountered.
+            task_id: Specific task ID to cancel. If None, uses current task (legacy behavior).
+        """
         try:
-            # Get task_id before marking as cancelled (task will be cleared)
-            task_id = cls._get_current_task_id()
+            # Use provided task_id or fall back to current task (legacy behavior)
+            effective_task_id = task_id or cls._get_current_task_id()
             ok = await cls.task_manager.mark_task_cancel(
                 reason=reason,
                 summary=summary,
-                errors=errors or []
+                errors=errors or [],
+                task_id=effective_task_id,
             )
             # End session cache if task was successfully cancelled
-            if ok and task_id:
-                cls._end_task_session_cache(task_id)
+            if ok and effective_task_id:
+                cls._end_task_session_cache(effective_task_id)
             return {"status": "ok" if ok else "error"}
         except Exception as e:
             logger.error(f"[InternalActions] mark_task_cancel failed: {e}", exc_info=True)

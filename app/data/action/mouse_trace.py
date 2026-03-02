@@ -5,6 +5,7 @@ from agent_core import action
         description="Moves the mouse cursor along a sequence of points, optionally with easing, per-segment duration, and pauses between segments.",
         mode="GUI",
         action_sets=["gui_interaction"],
+        parallelizable=False,
         input_schema={
                 "points": {
                         "type": "array",

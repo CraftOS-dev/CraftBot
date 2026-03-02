@@ -10,6 +10,7 @@ Options:
     --gui           Install GUI components (OmniParser for screen automation)
     --no-conda      Use global pip instead of conda environments
     --cpu-only      Install CPU-only PyTorch (for OmniParser, requires --gui)
+    --mamba         Use mamba instead of conda (faster but may have issues)
 """
 import multiprocessing
 import os
@@ -22,8 +23,12 @@ from typing import Tuple, Optional, Dict, Any
 
 multiprocessing.freeze_support()
 
-from dotenv import load_dotenv
-load_dotenv()
+# Load .env if dotenv is available (optional, not required for fresh install)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed yet, that's fine
 
 # --- Base directory ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -137,10 +142,15 @@ def get_env_name_from_yml(yml_path: str = YML_FILE) -> str:
     sys.exit(1)
 
 def get_conda_command() -> str:
-    """Return 'mamba' if available (faster), otherwise 'conda'."""
-    if shutil.which("mamba"):
-        print("Using mamba (faster resolver)")
-        return "mamba"
+    """Return conda command. Use --mamba flag to use mamba instead."""
+    # Mamba can have compatibility issues, so use conda by default
+    # Users can pass --mamba flag if they want to use mamba
+    if "--mamba" in sys.argv:
+        if shutil.which("mamba"):
+            print("Using mamba (faster resolver)")
+            return "mamba"
+        else:
+            print("Warning: mamba not found, using conda")
     return "conda"
 
 def setup_conda_environment(env_name: str, yml_path: str = YML_FILE):

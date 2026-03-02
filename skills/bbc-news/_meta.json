@@ -1,0 +1,11 @@
+{
+  "owner": "ddrayne",
+  "slug": "bbc-news",
+  "displayName": "BBC News",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1768398865276,
+    "commit": "https://github.com/clawdbot/skills/commit/ef57d6554090fc211e0a47d0ece93331656fb2dd"
+  },
+  "history": []
+}

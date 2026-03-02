@@ -108,6 +108,7 @@ class GeminiCacheManager:
                 system_prompt=system_prompt,
                 temperature=temperature,
                 max_output_tokens=max_tokens,
+                json_mode=True,
             )
 
         cache_key = self._make_cache_key(system_prompt, call_type)
@@ -126,6 +127,7 @@ class GeminiCacheManager:
                         prompt=user_prompt,
                         temperature=temperature,
                         max_output_tokens=max_tokens,
+                        json_mode=True,
                     )
                 except Exception as e:
                     logger.warning(f"[GEMINI CACHE] Cache {cache_name} failed, recreating: {e}")
@@ -155,6 +157,7 @@ class GeminiCacheManager:
                     prompt=user_prompt,
                     temperature=temperature,
                     max_output_tokens=max_tokens,
+                    json_mode=True,
                 )
         except Exception as e:
             logger.warning(f"[GEMINI CACHE] Failed to create cache for {cache_key}: {e}")
@@ -169,6 +172,7 @@ class GeminiCacheManager:
             system_prompt=system_prompt,
             temperature=temperature,
             max_output_tokens=max_tokens,
+            json_mode=True,
         )
 
     def invalidate_cache(self, system_prompt: str, call_type: str) -> None:

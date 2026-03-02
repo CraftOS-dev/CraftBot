@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import traceback
 import time
 import uuid
@@ -40,9 +41,9 @@ from agent_core import ActionLibrary, ActionManager, ActionRouter
 from app.config import (
     AGENT_WORKSPACE_ROOT,
     AGENT_FILE_SYSTEM_PATH,
+    AGENT_FILE_SYSTEM_TEMPLATE_PATH,
     AGENT_MEMORY_CHROMA_PATH,
     PROCESS_MEMORY_AT_STARTUP,
-    MEMORY_PROCESSING_SCHEDULE_HOUR,
 )
 
 from app.tui import TUIInterface
@@ -62,6 +63,8 @@ from app.task.task_manager import TaskManager
 from app.event_stream import EventStreamManager
 from app.gui.gui_module import GUIModule
 from app.gui.handler import GUIHandler
+from app.scheduler import SchedulerManager
+from app.proactive import initialize_proactive_manager, get_proactive_manager
 from agent_core import profile, profile_loop, OperationCategory
 from agent_core import (
     # Registries for dependency injection
@@ -92,6 +95,7 @@ class TriggerData:
     gui_mode: bool | None
     parent_id: str | None
     session_id: str | None = None
+    user_message: str | None = None  # Original user message without routing prefix
 
 class AgentBase:
     """
@@ -250,8 +254,14 @@ class AgentBase:
         self.is_running: bool = True
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
-        # Background scheduler task for daily memory processing
-        self._memory_scheduler_task: Optional["asyncio.Task"] = None
+        # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
+        self.scheduler = SchedulerManager()
+        InternalActionInterface.scheduler = self.scheduler
+
+        # Proactive task manager
+        proactive_file = AGENT_FILE_SYSTEM_PATH / "PROACTIVE.md"
+        self.proactive_manager = initialize_proactive_manager(proactive_file)
+        InternalActionInterface.proactive_manager = self.proactive_manager
 
         self._command_registry: Dict[str, AgentCommand] = {}
         self._register_builtin_commands()
@@ -325,11 +335,22 @@ class AgentBase:
         try:
             logger.debug("[REACT] starting...")
 
-            # ----- WORKFLOW 1: Special Processing (memory, proactive, onbaording, etc) -----
+            # ----- WORKFLOW 1A: Memory Processing -----
             if self._is_memory_trigger(trigger):
                 task_created = await self._handle_memory_workflow(trigger)
                 if not task_created:
                     return  # No events to process
+                # Task was created - return to avoid falling through to conversation mode
+                # which would cause the LLM to create a duplicate task
+                return
+
+            # ----- WORKFLOW 1B: Proactive Processing (heartbeats, planners) -----
+            if self._is_proactive_trigger(trigger):
+                task_created = await self._handle_proactive_workflow(trigger)
+                if not task_created:
+                    return  # No tasks to process
+                # Task was created - return to avoid falling through to conversation mode
+                return
 
             # Initialize session for all other workflows
             trigger_data: TriggerData = self._extract_trigger_data(trigger)
@@ -448,87 +469,8 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[MEMORY] Failed to process memory at startup: {e}")
 
-    async def _schedule_daily_memory_processing(self) -> None:
-        """
-        Start a background scheduler for daily memory processing.
-
-        Instead of creating a future-dated trigger that sits in the queue,
-        this launches an asyncio task that sleeps until the scheduled hour
-        and only then creates the trigger. This prevents the memory_processing_daily
-        session from appearing as "ACTIVE" when it's not actually running.
-        """
-        # Cancel any existing scheduler task
-        if self._memory_scheduler_task and not self._memory_scheduler_task.done():
-            self._memory_scheduler_task.cancel()
-            try:
-                await self._memory_scheduler_task
-            except asyncio.CancelledError:
-                pass
-
-        # Start the background scheduler
-        self._memory_scheduler_task = asyncio.create_task(
-            self._memory_processing_scheduler_loop()
-        )
-        logger.debug("[MEMORY] Started background memory processing scheduler")
-
-    async def _memory_processing_scheduler_loop(self) -> None:
-        """
-        Background scheduler loop that waits until the scheduled hour
-        and then fires the memory processing trigger.
-
-        This runs continuously, sleeping until the next scheduled time,
-        firing the trigger, and then rescheduling for the next day.
-        """
-        from datetime import datetime, timedelta
-
-        while self.is_running:
-            try:
-                now = datetime.now()
-                # Calculate next occurrence of the scheduled hour
-                scheduled_time = now.replace(
-                    hour=MEMORY_PROCESSING_SCHEDULE_HOUR,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
-
-                # If the scheduled time has already passed today, schedule for tomorrow
-                if scheduled_time <= now:
-                    scheduled_time += timedelta(days=1)
-
-                sleep_seconds = (scheduled_time - now).total_seconds()
-                logger.info(
-                    f"[MEMORY] Scheduler sleeping until "
-                    f"{scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} "
-                    f"(in {sleep_seconds / 3600:.1f} hours)"
-                )
-
-                # Sleep until the scheduled time
-                await asyncio.sleep(sleep_seconds)
-
-                # Time to fire! Create an immediate trigger
-                logger.info("[MEMORY] Scheduler woke up, firing memory processing trigger")
-                trigger = Trigger(
-                    fire_at=time.time(),  # Fire immediately
-                    priority=100,  # Low priority - background task
-                    next_action_description="Process unprocessed events into long-term memory (daily scheduled task)",
-                    payload={
-                        "type": "memory_processing",
-                        "scheduled": True,
-                    },
-                    session_id="memory_processing_daily",
-                )
-                await self.triggers.put(trigger)
-
-                # Small delay before rescheduling to ensure we're past the current minute
-                await asyncio.sleep(60)
-
-            except asyncio.CancelledError:
-                logger.debug("[MEMORY] Memory processing scheduler cancelled")
-                break
-            except Exception as e:
-                logger.warning(f"[MEMORY] Scheduler error: {e}, will retry in 1 hour")
-                await asyncio.sleep(3600)  # Retry in 1 hour on error
+    # Note: Daily memory processing is now handled by the SchedulerManager.
+    # See app/config/scheduler_config.json for schedule configuration.
 
     async def _handle_memory_processing_trigger(self) -> bool:
         """
@@ -537,8 +479,7 @@ class AgentBase:
         This is called when a memory processing trigger fires (startup or scheduled).
         It creates a task to process unprocessed events.
 
-        Note: Rescheduling is handled automatically by the background scheduler loop
-        (_memory_processing_scheduler_loop), so this method doesn't need to reschedule.
+        Note: Rescheduling is handled automatically by the SchedulerManager.
 
         Returns:
             True if a task was created and processing should continue,
@@ -580,6 +521,7 @@ class AgentBase:
             gui_mode=trigger.payload.get("gui_mode"),
             parent_id=trigger.payload.get("parent_action_id"),
             session_id=trigger.session_id,
+            user_message=trigger.payload.get("user_message"),
         )
 
     def _extract_user_message_from_trigger(self, trigger: Trigger) -> Optional[str]:
@@ -616,6 +558,11 @@ class AgentBase:
         """Check if trigger is for memory processing."""
         return trigger.payload.get("type") == "memory_processing"
 
+    def _is_proactive_trigger(self, trigger: Trigger) -> bool:
+        """Check if trigger is for proactive processing (heartbeat or planner)."""
+        trigger_type = trigger.payload.get("type", "")
+        return trigger_type in ("proactive_heartbeat", "proactive_planner")
+
     def _is_gui_task_mode(self, session_id: str | None = None) -> bool:
         """Check if in GUI task execution mode."""
         return self.state_manager.is_running_task(session_id=session_id) and STATE.gui_mode
@@ -643,23 +590,89 @@ class AgentBase:
         """
         return await self._handle_memory_processing_trigger()
 
+    async def _handle_proactive_workflow(self, trigger: Trigger) -> bool:
+        """
+        Handle proactive heartbeat and planner triggers.
+
+        Creates a task to process proactive tasks based on the trigger type
+        (heartbeat or planner) and frequency/scope.
+
+        Args:
+            trigger: The proactive trigger
+
+        Returns:
+            True if a task was created and processing should continue,
+            False if no task was created.
+        """
+        trigger_type = trigger.payload.get("type")
+        frequency = trigger.payload.get("frequency", "")
+        scope = trigger.payload.get("scope", "")
+
+        logger.info(f"[PROACTIVE] Trigger fired: type={trigger_type}, frequency={frequency}, scope={scope}")
+
+        try:
+            if trigger_type == "proactive_heartbeat":
+                return await self._handle_proactive_heartbeat(frequency)
+            elif trigger_type == "proactive_planner":
+                return await self._handle_proactive_planner(scope)
+        except Exception as e:
+            logger.warning(f"[PROACTIVE] Failed to handle proactive trigger: {e}")
+
+        return False
+
+    async def _handle_proactive_heartbeat(self, frequency: str) -> bool:
+        """Create heartbeat processing task for the given frequency."""
+        # Check if there are any tasks for this frequency
+        tasks = self.proactive_manager.get_tasks(frequency=frequency, enabled_only=True)
+        if not tasks:
+            logger.info(f"[PROACTIVE] No {frequency} tasks enabled, skipping heartbeat")
+            return False
+
+        # Create task using heartbeat-processor skill
+        task_id = self.task_manager.create_task(
+            task_name=f"{frequency.title()} Heartbeat",
+            task_instruction=f"Execute {frequency} proactive tasks from PROACTIVE.md. "
+                           f"There are {len(tasks)} task(s) to process.",
+            mode="complex",
+            action_sets=["file_operations", "proactive"],
+            selected_skills=["heartbeat-processor"],
+        )
+        logger.info(f"[PROACTIVE] Created heartbeat task: {task_id} for {frequency}")
+        return True
+
+    async def _handle_proactive_planner(self, scope: str) -> bool:
+        """Create planner task for the given scope (day, week, month)."""
+        skill_name = f"{scope}-planner"
+
+        task_id = self.task_manager.create_task(
+            task_name=f"{scope.title()} Planner",
+            task_instruction=f"Review recent interactions and plan {scope}ly proactive activities. "
+                           f"Update PROACTIVE.md planner section with findings.",
+            mode="complex",
+            action_sets=["file_operations", "proactive"],
+            selected_skills=[skill_name],
+        )
+        logger.info(f"[PROACTIVE] Created planner task: {task_id} for {scope}")
+        return True
+
     async def _handle_conversation_workflow(self, trigger_data: TriggerData, session_id: str) -> None:
         """
         Handle conversation mode - no active task.
         Routes user queries to appropriate actions (send_message, task_start, etc.)
         Uses prefix caching only (no session caching for conversation mode).
+        Supports parallel task_start for starting multiple tasks at once.
         """
         logger.debug(f"[WORKFLOW: CONVERSATION] Query: {trigger_data.query}")
 
         # Use _select_action to maintain proper call chain
-        action_decision, reasoning = await self._select_action(trigger_data)
+        action_decisions, reasoning = await self._select_action(trigger_data)
 
-        action, action_params, parent_id = await self._retrieve_and_prepare_action(
-            action_decision, trigger_data.parent_id
+        prepared_actions = await self._retrieve_and_prepare_actions(
+            action_decisions, trigger_data.parent_id
         )
 
-        action_output = await self._execute_action(
-            action, action_params, trigger_data, reasoning, parent_id, session_id
+        action_output = await self._execute_actions(
+            prepared_actions, trigger_data, reasoning, session_id
         )
 
         new_session_id = action_output.get("task_id") or session_id
@@ -670,18 +683,19 @@ class AgentBase:
         Handle simple task mode - streamlined execution without todos.
         Quick tasks that auto-complete after delivering results.
         Uses session caching for efficient multi-turn execution.
+        Supports parallel action execution for efficiency.
         """
         logger.debug(f"[WORKFLOW: SIMPLE TASK] Query: {trigger_data.query}")
 
         # Use _select_action to maintain proper call chain with session caching
-        action_decision, reasoning = await self._select_action(trigger_data)
+        action_decisions, reasoning = await self._select_action(trigger_data)
 
-        action, action_params, parent_id = await self._retrieve_and_prepare_action(
-            action_decision, trigger_data.parent_id
+        prepared_actions = await self._retrieve_and_prepare_actions(
+            action_decisions, trigger_data.parent_id
         )
 
-        action_output = await self._execute_action(
-            action, action_params, trigger_data, reasoning, parent_id, session_id
+        action_output = await self._execute_actions(
+            prepared_actions, trigger_data, reasoning, session_id
         )
 
         new_session_id = action_output.get("task_id") or session_id
@@ -692,18 +706,19 @@ class AgentBase:
         Handle complex task mode - full todo workflow with planning.
         Multi-step tasks with todo management and user verification.
         Uses session caching for efficient multi-turn execution.
+        Supports parallel action execution for efficiency.
         """
         logger.debug(f"[WORKFLOW: COMPLEX TASK] Query: {trigger_data.query}")
 
         # Use _select_action to maintain proper call chain with session caching
-        action_decision, reasoning = await self._select_action(trigger_data)
+        action_decisions, reasoning = await self._select_action(trigger_data)
 
-        action, action_params, parent_id = await self._retrieve_and_prepare_action(
-            action_decision, trigger_data.parent_id
+        prepared_actions = await self._retrieve_and_prepare_actions(
+            action_decisions, trigger_data.parent_id
         )
 
-        action_output = await self._execute_action(
-            action, action_params, trigger_data, reasoning, parent_id, session_id
+        action_output = await self._execute_actions(
+            prepared_actions, trigger_data, reasoning, session_id
         )
 
         new_session_id = action_output.get("task_id") or session_id
@@ -759,9 +774,10 @@ class AgentBase:
     # ----- Action Selection -----
 
     @profile("agent_select_action", OperationCategory.AGENT_LOOP)
-    async def _select_action(self, trigger_data: TriggerData) -> tuple[dict, str]:
+    async def _select_action(self, trigger_data: TriggerData) -> tuple[list, str]:
         """
-        Select an action based on current task state.
+        Select action(s) based on current task state.
+        Always returns a list for consistency with parallel action support.
 
         Routes to appropriate action selection method:
         - Complex task: _select_action_in_task (with session caching)
@@ -769,7 +785,7 @@ class AgentBase:
         - Conversation: action_router.select_action (prefix caching only)
 
         Returns:
-            Tuple of (action_decision, reasoning) where reasoning is empty string
+            Tuple of (action_decisions_list, reasoning) where reasoning is empty string
             for non-task contexts.
         """
         # CRITICAL: Use session_id to check THIS specific session's task state
@@ -784,15 +800,18 @@ class AgentBase:
                 return await self._select_action_in_task(trigger_data.query, trigger_data.session_id)
         else:
             logger.debug(f"[AGENT QUERY] {trigger_data.query}")
-            action_decision = await self.action_router.select_action(query=trigger_data.query)
-            if not action_decision:
+            action_decisions = await self.action_router.select_action(query=trigger_data.query)
+            if not action_decisions:
                 raise ValueError("Action router returned no decision.")
-            return action_decision, ""
+            # Extract reasoning from first action (shared across all)
+            reasoning = action_decisions[0].get("reasoning", "") if action_decisions else ""
+            return action_decisions, reasoning
 
     @profile("agent_select_action_in_task", OperationCategory.AGENT_LOOP)
-    async def _select_action_in_task(self, query: str, session_id: str | None = None) -> tuple[dict, str]:
+    async def _select_action_in_task(self, query: str, session_id: str | None = None) -> tuple[list, str]:
         """
-        Select action when running within a task context.
+        Select action(s) when running within a task context.
+        Supports parallel action selection - returns a list of actions.
 
         Reasoning is now integrated into the action selection prompt,
         so this method directly calls the action router without a separate
@@ -803,20 +822,21 @@ class AgentBase:
             session_id: Session ID for session-specific state lookup.
 
         Returns:
-            Tuple of (action_decision, reasoning)
+            Tuple of (action_decisions_list, reasoning)
         """
         # Single LLM call - reasoning is integrated into action selection
-        action_decision = await self.action_router.select_action_in_task(
+        # Returns List[Dict] for parallel action support
+        action_decisions = await self.action_router.select_action_in_task(
             query=query,
             GUI_mode=STATE.gui_mode,
             session_id=session_id,
         )
 
-        if not action_decision:
+        if not action_decisions:
             raise ValueError("Action router returned no decision.")
 
-        # Extract reasoning from the action decision (now included in response)
-        reasoning = action_decision.get("reasoning", "")
+        # Extract reasoning from the first action decision (shared across all)
+        reasoning = action_decisions[0].get("reasoning", "") if action_decisions else ""
         logger.debug(f"[AGENT REASONING] {reasoning}")
 
         # Log reasoning to event stream (pass task_id for multi-task isolation)
@@ -830,12 +850,13 @@ class AgentBase:
             )
             self.state_manager.bump_event_stream()
 
-        return action_decision, reasoning
+        return action_decisions, reasoning
 
     @profile("agent_select_action_in_simple_task", OperationCategory.AGENT_LOOP)
-    async def _select_action_in_simple_task(self, query: str, session_id: str | None = None) -> tuple[dict, str]:
+    async def _select_action_in_simple_task(self, query: str, session_id: str | None = None) -> tuple[list, str]:
         """
-        Select action for simple task mode - lighter weight than complex task.
+        Select action(s) for simple task mode - lighter weight than complex task.
+        Supports parallel action selection - returns a list of actions.
 
         Reasoning is now integrated into the action selection prompt.
         Simple tasks use streamlined prompts and no todo workflow.
@@ -846,19 +867,20 @@ class AgentBase:
             session_id: Session ID for session-specific state lookup.
 
         Returns:
-            Tuple of (action_decision, reasoning)
+            Tuple of (action_decisions_list, reasoning)
         """
         # Single LLM call - reasoning is integrated into action selection
-        action_decision = await self.action_router.select_action_in_simple_task(
+        # Returns List[Dict] for parallel action support
+        action_decisions = await self.action_router.select_action_in_simple_task(
             query=query,
             session_id=session_id,
         )
 
-        if not action_decision:
+        if not action_decisions:
             raise ValueError("Action router returned no decision.")
 
-        # Extract reasoning from the action decision (now included in response)
-        reasoning = action_decision.get("reasoning", "")
+        # Extract reasoning from the first action decision (shared across all)
+        reasoning = action_decisions[0].get("reasoning", "") if action_decisions else ""
         logger.debug(f"[AGENT REASONING - SIMPLE TASK] {reasoning}")
 
         # Log reasoning to event stream (pass task_id for multi-task isolation)
@@ -872,64 +894,121 @@ class AgentBase:
             )
             self.state_manager.bump_event_stream()
 
-        return action_decision, reasoning
+        return action_decisions, reasoning
 
     # ----- Action Execution -----
 
-    async def _retrieve_and_prepare_action(
-        self, action_decision: dict, initial_parent_id: str | None
-    ) -> tuple[Action, dict, str | None]:
+    async def _retrieve_and_prepare_actions(
+        self, action_decisions: list, initial_parent_id: str | None
+    ) -> list:
         """
-        Retrieve action from library and determine parent action ID.
-        
+        Retrieve actions from library for a list of action decisions.
+
+        Args:
+            action_decisions: List of action decision dicts from router.
+            initial_parent_id: Parent action ID for tracking.
+
         Returns:
-            Tuple of (action, action_params, parent_id)
+            List of Tuple (action, action_params, parent_id)
         """
-        action_name = action_decision.get("action_name")
-        action_params = action_decision.get("parameters", {})
-        
-        if not action_name:
-            raise ValueError("No valid action selected by the router.")
+        prepared = []
+        for decision in action_decisions:
+            action_name = decision.get("action_name")
+            action_params = decision.get("parameters", {})
 
-        action = self.action_library.retrieve_action(action_name)
-        if action is None:
-            raise ValueError(
-                f"Action '{action_name}' not found in the library. "
-                "Check DB connectivity or ensure the action is registered."
-            )
-        
-        # Use provided parent ID or None
-        parent_id = initial_parent_id
+            if not action_name:
+                continue
 
-        return action, action_params, parent_id or None
+            action = self.action_library.retrieve_action(action_name)
+            if action is None:
+                logger.warning(f"Action '{action_name}' not found, skipping")
+                continue
 
-    @profile("agent_execute_action", OperationCategory.AGENT_LOOP)
-    async def _execute_action(
+            prepared.append((action, action_params, initial_parent_id))
+
+        return prepared
+
+    @profile("agent_execute_actions", OperationCategory.AGENT_LOOP)
+    async def _execute_actions(
         self,
-        action: Action,
-        action_params: dict,
+        prepared_actions: list,
         trigger_data: TriggerData,
         reasoning: str,
-        parent_id: str | None,
         session_id: str,
     ) -> dict:
-        """Execute the selected action."""
-        # CRITICAL: Use session_id to check THIS specific session's task state
-        # Without session_id, checks global state which could be wrong in concurrent tasks
+        """
+        Execute prepared actions (parallel if multiple).
+
+        Each action logs its own results to event stream via execute_action().
+        Returns merged output for agent loop control.
+        """
+        if not prepared_actions:
+            raise ValueError("No valid actions to execute")
+
         is_running_task = self.state_manager.is_running_task(session_id=session_id)
         context = reasoning if reasoning else trigger_data.query
-        
-        logger.info(f"[ACTION] Ready to run {action}")
-        
-        return await self.action_manager.execute_action(
-            action=action,
+        parent_id = prepared_actions[0][2] if prepared_actions else None
+
+        # Build list of (action, input_data) tuples
+        actions_with_input = [(action, params) for action, params, _ in prepared_actions]
+
+        # Inject original user message for task_start actions
+        # Use user_message from payload (original message) if available,
+        # otherwise fall back to query (may include routing prefix)
+        for action, params in actions_with_input:
+            if action.name == "task_start":
+                params["_original_query"] = trigger_data.user_message or trigger_data.query
+
+        action_names = [a[0].name for a in actions_with_input]
+        logger.info(f"[ACTION] Ready to run {len(actions_with_input)} action(s): {action_names}")
+
+        # Execute actions (parallel if multiple)
+        results = await self.action_manager.execute_actions_parallel(
+            actions=actions_with_input,
             context=context,
             event_stream=STATE.event_stream,
             parent_id=parent_id,
             session_id=session_id,
             is_running_task=is_running_task,
-            input_data=action_params,
         )
+
+        return self._merge_action_outputs(results)
+
+    def _merge_action_outputs(self, outputs: list) -> dict:
+        """
+        Merge outputs from parallel actions into single response.
+
+        Preserves all individual results and extracts key fields for loop control.
+        """
+        if not outputs:
+            return {}
+        if len(outputs) == 1:
+            return outputs[0]
+
+        merged = {
+            "parallel_results": outputs,
+            "task_id": None,
+            "fire_at_delay": 0.0,
+        }
+
+        # Extract task_id if any action created one
+        for output in outputs:
+            if output.get("task_id"):
+                merged["task_id"] = output["task_id"]
+                break
+
+        # Use max fire_at_delay
+        merged["fire_at_delay"] = max(
+            (output.get("fire_at_delay", 0.0) for output in outputs), default=0.0
+        )
+
+        # Check for errors
+        errors = [o for o in outputs if o.get("status") == "error"]
+        if errors:
+            merged["has_errors"] = True
+            merged["error_count"] = len(errors)
+
+        return merged
 
     async def _finalize_action_execution(
         self, new_session_id: str, action_output: dict, session_id: str
@@ -938,7 +1017,25 @@ class AgentBase:
         self.state_manager.bump_event_stream()
         if not await self._check_agent_limits():
             return
-        await self._create_new_trigger(new_session_id, action_output, STATE)
+
+        # Check if parallel actions created multiple tasks
+        parallel_results = action_output.get("parallel_results")
+        if parallel_results:
+            # Collect all task_ids from parallel task_start results
+            new_task_ids = [
+                r.get("task_id") for r in parallel_results
+                if r.get("task_id") and r.get("status") == "success"
+            ]
+            # Create a trigger for each newly created task
+            for task_id in new_task_ids:
+                await self._create_new_trigger(task_id, action_output, STATE)
+
+            # Always create trigger for the original session to continue current task
+            # This ensures the task keeps running regardless of what parallel actions did
+            await self._create_new_trigger(session_id, action_output, STATE)
+        else:
+            # Single action - use existing logic
+            await self._create_new_trigger(new_session_id, action_output, STATE)
 
     # ----- Error Handling -----
 
@@ -1329,6 +1426,7 @@ class AgentBase:
                     payload={
                         "gui_mode": gui_mode,
                         "platform": source_platform,
+                        "user_message": chat_content,  # Original user message for task event stream
                     },
                 ),
                 skip_merge=True,
@@ -1336,6 +1434,67 @@ class AgentBase:
 
         except Exception as e:
             logger.error(f"Error handling incoming message: {e}", exc_info=True)
+
+    async def _handle_external_event(self, payload: Dict) -> None:
+        """
+        Handle an incoming external tool event (WhatsApp, Telegram, etc.).
+
+        Routes the external message through the same flow as _handle_chat_message
+        so it can be routed to an existing session or create a new one.
+
+        Args:
+            payload: Event payload with standardized fields:
+                - source: Platform name (e.g., "Telegram", "WhatsApp Web")
+                - integrationType: Integration type (e.g., "telegram_bot", "whatsapp_web")
+                - contactId: Contact/chat ID
+                - contactName: Contact name
+                - messageBody: Message text
+        """
+        try:
+            source = payload.get("source", "Unknown")
+            contact_id = payload.get("contactId", "unknown")
+            contact_name = payload.get("contactName") or contact_id
+            message_body = payload.get("messageBody", "")
+            integration_type = payload.get("integrationType", "").lower()
+
+            if not message_body:
+                logger.warning(f"[EXTERNAL] Empty message body from {source}, ignoring.")
+                return
+
+            logger.info(
+                f"[EXTERNAL] Received from {source} ({integration_type}): "
+                f"{contact_name}: {message_body[:100]}..."
+            )
+
+            # Map integration type to platform for routing
+            platform_map = {
+                "whatsapp_web": "whatsapp",
+                "whatsapp_business": "whatsapp",
+                "telegram_bot": "telegram",
+                "telegram_mtproto": "telegram",
+            }
+            source_platform = platform_map.get(integration_type, source.lower())
+
+            # Format event as message content for the agent
+            event_content = (
+                f"[External {source} message from {contact_name} ({contact_id})]: "
+                f"{message_body}"
+            )
+
+            # Route through the existing chat message handler
+            # This allows external messages to be routed to existing sessions
+            # or create new tasks just like user messages
+            await self._handle_chat_message({
+                "text": event_content,
+                "gui_mode": False,
+                "platform": source_platform,
+                "external_event": True,
+                "contact_id": contact_id,
+                "contact_name": contact_name,
+            })
+
+        except Exception as e:
+            logger.error(f"Error handling external event: {e}", exc_info=True)
 
     # =====================================
     # Hooks
@@ -1369,19 +1528,90 @@ class AgentBase:
         """
         Reset runtime state so the agent behaves like a fresh instance.
 
-        Clears triggers, resets task and state managers, and purges event
-        streams. Useful for debugging or user-initiated resets.
+        Clears triggers, resets task and state managers, purges event
+        streams, and reinitializes the agent file system from templates.
 
         Returns:
             Confirmation message summarizing the reset.
         """
-
+        # 1. Clear runtime state
         await self.triggers.clear()
         self.task_manager.reset()
         self.state_manager.reset()
         self.event_stream_manager.clear_all()
 
-        return "Agent state reset. Starting fresh."
+        # 2. Stop file watcher to prevent interference during reset
+        if hasattr(self, 'memory_file_watcher') and self.memory_file_watcher.is_running:
+            self.memory_file_watcher.stop()
+
+        # 3. Reinitialize agent file system from templates
+        await self._reset_agent_file_system()
+
+        # 4. Clear and rebuild memory index
+        if hasattr(self, 'memory_manager'):
+            self.memory_manager.clear()
+            self.memory_manager.update()
+
+        # 5. Restart file watcher
+        if hasattr(self, 'memory_file_watcher'):
+            self.memory_file_watcher.start()
+
+        return "Agent state reset. Agent file system reinitialized."
+
+    async def _reset_agent_file_system(self) -> None:
+        """
+        Reset agent file system by copying fresh templates.
+        Clears all markdown files and workspace contents, then copies
+        fresh templates from the template directory.
+        """
+        # Run blocking file operations in a thread to avoid freezing the UI
+        await asyncio.to_thread(self._reset_agent_file_system_sync)
+
+    def _reset_agent_file_system_sync(self) -> None:
+        """
+        Synchronous helper for file system reset operations.
+        Called via asyncio.to_thread() to avoid blocking the event loop.
+        """
+        template_path = AGENT_FILE_SYSTEM_TEMPLATE_PATH
+        target_path = AGENT_FILE_SYSTEM_PATH
+
+        if not template_path.exists():
+            logger.error(f"[RESET] Template path does not exist: {template_path}")
+            raise FileNotFoundError(f"Template path not found: {template_path}")
+
+        # Clear existing markdown files
+        for md_file in target_path.glob("*.md"):
+            try:
+                md_file.unlink()
+                logger.debug(f"[RESET] Removed {md_file.name}")
+            except Exception as e:
+                logger.warning(f"[RESET] Failed to remove {md_file}: {e}")
+
+        # Clear workspace directory contents
+        workspace_path = target_path / "workspace"
+        if workspace_path.exists():
+            for item in workspace_path.iterdir():
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                except Exception as e:
+                    logger.warning(f"[RESET] Failed to remove workspace item {item}: {e}")
+        else:
+            workspace_path.mkdir(parents=True, exist_ok=True)
+
+        # Copy fresh templates
+        for template_file in template_path.glob("*.md"):
+            dest = target_path / template_file.name
+            shutil.copy2(template_file, dest)
+            logger.debug(f"[RESET] Copied template {template_file.name}")
+
+        # Ensure workspace directory exists
+        if not workspace_path.exists():
+            workspace_path.mkdir(parents=True, exist_ok=True)
+
+        logger.info("[RESET] Agent file system reinitialized from templates")
 
     async def trigger_soft_onboarding(self, reset: bool = False) -> Optional[str]:
         """
@@ -1561,17 +1791,6 @@ class AgentBase:
             logger.warning(f"[MCP] Failed to initialize MCP: {e}")
             logger.debug(f"[MCP] Traceback: {traceback.format_exc()}")
 
-    async def _shutdown_memory_scheduler(self) -> None:
-        """Cancel the background memory processing scheduler."""
-        self.is_running = False  # Signal scheduler loop to exit
-        if self._memory_scheduler_task and not self._memory_scheduler_task.done():
-            self._memory_scheduler_task.cancel()
-            try:
-                await self._memory_scheduler_task
-            except asyncio.CancelledError:
-                pass
-            logger.debug("[MEMORY] Memory processing scheduler shut down")
-
     async def _shutdown_mcp(self) -> None:
         """Gracefully disconnect from all MCP servers."""
         try:
@@ -1688,6 +1907,11 @@ class AgentBase:
         # Initialize skills system
         await self._initialize_skills()
 
+        # Start usage reporter background flush
+        from app.usage import get_usage_reporter
+        self._usage_reporter = get_usage_reporter()
+        self._usage_reporter.start_background_flush()
+
         # Initialize external app libraries
         await self._initialize_external_libraries()
 
@@ -1695,8 +1919,14 @@ class AgentBase:
         if PROCESS_MEMORY_AT_STARTUP:
             await self._process_memory_at_startup()
 
-        # Schedule daily memory processing
-        await self._schedule_daily_memory_processing()
+        # Initialize and start the scheduler (handles memory processing and other periodic tasks)
+        from app.config import PROJECT_ROOT
+        scheduler_config_path = PROJECT_ROOT / "app" / "config" / "scheduler_config.json"
+        await self.scheduler.initialize(
+            config_path=scheduler_config_path,
+            trigger_queue=self.triggers,
+        )
+        await self.scheduler.start()
 
         # Trigger soft onboarding if needed (BEFORE starting interface)
         # This ensures agent handles onboarding logic, not the interfaces
@@ -1704,6 +1934,11 @@ class AgentBase:
         if onboarding_manager.needs_soft_onboarding:
             logger.info("[ONBOARDING] Soft onboarding needed, triggering from agent")
             await self.trigger_soft_onboarding()
+
+        # Initialize external communications (WhatsApp, Telegram)
+        from app.external_comms import ExternalCommsManager
+        self._external_comms = ExternalCommsManager(self)
+        await self._external_comms.start()
 
         try:
             # Select interface based on mode
@@ -1723,7 +1958,14 @@ class AgentBase:
 
             await interface.start()
         finally:
-            # Cancel memory processing scheduler
-            await self._shutdown_memory_scheduler()
+            # Shutdown scheduler (handles all periodic tasks including memory processing)
+            self.is_running = False
+            await self.scheduler.shutdown()
             # Gracefully shutdown MCP connections
             await self._shutdown_mcp()
+            # Stop external communications
+            if hasattr(self, '_external_comms'):
+                await self._external_comms.stop()
+            # Flush remaining usage events
+            if hasattr(self, '_usage_reporter'):
+                await self._usage_reporter.shutdown()

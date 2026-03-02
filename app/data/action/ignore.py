@@ -5,6 +5,7 @@ from agent_core import action
     description="If a user message requires no response or action, use ignore.",
     mode="CLI",
     action_sets=["core"],
+    parallelizable=False,
     input_schema={},
     output_schema={
         "status": {

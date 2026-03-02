@@ -33,7 +33,7 @@ from agent_core.utils.logger import logger
 # ============================================
 
 PROCESS_POOL = ProcessPoolExecutor()
-THREAD_POOL = ThreadPoolExecutor(max_workers=4)
+THREAD_POOL = ThreadPoolExecutor(max_workers=16)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Default timeout for action execution (100 minutes, GUI mode might need more time)
@@ -172,25 +172,27 @@ def _ensure_requirements(requirements: List[str], python_bin: Optional[str] = No
         # Only useful when NOT frozen (in-process imports work).
         import_name = pkg.replace("-", "_").split("[")[0]
 
+        # First try a fast import check (works for most packages)
         if not getattr(sys, "frozen", False):
             try:
                 importlib.import_module(import_name)
                 continue  # already installed
             except ImportError:
                 pass
-        else:
-            # When frozen, we can't reliably import-check packages
-            # destined for the system Python. Use pip to check instead.
-            try:
-                subprocess.check_call(
-                    [str(pip_python), "-m", "pip", "show", "--quiet", pkg],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=15,
-                )
-                continue  # already installed in system Python
-            except Exception:
-                pass
+
+        # If import failed (or frozen), use pip show to check.
+        # This handles packages where pip name != import name
+        # (e.g., beautifulsoup4 -> bs4, Pillow -> PIL)
+        try:
+            subprocess.check_call(
+                [str(pip_python), "-m", "pip", "show", "--quiet", pkg],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+            )
+            continue  # already installed
+        except Exception:
+            pass
 
         try:
             subprocess.check_call(
@@ -447,7 +449,7 @@ def _atomic_action_internal(
     mode: str,
 ) -> dict:
     """
-    Executes an internal action in-process.
+    Executes an internal action in-process (sync version).
     Requirements are pre-installed at startup via install_all_action_requirements().
     """
     try:
@@ -477,6 +479,72 @@ def _atomic_action_internal(
             raise ValueError("The action_code string did not define a callable Python function.")
 
         execution_result = function_to_call(input_data)
+        return execution_result
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+async def _atomic_action_internal_async(
+    action_name: str,
+    action_code: str,
+    input_data: dict,
+    mode: str,
+) -> dict:
+    """
+    Executes an internal action in-process (async version).
+    Supports both sync and async action functions.
+    For async functions, awaits them directly in the event loop.
+    For sync functions, runs them in a thread pool to avoid blocking.
+    """
+    try:
+        # GUI mode - delegate to GUI handler hook (sync, run in executor)
+        if mode == "GUI" and action_name != "switch to CLI mode" and _gui_execute_hook:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                THREAD_POOL,
+                _gui_execute_hook,
+                _get_gui_target(),
+                action_code,
+                input_data,
+                mode,
+            )
+
+        import inspect
+
+        local_ns = {
+            "input_data": input_data,
+            "json": json,
+            "asyncio": asyncio,
+        }
+        pre_exec_keys = set(local_ns.keys())
+
+        exec(action_code, local_ns, local_ns)
+
+        function_to_call = None
+        for key, value in local_ns.items():
+            if key not in pre_exec_keys and key != '__builtins__' and inspect.isfunction(value):
+                function_to_call = value
+                logger.debug(f"Found action function: '{key}'")
+                break
+
+        if function_to_call is None:
+            raise ValueError("The action_code string did not define a callable Python function.")
+
+        # Check if the function is async (coroutine function)
+        if inspect.iscoroutinefunction(function_to_call):
+            logger.debug(f"[ASYNC] Action '{action_name}' is async, awaiting directly")
+            execution_result = await function_to_call(input_data)
+        else:
+            # Sync function - run in thread pool to avoid blocking
+            logger.debug(f"[SYNC] Action '{action_name}' is sync, running in thread pool")
+            loop = asyncio.get_running_loop()
+            execution_result = await loop.run_in_executor(
+                THREAD_POOL,
+                function_to_call,
+                input_data,
+            )
+
         return execution_result
 
     except Exception as e:
@@ -531,12 +599,11 @@ class ActionExecutor:
             _ensure_requirements(requirements)
 
         if execution_mode == "internal":
-            loop = asyncio.get_running_loop()
+            # Use async executor which handles both sync and async action functions
+            # Async functions are awaited directly; sync functions run in thread pool
             try:
                 result = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        THREAD_POOL,
-                        _atomic_action_internal,
+                    _atomic_action_internal_async(
                         action.name,
                         action.code,
                         input_data,

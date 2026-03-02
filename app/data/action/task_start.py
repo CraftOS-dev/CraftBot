@@ -55,13 +55,16 @@ from agent_core import action
         "simulated_mode": True,
     },
 )
-def start_task(input_data: dict) -> dict:
+async def start_task(input_data: dict) -> dict:
+    """Async action function - awaited directly by executor for true parallel execution."""
     task_name = input_data.get("task_name", "").strip()
     task_description = input_data.get("task_description", "").strip()
     task_mode = input_data.get("task_mode", "complex").strip().lower()
     simulated_mode = input_data.get("simulated_mode", False)
     # Extract session_id injected by ActionManager for stream isolation
     session_id = input_data.get("_session_id")
+    # Extract original user query for logging to the new task's event stream
+    original_query = input_data.get("_original_query")
 
     if not task_name:
         return {
@@ -89,16 +92,18 @@ def start_task(input_data: dict) -> dict:
             "action_count": 10,  # Approximate for testing
         }
 
-    import asyncio
     import app.internal_action_interface as iai
 
     try:
         # Action sets are automatically selected by do_create_task based on task description
-        # do_create_task is async to avoid blocking the TUI during LLM calls
+        # do_create_task is async - await directly for true parallel execution
         # Pass session_id so task_id == session_id for event stream isolation
-        result = asyncio.run(iai.InternalActionInterface.do_create_task(
-            task_name, task_description, task_mode, session_id=session_id
-        ))
+        # Pass original_query to log user message to the new task's event stream
+        result = await iai.InternalActionInterface.do_create_task(
+            task_name, task_description, task_mode,
+            session_id=session_id,
+            original_query=original_query,
+        )
         return {
             "status": "success",
             "task_id": result["task_id"],

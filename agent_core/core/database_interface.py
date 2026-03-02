@@ -7,6 +7,7 @@ talks to persistence details directly.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import re
@@ -215,6 +216,120 @@ class DatabaseInterface:
 
         self._write_log_entries(entries)
 
+    # ------------------------------------------------------------------
+    # Fast append-only action logging (for parallel execution)
+    # ------------------------------------------------------------------
+    def log_action_start(
+        self,
+        run_id: str,
+        *,
+        session_id: str | None,
+        parent_id: str | None,
+        name: str,
+        action_type: str,
+        inputs: Dict[str, Any] | None,
+        started_at: str,
+    ) -> None:
+        """
+        Fast O(1) append for action start - no file read/rewrite.
+
+        This method only appends to the log file, avoiding the O(n) read/search/write
+        pattern of upsert_action_history. Use this for parallel action execution.
+
+        Args:
+            run_id: Unique identifier for the action execution instance.
+            session_id: Identifier for the session that triggered the action.
+            parent_id: Optional run identifier for the parent action.
+            name: Human-readable action name.
+            action_type: Action type label.
+            inputs: Serialized action inputs.
+            started_at: ISO timestamp for when execution began.
+        """
+        entry = {
+            "entry_type": "action_history",
+            "runId": run_id,
+            "sessionId": session_id,
+            "parentId": parent_id,
+            "name": name,
+            "action_type": action_type,
+            "type": action_type,
+            "status": "running",
+            "inputs": inputs,
+            "outputs": None,
+            "startedAt": started_at,
+            "endedAt": None,
+        }
+        self._append_log_entry(entry)
+
+    def log_action_end(
+        self,
+        run_id: str,
+        *,
+        outputs: Dict[str, Any] | None,
+        status: str,
+        ended_at: str,
+    ) -> None:
+        """
+        Fast O(1) append for action end - separate entry, no file rewrite.
+
+        This method appends a completion record rather than updating the original
+        start entry. The get_action_history method merges these records.
+
+        Args:
+            run_id: Unique identifier for the action execution instance.
+            outputs: Serialized action outputs.
+            status: Final execution status (success/error).
+            ended_at: ISO timestamp for when execution completed.
+        """
+        entry = {
+            "entry_type": "action_end",
+            "runId": run_id,
+            "status": status,
+            "outputs": outputs,
+            "endedAt": ended_at,
+        }
+        self._append_log_entry(entry)
+
+    async def log_action_start_async(
+        self,
+        run_id: str,
+        *,
+        session_id: str | None,
+        parent_id: str | None,
+        name: str,
+        action_type: str,
+        inputs: Dict[str, Any] | None,
+        started_at: str,
+    ) -> None:
+        """Async wrapper for log_action_start - runs file I/O in thread pool."""
+        await asyncio.to_thread(
+            self.log_action_start,
+            run_id,
+            session_id=session_id,
+            parent_id=parent_id,
+            name=name,
+            action_type=action_type,
+            inputs=inputs,
+            started_at=started_at,
+        )
+
+    async def log_action_end_async(
+        self,
+        run_id: str,
+        *,
+        outputs: Dict[str, Any] | None,
+        status: str,
+        ended_at: str,
+    ) -> None:
+        """Async wrapper for log_action_end - runs file I/O in thread pool."""
+        await asyncio.to_thread(
+            self.log_action_end,
+            run_id,
+            outputs=outputs,
+            status=status,
+            ended_at=ended_at,
+        )
+
     def _iter_action_history(self) -> Iterable[Dict[str, Any]]:
         for entry in self._load_log_entries():
             if entry.get("entry_type") == "action_history":
@@ -236,6 +351,10 @@ class DatabaseInterface:
         """
         Retrieve recent action history entries ordered by start time.
 
+        This method merges action_history (start) entries with action_end entries
+        to reconstruct complete action records. This supports the append-only
+        logging pattern used for parallel execution.
+
         Args:
             limit: Maximum number of entries to return, sorted newest-first.
 
@@ -243,7 +362,33 @@ class DatabaseInterface:
             A list of action history dictionaries truncated to ``limit``
             entries.
         """
-        history = list(self._iter_action_history())
+        starts: Dict[str, Dict[str, Any]] = {}
+        ends: Dict[str, Dict[str, Any]] = {}
+
+        # Collect start and end entries
+        for entry in self._load_log_entries():
+            entry_type = entry.get("entry_type")
+            run_id = entry.get("runId")
+            if not run_id:
+                continue
+
+            if entry_type == "action_history":
+                # For duplicate starts (shouldn't happen), keep the latest
+                starts[run_id] = entry
+            elif entry_type == "action_end":
+                ends[run_id] = entry
+
+        # Merge start + end into complete records
+        history: List[Dict[str, Any]] = []
+        for run_id, start in starts.items():
+            if run_id in ends:
+                # Merge end data into start entry
+                end = ends[run_id]
+                start["status"] = end.get("status", start.get("status"))
+                start["outputs"] = end.get("outputs", start.get("outputs"))
+                start["endedAt"] = end.get("endedAt", start.get("endedAt"))
+            history.append(start)
+
         history.sort(
             key=lambda e: datetime.datetime.fromisoformat(e.get("startedAt") or datetime.datetime.min.isoformat()),
             reverse=True,

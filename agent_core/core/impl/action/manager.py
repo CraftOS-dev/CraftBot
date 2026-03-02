@@ -13,7 +13,7 @@ import time
 import json
 import asyncio
 import nest_asyncio
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Tuple
 import io
 import sys
 import re
@@ -153,17 +153,15 @@ class ActionManager:
         if not parent_id and self._get_parent_id:
             parent_id = self._get_parent_id()
 
-        # Persist RUNNING status
-        self._log_action_history(
+        # Persist RUNNING status using fast append-only logging
+        await self.db_interface.log_action_start_async(
             run_id=run_id,
-            action=action,
-            inputs=input_data,
-            outputs=None,
-            status="running",
-            started_at=started_at,
-            ended_at=None,
-            parent_id=parent_id,
             session_id=session_id,
+            parent_id=parent_id,
+            name=action.name,
+            action_type=action.action_type,
+            inputs=input_data,
+            started_at=started_at,
         )
 
         # Call on_action_start hook if provided
@@ -305,16 +303,12 @@ class ActionManager:
                 state.get_agent_property("action_count", 0) + 1
             )
 
-        self._log_action_history(
+        # Persist final status using fast append-only logging
+        await self.db_interface.log_action_end_async(
             run_id=run_id,
-            action=action,
-            inputs=input_data,
             outputs=outputs,
             status=status,
-            started_at=started_at,
             ended_at=ended_at,
-            parent_id=parent_id,
-            session_id=session_id,
         )
 
         # Call on_action_end hook if provided
@@ -332,6 +326,105 @@ class ActionManager:
         logger.debug(f"Action {action.name} removed from in-flight tracking.")
 
         return outputs
+
+    @profile("action_manager_execute_actions_parallel", OperationCategory.ACTION_EXECUTION)
+    async def execute_actions_parallel(
+        self,
+        actions: List[Tuple[Action, Dict]],
+        context: str,
+        event_stream: str,
+        parent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_running_task: bool = False,
+        is_gui_task: bool = False,
+    ) -> List[Dict]:
+        """
+        Execute multiple actions in parallel using asyncio.gather.
+
+        Each action logs its own results to the event stream via execute_action().
+
+        Args:
+            actions: List of (Action, input_data) tuples to execute.
+            context: Textual context for the current conversation or task.
+            event_stream: Serialized event stream for the prompt.
+            parent_id: Optional run identifier when executing as a sub-action.
+            session_id: Session identifier for logging.
+            is_running_task: Whether part of an active task workflow.
+            is_gui_task: Whether this is a GUI task.
+
+        Returns:
+            List[Dict]: List of output payloads from each action execution.
+        """
+        if not actions:
+            return []
+
+        if len(actions) == 1:
+            # Single action - use existing method
+            action, input_data = actions[0]
+            result = await self.execute_action(
+                action=action,
+                context=context,
+                event_stream=event_stream,
+                parent_id=parent_id,
+                session_id=session_id,
+                is_running_task=is_running_task,
+                is_gui_task=is_gui_task,
+                input_data=input_data,
+            )
+            return [result]
+
+        # Log parallel execution start (internal logging only, no display message)
+        action_names = [a[0].name for a in actions]
+        logger.info(f"[PARALLEL] Executing {len(actions)} actions in parallel: {action_names}")
+
+        # Create coroutines for parallel execution
+        async def execute_single(action: Action, input_data: Dict, action_session_id: str) -> Dict:
+            return await self.execute_action(
+                action=action,
+                context=context,
+                event_stream=event_stream,
+                parent_id=parent_id,
+                session_id=action_session_id,
+                is_running_task=is_running_task,
+                is_gui_task=is_gui_task,
+                input_data=input_data,
+            )
+
+        # Build tasks with appropriate session_ids
+        # For task_start actions, each gets a unique session_id to prevent task overwriting
+        # For other actions, use the parent session_id
+        parallel_tasks = []
+        for action, input_data in actions:
+            if action.name == "task_start":
+                # Generate unique session_id for each task_start to prevent overwriting
+                action_session_id = str(uuid.uuid4())
+                logger.info(f"[PARALLEL] Assigning unique session_id {action_session_id} to task_start")
+            else:
+                action_session_id = session_id
+            parallel_tasks.append(execute_single(action, input_data, action_session_id))
+
+        # Execute all actions in parallel
+        tasks = parallel_tasks
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results, converting exceptions to error dicts
+        processed = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"[PARALLEL] Action {actions[i][0].name} failed: {result}")
+                processed.append({
+                    "status": "error",
+                    "error": str(result),
+                    "action_name": actions[i][0].name,
+                })
+            else:
+                processed.append(result)
+
+        # Log completion (internal logging only, no display message)
+        success_count = sum(1 for r in processed if r.get("status") != "error")
+        logger.info(f"[PARALLEL] Execution complete: {success_count}/{len(actions)} succeeded")
+
+        return processed
 
     # ------------------------------------------------------------------
     # Internal helpers

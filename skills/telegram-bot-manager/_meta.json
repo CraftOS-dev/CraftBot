@@ -1,0 +1,11 @@
+{
+  "owner": "362224222",
+  "slug": "telegram-bot-manager",
+  "displayName": "Telegram Bot Manager",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1770223456223,
+    "commit": "https://github.com/clawdbot/skills/commit/6210363a8febc8776448f97a2b7c07cedbbd293c"
+  },
+  "history": []
+}

@@ -174,6 +174,7 @@ class GeminiClient:
         image_bytes: bytes,
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
+        json_mode: bool = False,
     ) -> Dict[str, Any]:
         """Generate text from a prompt that also contains an inline image.
 
@@ -190,6 +191,7 @@ class GeminiClient:
             image_bytes: PNG image data
             system_prompt: Optional system instruction
             temperature: Sampling temperature
+            json_mode: If True, enforce JSON output format
 
         Returns:
             Dict with generation results and token counts
@@ -207,8 +209,14 @@ class GeminiClient:
             payload["systemInstruction"] = {
                 "parts": [{"text": system_prompt}],
             }
+
+        generation_config: Dict[str, Any] = {}
         if temperature is not None:
-            payload["generationConfig"] = {"temperature": temperature}
+            generation_config["temperature"] = temperature
+        if json_mode:
+            generation_config["responseMimeType"] = "application/json"
+        if generation_config:
+            payload["generationConfig"] = generation_config
 
         response = self._post_json(
             f"{_normalise_model_name(model)}:generateContent", payload
@@ -402,6 +410,7 @@ class GeminiClient:
         text: str,
         image_bytes: bytes,
         temperature: Optional[float] = None,
+        json_mode: bool = False,
     ) -> Dict[str, Any]:
         """Generate multimodal response using an explicit cache.
 
@@ -411,6 +420,7 @@ class GeminiClient:
             text: The text prompt
             image_bytes: The image data
             temperature: Sampling temperature
+            json_mode: If True, enforce JSON output format
 
         Returns:
             Dict with tokens_used, content, prompt_tokens, completion_tokens, cached_tokens
@@ -427,8 +437,14 @@ class GeminiClient:
             "contents": contents,
             "cachedContent": cache_name,
         }
+
+        generation_config: Dict[str, Any] = {}
         if temperature is not None:
-            payload["generationConfig"] = {"temperature": temperature}
+            generation_config["temperature"] = temperature
+        if json_mode:
+            generation_config["responseMimeType"] = "application/json"
+        if generation_config:
+            payload["generationConfig"] = generation_config
 
         response = self._post_json(
             f"{_normalise_model_name(model)}:generateContent", payload

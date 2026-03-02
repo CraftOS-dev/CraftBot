@@ -1,0 +1,11 @@
+{
+  "owner": "ivangdavila",
+  "slug": "tiktok-ads",
+  "displayName": "TikTok Ads",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1770696002657,
+    "commit": "https://github.com/openclaw/skills/commit/3d22ce14ff1ac0da41f242c46b96a7aba99f442b"
+  },
+  "history": []
+}

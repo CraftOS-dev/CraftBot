@@ -35,6 +35,7 @@ class Action:
         platform_overrides: Platform-specific code/schema overrides
         requirements: List of pip packages required
         timeout: Maximum execution time in seconds
+        parallelizable: Whether this action can run in parallel with others
     """
 
     DEFAULT_TIMEOUT: int = 6000  # 100 minutes max timeout (GUI mode might need more time)
@@ -57,6 +58,7 @@ class Action:
         platform_overrides: dict[str, dict] = {},
         requirements: Optional[List[str]] = None,
         timeout: Optional[int] = None,
+        parallelizable: bool = True,
     ):
         """
         Initialize a new Action definition.
@@ -94,6 +96,9 @@ class Action:
                 These will be auto-installed before execution if not already present.
             timeout: Maximum execution time in seconds. Defaults to 6000 (100 minutes).
                 Actions exceeding this timeout will be terminated.
+            parallelizable: Whether this action can be executed in parallel with others.
+                Defaults to True. Set to False for write operations, GUI actions,
+                state changes, send_message, etc.
         """
         self.name = name
         self.description = description
@@ -117,6 +122,7 @@ class Action:
         self.execution_mode = execution_mode
         self.requirements = requirements or []
         self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
+        self.parallelizable = parallelizable
 
     @property
     def display_name(self) -> str:
@@ -159,6 +165,7 @@ class Action:
             "execution_mode": self.execution_mode,
             "requirements": self.requirements,
             "timeout": self.timeout,
+            "parallelizable": self.parallelizable,
         }
 
     @classmethod
@@ -201,6 +208,7 @@ class Action:
             execution_mode=data.get("execution_mode", "sandboxed"),
             requirements=data.get("requirements", []),
             timeout=data.get("timeout"),
+            parallelizable=data.get("parallelizable", True),
         )
 
         return data_to_return

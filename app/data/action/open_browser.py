@@ -6,6 +6,7 @@ from agent_core import action
     platforms=["windows"],
     mode="GUI",
     action_sets=["gui_interaction"],
+    parallelizable=False,
     input_schema={
         "url": {
                 "type": "string",

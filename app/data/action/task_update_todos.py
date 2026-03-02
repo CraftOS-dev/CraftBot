@@ -15,6 +15,7 @@ from agent_core import action
     mode="ALL",
     default=True,
     action_sets=["core"],
+    parallelizable=False,
     input_schema={
         "todos": {
             "type": "array",

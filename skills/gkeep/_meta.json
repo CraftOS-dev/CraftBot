@@ -1,0 +1,27 @@
+{
+  "owner": "vacinc",
+  "slug": "gkeep",
+  "displayName": "Google Keep",
+  "latest": {
+    "version": "1.0.3",
+    "publishedAt": 1769967966733,
+    "commit": "https://github.com/clawdbot/skills/commit/3b97b063311fe6c9badf78c3b42892ab7178b8b0"
+  },
+  "history": [
+    {
+      "version": "1.0.2",
+      "publishedAt": 1769965605875,
+      "commit": "https://github.com/clawdbot/skills/commit/973aaeb5ce6dc4cf11ec49464c0fddc7895cdef3"
+    },
+    {
+      "version": "1.0.1",
+      "publishedAt": 1768309194653,
+      "commit": "https://github.com/clawdbot/skills/commit/6a05ec14c8e207fb40aa34bc5faa976ff1a13c4d"
+    },
+    {
+      "version": "1.0.0",
+      "publishedAt": 1768059993261,
+      "commit": "https://github.com/clawdbot/skills/commit/c25969e0d1d36fdc7b365cbfb4efb2dbc6df84c6"
+    }
+  ]
+}

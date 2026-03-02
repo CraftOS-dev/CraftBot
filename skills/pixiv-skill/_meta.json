@@ -1,0 +1,22 @@
+{
+  "owner": "matrix-meta",
+  "slug": "pixiv-skill",
+  "displayName": "pixiv",
+  "latest": {
+    "version": "2.0.1",
+    "publishedAt": 1771223955431,
+    "commit": "https://github.com/openclaw/skills/commit/6e741755e71b82d77aa4f1c3c97be5fc92d7d065"
+  },
+  "history": [
+    {
+      "version": "2.0.0",
+      "publishedAt": 1770695554472,
+      "commit": "https://github.com/openclaw/skills/commit/360f6b9278f9186533ca5970ac9ee2cfb1bda666"
+    },
+    {
+      "version": "1.0.0",
+      "publishedAt": 1770080574312,
+      "commit": "https://github.com/clawdbot/skills/commit/bf83abba9cc29960823a2c13c7e08dc021ba1400"
+    }
+  ]
+}

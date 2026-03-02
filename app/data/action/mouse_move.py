@@ -5,6 +5,7 @@ from agent_core import action
         description="Moves the mouse cursor to a specific screen coordinate.",
         mode="GUI",
         action_sets=["gui_interaction"],
+        parallelizable=False,
         input_schema={
                 "x": {
                         "type": "integer",

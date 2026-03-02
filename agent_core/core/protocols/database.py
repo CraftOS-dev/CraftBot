@@ -61,6 +61,50 @@ class DatabaseInterfaceProtocol(Protocol):
         """
         ...
 
+    async def log_action_start_async(
+        self,
+        run_id: str,
+        *,
+        session_id: Optional[str],
+        parent_id: Optional[str],
+        name: str,
+        action_type: str,
+        inputs: Optional[Dict[str, Any]],
+        started_at: str,
+    ) -> None:
+        """
+        Fast O(1) append for action start (async version).
+
+        Args:
+            run_id: Unique identifier for the action execution.
+            session_id: Session that triggered the action.
+            parent_id: Optional parent action identifier.
+            name: Human-readable action name.
+            action_type: Action type label.
+            inputs: Serialized action inputs.
+            started_at: ISO timestamp for execution start.
+        """
+        ...
+
+    async def log_action_end_async(
+        self,
+        run_id: str,
+        *,
+        outputs: Optional[Dict[str, Any]],
+        status: str,
+        ended_at: str,
+    ) -> None:
+        """
+        Fast O(1) append for action end (async version).
+
+        Args:
+            run_id: Unique identifier for the action execution.
+            outputs: Serialized action outputs.
+            status: Final execution status.
+            ended_at: ISO timestamp for execution end.
+        """
+        ...
+
     def get_action_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Retrieve recent action history entries.

@@ -210,6 +210,7 @@ class TaskManager:
         action_sets: Optional[List[str]] = None,
         selected_skills: Optional[List[str]] = None,
         session_id: Optional[str] = None,
+        original_query: Optional[str] = None,
     ) -> str:
         """
         Create a new task without LLM planning.
@@ -224,6 +225,9 @@ class TaskManager:
                        this ID will be used instead of generating a new one.
                        This ensures session_id and task_id are the same,
                        which is critical for event stream isolation.
+            original_query: Optional original user message to log to the task's
+                           event stream. If provided, logs as "user message"
+                           before the task_start event.
 
         Returns:
             The unique task identifier.
@@ -237,15 +241,14 @@ class TaskManager:
         temp_dir = self._prepare_task_temp_dir(task_id)
 
         # Compile action list from selected sets
-        compiled_actions: List[str] = []
+        # Note: compile_action_list always includes "core" set automatically
         selected_sets = action_sets or []
-        if selected_sets:
-            from app.action.action_set import action_set_manager
-            visibility_mode = "GUI" if self._get_gui_mode() else "CLI"
-            compiled_actions = action_set_manager.compile_action_list(
-                selected_sets, mode=visibility_mode
-            )
-            logger.debug(f"[TaskManager] Compiled {len(compiled_actions)} actions from sets: {selected_sets}")
+        from app.action.action_set import action_set_manager
+        visibility_mode = "GUI" if self._get_gui_mode() else "CLI"
+        compiled_actions = action_set_manager.compile_action_list(
+            selected_sets, mode=visibility_mode
+        )
+        logger.debug(f"[TaskManager] Compiled {len(compiled_actions)} actions from sets: {selected_sets}")
 
         # Get conversation_id via hook (WCA) or None (CraftBot)
         conversation_id = self._get_conversation_id()
@@ -277,6 +280,17 @@ class TaskManager:
         else:
             # CraftBot default: assign temp_dir to single event stream
             self.event_stream_manager.event_stream.temp_dir = temp_dir
+
+        # Log original user query to the new task's stream FIRST (if provided)
+        # This ensures the task's event stream contains the original user message
+        # before the task_start event, providing full context for the task.
+        if original_query:
+            self.event_stream_manager.log(
+                "user message",
+                original_query,
+                display_message=original_query,
+                task_id=task_id,
+            )
 
         # CRITICAL: Pass task_id explicitly to ensure event goes to the NEW task's stream,
         # not the previous task's stream. The global STATE.current_task_id hasn't been
@@ -409,36 +423,63 @@ class TaskManager:
         self,
         message: Optional[str] = None,
         summary: Optional[str] = None,
-        errors: Optional[List[str]] = None
+        errors: Optional[List[str]] = None,
+        task_id: Optional[str] = None,
     ) -> bool:
-        """Mark the current task as completed."""
-        if not self.active:
+        """Mark a specific task as completed.
+
+        Args:
+            message: Completion message.
+            summary: Summary of what was accomplished.
+            errors: List of errors encountered.
+            task_id: Specific task ID to complete. If None, uses active task (legacy).
+        """
+        task = self.tasks.get(task_id) if task_id else self.active
+        if not task:
             return False
-        await self._end_task(self.active, "completed", message, summary, errors)
+        await self._end_task(task, "completed", message, summary, errors)
         return True
 
     async def mark_task_error(
         self,
         message: Optional[str] = None,
         summary: Optional[str] = None,
-        errors: Optional[List[str]] = None
+        errors: Optional[List[str]] = None,
+        task_id: Optional[str] = None,
     ) -> bool:
-        """Mark the current task as failed with an error."""
-        if not self.active:
+        """Mark a specific task as failed with an error.
+
+        Args:
+            message: Error message.
+            summary: Summary of what was done before error.
+            errors: List of errors encountered.
+            task_id: Specific task ID to mark as error. If None, uses active task (legacy).
+        """
+        task = self.tasks.get(task_id) if task_id else self.active
+        if not task:
             return False
-        await self._end_task(self.active, "error", message, summary, errors)
+        await self._end_task(task, "error", message, summary, errors)
         return True
 
     async def mark_task_cancel(
         self,
         reason: Optional[str] = None,
         summary: Optional[str] = None,
-        errors: Optional[List[str]] = None
+        errors: Optional[List[str]] = None,
+        task_id: Optional[str] = None,
     ) -> bool:
-        """Cancel the current task."""
-        if not self.active:
+        """Cancel a specific task.
+
+        Args:
+            reason: Reason for cancellation.
+            summary: Summary of what was done before cancellation.
+            errors: List of errors encountered.
+            task_id: Specific task ID to cancel. If None, uses active task (legacy).
+        """
+        task = self.tasks.get(task_id) if task_id else self.active
+        if not task:
             return False
-        await self._end_task(self.active, "cancelled", reason, summary, errors)
+        await self._end_task(task, "cancelled", reason, summary, errors)
         return True
 
     def get_task(self) -> Optional[Task]:
@@ -560,12 +601,6 @@ class TaskManager:
         if self._on_task_ended_chatserver:
             await self._on_task_ended_chatserver(task, status, summary)
 
-        # Reset agent state
-        self._set_agent_property("current_task_id", "")
-        self._set_agent_property("action_count", 0)
-        self._set_agent_property("token_count", 0)
-        self._set_agent_property("current_todo_action_id", None)
-
         # Notify state manager BEFORE removing task
         if self.state_manager:
             self.state_manager.on_task_ended(task, status, summary)
@@ -582,8 +617,16 @@ class TaskManager:
         if self._on_stream_remove:
             self._on_stream_remove(task.id)
 
-        if self.state_manager:
-            self.state_manager.remove_active_task()
+        # Only reset global agent state if NO other tasks are running
+        # This prevents ending one parallel task from corrupting state for others
+        has_other_running_tasks = any(t.status == "running" for t in self.tasks.values())
+        if not has_other_running_tasks:
+            self._set_agent_property("current_task_id", "")
+            self._set_agent_property("action_count", 0)
+            self._set_agent_property("token_count", 0)
+            self._set_agent_property("current_todo_action_id", None)
+            if self.state_manager:
+                self.state_manager.remove_active_task()
 
         # Invoke callback to clean up session triggers
         if self._on_task_end:

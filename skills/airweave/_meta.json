@@ -1,0 +1,11 @@
+{
+  "owner": "lennertjansen",
+  "slug": "airweave",
+  "displayName": "Airweave",
+  "latest": {
+    "version": "1.0.1",
+    "publishedAt": 1770083639373,
+    "commit": "https://github.com/clawdbot/skills/commit/8166a579cd6a7b584804dcb29e3919a0d0256e4f"
+  },
+  "history": []
+}

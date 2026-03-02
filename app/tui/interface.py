@@ -864,6 +864,15 @@ Skills are also automatically selected during task creation based on the task de
         await self.chat_updates.put(("System", "Cleared chat and action timelines.", "system"))
 
     async def _handle_reset_command(self) -> None:
+        # Show message before reset starts
+        await self.chat_updates.put(("System", "Resetting agent... please wait.", "system"))
+        await self.status_updates.put("Resetting agent...")
+        # Force app refresh to display message immediately
+        if self._app:
+            self._app.refresh()
+        # Yield control to allow UI to render
+        await asyncio.sleep(0.05)
+
         response: str | None = None
         reset_command = self._agent.get_commands().get("/reset")
         if reset_command:

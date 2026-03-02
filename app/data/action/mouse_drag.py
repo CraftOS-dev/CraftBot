@@ -5,6 +5,7 @@ from agent_core import action
         description="Performs a left-button drag from a start coordinate to an end coordinate.",
         mode="GUI",
         action_sets=["gui_interaction"],
+        parallelizable=False,
         input_schema={
                 "start_x": {
                         "type": "integer",

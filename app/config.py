@@ -16,6 +16,8 @@ def get_project_root() -> Path:
 PROJECT_ROOT = get_project_root()
 AGENT_WORKSPACE_ROOT = PROJECT_ROOT / "agent_file_system/workspace"
 AGENT_FILE_SYSTEM_PATH = PROJECT_ROOT / "agent_file_system"
+APP_DATA_PATH = PROJECT_ROOT / "app" / "data"
+AGENT_FILE_SYSTEM_TEMPLATE_PATH = APP_DATA_PATH / "agent_file_system_template"
 AGENT_MEMORY_CHROMA_PATH = PROJECT_ROOT / "chroma_db_memory"
 MAX_ACTIONS_PER_TASK: int = 150
 MAX_TOKEN_PER_TASK: int = 6000000 # of tokens

@@ -304,6 +304,7 @@ class VLMInterface:
             messages=messages,
             temperature=self.temperature,
             max_tokens=2048,
+            response_format={"type": "json_object"},
         )
         content = response.choices[0].message.content.strip()
         token_count_input = response.usage.prompt_tokens
@@ -370,6 +371,7 @@ class VLMInterface:
             image_bytes=image_bytes,
             system_prompt=sys,
             temperature=self.temperature,
+            json_mode=True,
         )
 
         # Record cache metrics

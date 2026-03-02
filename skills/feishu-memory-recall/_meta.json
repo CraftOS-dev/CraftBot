@@ -1,0 +1,27 @@
+{
+  "owner": "autogame-17",
+  "slug": "feishu-memory-recall",
+  "displayName": "feishu-memory-recall",
+  "latest": {
+    "version": "2.0.0",
+    "publishedAt": 1771155449940,
+    "commit": "https://github.com/openclaw/skills/commit/8b215816dc6a210ecd41ab7e81f8a64f1998c6eb"
+  },
+  "history": [
+    {
+      "version": "2.0.2",
+      "publishedAt": 1770791708548,
+      "commit": "https://github.com/openclaw/skills/commit/6a7b17fcefe889f450a5d5691c1445dfe9e26d22"
+    },
+    {
+      "version": "2.0.0",
+      "publishedAt": 1770642752196,
+      "commit": "https://github.com/openclaw/skills/commit/418ba8feea4fae9406d6d507601b55f538a18942"
+    },
+    {
+      "version": "1.0.0",
+      "publishedAt": 1770317586675,
+      "commit": "https://github.com/openclaw/skills/commit/d1c1ca992b4557d7aa5f320c76627b9c6b99511d"
+    }
+  ]
+}

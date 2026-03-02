@@ -5,6 +5,7 @@ from agent_core import action
     description="Pause execution for a specified duration. Useful for waiting for UI elements to load or introducing delays in workflows.",
     mode="ALL",
     action_sets=["core"],
+    parallelizable=False,
     input_schema={
         "seconds": {
             "type": "number",

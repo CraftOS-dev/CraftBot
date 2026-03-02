@@ -442,6 +442,10 @@ class CLIInterface:
 
     async def _handle_reset_command(self) -> None:
         """Handle /reset command."""
+        # Show message before reset starts (flush to ensure immediate display)
+        print(CLIFormatter.format_chat("System", "Resetting agent... please wait.", "system"))
+        sys.stdout.flush()
+
         response: str | None = None
         reset_command = self._agent.get_commands().get("/reset")
         if reset_command:

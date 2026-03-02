@@ -5,6 +5,7 @@ from agent_core import action
     description="Controls an application window. Supports focus, close, maximize, and minimize operations. If a title is provided, the matching window is targeted; otherwise the currently active window is used.",
     mode="GUI",
     action_sets=["gui_interaction"],
+    parallelizable=False,
     input_schema={
         "operation": {
             "type": "string",

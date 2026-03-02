@@ -949,6 +949,9 @@ class LLMInterface:
                 "max_tokens": self.max_tokens,
             }
 
+            # Always enforce JSON output format
+            request_kwargs["response_format"] = {"type": "json_object"}
+
             # Add prompt_cache_key when call_type is provided for better cache routing
             # This helps when alternating between different call types (reasoning, action_selection)
             if call_type and system_prompt and len(system_prompt) >= config.min_cache_tokens:
@@ -1126,6 +1129,7 @@ class LLMInterface:
                     system_prompt=system_prompt,
                     temperature=self.temperature,
                     max_output_tokens=self.max_tokens,
+                    json_mode=True,
                 )
 
             # Extract response data
@@ -1341,6 +1345,7 @@ class LLMInterface:
                 # Wire through sampling + output control
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
+                # Note: response_format not supported by all BytePlus models (e.g., kimi)
                 # "stream": False,  # default is non-streaming
             }
             headers = {
@@ -1442,10 +1447,14 @@ class LLMInterface:
                 raise RuntimeError("Anthropic client was not initialised.")
 
             # Build the message with optional system prompt
+            # Use JSON prefilling to enforce JSON output
             message_kwargs: Dict[str, Any] = {
                 "model": self.model,
                 "max_tokens": self.max_tokens,
-                "messages": [{"role": "user", "content": user_prompt}],
+                "messages": [
+                    {"role": "user", "content": user_prompt},
+                    {"role": "assistant", "content": "{"},  # JSON prefilling
+                ],
             }
 
             if system_prompt:
@@ -1483,7 +1492,8 @@ class LLMInterface:
                 if block.type == "text":
                     content += block.text
 
-            content = content.strip()
+            # Prepend the prefilled '{' to complete JSON
+            content = "{" + content.strip()
 
             # Token usage from Anthropic response
             token_count_input = response.usage.input_tokens
