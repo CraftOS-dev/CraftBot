@@ -150,7 +150,37 @@ class WhatsAppWebManager:
         self._browsers: Dict[str, Any] = {}  # session_id -> browser
         self._pages: Dict[str, Any] = {}  # session_id -> page
         self._chat_previews: Dict[str, str] = {}  # chat_name -> last seen preview text
+        self._playwright_loop: Optional[asyncio.AbstractEventLoop] = None  # loop where Playwright was started
         self._ensure_sessions_dir()
+
+    async def run_on_playwright_loop(self, coro):
+        """Run a coroutine on the event loop where Playwright was started.
+
+        When Playwright is started on the main event loop and actions are executed
+        on worker threads (each with their own event loop), Playwright calls fail
+        with "The future belongs to a different loop". This method dispatches the
+        coroutine to the correct loop using run_coroutine_threadsafe.
+
+        If we're already on the Playwright loop (or no loop was recorded), the
+        coroutine is awaited directly.
+        """
+        import concurrent.futures
+
+        if self._playwright_loop is None:
+            return await coro
+
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if current_loop is self._playwright_loop:
+            return await coro
+
+        # We're on a different loop — dispatch to the Playwright loop
+        future = asyncio.run_coroutine_threadsafe(coro, self._playwright_loop)
+        # Block the current thread until the result is ready (with timeout)
+        return future.result(timeout=120)
 
     def _ensure_sessions_dir(self):
         """Create sessions directory if it doesn't exist."""
@@ -203,6 +233,7 @@ class WhatsAppWebManager:
             session_path = str(self._get_session_path(session_id))
 
             playwright = await async_playwright().start()
+            self._playwright_loop = asyncio.get_running_loop()
 
             # Use headless=False for debugging, or "new" headless mode which is less detectable
             # WhatsApp Web may block old headless mode
@@ -490,6 +521,7 @@ class WhatsAppWebManager:
 
             # Launch browser with existing profile
             playwright = await async_playwright().start()
+            self._playwright_loop = asyncio.get_running_loop()
             browser = await playwright.chromium.launch_persistent_context(
                 user_data_dir=str(session_path),
                 headless=True,
@@ -1669,6 +1701,7 @@ class WhatsAppWebManager:
 
             # Launch browser with persistent context
             playwright = await async_playwright().start()
+            self._playwright_loop = asyncio.get_running_loop()
             browser = await playwright.chromium.launch_persistent_context(
                 user_data_dir=str(session_path),
                 headless=True,
@@ -1865,7 +1898,9 @@ async def send_whatsapp_web_message(
 ) -> Dict[str, Any]:
     """Send a message via WhatsApp Web."""
     manager = get_whatsapp_web_manager()
-    return await manager.send_message(session_id, to, message)
+    return await manager.run_on_playwright_loop(
+        manager.send_message(session_id, to, message)
+    )
 
 
 async def disconnect_whatsapp_web_session(session_id: str) -> bool:
@@ -1882,7 +1917,9 @@ async def send_whatsapp_web_media(
 ) -> Dict[str, Any]:
     """Send media via WhatsApp Web."""
     manager = get_whatsapp_web_manager()
-    return await manager.send_media(session_id, to, media_path, caption)
+    return await manager.run_on_playwright_loop(
+        manager.send_media(session_id, to, media_path, caption)
+    )
 
 
 async def reconnect_whatsapp_web_session(
@@ -1917,7 +1954,9 @@ async def get_whatsapp_web_chat_messages(
 ) -> Dict[str, Any]:
     """Get recent messages from a specific chat via WhatsApp Web."""
     manager = get_whatsapp_web_manager()
-    return await manager.get_chat_messages(session_id, phone_number, limit)
+    return await manager.run_on_playwright_loop(
+        manager.get_chat_messages(session_id, phone_number, limit)
+    )
 
 
 async def get_whatsapp_web_chat_messages_by_name(
@@ -1927,7 +1966,9 @@ async def get_whatsapp_web_chat_messages_by_name(
 ) -> Dict[str, Any]:
     """Get recent messages from a chat by clicking it in the sidebar (by name)."""
     manager = get_whatsapp_web_manager()
-    return await manager.get_chat_messages_by_name(session_id, chat_name, limit)
+    return await manager.run_on_playwright_loop(
+        manager.get_chat_messages_by_name(session_id, chat_name, limit)
+    )
 
 
 async def get_whatsapp_web_unread_chats(
@@ -1935,7 +1976,9 @@ async def get_whatsapp_web_unread_chats(
 ) -> Dict[str, Any]:
     """Get a list of chats that have unread messages via WhatsApp Web."""
     manager = get_whatsapp_web_manager()
-    return await manager.get_unread_chats(session_id)
+    return await manager.run_on_playwright_loop(
+        manager.get_unread_chats(session_id)
+    )
 
 
 async def get_whatsapp_web_contact_phone(
@@ -1944,4 +1987,6 @@ async def get_whatsapp_web_contact_phone(
 ) -> Dict[str, Any]:
     """Resolve a contact name to a phone number via WhatsApp Web."""
     manager = get_whatsapp_web_manager()
-    return await manager.resolve_contact_phone(session_id, contact_name)
+    return await manager.run_on_playwright_loop(
+        manager.resolve_contact_phone(session_id, contact_name)
+    )
