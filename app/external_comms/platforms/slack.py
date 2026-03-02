@@ -3,17 +3,30 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-from app.external_comms.base import BasePlatformClient
+from app.external_comms.base import BasePlatformClient, PlatformMessage, MessageCallback
 from app.external_comms.credentials import has_credential, load_credential, save_credential, remove_credential
 from app.external_comms.registry import register_client
 
+try:
+    from app.logger import logger
+except Exception:
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 SLACK_API_BASE = "https://slack.com/api"
 CREDENTIAL_FILE = "slack.json"
+
+POLL_INTERVAL = 3       # seconds between polls
+RETRY_DELAY = 5         # seconds to wait after a poll error
 
 
 @dataclass
@@ -30,6 +43,10 @@ class SlackClient(BasePlatformClient):
     def __init__(self):
         super().__init__()
         self._cred: Optional[SlackCredential] = None
+        self._poll_task: Optional[asyncio.Task] = None
+        self._bot_user_id: Optional[str] = None
+        self._last_timestamps: Dict[str, str] = {}  # channel_id -> latest ts seen
+        self._catchup_done: bool = False
 
     def has_credentials(self) -> bool:
         return has_credential(CREDENTIAL_FILE)
@@ -53,7 +70,206 @@ class SlackClient(BasePlatformClient):
         self._connected = True
 
     # ------------------------------------------------------------------
-    # Abstract method implementation
+    # Listening support (polling via conversations.history)
+    # ------------------------------------------------------------------
+
+    @property
+    def supports_listening(self) -> bool:
+        return True
+
+    async def start_listening(self, callback: MessageCallback) -> None:
+        if self._listening:
+            return
+
+        self._message_callback = callback
+        cred = self._load()
+
+        # Verify token by calling auth.test
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{SLACK_API_BASE}/auth.test",
+                headers={"Authorization": f"Bearer {cred.bot_token}"},
+            )
+            data = resp.json()
+            if not data.get("ok"):
+                raise RuntimeError(f"Invalid Slack token: {data.get('error', 'unknown')}")
+            self._bot_user_id = data.get("user_id")
+
+        logger.info(f"[SLACK] Bot user ID: {self._bot_user_id}")
+
+        self._listening = True
+        self._catchup_done = False
+        self._poll_task = asyncio.create_task(self._poll_loop())
+        logger.info("[SLACK] Poller started")
+
+    async def stop_listening(self) -> None:
+        if not self._listening:
+            return
+        self._listening = False
+        if self._poll_task and not self._poll_task.done():
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+        self._poll_task = None
+        logger.info("[SLACK] Poller stopped")
+
+    async def _poll_loop(self) -> None:
+        """Poll all joined channels for new messages."""
+        # Catchup: record current timestamps for all channels without dispatching
+        logger.info("[SLACK] Running initial catchup...")
+        try:
+            await self._refresh_channel_timestamps()
+            self._catchup_done = True
+            logger.info(f"[SLACK] Catchup complete — tracking {len(self._last_timestamps)} channel(s)")
+        except Exception as e:
+            logger.error(f"[SLACK] Catchup error: {e}")
+            self._catchup_done = True
+
+        while self._listening:
+            try:
+                await self._poll_channels()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[SLACK] Poll error: {e}")
+                await asyncio.sleep(RETRY_DELAY)
+                continue
+            await asyncio.sleep(POLL_INTERVAL)
+
+    async def _get_joined_channels(self) -> List[Dict[str, Any]]:
+        """Get all channels/DMs the bot is a member of."""
+        channels: List[Dict[str, Any]] = []
+        async with httpx.AsyncClient() as client:
+            for ch_type in ("public_channel,private_channel", "mpim,im"):
+                cursor = None
+                while True:
+                    params: Dict[str, Any] = {
+                        "types": ch_type,
+                        "exclude_archived": True,
+                        "limit": 200,
+                    }
+                    if cursor:
+                        params["cursor"] = cursor
+                    resp = await client.get(
+                        f"{SLACK_API_BASE}/conversations.list",
+                        headers=self._headers(),
+                        params=params,
+                    )
+                    data = resp.json()
+                    if not data.get("ok"):
+                        logger.warning(f"[SLACK] conversations.list failed: {data.get('error')}")
+                        break
+                    for ch in data.get("channels", []):
+                        if ch.get("is_member") or ch.get("is_im") or ch.get("is_mpim"):
+                            channels.append(ch)
+                    cursor = data.get("response_metadata", {}).get("next_cursor")
+                    if not cursor:
+                        break
+        return channels
+
+    async def _refresh_channel_timestamps(self) -> None:
+        """Set the 'oldest' timestamp for each channel to now (catchup)."""
+        now_ts = f"{time.time():.6f}"
+        channels = await self._get_joined_channels()
+        for ch in channels:
+            ch_id = ch.get("id", "")
+            if ch_id:
+                self._last_timestamps[ch_id] = now_ts
+
+    async def _poll_channels(self) -> None:
+        """Check all tracked channels for new messages since last poll."""
+        channels = await self._get_joined_channels()
+        # Add any new channels we haven't seen
+        now_ts = f"{time.time():.6f}"
+        for ch in channels:
+            ch_id = ch.get("id", "")
+            if ch_id and ch_id not in self._last_timestamps:
+                self._last_timestamps[ch_id] = now_ts
+
+        async with httpx.AsyncClient() as client:
+            for ch_id, oldest_ts in list(self._last_timestamps.items()):
+                try:
+                    resp = await client.get(
+                        f"{SLACK_API_BASE}/conversations.history",
+                        headers=self._headers(),
+                        params={
+                            "channel": ch_id,
+                            "oldest": oldest_ts,
+                            "limit": 50,
+                        },
+                    )
+                    data = resp.json()
+                    if not data.get("ok"):
+                        if data.get("error") in ("channel_not_found", "not_in_channel"):
+                            self._last_timestamps.pop(ch_id, None)
+                        continue
+
+                    messages = data.get("messages", [])
+                    if not messages:
+                        continue
+
+                    # Messages are newest-first; process oldest-first
+                    messages.sort(key=lambda m: float(m.get("ts", "0")))
+
+                    for msg in messages:
+                        await self._process_message(msg, ch_id)
+
+                    # Advance timestamp past the newest message
+                    newest_ts = messages[-1].get("ts", oldest_ts)
+                    self._last_timestamps[ch_id] = newest_ts
+
+                except Exception as e:
+                    logger.debug(f"[SLACK] Error polling channel {ch_id}: {e}")
+
+    async def _process_message(self, msg: Dict[str, Any], channel_id: str) -> None:
+        """Process a single Slack message and dispatch to callback."""
+        # Skip bot messages (including our own)
+        if msg.get("bot_id"):
+            return
+        # Skip subtypes (joins, leaves, topic changes, etc.)
+        if msg.get("subtype"):
+            return
+
+        user_id = msg.get("user", "")
+        text = msg.get("text", "")
+        if not text:
+            return
+
+        # Skip messages from our own bot user
+        if user_id == self._bot_user_id:
+            return
+
+        # Resolve user name
+        sender_name = user_id
+        try:
+            info = self.get_user_info(user_id)
+            if info.get("ok"):
+                profile = info.get("user", {}).get("profile", {})
+                sender_name = profile.get("display_name") or profile.get("real_name") or user_id
+        except Exception:
+            pass
+
+        ts_float = float(msg.get("ts", "0"))
+        timestamp = datetime.fromtimestamp(ts_float, tz=timezone.utc) if ts_float else None
+
+        platform_msg = PlatformMessage(
+            platform="slack",
+            sender_id=user_id,
+            sender_name=sender_name,
+            text=text,
+            channel_id=channel_id,
+            message_id=msg.get("ts", ""),
+            timestamp=timestamp,
+            raw=msg,
+        )
+
+        if self._message_callback:
+            await self._message_callback(platform_msg)
+
+    # ------------------------------------------------------------------
+    # Send message
     # ------------------------------------------------------------------
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
