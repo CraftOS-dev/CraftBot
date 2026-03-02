@@ -17,18 +17,32 @@ Terms of Service. Use user-mode methods at your own risk.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote as _url_quote
 
 import httpx
 
-from app.external_comms.base import BasePlatformClient
+from app.external_comms.base import BasePlatformClient, PlatformMessage, MessageCallback
 from app.external_comms.credentials import has_credential, load_credential, save_credential, remove_credential
 from app.external_comms.registry import register_client
 
+try:
+    from app.logger import logger
+except Exception:
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 DISCORD_API_BASE = "https://discord.com/api/v10"
+DISCORD_GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
 CREDENTIAL_FILE = "discord.json"
+
+# Gateway intents: GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
+GATEWAY_INTENTS = (1 << 9) | (1 << 12) | (1 << 15)  # 37376
 
 
 @dataclass
@@ -50,6 +64,13 @@ class DiscordClient(BasePlatformClient):
     def __init__(self) -> None:
         super().__init__()
         self._cred: Optional[DiscordCredential] = None
+        self._ws = None
+        self._ws_task: Optional[asyncio.Task] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._heartbeat_interval: float = 41.25
+        self._last_sequence: Optional[int] = None
+        self._bot_user_id: Optional[str] = None
+        self._catchup_done: bool = False
 
     # ------------------------------------------------------------------
     # Credential helpers
@@ -96,6 +117,218 @@ class DiscordClient(BasePlatformClient):
     async def connect(self) -> None:
         self._load()
         self._connected = True
+
+    # ------------------------------------------------------------------
+    # Gateway listening (WebSocket)
+    # ------------------------------------------------------------------
+
+    @property
+    def supports_listening(self) -> bool:
+        return True
+
+    async def start_listening(self, callback: MessageCallback) -> None:
+        """Connect to the Discord Gateway and listen for messages."""
+        if self._listening:
+            return
+
+        self._message_callback = callback
+        cred = self._load()
+        if not cred.bot_token:
+            raise RuntimeError("No Discord bot token for Gateway connection")
+
+        # Verify token by fetching bot user info
+        bot_info = self.get_bot_user()
+        if "error" in bot_info:
+            raise RuntimeError(f"Invalid Discord bot token: {bot_info.get('error')}")
+        self._bot_user_id = bot_info["result"]["id"]
+
+        self._listening = True
+        self._catchup_done = False
+        self._ws_task = asyncio.create_task(self._gateway_loop())
+        logger.info(
+            f"[DISCORD] Gateway listener started for bot {bot_info['result'].get('username', 'unknown')}"
+        )
+
+    async def stop_listening(self) -> None:
+        """Disconnect from the Gateway."""
+        if not self._listening:
+            return
+
+        self._listening = False
+
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+        self._heartbeat_task = None
+
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+
+        if self._ws_task and not self._ws_task.done():
+            self._ws_task.cancel()
+            try:
+                await self._ws_task
+            except asyncio.CancelledError:
+                pass
+        self._ws_task = None
+
+        logger.info("[DISCORD] Gateway listener stopped")
+
+    async def _gateway_loop(self) -> None:
+        """Main Gateway reconnection loop."""
+        import aiohttp
+
+        while self._listening:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(DISCORD_GATEWAY_URL) as ws:
+                        self._ws = ws
+                        await self._handle_gateway(ws)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[DISCORD] Gateway error: {e}")
+                if self._listening:
+                    await asyncio.sleep(5)
+
+    async def _handle_gateway(self, ws) -> None:
+        """Handle a single Gateway session."""
+        import aiohttp as _aiohttp
+        async for msg in ws:
+            if not self._listening:
+                break
+            if msg.type == _aiohttp.WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    await self._process_gateway_event(ws, data)
+                except Exception as e:
+                    logger.error(f"[DISCORD] Error processing Gateway event: {e}")
+            elif msg.type in (_aiohttp.WSMsgType.ERROR, _aiohttp.WSMsgType.CLOSED):
+                break
+
+    async def _process_gateway_event(self, ws, data: dict) -> None:
+        """Process a single Gateway event."""
+        op = data.get("op")
+        t = data.get("t")
+        d = data.get("d")
+        s = data.get("s")
+
+        if s is not None:
+            self._last_sequence = s
+
+        if op == 10:  # Hello — start heartbeat + identify
+            self._heartbeat_interval = d["heartbeat_interval"] / 1000.0
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(ws))
+            # Send Identify
+            await ws.send_json({
+                "op": 2,
+                "d": {
+                    "token": self._bot_token(),
+                    "intents": GATEWAY_INTENTS,
+                    "properties": {
+                        "os": "windows",
+                        "browser": "craftosbot",
+                        "device": "craftosbot",
+                    },
+                },
+            })
+
+        elif op == 0:  # Dispatch
+            if t == "READY":
+                logger.info("[DISCORD] Gateway READY")
+                # Mark catchup as done after a short delay to skip any
+                # initial burst of cached messages
+                asyncio.get_event_loop().call_later(2.0, self._mark_catchup_done)
+
+            elif t == "MESSAGE_CREATE" and d:
+                await self._handle_message_create(d)
+
+        elif op == 1:  # Heartbeat request
+            await ws.send_json({"op": 1, "d": self._last_sequence})
+
+        elif op == 9:  # Invalid session
+            logger.warning("[DISCORD] Invalid session, reconnecting...")
+            await ws.close()
+
+        elif op == 7:  # Reconnect
+            logger.info("[DISCORD] Gateway requested reconnect")
+            await ws.close()
+
+    def _mark_catchup_done(self) -> None:
+        self._catchup_done = True
+        logger.info("[DISCORD] Catchup complete — now dispatching messages")
+
+    async def _heartbeat_loop(self, ws) -> None:
+        """Send heartbeats at the required interval."""
+        try:
+            while self._listening:
+                await ws.send_json({"op": 1, "d": self._last_sequence})
+                await asyncio.sleep(self._heartbeat_interval)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    async def _handle_message_create(self, d: dict) -> None:
+        """Process a MESSAGE_CREATE event."""
+        # Ignore messages from the bot itself
+        author = d.get("author", {})
+        if author.get("id") == self._bot_user_id:
+            return
+
+        # Ignore bot messages
+        if author.get("bot"):
+            return
+
+        content = d.get("content", "")
+        if not content:
+            return
+
+        # Skip during catchup
+        if not self._catchup_done:
+            return
+
+        author_name = author.get("username", "Unknown")
+        channel_id = d.get("channel_id", "")
+        guild_id = d.get("guild_id", "")
+
+        # Determine channel name
+        channel_name = ""
+        if guild_id:
+            # It's a guild channel — we don't have the name cached, use ID
+            channel_name = f"#{channel_id}"
+        else:
+            # DM
+            channel_name = "DM"
+
+        ts = None
+        if d.get("timestamp"):
+            try:
+                ts = datetime.fromisoformat(d["timestamp"])
+            except Exception:
+                pass
+
+        platform_msg = PlatformMessage(
+            platform="discord",
+            sender_id=author.get("id", ""),
+            sender_name=author_name,
+            text=content,
+            channel_id=channel_id,
+            channel_name=channel_name,
+            message_id=d.get("id", ""),
+            timestamp=ts,
+            raw={"guild_id": guild_id, "is_self_message": False},
+        )
+
+        if self._message_callback:
+            await self._message_callback(platform_msg)
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
         """Send a message to a channel (uses bot token by default)."""
