@@ -430,10 +430,11 @@ class ActionRouter:
             current_task_id = ""
 
         for attempt in range(max_retries):
-            # KV CACHING: System prompt is now STATIC only
+            # KV CACHING: System prompt is STATIC only (no dynamic content)
+            # agent_info is included for all modes to provide consistent agent context
             system_prompt, _ = self.context_engine.make_prompt(
                 user_flags={"query": False, "expected_output": False},
-                system_flags={"agent_info": not is_task, "policy": False},
+                system_flags={"agent_info": True, "policy": False},
             )
 
             raw_response = None

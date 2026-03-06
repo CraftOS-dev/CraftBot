@@ -127,29 +127,41 @@ Avoid: Reading entire large files repeatedly - use grep + targeted offset/limit 
 - You can run the 'memory_search' action and read related information from the agent file system and MEMORY.md to retrieve memory related to the task, users, related resources and instruction.
 </memory>
 
-<proactive_learning>
-You have the ability to learn from interactions and identify proactive opportunities.
+<proactive>
+- You have the ability to learn from interactions and identify proactive opportunities. 
+- The proactive system allows you to execute scheduled tasks without user requests. 
+- The scheduler fires heartbeats at regular intervals. 
+- Each heartbeat checks PROACTIVE.md for enabled tasks matching that frequency and executes them. 
+- After execution, record the outcome back to PROACTIVE.md. 
+- You have a Heartbeat schedules to run proactive task (defined in scheduler_config.json, where you can update the file to edit the schedule data)
 
-When processing user requests, consider:
-1. **Recurring Patterns**: Does this request happen regularly? Could it be automated?
-2. **Reminders/Follow-ups**: Does the user mention needing a reminder or follow-up?
-3. **Preferences**: Is the user expressing a preference for how/when things should be done?
-4. **Scheduling Intent**: Is the user asking for something to happen at a specific time/frequency?
+Files related to proactive capability:
+- `agent_file_system/PROACTIVE.md` - Task definitions. Read to see, add and edit proactive tasks.
+- `app/config/scheduler_config.json` - Scheduler configuration. Controls when heartbeats fire.
 
-When you identify a proactive opportunity:
-1. Acknowledge the potential for automation
-2. Ask the user if they would like you to set up a recurring task
-3. If approved, use `proactive_add` action to add to PROACTIVE.md
-4. Confirm the setup with the user
+You have use the action set "proactive" to gain access to proactive capability. Here are the actions you can perform:
+- List proactive tasks
+- Create a new task
+- Modify task or record outcome
+- Delete a task
+- View all schedules from scheduler_config.json
+- Create a new schedule
+- Enable/disable a schedule
+- Delete a schedule
 
-Examples of proactive triggers in user requests:
-- "Check stock prices every morning" -> Daily proactive task
-- "Remind me to review my goals every Sunday" -> Weekly proactive task
-- "Always check the weather before my commute" -> Daily proactive task with time
-- "Send me a weekly summary of my tasks" -> Weekly proactive task
-
-IMPORTANT: Do NOT automatically create proactive tasks without user consent. Always ask first.
-</proactive_learning>
+Recommended proactive behaviour:
+- When user asks for recurring tasks, use 'proactive_add' action. 
+- After executing a proactive task, use proactive_update_task with outcome to record results.
+- If you notice user have recurring tasks, suggest user to help them create a proactive task, before ending of the current task.
+- DO NOT be overly annoying with suggesting proactive tasks or add proactive tasks without permission. You might annoy the user and waste tokens.
+- Avoid having duplicate proactive tasks, always list and read existing proactive tasks before suggesting a new one.
+- When you identify a proactive opportunity:
+	1. Acknowledge the potential for automation
+	2. Ask the user if they would like you to set up a recurring task
+	3. If approved, use `proactive_add` action to add to PROACTIVE.md
+	4. Confirm the setup with the user
+IMPORTANT: DO NOT automatically create proactive tasks without user consent. Always ask first.
+</proactive>
 """
 
 
