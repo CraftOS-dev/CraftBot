@@ -202,6 +202,42 @@ class TaskManager:
 
     # ─────────────────────── Task Creation ───────────────────────────────────
 
+    def _inject_conversation_context(self, task_id: str, limit: int = 20) -> int:
+        """Inject recent conversation messages (user AND agent) into a task's event stream.
+
+        Messages are prefixed with "[older message]" to distinguish historical context
+        from the current user request. Platform info is preserved in the labels.
+
+        Example output labels:
+        - "[older message] [user message from platform: Telegram]"
+        - "[older message] [agent message to platform: Discord]"
+
+        Args:
+            task_id: The task ID whose stream should receive the context.
+            limit: Maximum number of messages to inject. Defaults to 20.
+
+        Returns:
+            Number of messages injected.
+        """
+        recent_messages = self.event_stream_manager.get_recent_conversation_messages(limit)
+
+        for event in recent_messages:
+            # Prefix with "[older message]" to mark as historical, preserve full kind with platform
+            # Use format "older message] [kind" so that compact_line renders as:
+            # "[older message] [user message from platform: X]: message"
+            context_kind = f"older message] [{event.kind}"
+            self.event_stream_manager.log(
+                context_kind,
+                event.message,
+                display_message=event.display_message,
+                task_id=task_id,
+            )
+
+        logger.debug(
+            f"[TaskManager] Injected {len(recent_messages)} historical messages into task {task_id}"
+        )
+        return len(recent_messages)
+
     def create_task(
         self,
         task_name: str,
@@ -212,6 +248,8 @@ class TaskManager:
         session_id: Optional[str] = None,
         original_query: Optional[str] = None,
         original_platform: Optional[str] = None,
+        inject_context: bool = True,
+        context_message_limit: int = 20,
     ) -> str:
         """
         Create a new task without LLM planning.
@@ -231,6 +269,12 @@ class TaskManager:
                            before the task_start event.
             original_platform: Optional platform where the original message came from
                               (e.g., "CraftBot TUI", "Telegram", "Whatsapp").
+            inject_context: If True, inject recent conversation messages (user AND
+                           agent) into the task's event stream before the current
+                           request. Historical messages are marked with "[older message]"
+                           prefix. Defaults to True.
+            context_message_limit: Maximum number of historical messages to inject.
+                                  Defaults to 20.
 
         Returns:
             The unique task identifier.
@@ -284,7 +328,12 @@ class TaskManager:
             # CraftBot default: assign temp_dir to single event stream
             self.event_stream_manager.event_stream.temp_dir = temp_dir
 
-        # Log original user query to the new task's stream FIRST (if provided)
+        # Inject historical conversation context FIRST (user AND agent messages)
+        # These are marked with "[older message]" prefix to distinguish from the current request
+        if inject_context:
+            self._inject_conversation_context(task_id, limit=context_message_limit)
+
+        # Log original user query to the new task's stream (if provided)
         # This ensures the task's event stream contains the original user message
         # before the task_start event, providing full context for the task.
         if original_query:

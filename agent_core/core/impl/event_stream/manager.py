@@ -15,10 +15,11 @@ Also handles file-based event logging to:
 from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import threading
 
 from agent_core.core.impl.event_stream.event_stream import EventStream
+from agent_core.core.event_stream.event import Event
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.utils.logger import logger
 from agent_core.core.state.base import get_state_or_none
@@ -66,6 +67,11 @@ class EventStreamManager:
         self._agent_file_system_path = agent_file_system_path
         self._skip_unprocessed_logging = False
         self._file_lock = threading.Lock()
+
+        # Conversation history for context injection into tasks
+        # Stores recent user AND agent messages without affecting TUI display
+        self._conversation_history: List[Event] = []
+        self._conversation_history_limit = 50  # Keep last 50 messages
 
     # ───────────────────────────── lifecycle ─────────────────────────────
 
@@ -139,6 +145,45 @@ class EventStreamManager:
         result = [("", self._main_stream)]  # Main stream has no task_id
         result.extend(self._task_streams.items())
         return result
+
+    def record_conversation_message(self, kind: str, message: str, display_message: Optional[str] = None) -> None:
+        """Record a conversation message for context injection into future tasks.
+
+        This stores messages in a separate in-memory list that does NOT affect
+        TUI display. Used to track both user and agent messages for injecting
+        conversation history into new tasks.
+
+        Args:
+            kind: Event kind (e.g., "user message from platform: Telegram")
+            message: The message content
+            display_message: Optional display message
+        """
+        event = Event(
+            message=message,
+            kind=kind,
+            severity="INFO",
+            display_message=display_message,
+        )
+        self._conversation_history.append(event)
+
+        # Trim to limit
+        if len(self._conversation_history) > self._conversation_history_limit:
+            self._conversation_history = self._conversation_history[-self._conversation_history_limit:]
+
+    def get_recent_conversation_messages(self, limit: int = 20) -> List[Event]:
+        """Retrieve recent conversation messages (user AND agent) for context injection.
+
+        Returns messages with their full kind labels including platform info
+        (e.g., "user message from platform: Telegram", "agent message to platform: Discord").
+
+        Args:
+            limit: Maximum number of messages to return. Defaults to 20.
+
+        Returns:
+            List of Event objects, oldest first (for correct injection order).
+        """
+        # Return last N messages from conversation history (oldest first)
+        return self._conversation_history[-limit:]
 
     def clear_all(self) -> None:
         """Remove all event streams."""

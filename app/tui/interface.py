@@ -976,8 +976,10 @@ Skills are also automatically selected during task creation based on the task de
 
                         # Skip user messages - they're displayed immediately in submit_user_message()
                         # to provide instant visual feedback while routing happens in background
-                        # Use startswith to catch both "user message" and "user message from platform: X"
-                        if event.kind.startswith("user message"):
+                        # Use "in" to catch:
+                        # - "user message" and "user message from platform: X" (current messages)
+                        # - "[older message] user message from platform: X" (historical context)
+                        if "user message" in event.kind:
                             continue
 
                         style = self._style_for_event(event.kind, event.severity)

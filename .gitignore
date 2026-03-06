@@ -1,6 +1,7 @@
 .null-ls*
 apps/controlpanel/.vs/
 apps/chatserver/uploads/
+app/data/.usage/*
 chroma_db_actions/
 chroma_db_taskdocs/
 chroma_db_memory/

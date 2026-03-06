@@ -230,6 +230,14 @@ class StateManager:
             display_message=content,
             task_id=task_id,
         )
+
+        # Record to conversation history for context injection into future tasks
+        self.event_stream_manager.record_conversation_message(
+            event_label,
+            content,
+            display_message=content,
+        )
+
         self.bump_event_stream()
         self._append_to_conversation_history("user", content)
 
@@ -270,6 +278,13 @@ class StateManager:
         # This ensures agent messages appear in the main event stream alongside user messages
         main_stream = self.event_stream_manager.get_main_stream()
         main_stream.log(
+            event_label,
+            content,
+            display_message=content,
+        )
+
+        # Record to conversation history for context injection into future tasks
+        self.event_stream_manager.record_conversation_message(
             event_label,
             content,
             display_message=content,
