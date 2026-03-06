@@ -49,7 +49,7 @@ INTEGRATION_REGISTRY: Dict[str, Dict[str, Any]] = {
     "telegram": {
         "name": "Telegram",
         "description": "Messaging platform",
-        "auth_type": "both_with_interactive",  # Bot token, invite bot, AND QR code user login
+        "auth_type": "token_with_interactive",  # Bot token AND QR code user login
         "fields": [
             {"key": "bot_token", "label": "Bot Token", "placeholder": "From @BotFather", "password": True},
         ],
@@ -117,7 +117,7 @@ def list_integrations() -> List[Dict[str, Any]]:
     - id: Integration ID
     - name: Display name
     - description: Short description
-    - auth_type: oauth, token, both, or interactive
+    - auth_type: oauth, token, both, interactive, or token_with_interactive
     - connected: bool
     - accounts: list of connected accounts
     - fields: list of input field definitions for token auth
@@ -277,12 +277,12 @@ async def connect_integration_oauth(integration_id: str) -> Tuple[bool, str]:
 
     auth_type = INTEGRATION_REGISTRY.get(integration_id, {}).get("auth_type", "")
 
-    if auth_type not in ("oauth", "both", "both_with_interactive"):
+    if auth_type not in ("oauth", "both"):
         return False, f"OAuth not supported for {integration_id}"
 
     try:
         # For integrations with both OAuth and token, OAuth is via invite
-        if auth_type in ("both", "both_with_interactive") and hasattr(handler, "invite"):
+        if auth_type == "both" and hasattr(handler, "invite"):
             return await handler.invite([])
         else:
             return await handler.login([])
@@ -328,7 +328,7 @@ async def connect_integration_interactive(integration_id: str) -> Tuple[bool, st
 
     auth_type = INTEGRATION_REGISTRY.get(integration_id, {}).get("auth_type", "")
 
-    if auth_type not in ("interactive", "both_with_interactive"):
+    if auth_type not in ("interactive", "token_with_interactive"):
         return False, f"Interactive login not supported for {integration_id}"
 
     try:

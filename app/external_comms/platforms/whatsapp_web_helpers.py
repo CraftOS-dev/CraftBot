@@ -1255,36 +1255,73 @@ class WhatsAppWebManager:
                         }
                     }
 
-                    // 3. Muted: WhatsApp Web shows a muted speaker icon
-                    const isMuted = row.querySelector('span[data-icon="muted"]') !== null
-                        || row.querySelector('[data-testid="muted"]') !== null;
-
-                    // 4. Group detection (best-effort from sidebar):
-                    //    a) Groups without a custom photo use the default-group icon
-                    //    b) Group preview text shows "Sender: message" format
-                    let isGroup = row.querySelector('span[data-icon="default-group"]') !== null;
-                    if (!isGroup) {
-                        const fullInner = row.innerText || '';
-                        const lines = fullInner.split('\\n').map(l => l.trim()).filter(Boolean);
-                        // Skip first line (chat name) and look for "Name: text" pattern in preview
-                        for (let k = 1; k < lines.length; k++) {
-                            const line = lines[k];
-                            // Match "SenderName: preview" but exclude timestamps (e.g. "12:30")
-                            // and URLs (e.g. "https://...")
-                            if (/^[^:]{1,30}:\\s/.test(line)
-                                && !/^\\d{1,2}:\\d{2}/.test(line)
-                                && !line.startsWith('http')) {
-                                isGroup = true;
+                    // 3. Muted: broad search for any mute-related icon/element
+                    let isMuted = false;
+                    const allIcons = row.querySelectorAll('span[data-icon]');
+                    for (const ic of allIcons) {
+                        const iconName = ic.getAttribute('data-icon') || '';
+                        if (iconName.toLowerCase().includes('mute')) {
+                            isMuted = true;
+                            break;
+                        }
+                    }
+                    if (!isMuted) {
+                        const allTestIds = row.querySelectorAll('[data-testid]');
+                        for (const el of allTestIds) {
+                            const tid = el.getAttribute('data-testid') || '';
+                            if (tid.toLowerCase().includes('mute')) {
+                                isMuted = true;
                                 break;
                             }
                         }
                     }
 
-                    // 5. Stable preview: get the full inner text of the row,
-                    //    strip the chat name from the start.  This captures
-                    //    the preview snippet + timestamp as a single string
-                    //    that only changes when the chat actually updates.
+                    // 4. Group detection (best-effort from sidebar)
+                    let isGroup = false;
+                    // a) default-group icon
+                    const groupIcons = row.querySelectorAll('span[data-icon]');
+                    for (const ic of groupIcons) {
+                        const iconName = ic.getAttribute('data-icon') || '';
+                        if (iconName.includes('group')) {
+                            isGroup = true;
+                            break;
+                        }
+                    }
+                    if (!isGroup) {
+                        const fullInner = row.innerText || '';
+                        // b) System messages that indicate groups
+                        const lowerInner = fullInner.toLowerCase();
+                        if (lowerInner.includes('group members')
+                            || lowerInner.includes('added you')
+                            || lowerInner.includes('created group')
+                            || lowerInner.includes('changed the subject')) {
+                            isGroup = true;
+                        }
+                        // c) "Sender: msg" pattern in preview
+                        if (!isGroup) {
+                            const nbsp = String.fromCharCode(160);
+                            const collapsed = fullInner.replace(/\\n:\\s*/g, ': ').replace(/:\\s*\\n/g, ': ').replaceAll(':' + nbsp, ': ');
+                            const lines = collapsed.split('\\n').map(l => l.trim()).filter(Boolean);
+                            for (let k = 1; k < lines.length; k++) {
+                                const line = lines[k];
+                                if (/^[^:]{1,30}:\\s/.test(line)
+                                    && !/^\\d{1,2}:\\d{2}/.test(line)
+                                    && !line.startsWith('http')) {
+                                    isGroup = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // 5. Stable preview
                     const fullText = row.innerText.trim();
+
+                    // 6. Debug: collect data-icon names in this row
+                    const icons = [];
+                    for (const ic of row.querySelectorAll('span[data-icon]')) {
+                        icons.push(ic.getAttribute('data-icon'));
+                    }
 
                     results.push({
                         name: name,
@@ -1292,6 +1329,7 @@ class WhatsAppWebManager:
                         is_muted: isMuted,
                         is_group: isGroup,
                         full_text: fullText.substring(0, 300),
+                        _icons: icons,
                     });
                 }
                 return results;
@@ -1312,6 +1350,8 @@ class WhatsAppWebManager:
                 name = chat.get("name", "")
                 badge_count = chat.get("unread_count", 0)
                 full_text = chat.get("full_text", "")
+                is_muted = chat.get("is_muted", False)
+                is_group = chat.get("is_group", False)
 
                 if not name:
                     continue
@@ -1322,6 +1362,8 @@ class WhatsAppWebManager:
                         "name": name,
                         "unread_count": str(badge_count),
                         "source": "badge",
+                        "is_muted": is_muted,
+                        "is_group": is_group,
                     })
                     self._chat_previews[name] = full_text
                     continue
@@ -1335,6 +1377,8 @@ class WhatsAppWebManager:
                         "name": name,
                         "unread_count": "1",
                         "source": "preview_change",
+                        "is_muted": is_muted,
+                        "is_group": is_group,
                     })
 
                 if full_text:

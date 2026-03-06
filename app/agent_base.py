@@ -2024,7 +2024,8 @@ class AgentBase:
         # Initialize external communications (WhatsApp, Telegram)
         print("[8/8] Starting communications...")
         from app.external_comms import ExternalCommsManager
-        self._external_comms = ExternalCommsManager(self)
+        from app.external_comms.manager import initialize_manager
+        self._external_comms = initialize_manager(self)
         await self._external_comms.start()
 
         # Startup complete

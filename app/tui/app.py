@@ -1822,9 +1822,8 @@ class CraftApp(App):
                 ),
                 id="integ-connect-modal",
             )
-        elif auth_type in ("both", "both_with_interactive"):
-            # Has both OAuth/token and optionally interactive (QR) login
-            # Build 3 clear connection method sections
+        elif auth_type == "both":
+            # Has both OAuth (invite) and token entry
             is_bot_platform = integration_id in ("telegram", "discord")
 
             # Section 1: Invite/OAuth our shared bot (most common)
@@ -1856,20 +1855,48 @@ class CraftApp(App):
                 )
             )
 
-            # Section 3: Interactive login (QR scan) for user account
-            link_section = []
-            if auth_type == "both_with_interactive":
-                link_section = [
-                    Static("— or link your personal account —", classes="integ-modal-separator"),
-                    Horizontal(
-                        Button("Link Account (QR)", id="integ-modal-interactive-connect", classes="integ-modal-btn -primary"),
-                        id="integ-modal-link-actions",
-                    ),
-                ]
+            modal_content = Container(
+                Static(f"Connect {info['name']}", id="integ-modal-title"),
+                VerticalScroll(*invite_section, *field_inputs, id="integ-modal-fields"),
+                Horizontal(
+                    Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
+                    id="integ-modal-actions",
+                ),
+                id="integ-connect-modal",
+            )
+        elif auth_type == "token_with_interactive":
+            # Has both token entry and interactive (QR) login
+            # Section 1: Manual bot token entry
+            field_inputs = []
+            for field in fields:
+                field_inputs.append(Static(field["label"], classes="integ-field-label"))
+                field_inputs.append(
+                    PasteableInput(
+                        placeholder=field.get("placeholder", f"Enter {field['label']}"),
+                        password=field.get("password", False),
+                        id=f"integ-field-{field['key']}",
+                        classes="integ-field-input",
+                    )
+                )
+            field_inputs.append(
+                Horizontal(
+                    Button("Save", id="integ-modal-save", classes="integ-modal-btn -primary"),
+                    id="integ-modal-save-actions",
+                )
+            )
+
+            # Section 2: Interactive login (QR scan) for user account
+            link_section = [
+                Static("— or link your personal account —", classes="integ-modal-separator"),
+                Horizontal(
+                    Button("Link Account (QR)", id="integ-modal-interactive-connect", classes="integ-modal-btn -primary"),
+                    id="integ-modal-link-actions",
+                ),
+            ]
 
             modal_content = Container(
                 Static(f"Connect {info['name']}", id="integ-modal-title"),
-                VerticalScroll(*invite_section, *field_inputs, *link_section, id="integ-modal-fields"),
+                VerticalScroll(*field_inputs, *link_section, id="integ-modal-fields"),
                 Horizontal(
                     Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
                     id="integ-modal-actions",

@@ -729,7 +729,17 @@ class WhatsAppHandler(IntegrationHandler):
             else:
                 return False, "Timed out waiting for QR scan. Run /whatsapp login again."
 
-        # Connected — store credential
+        # Connected — close the browser so the profile directory is unlocked.
+        # The listener will reconnect from the persisted profile on its own
+        # event loop.
+        from app.external_comms.platforms.whatsapp_web_helpers import get_whatsapp_web_manager
+        mgr = get_whatsapp_web_manager()
+        try:
+            await mgr.disconnect_session(session.session_id)
+        except Exception:
+            pass  # Best-effort cleanup
+
+        # Store credential
         from app.external_comms.platforms.whatsapp_web import WhatsAppWebCredential
         display_phone = session.phone_number or phone_number or session.session_id
         save_credential("whatsapp_web.json", WhatsAppWebCredential(session_id=session.session_id))
