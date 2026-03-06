@@ -332,9 +332,11 @@ async def connect_integration_interactive(integration_id: str) -> Tuple[bool, st
         return False, f"Interactive login not supported for {integration_id}"
 
     try:
-        # For platforms with both token and interactive, use the QR/interactive handler
         if hasattr(handler, "handle"):
-            return await handler.handle("login-qr", [])
+            # Prefer "login-qr" for handlers that support it, fall back to "login"
+            subs = getattr(handler, "subcommands", [])
+            sub = "login-qr" if "login-qr" in subs else "login"
+            return await handler.handle(sub, [])
         return await handler.login([])
     except Exception as e:
         logger.error(f"Interactive login failed for {integration_id}: {e}")

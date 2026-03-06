@@ -1171,6 +1171,38 @@ class WhatsAppWebManager:
             logger.error(f"[WhatsApp Web] Failed to get messages by name for '{chat_name}': {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
+    async def get_own_profile_name(
+        self,
+        session_id: str,
+    ) -> Optional[str]:
+        """Return the logged-in user's own WhatsApp display name, or *None*."""
+        page = self._pages.get(session_id)
+        session = self._sessions.get(session_id)
+        if not page or not session or session.status != "connected":
+            return None
+        try:
+            name = await page.evaluate("""() => {
+                // The profile avatar button at the top-left of the sidebar
+                // contains a clickable img whose alt text is the user's name.
+                const avatar = document.querySelector(
+                    'header img[alt]'
+                );
+                if (avatar) {
+                    const alt = avatar.getAttribute('alt');
+                    if (alt && alt.length > 0) return alt;
+                }
+                // Fallback: the header span with the user's name
+                const headerSpan = document.querySelector(
+                    'header span[title]'
+                );
+                if (headerSpan) return headerSpan.getAttribute('title') || '';
+                return '';
+            }""")
+            return name if name else None
+        except Exception as e:
+            logger.debug(f"[WhatsApp Web] Could not read own profile name: {e}")
+            return None
+
     async def get_unread_chats(
         self,
         session_id: str,
@@ -1223,7 +1255,32 @@ class WhatsAppWebManager:
                         }
                     }
 
-                    // 3. Stable preview: get the full inner text of the row,
+                    // 3. Muted: WhatsApp Web shows a muted speaker icon
+                    const isMuted = row.querySelector('span[data-icon="muted"]') !== null
+                        || row.querySelector('[data-testid="muted"]') !== null;
+
+                    // 4. Group detection (best-effort from sidebar):
+                    //    a) Groups without a custom photo use the default-group icon
+                    //    b) Group preview text shows "Sender: message" format
+                    let isGroup = row.querySelector('span[data-icon="default-group"]') !== null;
+                    if (!isGroup) {
+                        const fullInner = row.innerText || '';
+                        const lines = fullInner.split('\\n').map(l => l.trim()).filter(Boolean);
+                        // Skip first line (chat name) and look for "Name: text" pattern in preview
+                        for (let k = 1; k < lines.length; k++) {
+                            const line = lines[k];
+                            // Match "SenderName: preview" but exclude timestamps (e.g. "12:30")
+                            // and URLs (e.g. "https://...")
+                            if (/^[^:]{1,30}:\\s/.test(line)
+                                && !/^\\d{1,2}:\\d{2}/.test(line)
+                                && !line.startsWith('http')) {
+                                isGroup = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 5. Stable preview: get the full inner text of the row,
                     //    strip the chat name from the start.  This captures
                     //    the preview snippet + timestamp as a single string
                     //    that only changes when the chat actually updates.
@@ -1232,6 +1289,8 @@ class WhatsAppWebManager:
                     results.push({
                         name: name,
                         unread_count: unreadCount,
+                        is_muted: isMuted,
+                        is_group: isGroup,
                         full_text: fullText.substring(0, 300),
                     });
                 }
@@ -1978,6 +2037,16 @@ async def get_whatsapp_web_unread_chats(
     manager = get_whatsapp_web_manager()
     return await manager.run_on_playwright_loop(
         manager.get_unread_chats(session_id)
+    )
+
+
+async def get_whatsapp_web_own_profile_name(
+    session_id: str,
+) -> Optional[str]:
+    """Return the logged-in user's own WhatsApp display name, or *None*."""
+    manager = get_whatsapp_web_manager()
+    return await manager.run_on_playwright_loop(
+        manager.get_own_profile_name(session_id)
     )
 
 

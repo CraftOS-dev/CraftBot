@@ -66,6 +66,8 @@ class WhatsAppWebClient(BasePlatformClient):
         self._poll_task: Optional[asyncio.Task] = None
         self._seen_fingerprints: set = set()  # dedup: "chat|sender|text|timestamp"
         self._catchup_done: bool = False       # first poll is silent catchup
+        self._own_name: Optional[str] = None   # user's WhatsApp display name (for @mention matching)
+        self._known_groups: set = set()        # chat names confirmed as group chats
 
     # ------------------------------------------------------------------
     # Credential helpers
@@ -273,6 +275,16 @@ class WhatsAppWebClient(BasePlatformClient):
             logger.warning(f"[WhatsApp Web] Could not reconnect session {sid}: {error}")
             raise RuntimeError(f"WhatsApp Web session not connected: {error}")
 
+        # Fetch the user's own display name for @mention matching in groups
+        from app.external_comms.platforms.whatsapp_web_helpers import (
+            get_whatsapp_web_own_profile_name,
+        )
+        self._own_name = await get_whatsapp_web_own_profile_name(sid)
+        if self._own_name:
+            logger.info(f"[WhatsApp Web] Own profile name: {self._own_name}")
+        else:
+            logger.warning("[WhatsApp Web] Could not determine own profile name — @mention filtering will match any '@'")
+
         self._message_callback = callback
         self._listening = True
         self._poll_task = asyncio.create_task(self._poll_loop())
@@ -351,8 +363,15 @@ class WhatsAppWebClient(BasePlatformClient):
             chat_name: str = chat.get("name", "")
             unread_count_str: str = str(chat.get("unread_count", "0"))
             detection_source: str = chat.get("source", "badge")
+            is_muted: bool = chat.get("is_muted", False)
+            is_group: bool = chat.get("is_group", False) or chat_name in self._known_groups
 
             if not chat_name:
+                continue
+
+            # Skip muted group chats entirely
+            if is_muted and is_group:
+                logger.debug(f"[WhatsApp Web] Skipping muted group: {chat_name}")
                 continue
 
             try:
@@ -386,6 +405,22 @@ class WhatsAppWebClient(BasePlatformClient):
             # themselves a message (all messages appear as outgoing).
             is_self_chat = (detection_source == "preview_change")
 
+            # Confirm group status from message data: if any non-outgoing
+            # message has a real sender name (not "them"), it's a group.
+            if not is_group:
+                for m in messages:
+                    sender = m.get("sender", "them")
+                    if not m.get("is_outgoing", False) and sender not in ("them", "me", ""):
+                        is_group = True
+                        self._known_groups.add(chat_name)
+                        logger.info(f"[WhatsApp Web] Detected group from messages: {chat_name}")
+                        break
+
+            # If this turns out to be a muted group after message-level detection, skip
+            if is_muted and is_group:
+                logger.debug(f"[WhatsApp Web] Skipping muted group (detected late): {chat_name}")
+                continue
+
             for msg in messages:
                 # Skip outgoing messages unless this is a self-chat
                 if msg.get("is_outgoing", False) and not is_self_chat:
@@ -395,6 +430,11 @@ class WhatsAppWebClient(BasePlatformClient):
                 if not text or text.startswith("["):
                     # Skip empty or media-only messages ([Image], [Video], etc.)
                     continue
+
+                # In group chats, only process messages that @mention the user
+                if is_group and not is_self_chat:
+                    if not self._is_mention_for_me(text):
+                        continue
 
                 # Deduplicate: build a fingerprint from chat + sender + text
                 sender = msg.get("sender", chat_name)
@@ -429,6 +469,7 @@ class WhatsAppWebClient(BasePlatformClient):
                         "source": "WhatsApp Web",
                         "integrationType": "whatsapp_web",
                         "is_self_message": is_self_chat,
+                        "is_group": is_group,
                         "contactId": chat_name,
                         "contactName": sender if sender != "me" else chat_name,
                         "messageBody": text,
@@ -442,3 +483,32 @@ class WhatsAppWebClient(BasePlatformClient):
                     await self._message_callback(platform_msg)
 
                 logger.info(f"[WhatsApp Web] Dispatched message from {sender} in {chat_name}: {text[:50]}...")
+
+    # -- @mention helper ---------------------------------------------------
+
+    def _is_mention_for_me(self, text: str) -> bool:
+        """Check whether *text* contains an @mention directed at the logged-in user.
+
+        WhatsApp renders inline mentions as ``@DisplayName`` in the message
+        text.  We match against the user's own display name (fetched at
+        listener start).  If the name is unknown we fall back to checking for
+        *any* ``@`` token — slightly noisy but safe.
+        """
+        if "@" not in text:
+            return False
+
+        text_lower = text.lower()
+
+        if self._own_name:
+            # Check for @OwnName (case-insensitive, allow partial first-name match)
+            own_lower = self._own_name.lower()
+            if f"@{own_lower}" in text_lower:
+                return True
+            # Also try first name only (WhatsApp sometimes abbreviates)
+            first_name = own_lower.split()[0] if " " in own_lower else ""
+            if first_name and f"@{first_name}" in text_lower:
+                return True
+            return False
+
+        # Fallback: no own name known — treat any @mention as potentially ours
+        return True
