@@ -55,7 +55,9 @@ from app.onboarding import onboarding_manager
 from app.logger import logger
 
 if TYPE_CHECKING:
+    from typing import Union
     from app.tui.interface import TUIInterface
+    from app.ui_layer.adapters.tui_adapter import TUIAdapter
 
 
 class CraftApp(App):
@@ -152,7 +154,7 @@ class CraftApp(App):
             return MODEL_REGISTRY[provider].get(InterfaceType.LLM, "Unknown")
         return "Unknown"
 
-    def __init__(self, interface: "TUIInterface", provider: str, api_key: str) -> None:
+    def __init__(self, interface: "Union[TUIInterface, TUIAdapter]", provider: str, api_key: str) -> None:
         super().__init__()
         self._interface = interface
         self._status_message: str = "Idle"
