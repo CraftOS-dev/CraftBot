@@ -86,10 +86,16 @@ class EventTransformer:
             return None
 
         if kind in cls.ACTION_START_KINDS or "action_start" in kind:
-            return cls._create_action_start_event(message, timestamp, task_id)
+            # Use original message for input extraction, display_message for name
+            return cls._create_action_start_event(
+                message, event.message, timestamp, task_id
+            )
 
         if kind in cls.ACTION_END_KINDS or "action_end" in kind:
-            return cls._create_action_end_event(message, timestamp, task_id)
+            # Use original message for output extraction, display_message for name
+            return cls._create_action_end_event(
+                message, event.message, timestamp, task_id
+            )
 
         if kind in cls.USER_MESSAGE_KINDS:
             # Skip - user messages are emitted directly by UIController.submit_message()
@@ -252,19 +258,68 @@ class EventTransformer:
         )
 
     @classmethod
+    def _python_str_to_json(cls, python_str: str) -> str:
+        """Convert Python dict/list string representation to JSON.
+
+        Uses ast.literal_eval to safely parse Python literals,
+        then json.dumps to convert to proper JSON.
+        """
+        import ast
+        import json
+
+        try:
+            # Parse Python literal (dict, list, etc.)
+            parsed = ast.literal_eval(python_str)
+            # Convert to JSON string
+            return json.dumps(parsed)
+        except (ValueError, SyntaxError):
+            # If parsing fails, return original string
+            return python_str
+
+    @classmethod
+    def _extract_input_data(cls, full_message: str) -> Optional[str]:
+        """Extract input data from action start message."""
+        # Pattern: "Running action X with input: {data}."
+        if " with input: " in full_message:
+            input_part = full_message.split(" with input: ", 1)[1]
+            # Remove trailing period if present
+            if input_part.endswith("."):
+                input_part = input_part[:-1]
+            # Convert Python dict string to JSON
+            return cls._python_str_to_json(input_part)
+        return None
+
+    @classmethod
+    def _extract_output_data(cls, full_message: str) -> Optional[str]:
+        """Extract output data from action end message."""
+        # Pattern: "Action X completed with output: {data}."
+        if " with output: " in full_message:
+            output_part = full_message.split(" with output: ", 1)[1]
+            # Remove trailing period if present
+            if output_part.endswith("."):
+                output_part = output_part[:-1]
+            # Convert Python dict string to JSON
+            return cls._python_str_to_json(output_part)
+        return None
+
+    @classmethod
     def _create_action_start_event(
         cls,
-        message: str,
+        display_message: str,
+        full_message: str,
         timestamp: datetime,
         task_id: Optional[str],
     ) -> UIEvent:
         """Create an action start event."""
-        # Extract action name from message
-        action_name = message
-        if ":" in message:
-            action_name = message.split(":", 1)[1].strip()
+        # Extract action name from display message
+        action_name = display_message
+        if ":" in display_message:
+            action_name = display_message.split(":", 1)[1].strip()
         # Clean up the action name
         action_name = cls._clean_action_name(action_name)
+
+        # Extract input data from full message
+        input_data = cls._extract_input_data(full_message)
 
         # Generate action ID
         action_id = f"{task_id or 'main'}:{action_name}:{timestamp.timestamp()}"
@@ -278,8 +333,9 @@ class EventTransformer:
             data={
                 "action_id": action_id,
                 "action_name": action_name,
-                "message": message,
+                "message": display_message,
                 "task_id": task_id,
+                "input": input_data,
             },
             timestamp=timestamp,
             task_id=task_id,
@@ -288,25 +344,36 @@ class EventTransformer:
     @classmethod
     def _create_action_end_event(
         cls,
-        message: str,
+        display_message: str,
+        full_message: str,
         timestamp: datetime,
         task_id: Optional[str],
     ) -> UIEvent:
         """Create an action end event."""
         # Check for error status
         is_error = (
-            "error" in message.lower()
-            or "failed" in message.lower()
-            or "→ error" in message
-            or "→ failed" in message
+            "error" in display_message.lower()
+            or "failed" in display_message.lower()
+            or "→ error" in display_message
+            or "→ failed" in display_message
         )
 
-        # Extract action name
-        action_name = message
-        if ":" in message:
-            action_name = message.split(":", 1)[1].strip()
+        # Extract action name from display message
+        action_name = display_message
+        if ":" in display_message:
+            action_name = display_message.split(":", 1)[1].strip()
         # Clean up the action name
         action_name = cls._clean_action_name(action_name)
+
+        # Extract output data from full message
+        output_data = cls._extract_output_data(full_message)
+
+        # Extract error message if this is an error
+        error_message = None
+        if is_error and output_data:
+            # Try to extract error from output
+            if "'error':" in output_data or '"error":' in output_data:
+                error_message = output_data
 
         # Look up the action_id from the corresponding action_start
         key = (task_id or "", action_name)
@@ -325,10 +392,12 @@ class EventTransformer:
             data={
                 "action_id": action_id,
                 "action_name": action_name,
-                "message": message,
+                "message": display_message,
                 "status": "error" if is_error else "completed",
                 "error": is_error,
+                "error_message": error_message,
                 "task_id": task_id,
+                "output": output_data,
             },
             timestamp=timestamp,
             task_id=task_id,

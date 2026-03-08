@@ -61,6 +61,18 @@ export type WSMessageType =
   | 'footage_clear'
   | 'footage_visibility'
   | 'state_update'
+  // File operations
+  | 'file_list'
+  | 'file_read'
+  | 'file_write'
+  | 'file_create'
+  | 'file_delete'
+  | 'file_rename'
+  | 'file_batch_delete'
+  | 'file_move'
+  | 'file_copy'
+  | 'file_upload'
+  | 'file_download'
 
 export interface WSMessage {
   type: WSMessageType
@@ -139,6 +151,87 @@ export interface FileItem {
   type: 'file' | 'directory'
   size?: number
   modified?: number
+}
+
+export interface FileListResponse {
+  directory: string
+  files: FileItem[]
+  success: boolean
+  error?: string
+}
+
+export interface FileReadResponse {
+  path: string
+  content: string | null
+  isBinary: boolean
+  fileInfo: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileWriteResponse {
+  path: string
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileCreateResponse {
+  path: string
+  fileType: 'file' | 'directory'
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileDeleteResponse {
+  path: string
+  success: boolean
+  error?: string
+}
+
+export interface FileRenameResponse {
+  oldPath: string
+  newPath?: string
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileBatchDeleteResponse {
+  results: Array<{ path: string; success: boolean; error?: string }>
+  success: boolean
+}
+
+export interface FileMoveResponse {
+  srcPath: string
+  destPath: string
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileCopyResponse {
+  srcPath: string
+  destPath: string
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileUploadResponse {
+  path: string
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface FileDownloadResponse {
+  path: string
+  content?: string  // base64 encoded
+  fileInfo?: FileItem
+  success: boolean
+  error?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────

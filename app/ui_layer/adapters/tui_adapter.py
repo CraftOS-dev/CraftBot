@@ -147,6 +147,8 @@ class TUIActionPanelComponent(ActionPanelProtocol):
         task_id: str,
         status: str,
         action_id: str = "",
+        output: Optional[str] = None,
+        error: Optional[str] = None,
     ) -> None:
         """Update item status by matching name and task."""
         matched_item = None
@@ -184,6 +186,7 @@ class TUIActionPanelComponent(ActionPanelProtocol):
 
         if matched_item:
             matched_item.status = status
+            # Note: TUI doesn't display output/error in panel, but params accepted for compatibility
             await self._adapter.action_updates.put(
                 ActionPanelUpdate("update", matched_item)
             )
@@ -196,6 +199,16 @@ class TUIActionPanelComponent(ActionPanelProtocol):
             await self._adapter.action_updates.put(
                 ActionPanelUpdate("remove", TUIActionItem(id=item_id, display_name="", item_type="", status=""))
             )
+
+    async def update_item_data(
+        self,
+        item_id: str,
+        output: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Update an item's output/error data. No-op for TUI."""
+        # TUI doesn't display output/error in the panel
+        pass
 
     async def clear(self) -> None:
         """Clear all items."""

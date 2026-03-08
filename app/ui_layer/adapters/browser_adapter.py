@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import shutil
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
+from app.config import AGENT_WORKSPACE_ROOT
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.themes.base import ThemeAdapter, StyleType
 from app.ui_layer.themes.theme import BaseTheme
@@ -155,24 +159,35 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 "status": item.status,
                 "itemType": item.item_type,
                 "parentId": item.parent_id,
+                "createdAt": int(item.created_at * 1000),
+                "duration": item.duration,
+                "input": item.input_data,
+                "output": item.output_data,
+                "error": item.error_message,
             },
         })
 
     async def update_item(self, item_id: str, status: str) -> None:
         """Update item status by ID and broadcast."""
-        found = False
+        matched_item = None
         for item in self._items:
             if item.id == item_id:
                 item.status = status
-                found = True
+                # Record completion time for completed/error status
+                if status in ("completed", "error") and item.completed_at is None:
+                    item.completed_at = time.time()
+                matched_item = item
                 break
 
-        if found:
+        if matched_item:
             await self._adapter._broadcast({
                 "type": "action_update",
                 "data": {
                     "id": item_id,
                     "status": status,
+                    "duration": matched_item.duration,
+                    "output": matched_item.output_data,
+                    "error": matched_item.error_message,
                 },
             })
 
@@ -182,6 +197,8 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         task_id: str,
         status: str,
         action_id: str = "",
+        output: Optional[str] = None,
+        error: Optional[str] = None,
     ) -> None:
         """Update item status by matching name and task."""
         matched_item = None
@@ -218,11 +235,51 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
 
         if matched_item:
             matched_item.status = status
+            # Record completion time for completed/error status
+            if status in ("completed", "error") and matched_item.completed_at is None:
+                matched_item.completed_at = time.time()
+            # Set output and error data
+            if output is not None:
+                matched_item.output_data = output
+            if error is not None:
+                matched_item.error_message = error
             await self._adapter._broadcast({
                 "type": "action_update",
                 "data": {
                     "id": matched_item.id,
                     "status": status,
+                    "duration": matched_item.duration,
+                    "output": matched_item.output_data,
+                    "error": matched_item.error_message,
+                },
+            })
+
+    async def update_item_data(
+        self,
+        item_id: str,
+        output: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Update an item's output/error data."""
+        matched_item = None
+        for item in self._items:
+            if item.id == item_id:
+                if output is not None:
+                    item.output_data = output
+                if error is not None:
+                    item.error_message = error
+                matched_item = item
+                break
+
+        if matched_item:
+            await self._adapter._broadcast({
+                "type": "action_update",
+                "data": {
+                    "id": item_id,
+                    "status": matched_item.status,
+                    "duration": matched_item.duration,
+                    "output": matched_item.output_data,
+                    "error": matched_item.error_message,
                 },
             })
 
@@ -481,6 +538,57 @@ class BrowserAdapter(InterfaceAdapter):
             if command:
                 await self.submit_message(command)
 
+        # File operations
+        elif msg_type == "file_list":
+            directory = data.get("directory", "")
+            await self._handle_file_list(directory)
+
+        elif msg_type == "file_read":
+            file_path = data.get("path", "")
+            await self._handle_file_read(file_path)
+
+        elif msg_type == "file_write":
+            file_path = data.get("path", "")
+            content = data.get("content", "")
+            await self._handle_file_write(file_path, content)
+
+        elif msg_type == "file_create":
+            file_path = data.get("path", "")
+            file_type = data.get("fileType", "file")  # "file" or "directory"
+            await self._handle_file_create(file_path, file_type)
+
+        elif msg_type == "file_delete":
+            file_path = data.get("path", "")
+            await self._handle_file_delete(file_path)
+
+        elif msg_type == "file_rename":
+            old_path = data.get("oldPath", "")
+            new_name = data.get("newName", "")
+            await self._handle_file_rename(old_path, new_name)
+
+        elif msg_type == "file_batch_delete":
+            paths = data.get("paths", [])
+            await self._handle_file_batch_delete(paths)
+
+        elif msg_type == "file_move":
+            src_path = data.get("srcPath", "")
+            dest_path = data.get("destPath", "")
+            await self._handle_file_move(src_path, dest_path)
+
+        elif msg_type == "file_copy":
+            src_path = data.get("srcPath", "")
+            dest_path = data.get("destPath", "")
+            await self._handle_file_copy(src_path, dest_path)
+
+        elif msg_type == "file_upload":
+            file_path = data.get("path", "")
+            content_b64 = data.get("content", "")
+            await self._handle_file_upload(file_path, content_b64)
+
+        elif msg_type == "file_download":
+            file_path = data.get("path", "")
+            await self._handle_file_download(file_path)
+
     async def _broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients."""
         if not self._ws_clients:
@@ -497,6 +605,446 @@ class BrowserAdapter(InterfaceAdapter):
 
         # Clean up disconnected clients
         self._ws_clients -= disconnected
+
+    # ─────────────────────────────────────────────────────────────────────
+    # File Operation Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _validate_path(self, file_path: str) -> Path:
+        """Validate that the path is within the workspace. Returns absolute path."""
+        workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+        # Normalize the path - handle both relative and absolute paths
+        if file_path.startswith("/") or file_path.startswith("\\"):
+            # Treat as relative to workspace
+            target = workspace / file_path.lstrip("/\\")
+        else:
+            target = workspace / file_path
+        target = target.resolve()
+
+        # Security check - ensure path is within workspace
+        if not str(target).startswith(str(workspace)):
+            raise ValueError(f"Path '{file_path}' is outside workspace")
+
+        return target
+
+    def _get_file_info(self, path: Path) -> Dict[str, Any]:
+        """Get file/directory information."""
+        workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+        stat = path.stat()
+        rel_path = str(path.relative_to(workspace)).replace("\\", "/")
+
+        return {
+            "name": path.name,
+            "path": rel_path,
+            "type": "directory" if path.is_dir() else "file",
+            "size": stat.st_size if path.is_file() else None,
+            "modified": int(stat.st_mtime * 1000),  # milliseconds for JS
+        }
+
+    async def _handle_file_list(self, directory: str) -> None:
+        """List files in a directory within the workspace."""
+        try:
+            workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+
+            # Ensure workspace exists
+            if not workspace.exists():
+                workspace.mkdir(parents=True, exist_ok=True)
+
+            if directory:
+                target = self._validate_path(directory)
+            else:
+                target = workspace
+
+            if not target.exists():
+                raise FileNotFoundError(f"Directory not found: {directory}")
+
+            if not target.is_dir():
+                raise ValueError(f"Path is not a directory: {directory}")
+
+            files = []
+            for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                files.append(self._get_file_info(item))
+
+            await self._broadcast({
+                "type": "file_list",
+                "data": {
+                    "directory": directory,
+                    "files": files,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_list",
+                "data": {
+                    "directory": directory,
+                    "files": [],
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_read(self, file_path: str) -> None:
+        """Read file content."""
+        try:
+            target = self._validate_path(file_path)
+
+            if not target.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            if target.is_dir():
+                raise ValueError(f"Cannot read directory as file: {file_path}")
+
+            # Check file size (limit to 10MB for text preview)
+            if target.stat().st_size > 10 * 1024 * 1024:
+                raise ValueError("File too large to preview (max 10MB)")
+
+            # Try to read as text, fallback to binary info
+            try:
+                content = target.read_text(encoding="utf-8")
+                is_binary = False
+            except UnicodeDecodeError:
+                content = None
+                is_binary = True
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast({
+                "type": "file_read",
+                "data": {
+                    "path": file_path,
+                    "content": content,
+                    "isBinary": is_binary,
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_read",
+                "data": {
+                    "path": file_path,
+                    "content": None,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_write(self, file_path: str, content: str) -> None:
+        """Write content to a file."""
+        try:
+            target = self._validate_path(file_path)
+
+            # Ensure parent directory exists
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            target.write_text(content, encoding="utf-8")
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast({
+                "type": "file_write",
+                "data": {
+                    "path": file_path,
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_write",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_create(self, file_path: str, file_type: str) -> None:
+        """Create a new file or directory."""
+        try:
+            target = self._validate_path(file_path)
+
+            if target.exists():
+                raise ValueError(f"Path already exists: {file_path}")
+
+            if file_type == "directory":
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast({
+                "type": "file_create",
+                "data": {
+                    "path": file_path,
+                    "fileType": file_type,
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_create",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_delete(self, file_path: str) -> None:
+        """Delete a file or directory."""
+        try:
+            target = self._validate_path(file_path)
+
+            if not target.exists():
+                raise FileNotFoundError(f"Path not found: {file_path}")
+
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+
+            await self._broadcast({
+                "type": "file_delete",
+                "data": {
+                    "path": file_path,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_delete",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_rename(self, old_path: str, new_name: str) -> None:
+        """Rename a file or directory."""
+        try:
+            target = self._validate_path(old_path)
+
+            if not target.exists():
+                raise FileNotFoundError(f"Path not found: {old_path}")
+
+            # New path is in the same directory with new name
+            new_target = target.parent / new_name
+
+            # Validate new path is still within workspace
+            self._validate_path(str(new_target.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())))
+
+            if new_target.exists():
+                raise ValueError(f"Target already exists: {new_name}")
+
+            target.rename(new_target)
+
+            file_info = self._get_file_info(new_target)
+
+            await self._broadcast({
+                "type": "file_rename",
+                "data": {
+                    "oldPath": old_path,
+                    "newPath": str(new_target.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())).replace("\\", "/"),
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_rename",
+                "data": {
+                    "oldPath": old_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_batch_delete(self, paths: List[str]) -> None:
+        """Delete multiple files/directories."""
+        results = []
+        for file_path in paths:
+            try:
+                target = self._validate_path(file_path)
+
+                if not target.exists():
+                    results.append({"path": file_path, "success": False, "error": "Not found"})
+                    continue
+
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+
+                results.append({"path": file_path, "success": True})
+            except Exception as e:
+                results.append({"path": file_path, "success": False, "error": str(e)})
+
+        await self._broadcast({
+            "type": "file_batch_delete",
+            "data": {
+                "results": results,
+                "success": all(r["success"] for r in results),
+            },
+        })
+
+    async def _handle_file_move(self, src_path: str, dest_path: str) -> None:
+        """Move a file or directory."""
+        try:
+            src = self._validate_path(src_path)
+            dest = self._validate_path(dest_path)
+
+            if not src.exists():
+                raise FileNotFoundError(f"Source not found: {src_path}")
+
+            # If dest is a directory, move into it
+            if dest.exists() and dest.is_dir():
+                dest = dest / src.name
+
+            if dest.exists():
+                raise ValueError(f"Destination already exists: {dest_path}")
+
+            shutil.move(str(src), str(dest))
+
+            file_info = self._get_file_info(dest)
+
+            await self._broadcast({
+                "type": "file_move",
+                "data": {
+                    "srcPath": src_path,
+                    "destPath": str(dest.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())).replace("\\", "/"),
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_move",
+                "data": {
+                    "srcPath": src_path,
+                    "destPath": dest_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_copy(self, src_path: str, dest_path: str) -> None:
+        """Copy a file or directory."""
+        try:
+            src = self._validate_path(src_path)
+            dest = self._validate_path(dest_path)
+
+            if not src.exists():
+                raise FileNotFoundError(f"Source not found: {src_path}")
+
+            # If dest is a directory, copy into it
+            if dest.exists() and dest.is_dir():
+                dest = dest / src.name
+
+            if dest.exists():
+                raise ValueError(f"Destination already exists: {dest_path}")
+
+            if src.is_dir():
+                shutil.copytree(str(src), str(dest))
+            else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(src), str(dest))
+
+            file_info = self._get_file_info(dest)
+
+            await self._broadcast({
+                "type": "file_copy",
+                "data": {
+                    "srcPath": src_path,
+                    "destPath": str(dest.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())).replace("\\", "/"),
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_copy",
+                "data": {
+                    "srcPath": src_path,
+                    "destPath": dest_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_upload(self, file_path: str, content_b64: str) -> None:
+        """Upload a file (content is base64 encoded)."""
+        try:
+            target = self._validate_path(file_path)
+
+            # Decode base64 content
+            content = base64.b64decode(content_b64)
+
+            # Ensure parent directory exists
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            target.write_bytes(content)
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast({
+                "type": "file_upload",
+                "data": {
+                    "path": file_path,
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_upload",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_file_download(self, file_path: str) -> None:
+        """Download a file (returns base64 encoded content)."""
+        try:
+            target = self._validate_path(file_path)
+
+            if not target.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            if target.is_dir():
+                raise ValueError(f"Cannot download directory: {file_path}")
+
+            # Read and encode as base64
+            content = target.read_bytes()
+            content_b64 = base64.b64encode(content).decode("utf-8")
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast({
+                "type": "file_download",
+                "data": {
+                    "path": file_path,
+                    "content": content_b64,
+                    "fileInfo": file_info,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "file_download",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
 
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
@@ -526,6 +1074,11 @@ class BrowserAdapter(InterfaceAdapter):
                     "status": a.status,
                     "itemType": a.item_type,
                     "parentId": a.parent_id,
+                    "createdAt": int(a.created_at * 1000),
+                    "duration": a.duration,
+                    "input": a.input_data,
+                    "output": a.output_data,
+                    "error": a.error_message,
                 }
                 for a in self._action_panel.get_items()
             ],

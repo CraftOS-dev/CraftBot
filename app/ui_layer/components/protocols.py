@@ -77,6 +77,8 @@ class ActionPanelProtocol(Protocol):
         task_id: str,
         status: str,
         action_id: str = "",
+        output: Optional[str] = None,
+        error: Optional[str] = None,
     ) -> None:
         """
         Update an item's status by matching name and task.
@@ -89,6 +91,24 @@ class ActionPanelProtocol(Protocol):
             task_id: Parent task ID
             status: New status ("running", "completed", "error")
             action_id: Optional exact action ID to match first
+            output: Output data from the action
+            error: Error message if action failed
+        """
+        ...
+
+    async def update_item_data(
+        self,
+        item_id: str,
+        output: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """
+        Update an item's output/error data.
+
+        Args:
+            item_id: ID of the item to update
+            output: Output data from the action
+            error: Error message if action failed
         """
         ...
 

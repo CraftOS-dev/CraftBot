@@ -77,7 +77,7 @@ export function DashboardPage() {
       <div className={styles.header}>
         <div className={styles.headerContent}>
           <div className={styles.agentStatus}>
-            <StatusIndicator status={status.state} size="lg" />
+            <StatusIndicator status={status.state} size="lg" variant="dot" />
             <div>
               <h2>Agent Status</h2>
               <p>{status.message}</p>

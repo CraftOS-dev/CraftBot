@@ -48,6 +48,10 @@ class ActionItem:
         item_type: Either "task" or "action"
         parent_id: Parent task ID (for actions under a task)
         created_at: Unix timestamp when created
+        completed_at: Unix timestamp when completed/errored
+        input_data: Input parameters/schema for the action
+        output_data: Output/result of the action
+        error_message: Error message if action failed
     """
 
     id: str
@@ -56,6 +60,10 @@ class ActionItem:
     item_type: str  # "task" or "action"
     parent_id: Optional[str] = None
     created_at: float = field(default_factory=time.time)
+    completed_at: Optional[float] = None
+    input_data: Optional[str] = None
+    output_data: Optional[str] = None
+    error_message: Optional[str] = None
 
     @property
     def is_task(self) -> bool:
@@ -81,6 +89,13 @@ class ActionItem:
     def is_error(self) -> bool:
         """Check if this item errored."""
         return self.status == "error"
+
+    @property
+    def duration(self) -> Optional[int]:
+        """Get duration in milliseconds, or None if still running."""
+        if self.completed_at is not None:
+            return int((self.completed_at - self.created_at) * 1000)
+        return None
 
 
 @dataclass

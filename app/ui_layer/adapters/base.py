@@ -337,6 +337,7 @@ class InterfaceAdapter(ABC):
                         status="running",
                         item_type="action",
                         parent_id=task_id,
+                        input_data=event.data.get("input"),
                     )
                 )
             )
@@ -350,12 +351,17 @@ class InterfaceAdapter(ABC):
             action_name = event.data.get("action_name", "")
             # Use event's task_id if available, otherwise fall back to current task
             task_id = event.data.get("task_id") or self._controller.state.current_task_id or ""
+            # Get output and error data
+            output = event.data.get("output")
+            error_message = event.data.get("error_message")
             asyncio.create_task(
                 self.action_panel.update_item_by_name(
                     action_name=action_name,
                     task_id=task_id,
                     status=status,
                     action_id=action_id,
+                    output=output,
+                    error=error_message,
                 )
             )
 

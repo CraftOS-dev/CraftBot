@@ -1,19 +1,61 @@
-import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import React, { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react'
 import { Send, Paperclip } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { Button, IconButton, StatusIndicator } from '../../components/ui'
 import styles from './ChatPage.module.css'
 
+// Panel width limits
+const DEFAULT_PANEL_WIDTH = 320
+const MIN_PANEL_WIDTH = 200
+const MAX_PANEL_WIDTH = 800
+
 export function ChatPage() {
-  const { messages, actions, status, sendMessage } = useWebSocket()
+  const { messages, actions, status, connected, sendMessage } = useWebSocket()
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Resizable panel state
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
+  const [isResizing, setIsResizing] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Handle resize drag
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return
+      const containerRect = containerRef.current.getBoundingClientRect()
+      // Calculate width from right edge (since panel is on the right)
+      const newWidth = containerRect.right - e.clientX
+      // Clamp to min/max limits
+      const clampedWidth = Math.min(Math.max(newWidth, MIN_PANEL_WIDTH), MAX_PANEL_WIDTH)
+      setPanelWidth(clampedWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
 
   const handleSend = () => {
     if (input.trim()) {
@@ -38,8 +80,8 @@ export function ChatPage() {
     actions.filter(a => a.itemType === 'action' && a.parentId === taskId)
 
   return (
-    <div className={styles.chatPage}>
-      {/* Chat Panel - 2/3 width */}
+    <div className={`${styles.chatPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
+      {/* Chat Panel - flexible width */}
       <div className={styles.chatPanel}>
         <div className={styles.messagesContainer}>
           {messages.length === 0 ? (
@@ -76,8 +118,8 @@ export function ChatPage() {
 
         {/* Status bar */}
         <div className={styles.statusBar}>
-          <StatusIndicator status={status.state} size="sm" />
-          <span>{status.message}</span>
+          <StatusIndicator status={connected ? status.state : 'error'} size="sm" variant="dot" />
+          <span>{connected ? status.message : 'Disconnected'}</span>
         </div>
 
         {/* Input area */}
@@ -104,8 +146,14 @@ export function ChatPage() {
         </div>
       </div>
 
-      {/* Task/Action Panel - 1/3 width */}
-      <div className={styles.actionPanel}>
+      {/* Resize Handle */}
+      <div
+        className={styles.resizeHandle}
+        onMouseDown={handleMouseDown}
+      />
+
+      {/* Task/Action Panel - resizable width */}
+      <div className={styles.actionPanel} style={{ width: panelWidth, flexShrink: 0 }}>
         <div className={styles.panelHeader}>
           <h3>Tasks & Actions</h3>
         </div>

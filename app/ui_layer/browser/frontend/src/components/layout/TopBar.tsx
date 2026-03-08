@@ -40,6 +40,7 @@ export function TopBar() {
           <StatusIndicator
             status={connected ? status.state : 'error'}
             size="sm"
+            variant="dot"
           />
           <span className={styles.statusText}>
             {connected ? status.message : 'Disconnected'}

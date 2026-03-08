@@ -152,11 +152,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       }
 
       case 'action_update': {
-        const { id, status } = msg.data as { id: string; status: string }
+        const { id, status, duration, output, error } = msg.data as {
+          id: string
+          status: string
+          duration?: number
+          output?: string
+          error?: string
+        }
         setState(prev => ({
           ...prev,
           actions: prev.actions.map(a =>
-            a.id === id ? { ...a, status: status as ActionItem['status'] } : a
+            a.id === id
+              ? { ...a, status: status as ActionItem['status'], duration, output, error }
+              : a
           ),
         }))
         break

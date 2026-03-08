@@ -6,14 +6,43 @@
   overflow: hidden;
 }
 
-/* Task List - Left Side */
+/* Resizing state - disable text selection */
+.tasksPage.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Task List - Left Side (resizable) */
 .taskList {
-  width: 320px;
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-primary);
   background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+/* Resize Handle */
+.resizeHandle {
+  position: relative;
+  width: 1px;
+  background: var(--border-primary);
+  cursor: col-resize;
+  flex-shrink: 0;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 5px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.resizeHandle:hover::after,
+.tasksPage.resizing .resizeHandle::after {
+  background: var(--color-gray-300);
 }
 
 .listHeader {
@@ -181,13 +210,17 @@
 
 .detailList {
   display: grid;
-  grid-template-columns: 100px 1fr;
+  grid-template-columns: 140px 1fr;
   gap: var(--space-2);
   font-size: var(--text-sm);
 }
 
 .detailList dt {
   color: var(--text-muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detailList dd {
@@ -214,4 +247,49 @@
 .errorBlock {
   background: var(--color-error-light);
   color: var(--color-error);
+}
+
+/* Nested detail list for JSON data */
+.nestedList {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-primary);
+  margin-top: var(--space-1);
+}
+
+.nestedList dt {
+  color: var(--text-muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nestedList dd {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Expandable value for long text */
+.expandableValue {
+  display: inline;
+}
+
+.expandButton {
+  display: inline;
+  margin-left: var(--space-2);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.expandButton:hover {
+  color: var(--color-primary-hover);
 }
