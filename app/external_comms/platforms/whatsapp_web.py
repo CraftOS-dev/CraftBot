@@ -59,6 +59,17 @@ class WhatsAppWebClient(BasePlatformClient):
         self._bridge = None  # WhatsAppBridge instance (lazy import)
         self._seen_ids: set = set()  # dedup incoming message IDs
         self._known_groups: set = set()
+        self._agent_sent_ids: set = set()  # track IDs of messages sent by the agent
+
+    @property
+    def _agent_prefix(self) -> str:
+        """Return prefix like '[AgentName] ' using the configured agent name."""
+        try:
+            from app.onboarding import onboarding_manager
+            name = onboarding_manager.state.agent_name or "AGENT"
+        except Exception:
+            name = "AGENT"
+        return f"[{name}] "
 
     # ------------------------------------------------------------------
     # Credential helpers
@@ -130,12 +141,17 @@ class WhatsAppWebClient(BasePlatformClient):
         return recipient
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
-        """Send a text message via the bridge."""
+        """Send a text message via the bridge. Prepends [AGENT] prefix."""
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"status": "error", "error": "Bridge not ready"}
         resolved = self._resolve_recipient(recipient)
-        result = await bridge.send_message(to=resolved, text=text)
+        prefixed_text = f"{self._agent_prefix}{text}"
+        result = await bridge.send_message(to=resolved, text=prefixed_text)
+        # Track sent message ID to filter echo in _handle_sent_message
+        msg_id = result.get("message_id")
+        if msg_id:
+            self._agent_sent_ids.add(msg_id)
         return {"status": "success" if result.get("success") else "error", **result}
 
     async def send_media(
@@ -378,8 +394,19 @@ class WhatsAppWebClient(BasePlatformClient):
             return
         self._seen_ids.add(msg_id)
 
+        # Skip messages sent by the agent (prevents echo loop)
+        if msg_id and msg_id in self._agent_sent_ids:
+            self._agent_sent_ids.discard(msg_id)
+            logger.debug(f"[WhatsApp Web] Skipping agent-sent message (ID match): {msg_id}")
+            return
+
         body = data.get("body", "")
         if not body:
+            return
+
+        # Also skip by prefix in case of race condition (ID not yet tracked)
+        if body.startswith(self._agent_prefix):
+            logger.debug(f"[WhatsApp Web] Skipping agent-sent message (prefix match): {body[:50]}...")
             return
 
         chat = data.get("chat", {})

@@ -73,6 +73,7 @@ const client = new Client({
 const ownSentIds = new Set();
 let isReady = false;
 let catchupDone = false;
+let readyTimestamp = 0; // Unix timestamp (seconds) when client became ready
 let ownerPhone = "";
 let ownerName = "";
 
@@ -102,6 +103,7 @@ client.on("auth_failure", (msg) => {
 
 client.on("ready", async () => {
   isReady = true;
+  readyTimestamp = Math.floor(Date.now() / 1000);
   log("Client ready");
 
   // Extract owner phone
@@ -148,6 +150,7 @@ client.on("ready", async () => {
 client.on("disconnected", (reason) => {
   isReady = false;
   catchupDone = false;
+  readyTimestamp = 0;
   log(`Disconnected: ${reason}`);
   emitEvent("disconnected", { reason: String(reason) });
 });
@@ -157,7 +160,8 @@ client.on("disconnected", (reason) => {
 // ---------------------------------------------------------------------------
 
 client.on("message", async (msg) => {
-  if (!catchupDone) return;
+  // Skip messages from before the bridge was ready (historical sync)
+  if (msg.timestamp && msg.timestamp < readyTimestamp) return;
 
   try {
     const chat = await msg.getChat();
@@ -193,7 +197,8 @@ client.on("message", async (msg) => {
 });
 
 client.on("message_create", async (msg) => {
-  if (!catchupDone) return;
+  // Skip messages from before the bridge was ready (historical sync)
+  if (msg.timestamp && msg.timestamp < readyTimestamp) return;
   if (!msg.fromMe) return;
 
   // Skip messages sent by us via the bridge
