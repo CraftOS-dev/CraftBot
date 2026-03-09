@@ -131,8 +131,11 @@ That's it! The first run will guide you through setting up your API keys.
 GUI mode enables screen automation - the agent can see and interact with a desktop environment.
 
 ```bash
-# Install with GUI support
+# Install with GUI support (using pip, no conda required)
 python install.py --gui
+
+# Install with GUI support and conda
+python install.py --gui --conda
 
 # Run with GUI mode
 python run.py --gui
@@ -150,7 +153,7 @@ python run.py --gui
 | Flag | Description |
 |------|-------------|
 | `--gui` | Install GUI components (OmniParser) |
-| `--no-conda` | Use global pip instead of conda |
+| `--conda` | Use conda environment (optional) |
 | `--cpu-only` | Install CPU-only PyTorch (with --gui) |
 
 ### run.py
@@ -158,58 +161,66 @@ python run.py --gui
 | Flag | Description |
 |------|-------------|
 | `--gui` | Enable GUI mode (requires `install.py --gui` first) |
-| `--no-conda` | Use global pip instead of conda |
 
-**Examples:**
-```bash
-
-
-'''
-# Basic install and run
-python install.py
-python run.py
-
-# Install with GUI support
-python install.py --gui
-python run.py --gui
-
-# Use pip instead of conda
-python install.py --no-conda
-python run.py --no-conda
-*/
-'''
 **Installation Examples:**
 ```bash
 # Simple pip installation (no conda)
 python install.py
 
-# With conda environment (recommended)
-# If conda is not found, the installer will offer to auto-install Miniconda
+# With GUI support (using pip, no conda)
+python install.py --gui
+
+# With GUI on CPU-only systems (using pip, no conda)
+python install.py --gui --cpu-only
+
+# With conda environment (recommended for conda users)
 python install.py --conda
 
-# With GUI support (requires conda)
+# With GUI support and conda
 python install.py --gui --conda
 
-# With GUI on CPU-only systems (no NVIDIA GPU)
+# With GUI on CPU-only systems with conda
 python install.py --gui --conda --cpu-only
 ```
 
 **Automatic Miniconda Installation:**
-If conda is not detected when using `--conda` flag, the installer will offer to automatically download and install Miniconda. This is the easiest way to get started!
+If you use the `--conda` flag and conda is not detected, the installer will offer to automatically download and install Miniconda. This is optional - you can always use pip without conda by omitting the `--conda` flag.
 
 **Launching CraftBot:**
 
 After installation, CraftBot launches automatically! To launch it manually later:
 
-```bash
+**Windows (PowerShell):**
+```powershell
+# Run with pip (no conda)
+python run.py
+
+# Run with GUI mode (pip, no conda)
+python run.py --gui
+
 # Run with conda environment
 conda run -n craftbot python run.py
 
-# Run with GUI mode (if installed with `python install.py --gui --conda`)
+# Run with GUI mode using conda
 conda run -n craftbot python run.py --gui
 
-# Or if using pip (no conda)
+# Or using full path if conda not in PATH
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+**Linux/macOS (Bash):**
+```bash
+# Run with pip (no conda)
 python run.py
+
+# Run with GUI mode (pip, no conda)
+python run.py --gui
+
+# Run with conda environment
+conda run -n craftbot python run.py
+
+# Run with GUI mode using conda
+conda run -n craftbot python run.py --gui
 ```
 
 > [!NOTE]

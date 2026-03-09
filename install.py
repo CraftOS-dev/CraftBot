@@ -5,13 +5,13 @@ CraftBot Installation Script
 Usage:
     python install.py              # Install core dependencies with global pip
     python install.py --conda      # Install with conda environment
-    python install.py --gui        # Install with GUI mode support (requires --conda)
+    python install.py --gui        # Install with GUI mode support (with global pip)
     python install.py --gui --conda # Install with GUI and conda environment
 
 Options:
     --gui           Install GUI components (OmniParser for screen automation)
-    --conda         Use conda environment (required for --gui)
-    --cpu-only      Install CPU-only PyTorch (for OmniParser, requires --gui)
+    --conda         Use conda environment (optional)
+    --cpu-only      Install CPU-only PyTorch (for OmniParser, with --gui)
     --mamba         Use mamba instead of conda (faster, optional with --conda)
 """
 import multiprocessing
@@ -698,12 +698,6 @@ if __name__ == "__main__":
     install_gui = "--gui" in args
     use_conda = "--conda" in args
     force_cpu = "--cpu-only" in args
-
-    # Validate flags
-    if install_gui and not use_conda:
-        print("Error: --gui requires --conda flag.")
-        print("Use: python install.py --gui --conda\n")
-        sys.exit(1)
 
     # Save installation configuration (silent)
     save_config_value("use_conda", use_conda)

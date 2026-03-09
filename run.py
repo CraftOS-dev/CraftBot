@@ -7,7 +7,7 @@ Usage:
     python run.py --gui     # Run with GUI mode enabled
 
 Options:
-    --gui           Enable GUI mode (requires: python install.py --gui --conda)
+    --gui           Enable GUI mode (optional, requires: python install.py --gui)
 
 Note: The installation method (conda/pip) is saved from install.py and reused here.
 """
