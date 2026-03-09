@@ -27,6 +27,7 @@ from agent_core.core.models import (
     ProviderConfig,
     PROVIDER_CONFIG,
     ModelFactory,
+    test_provider_connection,
 )
 from agent_core.core.embedding_interface import EmbeddingInterface
 from agent_core.core.vlm_interface import VLMInterface
@@ -252,6 +253,7 @@ __all__ = [
     "ProviderConfig",
     "PROVIDER_CONFIG",
     "ModelFactory",
+    "test_provider_connection",
     # Interfaces
     "EmbeddingInterface",
     "VLMInterface",

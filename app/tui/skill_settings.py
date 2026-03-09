@@ -393,13 +393,69 @@ def install_skill_from_git(url: str) -> Tuple[bool, str]:
             return False, f"Failed to clone repository: {e}"
 
 
-def create_skill_scaffold(name: str, description: str = "") -> Tuple[bool, str]:
+def get_skill_template(name: str, description: str = "") -> str:
+    """
+    Generate a standard SKILL.md template.
+
+    Args:
+        name: Skill name.
+        description: Optional skill description.
+
+    Returns:
+        Template content as string.
+    """
+    skill_name = name.lower().replace(" ", "-").replace("_", "-")
+    title = skill_name.replace("-", " ").title()
+    desc = description or f"Custom skill for {title}"
+
+    return f"""---
+name: {skill_name}
+description: {desc}
+user-invocable: true
+---
+
+# {title}
+
+{desc}
+
+## When to Use
+
+- Describe when this skill should be invoked
+- List the scenarios where this skill is helpful
+- Add more use cases as needed
+
+## Instructions
+
+Add your detailed instructions here. This content will be provided to the agent when the skill is invoked.
+
+### Step 1: [First Step]
+
+Describe what the agent should do first.
+
+### Step 2: [Second Step]
+
+Describe subsequent steps.
+
+## Output Format
+
+Describe how the agent should format its response when using this skill.
+
+## Examples
+
+Provide example interactions or outputs if helpful.
+"""
+
+
+def create_skill_scaffold(
+    name: str, description: str = "", content: Optional[str] = None
+) -> Tuple[bool, str]:
     """
     Create a new skill with a template SKILL.md.
 
     Args:
         name: Skill name (will be converted to lowercase with hyphens).
         description: Optional skill description.
+        content: Optional custom SKILL.md content. If not provided, uses template.
 
     Returns:
         Tuple of (success, message).
@@ -424,26 +480,12 @@ def create_skill_scaffold(name: str, description: str = "") -> Tuple[bool, str]:
         # Create skill directory
         target.mkdir(parents=True)
 
-        # Create SKILL.md with template
+        # Create SKILL.md with provided content or template
         skill_md = target / "SKILL.md"
-        template = f"""---
-name: {skill_name}
-description: {description or f"Custom skill: {skill_name}"}
-user-invocable: true
-action-sets: []
----
-
-# {skill_name.replace("-", " ").title()}
-
-## Instructions
-
-Add your skill instructions here. This will be provided to the agent when the skill is invoked.
-
-## Usage
-
-This skill can be invoked with `/{skill_name}` in the chat interface.
-"""
-        skill_md.write_text(template, encoding="utf-8")
+        if content:
+            skill_md.write_text(content, encoding="utf-8")
+        else:
+            skill_md.write_text(get_skill_template(skill_name, description), encoding="utf-8")
 
         logger.info(f"Created skill '{skill_name}' at {target}")
 

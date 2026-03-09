@@ -254,9 +254,85 @@ export interface ModelSettings {
   apiKey?: string
 }
 
+// Model Configuration Types
+export interface ProviderInfo {
+  id: string
+  name: string
+  requires_api_key: boolean
+  api_key_env?: string
+  base_url_env?: string
+  llm_model: string | null
+  vlm_model: string | null
+  has_vlm: boolean
+}
+
+export interface ApiKeyStatus {
+  has_key: boolean
+  masked_key: string
+}
+
+export interface ModelSettingsData {
+  success: boolean
+  llm_provider: string
+  vlm_provider: string
+  llm_model: string | null
+  vlm_model: string | null
+  api_keys: Record<string, ApiKeyStatus>
+  base_urls: Record<string, string>
+  error?: string
+}
+
+export interface ConnectionTestResult {
+  success: boolean
+  message: string
+  provider: string
+  error?: string
+}
+
+export interface ValidationResult {
+  success: boolean
+  can_save: boolean
+  warnings: string[]
+  errors: string[]
+}
+
 export interface Settings {
   general: GeneralSettings
   model: ModelSettings
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// MCP Settings Types
+// ─────────────────────────────────────────────────────────────────────
+
+export interface MCPServerConfig {
+  name: string
+  description: string
+  enabled: boolean
+  transport: 'stdio' | 'sse' | 'websocket'
+  command?: string
+  action_set: string
+  env: Record<string, string>
+}
+
+export interface MCPListResponse {
+  success: boolean
+  servers?: MCPServerConfig[]
+  error?: string
+}
+
+export interface MCPActionResponse {
+  success: boolean
+  message?: string
+  name?: string
+  error?: string
+}
+
+export interface MCPEnvResponse {
+  success: boolean
+  name: string
+  env?: Record<string, string>
+  error?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────

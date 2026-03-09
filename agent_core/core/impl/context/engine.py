@@ -28,6 +28,16 @@ from agent_core.core.prompts import (
 from agent_core.core.state import get_state, get_session_or_none
 from agent_core.core.task import Task
 
+
+# Import memory mode check (deferred to avoid circular imports)
+def _is_memory_enabled() -> bool:
+    """Check if memory mode is enabled. Returns True if unknown."""
+    try:
+        from app.ui_layer.settings.memory_settings import is_memory_enabled
+        return is_memory_enabled()
+    except ImportError:
+        return True  # Default to enabled if settings module not available
+
 # Set up logger - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
 
@@ -405,6 +415,10 @@ class ContextEngine:
             session_id: Optional session ID for session-specific state lookup.
         """
         if not self._memory_manager:
+            return ""
+
+        # Check if memory is enabled in settings
+        if not _is_memory_enabled():
             return ""
 
         if not query:

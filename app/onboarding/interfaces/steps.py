@@ -200,18 +200,18 @@ class MCPStep:
     required = False
 
     def get_options(self) -> List[StepOption]:
-        """Get available MCP servers from config."""
+        """Get configured MCP servers."""
         try:
-            from app.tui.mcp_settings import get_available_templates
-            templates = get_available_templates()
+            from app.tui.mcp_settings import list_mcp_servers
+            servers = list_mcp_servers()
             return [
                 StepOption(
-                    value=tpl["name"],
-                    label=tpl["name"].replace("-", " ").title(),
-                    description=tpl.get("description", f"MCP server: {tpl['name']}"),
-                    default=False
+                    value=server["name"],
+                    label=server["name"].replace("-", " ").title(),
+                    description=server.get("description", f"MCP server: {server['name']}"),
+                    default=server.get("enabled", False)
                 )
-                for tpl in templates
+                for server in servers
             ]
         except ImportError:
             return []

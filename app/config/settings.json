@@ -4,5 +4,8 @@
   },
   "general": {
     "agent_name": "CraftBot"
+  },
+  "memory": {
+    "enabled": true
   }
 }

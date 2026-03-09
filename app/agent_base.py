@@ -65,6 +65,7 @@ from app.gui.gui_module import GUIModule
 from app.gui.handler import GUIHandler
 from app.scheduler import SchedulerManager
 from app.proactive import initialize_proactive_manager, get_proactive_manager
+from app.ui_layer.settings.memory_settings import is_memory_enabled
 from agent_core import profile, profile_loop, OperationCategory
 from agent_core import (
     # Registries for dependency injection
@@ -397,7 +398,7 @@ class AgentBase:
     # Memory Processing
     # =====================================
 
-    def create_process_memory_task(self) -> str:
+    def create_process_memory_task(self) -> Optional[str]:
         """
         Create a task to process unprocessed events and move them to memory.
 
@@ -410,8 +411,13 @@ class AgentBase:
         5. Clear processed events from EVENT_UNPROCESSED.md
 
         Returns:
-            The task ID of the created task.
+            The task ID of the created task, or None if memory is disabled.
         """
+        # Check if memory is enabled
+        if not is_memory_enabled():
+            logger.info("[MEMORY] Memory is disabled, skipping process memory task")
+            return None
+
         logger.info("[MEMORY] Creating process memory task")
 
         # Enable skip_unprocessed_logging to prevent infinite loops
@@ -434,6 +440,11 @@ class AgentBase:
         processing flow which creates the task and executes it.
         """
         import time
+
+        # Check if memory is enabled
+        if not is_memory_enabled():
+            logger.info("[MEMORY] Memory is disabled, skipping startup processing")
+            return
 
         try:
             unprocessed_file = AGENT_FILE_SYSTEM_PATH / "EVENT_UNPROCESSED.md"
@@ -486,6 +497,12 @@ class AgentBase:
             False if no task was created and react() should return.
         """
         logger.info("[MEMORY] Memory processing trigger fired")
+
+        # Check if memory is enabled
+        if not is_memory_enabled():
+            logger.info("[MEMORY] Memory is disabled, skipping memory processing trigger")
+            return False
+
         task_created = False
 
         try:

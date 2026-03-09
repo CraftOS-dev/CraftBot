@@ -34,6 +34,48 @@ from app.ui_layer.settings import (
     remove_proactive_task,
     reset_proactive_tasks,
     reload_proactive_manager,
+    # Memory settings
+    get_memory_mode,
+    set_memory_mode,
+    get_memory_items,
+    add_memory_item,
+    update_memory_item,
+    remove_memory_item,
+    reset_memory,
+    clear_unprocessed_events,
+    get_memory_stats,
+    # Model settings
+    get_available_providers,
+    get_model_settings,
+    update_model_settings,
+    test_connection,
+    validate_can_save,
+    # MCP settings
+    list_mcp_servers,
+    add_mcp_server_from_json,
+    remove_mcp_server,
+    enable_mcp_server,
+    disable_mcp_server,
+    get_server_env_vars,
+    update_mcp_server_env,
+    # Skill settings
+    list_skills,
+    get_skill_info,
+    enable_skill,
+    disable_skill,
+    reload_skills,
+    get_skill_search_directories,
+    install_skill_from_path,
+    install_skill_from_git,
+    create_skill_scaffold,
+    get_skill_template,
+    remove_skill,
+    # Integration settings
+    list_integrations,
+    get_integration_info,
+    connect_integration_token,
+    connect_integration_oauth,
+    disconnect_integration,
 )
 from app.ui_layer.themes.base import ThemeAdapter, StyleType
 from app.ui_layer.themes.theme import BaseTheme
@@ -744,6 +786,154 @@ class BrowserAdapter(InterfaceAdapter):
             enabled = data.get("enabled", True)
             await self._handle_proactive_mode_set(enabled)
 
+        # Memory operations
+        elif msg_type == "memory_mode_get":
+            await self._handle_memory_mode_get()
+
+        elif msg_type == "memory_mode_set":
+            enabled = data.get("enabled", True)
+            await self._handle_memory_mode_set(enabled)
+
+        elif msg_type == "memory_items_get":
+            await self._handle_memory_items_get()
+
+        elif msg_type == "memory_item_add":
+            category = data.get("category", "")
+            content = data.get("content", "")
+            await self._handle_memory_item_add(category, content)
+
+        elif msg_type == "memory_item_update":
+            item_id = data.get("itemId", "")
+            category = data.get("category")
+            content = data.get("content")
+            await self._handle_memory_item_update(item_id, category, content)
+
+        elif msg_type == "memory_item_remove":
+            item_id = data.get("itemId", "")
+            await self._handle_memory_item_remove(item_id)
+
+        elif msg_type == "memory_reset":
+            await self._handle_memory_reset()
+
+        elif msg_type == "memory_stats_get":
+            await self._handle_memory_stats_get()
+
+        elif msg_type == "memory_process_trigger":
+            await self._handle_memory_process_trigger()
+
+        # Model settings operations
+        elif msg_type == "model_providers_get":
+            await self._handle_model_providers_get()
+
+        elif msg_type == "model_settings_get":
+            await self._handle_model_settings_get()
+
+        elif msg_type == "model_settings_update":
+            await self._handle_model_settings_update(data)
+
+        elif msg_type == "model_connection_test":
+            provider = data.get("provider", "")
+            api_key = data.get("apiKey")
+            base_url = data.get("baseUrl")
+            await self._handle_model_connection_test(provider, api_key, base_url)
+
+        elif msg_type == "model_validate_save":
+            await self._handle_model_validate_save(data)
+
+        # MCP settings operations
+        elif msg_type == "mcp_list":
+            await self._handle_mcp_list()
+
+        elif msg_type == "mcp_enable":
+            name = data.get("name", "")
+            await self._handle_mcp_enable(name)
+
+        elif msg_type == "mcp_disable":
+            name = data.get("name", "")
+            await self._handle_mcp_disable(name)
+
+        elif msg_type == "mcp_remove":
+            name = data.get("name", "")
+            await self._handle_mcp_remove(name)
+
+        elif msg_type == "mcp_add_json":
+            name = data.get("name", "")
+            config = data.get("config", "{}")
+            await self._handle_mcp_add_json(name, config)
+
+        elif msg_type == "mcp_get_env":
+            name = data.get("name", "")
+            await self._handle_mcp_get_env(name)
+
+        elif msg_type == "mcp_update_env":
+            name = data.get("name", "")
+            env_key = data.get("key", "")
+            env_value = data.get("value", "")
+            await self._handle_mcp_update_env(name, env_key, env_value)
+
+        # Skill settings operations
+        elif msg_type == "skill_list":
+            await self._handle_skill_list()
+
+        elif msg_type == "skill_info":
+            name = data.get("name", "")
+            await self._handle_skill_info(name)
+
+        elif msg_type == "skill_enable":
+            name = data.get("name", "")
+            await self._handle_skill_enable(name)
+
+        elif msg_type == "skill_disable":
+            name = data.get("name", "")
+            await self._handle_skill_disable(name)
+
+        elif msg_type == "skill_reload":
+            await self._handle_skill_reload()
+
+        elif msg_type == "skill_install":
+            source = data.get("source", "")
+            await self._handle_skill_install(source)
+
+        elif msg_type == "skill_create":
+            name = data.get("name", "")
+            description = data.get("description", "")
+            content = data.get("content", "")
+            await self._handle_skill_create(name, description, content)
+
+        elif msg_type == "skill_remove":
+            name = data.get("name", "")
+            await self._handle_skill_remove(name)
+
+        elif msg_type == "skill_dirs":
+            await self._handle_skill_dirs()
+
+        elif msg_type == "skill_template":
+            name = data.get("name", "")
+            description = data.get("description", "")
+            await self._handle_skill_template(name, description)
+
+        # Integration handlers
+        elif msg_type == "integration_list":
+            await self._handle_integration_list()
+
+        elif msg_type == "integration_info":
+            integration_id = data.get("id", "")
+            await self._handle_integration_info(integration_id)
+
+        elif msg_type == "integration_connect_token":
+            integration_id = data.get("id", "")
+            credentials = data.get("credentials", {})
+            await self._handle_integration_connect_token(integration_id, credentials)
+
+        elif msg_type == "integration_connect_oauth":
+            integration_id = data.get("id", "")
+            await self._handle_integration_connect_oauth(integration_id)
+
+        elif msg_type == "integration_disconnect":
+            integration_id = data.get("id", "")
+            account_id = data.get("account_id")
+            await self._handle_integration_disconnect(integration_id, account_id)
+
     async def _handle_task_cancel(self, task_id: str) -> None:
         """Cancel a running task."""
         try:
@@ -1280,6 +1470,928 @@ class BrowserAdapter(InterfaceAdapter):
                 "error": result.get("error"),
             },
         })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Memory Operation Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_memory_mode_get(self) -> None:
+        """Get the current memory mode status."""
+        result = get_memory_mode()
+
+        await self._broadcast({
+            "type": "memory_mode_get",
+            "data": {
+                "enabled": result.get("enabled", True),
+                "success": result.get("success", False),
+                "error": result.get("error"),
+            },
+        })
+
+    async def _handle_memory_mode_set(self, enabled: bool) -> None:
+        """Set the memory mode on or off."""
+        result = set_memory_mode(enabled)
+
+        await self._broadcast({
+            "type": "memory_mode_set",
+            "data": {
+                "enabled": result.get("enabled", enabled),
+                "success": result.get("success", False),
+                "error": result.get("error"),
+            },
+        })
+
+    async def _handle_memory_items_get(self) -> None:
+        """Get all memory items from MEMORY.md."""
+        result = get_memory_items()
+
+        if result.get("success"):
+            await self._broadcast({
+                "type": "memory_items_get",
+                "data": {
+                    "items": result.get("items", []),
+                    "categories": result.get("categories", []),
+                    "count": result.get("count", 0),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "memory_items_get",
+                "data": {
+                    "items": [],
+                    "categories": [],
+                    "count": 0,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_memory_item_add(self, category: str, content: str) -> None:
+        """Add a new memory item."""
+        result = add_memory_item(category=category, content=content)
+
+        if result.get("success"):
+            # Update memory index after adding
+            agent = self._controller.agent
+            if hasattr(agent, 'memory_manager'):
+                agent.memory_manager.update()
+
+            await self._broadcast({
+                "type": "memory_item_add",
+                "data": {
+                    "item": result.get("item"),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "memory_item_add",
+                "data": {
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_memory_item_update(
+        self,
+        item_id: str,
+        category: str = None,
+        content: str = None
+    ) -> None:
+        """Update an existing memory item."""
+        result = update_memory_item(item_id=item_id, category=category, content=content)
+
+        if result.get("success"):
+            # Update memory index after updating
+            agent = self._controller.agent
+            if hasattr(agent, 'memory_manager'):
+                agent.memory_manager.update()
+
+            await self._broadcast({
+                "type": "memory_item_update",
+                "data": {
+                    "item": result.get("item"),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "memory_item_update",
+                "data": {
+                    "itemId": item_id,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_memory_item_remove(self, item_id: str) -> None:
+        """Remove a memory item."""
+        result = remove_memory_item(item_id=item_id)
+
+        if result.get("success"):
+            # Update memory index after removing
+            agent = self._controller.agent
+            if hasattr(agent, 'memory_manager'):
+                agent.memory_manager.update()
+
+            await self._broadcast({
+                "type": "memory_item_remove",
+                "data": {
+                    "itemId": item_id,
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "memory_item_remove",
+                "data": {
+                    "itemId": item_id,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_memory_reset(self) -> None:
+        """Reset memory by restoring MEMORY.md from template."""
+        result = reset_memory()
+
+        if result.get("success"):
+            # Also clear unprocessed events
+            clear_unprocessed_events()
+
+            # Update memory index after reset
+            agent = self._controller.agent
+            if hasattr(agent, 'memory_manager'):
+                agent.memory_manager.update()
+
+            await self._broadcast({
+                "type": "memory_reset",
+                "data": {
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "memory_reset",
+                "data": {
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_memory_stats_get(self) -> None:
+        """Get memory statistics."""
+        result = get_memory_stats()
+
+        await self._broadcast({
+            "type": "memory_stats_get",
+            "data": {
+                "stats": result if result.get("success") else {},
+                "success": result.get("success", False),
+                "error": result.get("error"),
+            },
+        })
+
+    async def _handle_memory_process_trigger(self) -> None:
+        """Manually trigger memory processing."""
+        try:
+            agent = self._controller.agent
+
+            # Check if memory is enabled
+            mode_result = get_memory_mode()
+            if not mode_result.get("enabled", True):
+                await self._broadcast({
+                    "type": "memory_process_trigger",
+                    "data": {
+                        "success": False,
+                        "error": "Memory is disabled. Enable memory mode first.",
+                    },
+                })
+                return
+
+            # Check if there's a create_process_memory_task method
+            if hasattr(agent, 'create_process_memory_task'):
+                task = await agent.create_process_memory_task()
+                await self._broadcast({
+                    "type": "memory_process_trigger",
+                    "data": {
+                        "success": True,
+                        "taskId": task.id if task else None,
+                        "message": "Memory processing task created",
+                    },
+                })
+            else:
+                await self._broadcast({
+                    "type": "memory_process_trigger",
+                    "data": {
+                        "success": False,
+                        "error": "Memory processing not available",
+                    },
+                })
+        except Exception as e:
+            await self._broadcast({
+                "type": "memory_process_trigger",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Model Settings Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_model_providers_get(self) -> None:
+        """Get available model providers."""
+        try:
+            result = get_available_providers()
+            await self._broadcast({
+                "type": "model_providers_get",
+                "data": result,
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "model_providers_get",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_model_settings_get(self) -> None:
+        """Get current model settings."""
+        try:
+            result = get_model_settings()
+            await self._broadcast({
+                "type": "model_settings_get",
+                "data": result,
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "model_settings_get",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_model_settings_update(self, data: Dict[str, Any]) -> None:
+        """Update model settings."""
+        try:
+            result = update_model_settings(
+                llm_provider=data.get("llmProvider"),
+                vlm_provider=data.get("vlmProvider"),
+                llm_model=data.get("llmModel"),
+                vlm_model=data.get("vlmModel"),
+                api_key=data.get("apiKey"),
+                provider_for_key=data.get("providerForKey"),
+                base_url=data.get("baseUrl"),
+                provider_for_url=data.get("providerForUrl"),
+            )
+            await self._broadcast({
+                "type": "model_settings_update",
+                "data": result,
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "model_settings_update",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_model_connection_test(
+        self,
+        provider: str,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> None:
+        """Test connection to a model provider."""
+        try:
+            result = test_connection(
+                provider=provider,
+                api_key=api_key,
+                base_url=base_url,
+            )
+            await self._broadcast({
+                "type": "model_connection_test",
+                "data": result,
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "model_connection_test",
+                "data": {
+                    "success": False,
+                    "message": "Test failed",
+                    "provider": provider,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_model_validate_save(self, data: Dict[str, Any]) -> None:
+        """Validate if model settings can be saved."""
+        try:
+            result = validate_can_save(
+                llm_provider=data.get("llmProvider", "anthropic"),
+                vlm_provider=data.get("vlmProvider"),
+                api_key=data.get("apiKey"),
+                provider_for_key=data.get("providerForKey"),
+            )
+            await self._broadcast({
+                "type": "model_validate_save",
+                "data": result,
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "model_validate_save",
+                "data": {
+                    "success": False,
+                    "can_save": False,
+                    "errors": [str(e)],
+                },
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # MCP Settings Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_mcp_list(self) -> None:
+        """Get list of configured MCP servers."""
+        try:
+            servers = list_mcp_servers()
+            await self._broadcast({
+                "type": "mcp_list",
+                "data": {
+                    "success": True,
+                    "servers": servers,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_list",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_mcp_enable(self, name: str) -> None:
+        """Enable an MCP server."""
+        try:
+            success, message = enable_mcp_server(name)
+            await self._broadcast({
+                "type": "mcp_enable",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_mcp_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_enable",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_mcp_disable(self, name: str) -> None:
+        """Disable an MCP server."""
+        try:
+            success, message = disable_mcp_server(name)
+            await self._broadcast({
+                "type": "mcp_disable",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_mcp_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_disable",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_mcp_remove(self, name: str) -> None:
+        """Remove an MCP server."""
+        try:
+            success, message = remove_mcp_server(name)
+            await self._broadcast({
+                "type": "mcp_remove",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_mcp_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_remove",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_mcp_add_json(self, name: str, config: str) -> None:
+        """Add an MCP server from JSON configuration."""
+        try:
+            success, message = add_mcp_server_from_json(name, config)
+            await self._broadcast({
+                "type": "mcp_add_json",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_mcp_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_add_json",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_mcp_get_env(self, name: str) -> None:
+        """Get environment variables for an MCP server."""
+        try:
+            env_vars = get_server_env_vars(name)
+            await self._broadcast({
+                "type": "mcp_get_env",
+                "data": {
+                    "success": True,
+                    "name": name,
+                    "env": env_vars,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_get_env",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_mcp_update_env(self, name: str, env_key: str, env_value: str) -> None:
+        """Update an environment variable for an MCP server."""
+        try:
+            success, message = update_mcp_server_env(name, env_key, env_value)
+            await self._broadcast({
+                "type": "mcp_update_env",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                    "key": env_key,
+                },
+            })
+            # Refresh the list to show updated env status
+            if success:
+                await self._handle_mcp_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "mcp_update_env",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                    "key": env_key,
+                },
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Skill Settings Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_skill_list(self) -> None:
+        """Get list of all skills."""
+        try:
+            skills = list_skills()
+            # Calculate stats
+            total = len(skills)
+            enabled = sum(1 for s in skills if s.get("enabled", True))
+
+            await self._broadcast({
+                "type": "skill_list",
+                "data": {
+                    "success": True,
+                    "skills": skills,
+                    "total": total,
+                    "enabled": enabled,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_list",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "skills": [],
+                    "total": 0,
+                    "enabled": 0,
+                },
+            })
+
+    async def _handle_skill_info(self, name: str) -> None:
+        """Get detailed info about a skill."""
+        try:
+            info = get_skill_info(name)
+            if info:
+                await self._broadcast({
+                    "type": "skill_info",
+                    "data": {
+                        "success": True,
+                        "name": name,
+                        "skill": info,
+                    },
+                })
+            else:
+                await self._broadcast({
+                    "type": "skill_info",
+                    "data": {
+                        "success": False,
+                        "error": f"Skill '{name}' not found",
+                        "name": name,
+                    },
+                })
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_info",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_skill_enable(self, name: str) -> None:
+        """Enable a skill."""
+        try:
+            success, message = enable_skill(name)
+            await self._broadcast({
+                "type": "skill_enable",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_skill_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_enable",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_skill_disable(self, name: str) -> None:
+        """Disable a skill."""
+        try:
+            success, message = disable_skill(name)
+            await self._broadcast({
+                "type": "skill_disable",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_skill_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_disable",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_skill_reload(self) -> None:
+        """Reload skills from disk."""
+        try:
+            success, message = reload_skills()
+            await self._broadcast({
+                "type": "skill_reload",
+                "data": {
+                    "success": success,
+                    "message": message,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_skill_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_reload",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_skill_install(self, source: str) -> None:
+        """Install a skill from path or git URL."""
+        try:
+            # Check if it's a git URL
+            if source.startswith("http") or source.startswith("git@"):
+                success, message = install_skill_from_git(source)
+            else:
+                success, message = install_skill_from_path(source)
+
+            await self._broadcast({
+                "type": "skill_install",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "source": source,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_skill_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_install",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "source": source,
+                },
+            })
+
+    async def _handle_skill_create(
+        self, name: str, description: str, content: str = ""
+    ) -> None:
+        """Create a new skill scaffold."""
+        try:
+            success, message = create_skill_scaffold(
+                name, description, content if content else None
+            )
+            await self._broadcast({
+                "type": "skill_create",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_skill_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_create",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_skill_template(self, name: str, description: str) -> None:
+        """Get a skill template for the given name and description."""
+        try:
+            template = get_skill_template(name or "my-skill", description)
+            await self._broadcast({
+                "type": "skill_template",
+                "data": {
+                    "success": True,
+                    "template": template,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_template",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_skill_remove(self, name: str) -> None:
+        """Remove a skill."""
+        try:
+            success, message = remove_skill(name)
+            await self._broadcast({
+                "type": "skill_remove",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "name": name,
+                },
+            })
+            # Refresh the list
+            if success:
+                await self._handle_skill_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_remove",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "name": name,
+                },
+            })
+
+    async def _handle_skill_dirs(self) -> None:
+        """Get skill search directories."""
+        try:
+            dirs = get_skill_search_directories()
+            await self._broadcast({
+                "type": "skill_dirs",
+                "data": {
+                    "success": True,
+                    "directories": dirs,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "skill_dirs",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "directories": [],
+                },
+            })
+
+    # =====================
+    # Integration Handlers
+    # =====================
+
+    async def _handle_integration_list(self) -> None:
+        """Get list of all integrations with status."""
+        try:
+            integrations = list_integrations()
+            # Calculate stats
+            total = len(integrations)
+            connected = sum(1 for i in integrations if i.get("connected", False))
+
+            await self._broadcast({
+                "type": "integration_list",
+                "data": {
+                    "success": True,
+                    "integrations": integrations,
+                    "total": total,
+                    "connected": connected,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "integration_list",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "integrations": [],
+                    "total": 0,
+                    "connected": 0,
+                },
+            })
+
+    async def _handle_integration_info(self, integration_id: str) -> None:
+        """Get detailed info about an integration."""
+        try:
+            info = get_integration_info(integration_id)
+            if info:
+                await self._broadcast({
+                    "type": "integration_info",
+                    "data": {
+                        "success": True,
+                        "id": integration_id,
+                        "integration": info,
+                    },
+                })
+            else:
+                await self._broadcast({
+                    "type": "integration_info",
+                    "data": {
+                        "success": False,
+                        "error": f"Integration '{integration_id}' not found",
+                        "id": integration_id,
+                    },
+                })
+        except Exception as e:
+            await self._broadcast({
+                "type": "integration_info",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "id": integration_id,
+                },
+            })
+
+    async def _handle_integration_connect_token(
+        self, integration_id: str, credentials: Dict[str, str]
+    ) -> None:
+        """Connect an integration using token/credentials."""
+        try:
+            success, message = await connect_integration_token(integration_id, credentials)
+            await self._broadcast({
+                "type": "integration_connect_result",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "id": integration_id,
+                },
+            })
+            # Refresh the list on success
+            if success:
+                await self._handle_integration_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "integration_connect_result",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "id": integration_id,
+                },
+            })
+
+    async def _handle_integration_connect_oauth(self, integration_id: str) -> None:
+        """Start OAuth flow for an integration."""
+        try:
+            success, message = await connect_integration_oauth(integration_id)
+            await self._broadcast({
+                "type": "integration_connect_result",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "id": integration_id,
+                },
+            })
+            # Refresh the list on success
+            if success:
+                await self._handle_integration_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "integration_connect_result",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "id": integration_id,
+                },
+            })
+
+    async def _handle_integration_disconnect(
+        self, integration_id: str, account_id: Optional[str] = None
+    ) -> None:
+        """Disconnect an integration account."""
+        try:
+            success, message = await disconnect_integration(integration_id, account_id)
+            await self._broadcast({
+                "type": "integration_disconnect_result",
+                "data": {
+                    "success": success,
+                    "message": message,
+                    "id": integration_id,
+                },
+            })
+            # Refresh the list on success
+            if success:
+                await self._handle_integration_list()
+        except Exception as e:
+            await self._broadcast({
+                "type": "integration_disconnect_result",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "id": integration_id,
+                },
+            })
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients."""

@@ -22,14 +22,11 @@ from app.tui.settings import save_settings_to_env, get_api_key_env_name
 from app.tui.widgets import ConversationLog, PasteableInput, VMFootageWidget, TaskSelected
 from app.tui.mcp_settings import (
     list_mcp_servers,
-    add_mcp_server_from_template,
     remove_mcp_server,
     enable_mcp_server,
     disable_mcp_server,
-    get_available_templates,
     update_mcp_server_env,
     get_server_env_vars,
-    MCP_SERVER_TEMPLATES,
 )
 from app.tui.skill_settings import (
     list_skills,
@@ -437,7 +434,7 @@ class CraftApp(App):
         self.call_after_refresh(self._init_settings_provider_selection)
 
     def _build_mcp_server_list_items(self) -> list:
-        """Build list items for ALL MCP servers (templates + configured)."""
+        """Build list items for configured MCP servers."""
         # Get configured servers as a dict for quick lookup
         configured_servers = {s["name"]: s for s in list_mcp_servers()}
         items = []
@@ -445,85 +442,37 @@ class CraftApp(App):
         # Store mapping from sanitized ID to original server name for handlers
         self._mcp_id_to_name: dict[str, str] = {}
 
-        # Show all templates from MCP_SERVER_TEMPLATES
-        for template_name, template_info in MCP_SERVER_TEMPLATES.items():
-            name = template_info.get("name", template_name)
+        # Show all configured servers
+        for name, server in configured_servers.items():
             # Sanitize name for use in widget IDs
             safe_id = self._sanitize_id(name)
             # Store mapping for reverse lookup
             self._mcp_id_to_name[safe_id] = name
-            # Truncate name if too long (max 18 chars to leave room for status)
+
+            status = "[+]" if server["enabled"] else "[ ]"
+            # Truncate name if too long
             display_name = name[:18] + ".." if len(name) > 18 else name
-            desc = template_info.get("description", "")
+            desc = server.get("description", "MCP server")
             desc = desc[:35] + "..." if len(desc) > 35 else desc
 
-            if name in configured_servers:
-                # Server is configured - show status and controls
-                server = configured_servers[name]
-                status = "[+]" if server["enabled"] else "[ ]"
+            env_vars = server.get("env", {})
+            empty_vars = [k for k, v in env_vars.items() if not v]
+            warning = " (!)" if empty_vars else ""
 
-                # Check for unconfigured env vars
-                env_vars = server.get("env", {})
-                empty_vars = [k for k, v in env_vars.items() if not v]
-                warning = " (!)" if empty_vars else ""
+            row_widgets = [
+                Static(f"{status} {display_name}{warning}", classes="mcp-server-name"),
+                Static(desc, classes="mcp-server-desc"),
+            ]
 
-                row_widgets = [
-                    Static(f"{status} {display_name}{warning}", classes="mcp-server-name"),
-                    Static(desc, classes="mcp-server-desc"),
-                ]
+            if env_vars:
+                row_widgets.append(Button("Configure", id=f"mcp-config-{safe_id}", classes="mcp-config-btn"))
 
-                # Add Configure button only if server has env vars
-                if env_vars:
-                    row_widgets.append(Button("Configure", id=f"mcp-config-{safe_id}", classes="mcp-config-btn"))
-
-                # Add Enable/Disable toggle button
-                if server["enabled"]:
-                    row_widgets.append(Button("Disable", id=f"mcp-disable-{safe_id}", classes="mcp-toggle-btn -enabled"))
-                else:
-                    row_widgets.append(Button("Enable", id=f"mcp-enable-{safe_id}", classes="mcp-toggle-btn -disabled"))
-
-                items.append(Horizontal(*row_widgets, classes="mcp-server-row"))
+            if server["enabled"]:
+                row_widgets.append(Button("Disable", id=f"mcp-disable-{safe_id}", classes="mcp-toggle-btn -enabled"))
             else:
-                # Server not configured - show as available to add
-                row_widgets = [
-                    Static(f"[ ] {display_name}", classes="mcp-server-name -unconfigured"),
-                    Static(desc, classes="mcp-server-desc"),
-                    Button("Add", id=f"mcp-add-template-{safe_id}", classes="mcp-add-btn"),
-                ]
-                items.append(Horizontal(*row_widgets, classes="mcp-server-row -unconfigured"))
+                row_widgets.append(Button("Enable", id=f"mcp-enable-{safe_id}", classes="mcp-toggle-btn -disabled"))
 
-        # Also show any custom configured servers not in templates
-        for name, server in configured_servers.items():
-            if name not in MCP_SERVER_TEMPLATES:
-                # Sanitize name for use in widget IDs
-                safe_id = self._sanitize_id(name)
-                # Store mapping for reverse lookup
-                self._mcp_id_to_name[safe_id] = name
-
-                status = "[+]" if server["enabled"] else "[ ]"
-                # Truncate name if too long
-                display_name = name[:18] + ".." if len(name) > 18 else name
-                desc = server.get("description", "Custom server")
-                desc = desc[:35] + "..." if len(desc) > 35 else desc
-
-                env_vars = server.get("env", {})
-                empty_vars = [k for k, v in env_vars.items() if not v]
-                warning = " (!)" if empty_vars else ""
-
-                row_widgets = [
-                    Static(f"{status} {display_name}{warning}", classes="mcp-server-name"),
-                    Static(desc, classes="mcp-server-desc"),
-                ]
-
-                if env_vars:
-                    row_widgets.append(Button("Configure", id=f"mcp-config-{safe_id}", classes="mcp-config-btn"))
-
-                if server["enabled"]:
-                    row_widgets.append(Button("Disable", id=f"mcp-disable-{safe_id}", classes="mcp-toggle-btn -enabled"))
-                else:
-                    row_widgets.append(Button("Enable", id=f"mcp-enable-{safe_id}", classes="mcp-toggle-btn -disabled"))
-
-                items.append(Horizontal(*row_widgets, classes="mcp-server-row"))
+            items.append(Horizontal(*row_widgets, classes="mcp-server-row"))
 
         if not items:
             items.append(Static("No MCP servers available", classes="mcp-empty"))
@@ -594,24 +543,8 @@ class CraftApp(App):
             skill_list.mount(item)
 
     def _handle_mcp_add_button(self) -> None:
-        """Handle the MCP Add button press."""
-        if not self.query("#mcp-add-input"):
-            return
-
-        template_input = self.query_one("#mcp-add-input", PasteableInput)
-        template_name = template_input.value.strip()
-
-        if not template_name:
-            self.notify("Please enter a template name", severity="warning", timeout=2)
-            return
-
-        success, message = add_mcp_server_from_template(template_name)
-        if success:
-            template_input.value = ""
-            self._refresh_mcp_server_list()
-            self.notify(message, severity="information", timeout=2)
-        else:
-            self.notify(message, severity="error", timeout=3)
+        """Handle the MCP Add button press - no longer supported in TUI."""
+        self.notify("Add MCP servers via mcp_config.json or the browser interface", severity="information", timeout=3)
 
     def _handle_skill_install_button(self) -> None:
         """Handle the Skill Install button press."""
@@ -1275,19 +1208,6 @@ class CraftApp(App):
                 self._close_settings()
             return
 
-        if list_id == "mcp-template-list":
-            # Handle MCP template selection
-            item_id = event.item.id
-            if item_id and item_id.startswith("mcp-add-"):
-                template_name = item_id[8:]  # Remove "mcp-add-" prefix
-                success, message = add_mcp_server_from_template(template_name)
-                if success:
-                    self.notify(message, severity="information", timeout=3)
-                    self._refresh_mcp_server_list()
-                else:
-                    self.notify(message, severity="error", timeout=3)
-            return
-
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
         button_id = event.button.id
@@ -1339,17 +1259,6 @@ class CraftApp(App):
             safe_id = button_id[12:]  # Remove "mcp-disable-" prefix
             server_name = getattr(self, '_mcp_id_to_name', {}).get(safe_id, safe_id)
             success, message = disable_mcp_server(server_name)
-            if success:
-                self.notify(message, severity="information", timeout=2)
-                self._refresh_mcp_server_list()
-            else:
-                self.notify(message, severity="error", timeout=3)
-
-        # Handle MCP add template buttons (from the list)
-        if button_id and button_id.startswith("mcp-add-template-"):
-            safe_id = button_id[17:]  # Remove "mcp-add-template-" prefix
-            template_name = getattr(self, '_mcp_id_to_name', {}).get(safe_id, safe_id)
-            success, message = add_mcp_server_from_template(template_name)
             if success:
                 self.notify(message, severity="information", timeout=2)
                 self._refresh_mcp_server_list()

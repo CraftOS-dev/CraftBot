@@ -9,12 +9,9 @@ from app.ui_layer.settings import (
     list_mcp_servers,
     add_mcp_server,
     add_mcp_server_from_json,
-    add_mcp_server_from_template,
     remove_mcp_server,
     enable_mcp_server,
     disable_mcp_server,
-    get_available_templates,
-    get_template_env_vars,
     update_mcp_server_env,
 )
 
@@ -40,8 +37,6 @@ class MCPCommand(Command):
 
 Subcommands:
   list                           - List configured servers
-  templates                      - List available templates
-  add <template>                 - Add server from template
   add <name> --transport stdio -- <cmd>  - Add stdio server
   add <name> --transport http <url>      - Add HTTP server
   add-json <name> '<json>'       - Add from JSON config
@@ -52,12 +47,10 @@ Subcommands:
 
 Examples:
   /mcp list
-  /mcp templates
-  /mcp add filesystem
   /mcp add myserver --transport stdio -- python server.py
   /mcp remove myserver
-  /mcp enable filesystem
-  /mcp env filesystem ROOT_PATH /home/user"""
+  /mcp enable myserver
+  /mcp env myserver API_KEY my-secret-key"""
 
     async def execute(
         self,
@@ -73,7 +66,6 @@ Examples:
 
         handlers = {
             "list": self._list_servers,
-            "templates": self._list_templates,
             "add": lambda: self._add_server(sub_args),
             "add-json": lambda: self._add_server_json(sub_args),
             "remove": lambda: self._remove_server(sub_args),
@@ -97,7 +89,7 @@ Examples:
         if not servers:
             return CommandResult(
                 success=True,
-                message="No MCP servers configured. Use /mcp templates to see available templates.",
+                message="No MCP servers configured. Use /mcp add to add a server.",
             )
 
         lines = ["Configured MCP servers:", ""]
@@ -108,55 +100,18 @@ Examples:
 
         return CommandResult(success=True, message="\n".join(lines))
 
-    async def _list_templates(self) -> CommandResult:
-        """List available MCP templates."""
-        templates = get_available_templates()
-        if not templates:
-            return CommandResult(
-                success=True,
-                message="No MCP templates available.",
-            )
-
-        lines = ["Available MCP templates:", ""]
-        for template in templates:
-            name = template.get("name", "unknown")
-            desc = template.get("description", "")
-            lines.append(f"  {name} - {desc}")
-
-        lines.append("")
-        lines.append("Use /mcp add <template> to add a server.")
-
-        return CommandResult(success=True, message="\n".join(lines))
-
     async def _add_server(self, args: List[str]) -> CommandResult:
         """Add an MCP server."""
         if not args:
             return CommandResult(
                 success=False,
-                message="Usage: /mcp add <template> or /mcp add <name> --transport <type> ...",
+                message="Usage: /mcp add <name> --transport <type> ...",
             )
 
-        # Check if this is a template name
-        templates = get_available_templates()
-        template_names = [t.get("name", "").lower() for t in templates]
-
-        if args[0].lower() in template_names:
-            result = add_mcp_server_from_template(args[0])
-            if result.get("success"):
-                return CommandResult(
-                    success=True,
-                    message=f"Added MCP server from template: {args[0]}",
-                )
-            return CommandResult(
-                success=False,
-                message=result.get("error", "Failed to add server"),
-            )
-
-        # Parse custom server arguments
         if "--transport" not in args:
             return CommandResult(
                 success=False,
-                message="Custom servers require --transport. Use /help mcp for syntax.",
+                message="Server requires --transport. Use /help mcp for syntax.",
             )
 
         name = args[0]

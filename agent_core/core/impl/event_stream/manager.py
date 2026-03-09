@@ -23,6 +23,15 @@ from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.utils.logger import logger
 from agent_core.core.state.base import get_state_or_none
 
+# Import memory mode check (deferred to avoid circular imports)
+def _is_memory_enabled() -> bool:
+    """Check if memory mode is enabled. Returns True if unknown."""
+    try:
+        from app.ui_layer.settings.memory_settings import is_memory_enabled
+        return is_memory_enabled()
+    except ImportError:
+        return True  # Default to enabled if settings module not available
+
 # Task names that should not log to EVENT_UNPROCESSED.md (to prevent infinite loops)
 SKIP_UNPROCESSED_TASK_NAMES = {"Process Memory Events"}
 
@@ -173,10 +182,16 @@ class EventStreamManager:
         is a memory processing task (by name). This provides a robust
         fallback in case the flag isn't properly set.
 
+        Also checks if memory mode is disabled in settings.
+
         Returns:
             True if logging to EVENT_UNPROCESSED.md should be skipped.
         """
-        # Check explicit flag first
+        # Check if memory is disabled in settings
+        if not _is_memory_enabled():
+            return True
+
+        # Check explicit flag
         if self._skip_unprocessed_logging:
             return True
 

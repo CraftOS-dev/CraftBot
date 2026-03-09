@@ -26,6 +26,58 @@
         "GITHUB_PERSONAL_ACCESS_TOKEN": ""
       },
       "enabled": true
+    },
+    {
+      "name": "memory",
+      "description": "Knowledge graph for storing and retrieving entities and relations",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {},
+      "enabled": true
+    },
+    {
+      "name": "sqlite",
+      "description": "SQLite database operations",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "--db-path",
+        "database.db"
+      ],
+      "env": {},
+      "enabled": true
+    },
+    {
+      "name": "puppeteer",
+      "description": "Browser automation and web scraping",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ],
+      "env": {},
+      "enabled": true
+    },
+    {
+      "name": "brave-search",
+      "description": "Web search using Brave Search API",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": ""
+      },
+      "enabled": true
     }
   ],
   "auto_connect": true

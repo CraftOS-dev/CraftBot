@@ -6,7 +6,6 @@ import {
   XCircle,
   Cpu,
   TrendingUp,
-  DollarSign,
   BarChart3,
   ArrowUpRight,
   ArrowDownRight,
@@ -34,19 +33,6 @@ function formatUptime(seconds: number): string {
     return `${hours}h ${mins}m`
   }
   return `${mins}m`
-}
-
-function formatCost(cost: number): string {
-  if (cost >= 1) {
-    return `$${cost.toFixed(2)}`
-  }
-  if (cost >= 0.01) {
-    return `$${cost.toFixed(3)}`
-  }
-  if (cost >= 0.0001) {
-    return `$${cost.toFixed(4)}`
-  }
-  return `$${cost.toFixed(6)}`
 }
 
 function formatBytes(mb: number): string {
@@ -78,12 +64,6 @@ export function DashboardPage() {
   // Calculate values with fallbacks
   const uptime = metrics?.uptimeSeconds ? formatUptime(metrics.uptimeSeconds) : '0m'
   const successRate = metrics?.task.successRate ?? 100
-  const totalCost = metrics?.cost.total ?? 0
-  const costToday = metrics?.cost.today ?? 0
-  const costThisWeek = metrics?.cost.thisWeek ?? 0
-  const costThisMonth = metrics?.cost.thisMonth ?? 0
-  const avgCostPerRequest = metrics?.cost.perRequestAvg ?? 0
-  const avgCostPerTask = metrics?.cost.perTaskAvg ?? 0
 
   const inputTokens = metrics?.token.input ?? 0
   const outputTokens = metrics?.token.output ?? 0
@@ -194,39 +174,6 @@ export function DashboardPage() {
                 <span className={styles.statValue}>{successRate.toFixed(0)}%</span>
                 <span className={styles.statLabel}>Success</span>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Cost Tracking Panel */}
-        <div className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <DollarSign size={16} />
-            <h3>Cost Tracking</h3>
-            <Badge variant="primary">{formatCost(totalCost)} total</Badge>
-          </div>
-          <div className={styles.panelContent}>
-            <div className={styles.costGrid}>
-              <div className={styles.costItem}>
-                <span className={styles.costLabel}>Today</span>
-                <span className={styles.costValue}>{formatCost(costToday)}</span>
-              </div>
-              <div className={styles.costItem}>
-                <span className={styles.costLabel}>This Week</span>
-                <span className={styles.costValue}>{formatCost(costThisWeek)}</span>
-              </div>
-              <div className={styles.costItem}>
-                <span className={styles.costLabel}>This Month</span>
-                <span className={styles.costValue}>{formatCost(costThisMonth)}</span>
-              </div>
-              <div className={styles.costItem}>
-                <span className={styles.costLabel}>Avg/Request</span>
-                <span className={styles.costValue}>{formatCost(avgCostPerRequest)}</span>
-              </div>
-            </div>
-            <div className={styles.costAverage}>
-              <span>Average cost per task:</span>
-              <span className={styles.highlight}>{formatCost(avgCostPerTask)}</span>
             </div>
           </div>
         </div>

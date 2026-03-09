@@ -12,6 +12,7 @@ from agent_core import (
     ProviderConfig,
     PROVIDER_CONFIG,
     ModelFactory,
+    test_provider_connection,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "ProviderConfig",
     "PROVIDER_CONFIG",
     "ModelFactory",
+    "test_provider_connection",
 ]

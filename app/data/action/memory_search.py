@@ -84,6 +84,16 @@ def memory_search(input_data: dict) -> dict:
         }
 
     try:
+        # Check if memory is enabled
+        from app.ui_layer.settings.memory_settings import is_memory_enabled
+        if not is_memory_enabled():
+            return {
+                'status': 'ok',
+                'results': [],
+                'count': 0,
+                'message': 'Memory is disabled'
+            }
+
         query = input_data.get('query')
         if not query:
             return {

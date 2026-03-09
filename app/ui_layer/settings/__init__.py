@@ -11,12 +11,10 @@ from app.tui.mcp_settings import (
     list_mcp_servers,
     add_mcp_server,
     add_mcp_server_from_json,
-    add_mcp_server_from_template,
     remove_mcp_server,
     enable_mcp_server,
     disable_mcp_server,
-    get_available_templates,
-    get_template_env_vars,
+    get_server_env_vars,
     update_mcp_server_env,
 )
 
@@ -30,7 +28,19 @@ from app.tui.skill_settings import (
     install_skill_from_path,
     install_skill_from_git,
     create_skill_scaffold,
+    get_skill_template,
     remove_skill,
+)
+
+from app.tui.integration_settings import (
+    list_integrations,
+    get_integration_info,
+    get_integration_accounts,
+    connect_integration_token,
+    connect_integration_oauth,
+    disconnect_integration,
+    get_integration_auth_type,
+    get_integration_fields,
 )
 
 # General settings
@@ -64,17 +74,40 @@ from app.ui_layer.settings.proactive_settings import (
     reload_proactive_manager,
 )
 
+# Memory settings
+from app.ui_layer.settings.memory_settings import (
+    # Memory mode control
+    is_memory_enabled,
+    get_memory_mode,
+    set_memory_mode,
+    # Memory items
+    get_memory_items,
+    add_memory_item,
+    update_memory_item,
+    remove_memory_item,
+    reset_memory,
+    clear_unprocessed_events,
+    get_memory_stats,
+)
+
+# Model settings
+from app.ui_layer.settings.model_settings import (
+    get_available_providers,
+    get_model_settings,
+    update_model_settings,
+    test_connection,
+    validate_can_save,
+)
+
 __all__ = [
     # MCP settings
     "list_mcp_servers",
     "add_mcp_server",
     "add_mcp_server_from_json",
-    "add_mcp_server_from_template",
     "remove_mcp_server",
     "enable_mcp_server",
     "disable_mcp_server",
-    "get_available_templates",
-    "get_template_env_vars",
+    "get_server_env_vars",
     "update_mcp_server_env",
     # Skill settings
     "list_skills",
@@ -86,7 +119,17 @@ __all__ = [
     "install_skill_from_path",
     "install_skill_from_git",
     "create_skill_scaffold",
+    "get_skill_template",
     "remove_skill",
+    # Integration settings
+    "list_integrations",
+    "get_integration_info",
+    "get_integration_accounts",
+    "connect_integration_token",
+    "connect_integration_oauth",
+    "disconnect_integration",
+    "get_integration_auth_type",
+    "get_integration_fields",
     # General settings
     "read_agent_file",
     "write_agent_file",
@@ -110,4 +153,22 @@ __all__ = [
     "toggle_proactive_task",
     "reset_proactive_tasks",
     "reload_proactive_manager",
+    # Memory mode control
+    "is_memory_enabled",
+    "get_memory_mode",
+    "set_memory_mode",
+    # Memory settings
+    "get_memory_items",
+    "add_memory_item",
+    "update_memory_item",
+    "remove_memory_item",
+    "reset_memory",
+    "clear_unprocessed_events",
+    "get_memory_stats",
+    # Model settings
+    "get_available_providers",
+    "get_model_settings",
+    "update_model_settings",
+    "test_connection",
+    "validate_can_save",
 ]
