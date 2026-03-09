@@ -101,10 +101,10 @@ def proactive_add(input_data: dict) -> dict:
 
         # Validate permission_tier
         permission_tier = input_data.get("permission_tier", 1)
-        if not isinstance(permission_tier, int) or permission_tier < 0 or permission_tier > 4:
+        if not isinstance(permission_tier, int) or permission_tier < 0 or permission_tier > 3:
             return {
                 "status": "error",
-                "error": "permission_tier must be an integer from 0 to 4"
+                "error": "permission_tier must be an integer from 0 to 3"
             }
 
         # Create the task

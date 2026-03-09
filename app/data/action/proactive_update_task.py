@@ -72,10 +72,10 @@ def proactive_update_task(input_data: dict) -> dict:
         # Validate permission_tier if being updated
         if "permission_tier" in updates:
             tier = updates["permission_tier"]
-            if not isinstance(tier, int) or tier < 0 or tier > 4:
+            if not isinstance(tier, int) or tier < 0 or tier > 3:
                 return {
                     "status": "error",
-                    "error": "permission_tier must be an integer from 0 to 4"
+                    "error": "permission_tier must be an integer from 0 to 3"
                 }
 
         # Update the task

@@ -83,7 +83,7 @@ class ProactiveTask:
         instruction: What the agent should do
         enabled: Whether the task is active
         priority: Task priority (lower = higher priority)
-        permission_tier: Permission level (0-4)
+        permission_tier: Permission level (0-3)
         time: Time of day for daily+ tasks (HH:MM format)
         day: Day of week for weekly tasks (e.g., "sunday")
         conditions: List of conditions that must be met

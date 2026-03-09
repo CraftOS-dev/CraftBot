@@ -30,11 +30,12 @@ class EventTransformer:
     ERROR_KINDS = {"error", "exception"}
     SYSTEM_KINDS = {"system", "system message"}
     INFO_KINDS = {"info", "note"}
+    REASONING_KINDS = {"agent reasoning", "reasoning"}
 
     # Actions that should be hidden from the UI (for action_start/action_end events)
     HIDDEN_ACTIONS = {
-        "task_update_todos", "send message", "ignore",
-        "task start", "task_start", "task end", "task_end",
+        "task_update_todos", "ignore",
+        "task start", "task_start",
     }
 
     # Event kinds that should be hidden from chat (reasoning, internal events)
@@ -69,7 +70,13 @@ class EventTransformer:
         message = event.display_message or event.message
         timestamp = cls._parse_timestamp(event.iso_ts)
 
-        # Check for hidden event kinds (reasoning, thinking, etc.) FIRST
+        # Handle reasoning events BEFORE hidden event check
+        # (reasoning would be filtered by _is_hidden_event, but we want to capture it
+        # for the Tasks page - the frontend will filter it from Chat page)
+        if kind in cls.REASONING_KINDS or "agent reasoning" in kind:
+            return cls._create_reasoning_event(message, timestamp, task_id)
+
+        # Check for hidden event kinds (thinking, thought, etc.) FIRST
         if cls._is_hidden_event(kind, message):
             return None
 
@@ -79,7 +86,8 @@ class EventTransformer:
             return cls._create_task_start_event(message, timestamp, task_id)
 
         if kind in cls.TASK_END_KINDS or "task_end" in kind:
-            return cls._create_task_end_event(message, timestamp, task_id)
+            # Use original message for status detection (contains "cancelled", "error", etc.)
+            return cls._create_task_end_event(message, event.message, timestamp, task_id)
 
         # Check for hidden actions (applies to action events only)
         if cls._is_hidden_action(kind, message):
@@ -238,20 +246,36 @@ class EventTransformer:
     @classmethod
     def _create_task_end_event(
         cls,
-        message: str,
+        display_message: str,
+        full_message: str,
         timestamp: datetime,
         task_id: Optional[str],
     ) -> UIEvent:
-        """Create a task end event."""
-        # Check for error status
-        is_error = "error" in message.lower() or "failed" in message.lower()
+        """Create a task end event.
+
+        Args:
+            display_message: The display message (usually task name)
+            full_message: The full event message (contains status info like "cancelled")
+            timestamp: Event timestamp
+            task_id: Task ID
+        """
+        # Use full message for status detection (contains "cancelled", "error", etc.)
+        full_message_lower = full_message.lower() if full_message else ""
+
+        # Determine task status from full message content
+        if "error" in full_message_lower or "failed" in full_message_lower:
+            status = "error"
+        elif "aborted" in full_message_lower or "cancelled" in full_message_lower or "canceled" in full_message_lower:
+            status = "cancelled"
+        else:
+            status = "completed"
 
         return UIEvent(
             type=UIEventType.TASK_END,
             data={
                 "task_id": task_id or "",
-                "message": message,
-                "status": "error" if is_error else "completed",
+                "message": display_message,
+                "status": status,
             },
             timestamp=timestamp,
             task_id=task_id,
@@ -398,6 +422,28 @@ class EventTransformer:
                 "error_message": error_message,
                 "task_id": task_id,
                 "output": output_data,
+            },
+            timestamp=timestamp,
+            task_id=task_id,
+        )
+
+    @classmethod
+    def _create_reasoning_event(
+        cls,
+        message: str,
+        timestamp: datetime,
+        task_id: Optional[str],
+    ) -> UIEvent:
+        """Create a reasoning event."""
+        # Generate reasoning ID
+        reasoning_id = f"{task_id or 'main'}:reasoning:{timestamp.timestamp()}"
+
+        return UIEvent(
+            type=UIEventType.REASONING,
+            data={
+                "reasoning_id": reasoning_id,
+                "content": message,
+                "task_id": task_id,
             },
             timestamp=timestamp,
             task_id=task_id,

@@ -222,6 +222,9 @@ class InterfaceAdapter(ABC):
         self._unsubscribers.append(
             bus.subscribe(UIEventType.ACTION_END, self._handle_action_end)
         )
+        self._unsubscribers.append(
+            bus.subscribe(UIEventType.REASONING, self._handle_reasoning)
+        )
 
         # State events
         self._unsubscribers.append(
@@ -364,6 +367,12 @@ class InterfaceAdapter(ABC):
                     error=error_message,
                 )
             )
+
+    def _handle_reasoning(self, event: UIEvent) -> None:
+        """Handle reasoning event. Override in browser adapter for Tasks page."""
+        # Base implementation does nothing - reasoning is only shown in Tasks page
+        # Chat page's action panel should not display reasoning items
+        pass
 
     def _handle_state_change(self, event: UIEvent) -> None:
         """Handle agent state change event."""

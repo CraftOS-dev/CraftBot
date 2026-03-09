@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, XCircle } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { StatusIndicator, Badge } from '../../components/ui'
+import { StatusIndicator, Badge, Button } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import styles from './TasksPage.module.css'
 
@@ -271,7 +271,7 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions } = useWebSocket()
+  const { actions, cancelTask, cancellingTaskId } = useWebSocket()
   const [selectedItem, setSelectedItem] = useState<ActionItem | null>(null)
 
   // Resizable panel state
@@ -281,8 +281,13 @@ export function TasksPage() {
 
   const tasks = actions.filter(a => a.itemType === 'task')
 
-  const getActionsForTask = (taskId: string) =>
-    actions.filter(a => a.itemType === 'action' && a.parentId === taskId)
+  // Get all items (actions + reasoning) for a task
+  const getItemsForTask = (taskId: string) =>
+    actions.filter(a => (a.itemType === 'action' || a.itemType === 'reasoning') && a.parentId === taskId)
+
+  // Get only actual actions (not reasoning) for count
+  const getActionCountForTask = (taskId: string) =>
+    actions.filter(a => a.itemType === 'action' && a.parentId === taskId).length
 
   const formatDuration = (ms?: number) => {
     if (!ms) return '-'
@@ -339,15 +344,23 @@ export function TasksPage() {
             </div>
           ) : (
             tasks.map(task => {
-              const taskActions = getActionsForTask(task.id)
+              const taskItems = getItemsForTask(task.id)
+              const actionCount = getActionCountForTask(task.id)
               const isExpanded = selectedItem?.id === task.id ||
-                taskActions.some(a => a.id === selectedItem?.id)
+                taskItems.some(a => a.id === selectedItem?.id)
 
               return (
                 <div key={task.id} className={styles.taskGroup}>
                   <button
                     className={`${styles.taskItem} ${selectedItem?.id === task.id ? styles.selected : ''}`}
-                    onClick={() => setSelectedItem(task)}
+                    onClick={() => {
+                      // Toggle: if task is selected, deselect; otherwise select
+                      if (selectedItem?.id === task.id) {
+                        setSelectedItem(null)
+                      } else {
+                        setSelectedItem(task)
+                      }
+                    }}
                   >
                     <ChevronRight
                       size={14}
@@ -358,26 +371,32 @@ export function TasksPage() {
                     <Badge
                       variant={
                         task.status === 'completed' ? 'success' :
-                        task.status === 'error' ? 'error' :
+                        (task.status === 'error' || task.status === 'cancelled') ? 'error' :
                         task.status === 'running' ? 'primary' : 'default'
                       }
                     >
-                      {taskActions.length} actions
+                      {actionCount} actions
                     </Badge>
                   </button>
 
-                  {isExpanded && taskActions.length > 0 && (
+                  {isExpanded && (
                     <div className={styles.actionsList}>
-                      {taskActions.map(action => (
-                        <button
-                          key={action.id}
-                          className={`${styles.actionItem} ${selectedItem?.id === action.id ? styles.selected : ''}`}
-                          onClick={() => setSelectedItem(action)}
-                        >
-                          <StatusIndicator status={action.status} size="sm" />
-                          <span className={styles.itemName}>{action.name}</span>
-                        </button>
-                      ))}
+                      {taskItems.length > 0 ? (
+                        taskItems.map(action => (
+                          <button
+                            key={action.id}
+                            className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${selectedItem?.id === action.id ? styles.selected : ''}`}
+                            onClick={() => setSelectedItem(action)}
+                          >
+                            {action.itemType !== 'reasoning' && (
+                              <StatusIndicator status={action.status} size="sm" />
+                            )}
+                            <span className={styles.itemName}>{action.name}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className={styles.noActions}>No actions yet</div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -402,15 +421,24 @@ export function TasksPage() {
                 <StatusIndicator status={selectedItem.status} size="md" />
                 <h2>{selectedItem.name}</h2>
               </div>
-              <Badge
-                variant={
-                  selectedItem.status === 'completed' ? 'success' :
-                  selectedItem.status === 'error' ? 'error' :
-                  selectedItem.status === 'running' ? 'primary' : 'default'
-                }
-              >
-                {selectedItem.status}
-              </Badge>
+              {selectedItem.itemType === 'task' && (
+                <div className={styles.detailActions}>
+                  {selectedItem.status === 'running' ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<XCircle size={14} />}
+                      loading={cancellingTaskId === selectedItem.id}
+                      onClick={() => cancelTask(selectedItem.id)}
+                      className={styles.cancelButton}
+                    >
+                      {cancellingTaskId === selectedItem.id ? 'Cancelling...' : 'Cancel Task'}
+                    </Button>
+                  ) : (selectedItem.status === 'error' || selectedItem.status === 'cancelled') && (
+                    <Badge variant="error">Aborted</Badge>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className={styles.detailContent}>
@@ -432,18 +460,31 @@ export function TasksPage() {
                 </dl>
               </div>
 
-              {selectedItem.input && (
-                <div className={styles.detailSection}>
-                  <h4>Input</h4>
-                  <JsonDisplay content={selectedItem.input} />
-                </div>
-              )}
+              {selectedItem.itemType === 'reasoning' ? (
+                selectedItem.output && (
+                  <div className={styles.detailSection}>
+                    <h4>Content</h4>
+                    <div className={styles.reasoningContent}>
+                      {selectedItem.output}
+                    </div>
+                  </div>
+                )
+              ) : (
+                <>
+                  {selectedItem.input && (
+                    <div className={styles.detailSection}>
+                      <h4>Input</h4>
+                      <JsonDisplay content={selectedItem.input} />
+                    </div>
+                  )}
 
-              {selectedItem.output && (
-                <div className={styles.detailSection}>
-                  <h4>Output</h4>
-                  <JsonDisplay content={selectedItem.output} />
-                </div>
+                  {selectedItem.output && (
+                    <div className={styles.detailSection}>
+                      <h4>Output</h4>
+                      <JsonDisplay content={selectedItem.output} />
+                    </div>
+                  )}
+                </>
               )}
 
               {selectedItem.error && (

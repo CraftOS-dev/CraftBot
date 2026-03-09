@@ -1,16 +1,16 @@
 import React, { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react'
-import { Send, Paperclip } from 'lucide-react'
+import { Send, Paperclip, X, Loader2 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { Button, IconButton, StatusIndicator } from '../../components/ui'
+import { Button, IconButton, StatusIndicator, MarkdownContent } from '../../components/ui'
 import styles from './ChatPage.module.css'
 
 // Panel width limits
-const DEFAULT_PANEL_WIDTH = 320
+const DEFAULT_PANEL_WIDTH = 380
 const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 800
 
 export function ChatPage() {
-  const { messages, actions, status, connected, sendMessage } = useWebSocket()
+  const { messages, actions, status, connected, sendMessage, cancelTask, cancellingTaskId } = useWebSocket()
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -108,7 +108,7 @@ export function ChatPage() {
                   </span>
                 </div>
                 <div className={styles.messageContent}>
-                  {msg.content}
+                  <MarkdownContent content={msg.content} />
                 </div>
               </div>
             ))
@@ -165,7 +165,7 @@ export function ChatPage() {
           ) : (
             tasks.map(task => (
               <div key={task.id} className={styles.taskGroup}>
-                <button
+                <div
                   className={`${styles.taskItem} ${selectedTaskId === task.id ? styles.selected : ''}`}
                   onClick={() => setSelectedTaskId(
                     selectedTaskId === task.id ? null : task.id
@@ -173,7 +173,27 @@ export function ChatPage() {
                 >
                   <StatusIndicator status={task.status} size="sm" />
                   <span className={styles.taskName}>{task.name}</span>
-                </button>
+                  {task.status === 'running' && (
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      className={styles.taskCancelBtn}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        cancelTask(task.id)
+                      }}
+                      disabled={cancellingTaskId === task.id}
+                      title="Cancel Task"
+                      icon={
+                        cancellingTaskId === task.id ? (
+                          <Loader2 size={12} className={styles.spinning} />
+                        ) : (
+                          <X size={12} />
+                        )
+                      }
+                    />
+                  )}
+                </div>
                 {selectedTaskId === task.id && (
                   <div className={styles.actionsList}>
                     {getActionsForTask(task.id).map(action => (

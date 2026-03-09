@@ -313,11 +313,10 @@ Evaluate each potential proactive task using a five-dimension rubric. Score each
 Add the scores. Tasks scoring 18 or above are strong candidates for execution. Tasks scoring 13-17 may be worth doing but might need user input first. Tasks below 13 should be skipped or deferred.
 
 Before acting on any proactive task, follow the tiered permission model:
-- Tier 0 (silent read): Searching, analyzing, drafting internally - proceed without asking
-- Tier 1 (suggest): Notifying user of findings or recommendations - wait for acknowledgment
-- Tier 2 (low-risk): Creating tickets, scheduling reminders, drafting PRs - inform and proceed unless objected
-- Tier 3 (high-risk): Emailing external parties, changing configs, touching finances - explicit approval required every time
-- Tier 4 (prohibited): Actions disallowed by policy or potentially irreversible harm - never proceed
+- Tier 0 (silent): Searching, analyzing, drafting, internal operations - proceed without notifying the user
+- Tier 1 (notify): Inform user of task execution and findings - inform and proceed without waiting
+- Tier 2 (approval): Actions that modify state or create artifacts - ask for approval before proceeding
+- Tier 3 (high-risk): Emailing external parties, changing configs, sensitive operations - explicit detailed approval required
 
 When requesting permission for proactive tasks, prefix your message with the star emoji to indicate it is a proactive request.
 
@@ -351,8 +350,8 @@ def validate_yaml_block(yaml_str: str) -> Tuple[bool, Optional[str]]:
 
         # Validate permission_tier
         tier = data.get("permission_tier", 0)
-        if not isinstance(tier, int) or tier < 0 or tier > 4:
-            return False, "permission_tier must be an integer from 0 to 4"
+        if not isinstance(tier, int) or tier < 0 or tier > 3:
+            return False, "permission_tier must be an integer from 0 to 3"
 
         return True, None
 

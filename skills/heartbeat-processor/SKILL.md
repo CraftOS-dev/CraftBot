@@ -30,29 +30,26 @@ Tier 0 - Silent Read (No Approval Required):
   - Draft recommendations internally
   - Read files and analyze data
 
-Tier 1 - Suggest (Approval to Notify):
-  - Send a proposed plan or draft to user
-  - Notify user of findings or recommendations
+Tier 1 - Notify (Inform and Proceed):
+  - Inform user of task execution
+  - Send findings or recommendations
   - Share analysis results
+  - Proceeds without waiting for response
 
-Tier 2 - Act on Low-Risk Tools (Pre-Approved):
+Tier 2 - Approval Required (Ask First):
   - Create tickets or issues
   - Schedule reminders
   - Open PR drafts
-  - Prepare campaign drafts
-  - Update internal documents
+  - Update documents
+  - Ask for approval before proceeding
 
-Tier 3 - High-Risk Actions (Explicit Approval Every Time):
+Tier 3 - High-Risk Actions (Explicit Detailed Approval):
   - Emailing customers or external parties
   - Changing configurations
   - Touching money or financial systems
   - Production deployments
   - Modifying critical systems
-
-Tier 4 - Prohibited:
-  - Anything disallowed by policy
-  - Actions that could cause irreversible harm
-  - Unauthorized access or modifications
+  - Requires explicit detailed approval with full context
 ```
 
 ## Evaluation Rubric
@@ -163,10 +160,9 @@ For tasks you decide to execute INLINE:
 
 1. **Check Permission Tier**:
    - **Tier 0 (silent)**: Execute without notification
-   - **Tier 1 (suggest)**: Notify user with star prefix, wait for acknowledgment
-   - **Tier 2 (low-risk)**: Inform user and proceed unless objected
-   - **Tier 3 (high-risk)**: Request explicit approval first
-   - **Tier 4 (prohibited)**: Never execute
+   - **Tier 1 (notify)**: Inform user with star prefix, proceed without waiting
+   - **Tier 2 (approval)**: Ask for approval before proceeding
+   - **Tier 3 (high-risk)**: Request explicit detailed approval first
 
 2. **Execute the Task**: Follow the task's instruction using available actions
 

@@ -16,8 +16,8 @@ export interface ChatMessage {
 // Action/Task Types
 // ─────────────────────────────────────────────────────────────────────
 
-export type ActionStatus = 'running' | 'completed' | 'error' | 'pending'
-export type ItemType = 'task' | 'action'
+export type ActionStatus = 'running' | 'completed' | 'error' | 'pending' | 'cancelled'
+export type ItemType = 'task' | 'action' | 'reasoning'
 
 export interface ActionItem {
   id: string
@@ -61,6 +61,7 @@ export type WSMessageType =
   | 'footage_clear'
   | 'footage_visibility'
   | 'state_update'
+  | 'dashboard_metrics'
   // File operations
   | 'file_list'
   | 'file_read'
@@ -73,6 +74,9 @@ export type WSMessageType =
   | 'file_copy'
   | 'file_upload'
   | 'file_download'
+  // Task control
+  | 'task_cancel'
+  | 'task_cancel_response'
 
 export interface WSMessage {
   type: WSMessageType
@@ -86,6 +90,7 @@ export interface InitialState {
   messages: ChatMessage[]
   actions: ActionItem[]
   status: string
+  dashboardMetrics?: DashboardMetrics
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -119,6 +124,119 @@ export interface DashboardStats {
   tokenUsage: TokenUsage
   mcpServers: MCPServer[]
   skills: Skill[]
+}
+
+// New Dashboard Metrics Types
+export interface CostMetrics {
+  perRequestAvg: number
+  perTaskAvg: number
+  today: number
+  thisWeek: number
+  thisMonth: number
+  total: number
+}
+
+export interface TaskMetrics {
+  total: number
+  completed: number
+  failed: number
+  running: number
+  successRate: number
+}
+
+export interface TokenMetrics {
+  input: number
+  output: number
+  cached: number
+  total: number
+}
+
+export interface SystemMetrics {
+  cpuPercent: number
+  memoryPercent: number
+  memoryUsedMb: number
+  memoryTotalMb: number
+  diskPercent: number
+  diskUsedGb: number
+  diskTotalGb: number
+  networkSentMb: number
+  networkRecvMb: number
+  networkSentRateKbps: number
+  networkRecvRateKbps: number
+}
+
+export interface ThreadPoolMetrics {
+  activeThreads: number
+  maxWorkers: number
+  pendingTasks: number
+  utilizationPercent: number
+}
+
+export interface UsageMetrics {
+  requestsLastHour: number
+  requestsToday: number
+  peakHour: number
+  peakHourRequests: number
+  hourlyDistribution: number[]
+}
+
+export interface UsageCount {
+  name: string
+  count: number
+}
+
+export interface MCPServerInfo {
+  name: string
+  status: 'connected' | 'disconnected' | 'error'
+  toolCount: number
+  transport: 'stdio' | 'sse' | 'websocket'
+  actionSet: string
+  tools: string[]
+}
+
+export interface MCPMetrics {
+  totalServers: number
+  connectedServers: number
+  totalTools: number
+  totalCalls: number
+  servers: MCPServerInfo[]
+  topTools: UsageCount[]
+}
+
+export interface SkillInfo {
+  name: string
+  enabled: boolean
+  description: string
+  userInvocable: boolean
+  actionSets: string[]
+}
+
+export interface SkillMetrics {
+  totalSkills: number
+  enabledSkills: number
+  totalInvocations: number
+  skills: SkillInfo[]
+  topSkills: UsageCount[]
+}
+
+export interface ModelMetrics {
+  provider: string
+  modelId: string
+  modelName: string
+}
+
+export interface DashboardMetrics {
+  uptimeSeconds: number
+  timestamp: number
+  cost: CostMetrics
+  task: TaskMetrics
+  token: TokenMetrics
+  system: SystemMetrics
+  threadPool: ThreadPoolMetrics
+  usage: UsageMetrics
+  mcp: MCPMetrics
+  skill: SkillMetrics
+  model: ModelMetrics
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -231,6 +349,17 @@ export interface FileDownloadResponse {
   content?: string  // base64 encoded
   fileInfo?: FileItem
   success: boolean
+  error?: string
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Task Control
+// ─────────────────────────────────────────────────────────────────────
+
+export interface TaskCancelResponse {
+  taskId: string
+  success: boolean
+  status?: 'cancelled' | 'error'
   error?: string
 }
 

@@ -24,8 +24,13 @@
       "enabled": true,
       "priority": 60,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive"],
-      "skills": ["heartbeat-processor"],
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
       "payload": {
         "type": "proactive_heartbeat",
         "frequency": "hourly"
@@ -39,8 +44,14 @@
       "enabled": true,
       "priority": 40,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive", "web_research"],
-      "skills": ["heartbeat-processor"],
+      "action_sets": [
+        "file_operations",
+        "proactive",
+        "web_research"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
       "payload": {
         "type": "proactive_heartbeat",
         "frequency": "daily"
@@ -54,8 +65,13 @@
       "enabled": true,
       "priority": 45,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive"],
-      "skills": ["heartbeat-processor"],
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
       "payload": {
         "type": "proactive_heartbeat",
         "frequency": "weekly"
@@ -69,8 +85,13 @@
       "enabled": true,
       "priority": 50,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive"],
-      "skills": ["heartbeat-processor"],
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
       "payload": {
         "type": "proactive_heartbeat",
         "frequency": "monthly"
@@ -84,8 +105,13 @@
       "enabled": true,
       "priority": 35,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive"],
-      "skills": ["day-planner"],
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "day-planner"
+      ],
       "payload": {
         "type": "proactive_planner",
         "scope": "day"
@@ -99,8 +125,13 @@
       "enabled": true,
       "priority": 35,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive"],
-      "skills": ["week-planner"],
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "week-planner"
+      ],
       "payload": {
         "type": "proactive_planner",
         "scope": "week"
@@ -114,8 +145,13 @@
       "enabled": true,
       "priority": 35,
       "mode": "complex",
-      "action_sets": ["file_operations", "proactive"],
-      "skills": ["month-planner"],
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "month-planner"
+      ],
       "payload": {
         "type": "proactive_planner",
         "scope": "month"

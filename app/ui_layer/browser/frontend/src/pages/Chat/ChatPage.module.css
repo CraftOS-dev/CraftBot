@@ -142,9 +142,6 @@
 }
 
 .messageContent {
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  white-space: pre-wrap;
   word-break: break-word;
 }
 
@@ -262,6 +259,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Task cancel button - hidden by default, shown on hover */
+.taskCancelBtn {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.taskItem:hover .taskCancelBtn {
+  opacity: 1;
+}
+
+.taskCancelBtn:hover {
+  color: var(--color-error);
+  background: var(--color-error-light);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Action Items */

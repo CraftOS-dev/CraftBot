@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
-import type { ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage } from '../types'
+import type { ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics, TaskCancelResponse } from '../types'
 
 interface WebSocketState {
   connected: boolean
@@ -9,12 +9,15 @@ interface WebSocketState {
   guiMode: boolean
   currentTask: { id: string; name: string } | null
   footageUrl: string | null
+  dashboardMetrics: DashboardMetrics | null
+  cancellingTaskId: string | null
 }
 
 interface WebSocketContextType extends WebSocketState {
   sendMessage: (content: string) => void
   sendCommand: (command: string) => void
   clearMessages: () => void
+  cancelTask: (taskId: string) => void
 }
 
 const defaultState: WebSocketState = {
@@ -29,6 +32,8 @@ const defaultState: WebSocketState = {
   guiMode: false,
   currentTask: null,
   footageUrl: null,
+  dashboardMetrics: null,
+  cancellingTaskId: null,
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
@@ -109,6 +114,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           },
           guiMode: data.guiMode || false,
           currentTask: data.currentTask || null,
+          dashboardMetrics: data.dashboardMetrics || null,
         }))
         break
       }
@@ -207,6 +213,32 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         setState(prev => ({ ...prev, guiMode: visible }))
         break
       }
+
+      case 'dashboard_metrics': {
+        const metrics = msg.data as unknown as DashboardMetrics
+        setState(prev => ({ ...prev, dashboardMetrics: metrics }))
+        break
+      }
+
+      case 'task_cancel_response': {
+        const response = msg.data as unknown as TaskCancelResponse
+        if (response.success) {
+          // Update the task status to cancelled
+          setState(prev => ({
+            ...prev,
+            cancellingTaskId: null,
+            actions: prev.actions.map(a =>
+              a.id === response.taskId
+                ? { ...a, status: 'cancelled' as const }
+                : a
+            ),
+          }))
+        } else {
+          // Cancel failed, reset cancelling state
+          setState(prev => ({ ...prev, cancellingTaskId: null }))
+        }
+        break
+      }
     }
   }, [])
 
@@ -242,6 +274,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, messages: [] }))
   }, [])
 
+  const cancelTask = useCallback((taskId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setState(prev => ({ ...prev, cancellingTaskId: taskId }))
+      wsRef.current.send(JSON.stringify({ type: 'task_cancel', taskId }))
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -249,6 +288,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         sendMessage,
         sendCommand,
         clearMessages,
+        cancelTask,
       }}
     >
       {children}

@@ -9,3 +9,5 @@ export { Badge } from './Badge'
 export type { BadgeVariant } from './Badge'
 
 export { StatusIndicator } from './StatusIndicator'
+
+export { MarkdownContent } from './MarkdownContent'

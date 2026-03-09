@@ -158,7 +158,7 @@ class ProactiveManager:
             time: Time of day for daily+ tasks (HH:MM)
             day: Day of week for weekly tasks
             priority: Task priority (lower = higher)
-            permission_tier: Permission level (0-4)
+            permission_tier: Permission level (0-3)
             enabled: Whether task is active
             conditions: List of condition dictionaries
 

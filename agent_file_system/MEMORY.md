@@ -9,3 +9,8 @@ DO NOT copy and paste events here: This memory file only stores distilled memory
 
 ## Memory
 
+[2026-02-09 22:00:19] [preference] User often requested weather information for Fukuoka, Japan
+[2026-02-09 22:00:19] [event] User is joining a meeting with John (Company A) on 12/5/2026.
+[2026-02-09 22:00:19] [preference] User likes Ramen
+[2026-02-09 22:00:19] [work] Agent create a file "tham_properties.txt" in workspace directory to store the user's owned properties.
+[2026-02-09 22:00:19] [work] User stores his favorite music list in a file "music_list.txt" in C:\\data\\path\\. The list is last updated in 2/1/2026.

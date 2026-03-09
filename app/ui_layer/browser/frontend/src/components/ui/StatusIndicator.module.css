@@ -23,7 +23,8 @@
   color: var(--color-success);
 }
 
-.error {
+.error,
+.cancelled {
   color: var(--color-error);
 }
 
@@ -84,7 +85,8 @@
   background: var(#ff4f18, #ff9878);
 }
 
-.dot_error {
+.dot_error,
+.dot_cancelled {
   background: var(--color-error);
 }
 

@@ -25,6 +25,7 @@ class UIEventType(Enum):
     ACTION_START = auto()
     ACTION_END = auto()
     ACTION_UPDATE = auto()
+    REASONING = auto()
 
     # State events
     AGENT_STATE_CHANGED = auto()

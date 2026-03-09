@@ -35,6 +35,12 @@
   --color-info: #3B82F6;
   --color-info-light: rgba(59, 130, 246, 0.15);
 
+  /* Color Aliases (for convenience) */
+  --color-green: var(--color-success);
+  --color-yellow: var(--color-warning);
+  --color-red: var(--color-error);
+  --color-blue: var(--color-info);
+
   /* ─────────────────────────────────────────────────────────────────────
    * Theme Colors (Dark mode default)
    * ───────────────────────────────────────────────────────────────────── */

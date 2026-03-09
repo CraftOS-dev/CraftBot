@@ -13,6 +13,28 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from app.config import AGENT_WORKSPACE_ROOT
 from app.ui_layer.adapters.base import InterfaceAdapter
+from app.ui_layer.settings import (
+    # General settings
+    read_agent_file,
+    write_agent_file,
+    restore_agent_file,
+    reset_agent_state,
+    get_general_settings,
+    update_general_settings,
+    # Proactive mode control
+    get_proactive_mode,
+    set_proactive_mode,
+    # Proactive/scheduler settings
+    get_scheduler_config,
+    update_scheduler_config,
+    toggle_schedule_runtime,
+    get_proactive_tasks,
+    add_proactive_task,
+    update_proactive_task,
+    remove_proactive_task,
+    reset_proactive_tasks,
+    reload_proactive_manager,
+)
 from app.ui_layer.themes.base import ThemeAdapter, StyleType
 from app.ui_layer.themes.theme import BaseTheme
 from app.ui_layer.components.protocols import (
@@ -24,6 +46,7 @@ from app.ui_layer.components.protocols import (
 from app.ui_layer.components.types import ChatMessage, ActionItem
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
+from app.ui_layer.metrics import MetricsCollector
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -173,8 +196,8 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         for item in self._items:
             if item.id == item_id:
                 item.status = status
-                # Record completion time for completed/error status
-                if status in ("completed", "error") and item.completed_at is None:
+                # Record completion time for completed/error/cancelled status
+                if status in ("completed", "error", "cancelled") and item.completed_at is None:
                     item.completed_at = time.time()
                 matched_item = item
                 break
@@ -235,8 +258,8 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
 
         if matched_item:
             matched_item.status = status
-            # Record completion time for completed/error status
-            if status in ("completed", "error") and matched_item.completed_at is None:
+            # Record completion time for completed/error/cancelled status
+            if status in ("completed", "error", "cancelled") and matched_item.completed_at is None:
                 matched_item.completed_at = time.time()
             # Set output and error data
             if output is not None:
@@ -402,6 +425,10 @@ class BrowserAdapter(InterfaceAdapter):
         self._ws_clients: Set = set()
         self._runner: Optional["web.AppRunner"] = None
 
+        # Dashboard metrics collector
+        self._metrics_collector = MetricsCollector(controller.agent)
+        self._metrics_task: Optional[asyncio.Task] = None
+
     @property
     def theme_adapter(self) -> ThemeAdapter:
         return self._theme_adapter
@@ -421,6 +448,56 @@ class BrowserAdapter(InterfaceAdapter):
     @property
     def footage_component(self) -> FootageComponentProtocol:
         return self._footage
+
+    @property
+    def metrics_collector(self) -> MetricsCollector:
+        """Get the metrics collector for dashboard data."""
+        return self._metrics_collector
+
+    def _handle_task_start(self, event: UIEvent) -> None:
+        """Handle task start event with metrics tracking."""
+        # Call parent implementation
+        super()._handle_task_start(event)
+
+        # Track in metrics collector
+        task_id = event.data.get("task_id", "")
+        task_name = event.data.get("task_name", "Task")
+        if task_id:
+            self._metrics_collector.record_task_start(task_id, task_name)
+
+    def _handle_task_end(self, event: UIEvent) -> None:
+        """Handle task end event with metrics tracking."""
+        # Call parent implementation
+        super()._handle_task_end(event)
+
+        # Track in metrics collector
+        task_id = event.data.get("task_id", "")
+        task_name = event.data.get("task_name", "Task")
+        status = event.data.get("status", "completed")
+        if task_id:
+            self._metrics_collector.record_task_end(task_id, task_name, status)
+
+    def _handle_reasoning(self, event: UIEvent) -> None:
+        """Handle reasoning event - display in Tasks page only."""
+        # Add reasoning as an action item with item_type="reasoning"
+        # This will be displayed in the Tasks page but filtered out of
+        # the Chat page's action panel
+        task_id = event.data.get("task_id") or self._controller.state.current_task_id
+        reasoning_id = event.data.get("reasoning_id", "")
+        content = event.data.get("content", "")
+
+        asyncio.create_task(
+            self._action_panel.add_item(
+                ActionItem(
+                    id=reasoning_id,
+                    name="Reasoning",
+                    status="completed",  # Reasoning is always complete
+                    item_type="reasoning",
+                    parent_id=task_id,
+                    output_data=content,  # Store reasoning content in output
+                )
+            )
+        )
 
     async def _on_start(self) -> None:
         """Start the browser interface."""
@@ -482,12 +559,23 @@ class BrowserAdapter(InterfaceAdapter):
             )
         )
 
+        # Start metrics broadcasting task
+        self._metrics_task = asyncio.create_task(self._broadcast_metrics_loop())
+
         # Keep running
         while self._running and self._controller.agent.is_running:
             await asyncio.sleep(1)
 
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
+        # Cancel metrics broadcasting task
+        if self._metrics_task:
+            self._metrics_task.cancel()
+            try:
+                await self._metrics_task
+            except asyncio.CancelledError:
+                pass
+
         # Close all WebSocket connections
         for ws in self._ws_clients:
             await ws.close()
@@ -589,6 +677,610 @@ class BrowserAdapter(InterfaceAdapter):
             file_path = data.get("path", "")
             await self._handle_file_download(file_path)
 
+        # Task control
+        elif msg_type == "task_cancel":
+            task_id = data.get("taskId", "")
+            await self._handle_task_cancel(task_id)
+
+        # Settings operations
+        elif msg_type == "settings_get":
+            await self._handle_settings_get()
+
+        elif msg_type == "settings_update":
+            settings = data.get("settings", {})
+            await self._handle_settings_update(settings)
+
+        elif msg_type == "agent_file_read":
+            filename = data.get("filename", "")
+            await self._handle_agent_file_read(filename)
+
+        elif msg_type == "agent_file_write":
+            filename = data.get("filename", "")
+            content = data.get("content", "")
+            await self._handle_agent_file_write(filename, content)
+
+        elif msg_type == "agent_file_restore":
+            filename = data.get("filename", "")
+            await self._handle_agent_file_restore(filename)
+
+        elif msg_type == "reset":
+            await self._handle_reset()
+
+        # Scheduler/Proactive operations
+        elif msg_type == "scheduler_config_get":
+            await self._handle_scheduler_config_get()
+
+        elif msg_type == "scheduler_config_update":
+            updates = data.get("updates", {})
+            await self._handle_scheduler_config_update(updates)
+
+        elif msg_type == "proactive_tasks_get":
+            frequency = data.get("frequency")
+            await self._handle_proactive_tasks_get(frequency)
+
+        elif msg_type == "proactive_task_add":
+            task_data = data.get("task", {})
+            await self._handle_proactive_task_add(task_data)
+
+        elif msg_type == "proactive_task_update":
+            task_id = data.get("taskId", "")
+            updates = data.get("updates", {})
+            await self._handle_proactive_task_update(task_id, updates)
+
+        elif msg_type == "proactive_task_remove":
+            task_id = data.get("taskId", "")
+            await self._handle_proactive_task_remove(task_id)
+
+        elif msg_type == "proactive_tasks_reset":
+            await self._handle_proactive_tasks_reset()
+
+        elif msg_type == "proactive_file_read":
+            await self._handle_proactive_file_read()
+
+        elif msg_type == "proactive_mode_get":
+            await self._handle_proactive_mode_get()
+
+        elif msg_type == "proactive_mode_set":
+            enabled = data.get("enabled", True)
+            await self._handle_proactive_mode_set(enabled)
+
+    async def _handle_task_cancel(self, task_id: str) -> None:
+        """Cancel a running task."""
+        try:
+            agent = self._controller.agent
+            task_manager = agent.task_manager
+
+            # Find the task
+            task = task_manager.get_task_by_id(task_id) if task_id else task_manager.active
+            if not task:
+                await self._broadcast({
+                    "type": "task_cancel_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": "Task not found",
+                    },
+                })
+                return
+
+            # Cancel the task
+            await task_manager.mark_task_cancel(
+                reason="Aborted by user",
+                task_id=task.id,
+            )
+
+            await self._broadcast({
+                "type": "task_cancel_response",
+                "data": {
+                    "taskId": task.id,
+                    "success": True,
+                    "status": "cancelled",
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "task_cancel_response",
+                "data": {
+                    "taskId": task_id,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Settings Operation Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_settings_get(self) -> None:
+        """Get current settings."""
+        try:
+            result = get_general_settings()
+            settings = {
+                "agentName": result.get("agent_name", "CraftBot"),
+                "theme": "dark",  # Theme is managed client-side
+            }
+
+            await self._broadcast({
+                "type": "settings_get",
+                "data": {
+                    "settings": settings,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "settings_get",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_settings_update(self, settings: Dict[str, Any]) -> None:
+        """Update settings."""
+        try:
+            # Convert frontend camelCase to snake_case
+            update_data = {}
+            if "agentName" in settings:
+                update_data["agent_name"] = settings["agentName"]
+
+            result = update_general_settings(update_data)
+
+            if result.get("success"):
+                await self._broadcast({
+                    "type": "settings_update",
+                    "data": {
+                        "settings": settings,
+                        "success": True,
+                    },
+                })
+            else:
+                await self._broadcast({
+                    "type": "settings_update",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                })
+        except Exception as e:
+            await self._broadcast({
+                "type": "settings_update",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_agent_file_read(self, filename: str) -> None:
+        """Read an agent file system file (USER.md or AGENT.md)."""
+        result = read_agent_file(filename)
+
+        if result.get("success"):
+            await self._broadcast({
+                "type": "agent_file_read",
+                "data": {
+                    "filename": filename,
+                    "content": result.get("content"),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "agent_file_read",
+                "data": {
+                    "filename": filename,
+                    "content": None,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_agent_file_write(self, filename: str, content: str) -> None:
+        """Write to an agent file system file (USER.md or AGENT.md)."""
+        result = write_agent_file(filename, content)
+
+        if result.get("success"):
+            # Update memory index after file change
+            agent = self._controller.agent
+            if hasattr(agent, 'memory_manager'):
+                agent.memory_manager.update()
+
+            await self._broadcast({
+                "type": "agent_file_write",
+                "data": {
+                    "filename": filename,
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "agent_file_write",
+                "data": {
+                    "filename": filename,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_agent_file_restore(self, filename: str) -> None:
+        """Restore an agent file from template."""
+        result = restore_agent_file(filename)
+
+        if result.get("success"):
+            # Update memory index after file change
+            agent = self._controller.agent
+            if hasattr(agent, 'memory_manager'):
+                agent.memory_manager.update()
+
+            await self._broadcast({
+                "type": "agent_file_restore",
+                "data": {
+                    "filename": filename,
+                    "content": result.get("content"),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "agent_file_restore",
+                "data": {
+                    "filename": filename,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_reset(self) -> None:
+        """Reset agent state (equivalent to /reset command)."""
+        result = await reset_agent_state(self._controller)
+
+        if result.get("success"):
+            # Clear chat messages and actions in UI
+            await self._chat.clear()
+            await self._action_panel.clear()
+
+            await self._broadcast({
+                "type": "reset",
+                "data": {
+                    "success": True,
+                    "message": result.get("message", "Agent state has been reset."),
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "reset",
+                "data": {
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Scheduler/Proactive Operation Handlers
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_scheduler_config_get(self) -> None:
+        """Get scheduler configuration."""
+        result = get_scheduler_config()
+
+        if result.get("success"):
+            # Get current status from scheduler if available
+            agent = self._controller.agent
+            scheduler_status = {}
+            if hasattr(agent, 'scheduler') and agent.scheduler:
+                scheduler_status = agent.scheduler.get_status()
+
+            await self._broadcast({
+                "type": "scheduler_config_get",
+                "data": {
+                    "config": result.get("config"),
+                    "status": scheduler_status,
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "scheduler_config_get",
+                "data": {
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_scheduler_config_update(self, updates: Dict[str, Any]) -> None:
+        """Update scheduler configuration."""
+        try:
+            # Convert frontend format to UI layer format
+            config_updates = {}
+
+            if "enabled" in updates:
+                config_updates["enabled"] = updates["enabled"]
+
+            if "schedules" in updates:
+                # Convert schedule array to dict format for UI layer
+                schedule_updates = {}
+                for schedule_update in updates["schedules"]:
+                    schedule_id = schedule_update.get("id")
+                    if schedule_id:
+                        schedule_updates[schedule_id] = {
+                            k: v for k, v in schedule_update.items() if k != "id"
+                        }
+                config_updates["schedule_updates"] = schedule_updates
+
+            result = update_scheduler_config(config_updates)
+
+            if result.get("success"):
+                # Update runtime scheduler if available
+                agent = self._controller.agent
+                if hasattr(agent, 'scheduler') and agent.scheduler:
+                    # Toggle schedules at runtime
+                    if "schedules" in updates:
+                        for schedule_update in updates["schedules"]:
+                            schedule_id = schedule_update.get("id")
+                            if schedule_id and "enabled" in schedule_update:
+                                await toggle_schedule_runtime(
+                                    agent.scheduler,
+                                    schedule_id,
+                                    schedule_update["enabled"]
+                                )
+
+                # Re-read config for response
+                config_result = get_scheduler_config()
+
+                await self._broadcast({
+                    "type": "scheduler_config_update",
+                    "data": {
+                        "config": config_result.get("config", {}),
+                        "success": True,
+                    },
+                })
+            else:
+                await self._broadcast({
+                    "type": "scheduler_config_update",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                })
+        except Exception as e:
+            await self._broadcast({
+                "type": "scheduler_config_update",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_proactive_tasks_get(self, frequency: str = None) -> None:
+        """Get proactive tasks from PROACTIVE.md."""
+        agent = self._controller.agent
+        proactive_manager = getattr(agent, 'proactive_manager', None)
+
+        # Reload from file before getting tasks
+        if proactive_manager:
+            reload_proactive_manager(proactive_manager)
+
+        result = get_proactive_tasks(
+            proactive_manager,
+            frequency=frequency,
+            enabled_only=False
+        )
+
+        if result.get("success"):
+            # Convert to frontend format (camelCase)
+            tasks_data = []
+            for task in result.get("tasks", []):
+                task_dict = {
+                    "id": task.get("id"),
+                    "name": task.get("name"),
+                    "frequency": task.get("frequency"),
+                    "instruction": task.get("instruction"),
+                    "enabled": task.get("enabled"),
+                    "priority": task.get("priority"),
+                    "permissionTier": task.get("permission_tier"),
+                    "time": task.get("time"),
+                    "day": task.get("day"),
+                    "runCount": task.get("run_count", 0),
+                    "lastRun": task.get("last_executed"),
+                    "outcomeHistory": task.get("outcome_history", []),
+                }
+                tasks_data.append(task_dict)
+
+            await self._broadcast({
+                "type": "proactive_tasks_get",
+                "data": {
+                    "tasks": tasks_data,
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "proactive_tasks_get",
+                "data": {
+                    "tasks": [],
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_proactive_task_add(self, task_data: Dict[str, Any]) -> None:
+        """Add a new proactive task."""
+        agent = self._controller.agent
+        proactive_manager = getattr(agent, 'proactive_manager', None)
+
+        result = add_proactive_task(
+            proactive_manager,
+            name=task_data.get("name", "New Task"),
+            frequency=task_data.get("frequency", "daily"),
+            instruction=task_data.get("instruction", ""),
+            enabled=task_data.get("enabled", True),
+            priority=task_data.get("priority", 50),
+            permission_tier=task_data.get("permissionTier", 1),
+            time=task_data.get("time"),
+            day=task_data.get("day"),
+        )
+
+        if result.get("success"):
+            await self._broadcast({
+                "type": "proactive_task_add",
+                "data": {
+                    "taskId": result.get("task", {}).get("id"),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "proactive_task_add",
+                "data": {
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_proactive_task_update(self, task_id: str, updates: Dict[str, Any]) -> None:
+        """Update a proactive task."""
+        agent = self._controller.agent
+        proactive_manager = getattr(agent, 'proactive_manager', None)
+
+        # Convert camelCase to snake_case for the UI layer
+        update_dict = {}
+        if "name" in updates:
+            update_dict["name"] = updates["name"]
+        if "instruction" in updates:
+            update_dict["instruction"] = updates["instruction"]
+        if "enabled" in updates:
+            update_dict["enabled"] = updates["enabled"]
+        if "priority" in updates:
+            update_dict["priority"] = updates["priority"]
+        if "permissionTier" in updates:
+            update_dict["permission_tier"] = updates["permissionTier"]
+        if "time" in updates:
+            update_dict["time"] = updates["time"]
+        if "day" in updates:
+            update_dict["day"] = updates["day"]
+        if "frequency" in updates:
+            update_dict["frequency"] = updates["frequency"]
+
+        result = update_proactive_task(proactive_manager, task_id, update_dict)
+
+        if result.get("success"):
+            await self._broadcast({
+                "type": "proactive_task_update",
+                "data": {
+                    "taskId": task_id,
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "proactive_task_update",
+                "data": {
+                    "taskId": task_id,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_proactive_task_remove(self, task_id: str) -> None:
+        """Remove a proactive task."""
+        agent = self._controller.agent
+        proactive_manager = getattr(agent, 'proactive_manager', None)
+
+        result = remove_proactive_task(proactive_manager, task_id)
+
+        if result.get("success"):
+            await self._broadcast({
+                "type": "proactive_task_remove",
+                "data": {
+                    "taskId": task_id,
+                    "removed": True,
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "proactive_task_remove",
+                "data": {
+                    "taskId": task_id,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_proactive_tasks_reset(self) -> None:
+        """Reset all proactive tasks (restore from template)."""
+        result = reset_proactive_tasks()
+
+        if result.get("success"):
+            # Reload proactive manager
+            agent = self._controller.agent
+            proactive_manager = getattr(agent, 'proactive_manager', None)
+            if proactive_manager:
+                reload_proactive_manager(proactive_manager)
+
+            await self._broadcast({
+                "type": "proactive_tasks_reset",
+                "data": {
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "proactive_tasks_reset",
+                "data": {
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_proactive_file_read(self) -> None:
+        """Read the raw PROACTIVE.md file content."""
+        result = read_agent_file("PROACTIVE.md")
+
+        if result.get("success"):
+            await self._broadcast({
+                "type": "proactive_file_read",
+                "data": {
+                    "content": result.get("content"),
+                    "success": True,
+                },
+            })
+        else:
+            await self._broadcast({
+                "type": "proactive_file_read",
+                "data": {
+                    "content": None,
+                    "success": False,
+                    "error": result.get("error", "Unknown error"),
+                },
+            })
+
+    async def _handle_proactive_mode_get(self) -> None:
+        """Get the current proactive mode status."""
+        result = get_proactive_mode()
+
+        await self._broadcast({
+            "type": "proactive_mode_get",
+            "data": {
+                "enabled": result.get("enabled", True),
+                "success": result.get("success", False),
+                "error": result.get("error"),
+            },
+        })
+
+    async def _handle_proactive_mode_set(self, enabled: bool) -> None:
+        """Set the proactive mode on or off."""
+        result = set_proactive_mode(enabled)
+
+        await self._broadcast({
+            "type": "proactive_mode_set",
+            "data": {
+                "enabled": result.get("enabled", enabled),
+                "success": result.get("success", False),
+                "error": result.get("error"),
+            },
+        })
+
     async def _broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients."""
         if not self._ws_clients:
@@ -605,6 +1297,22 @@ class BrowserAdapter(InterfaceAdapter):
 
         # Clean up disconnected clients
         self._ws_clients -= disconnected
+
+    async def _broadcast_metrics_loop(self) -> None:
+        """Periodically broadcast dashboard metrics to connected clients."""
+        while self._running:
+            try:
+                if self._ws_clients:
+                    metrics = self._metrics_collector.get_metrics()
+                    await self._broadcast({
+                        "type": "dashboard_metrics",
+                        "data": metrics.to_dict(),
+                    })
+                await asyncio.sleep(2)  # Update every 2 seconds
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(5)  # Back off on error
 
     # ─────────────────────────────────────────────────────────────────────
     # File Operation Handlers
@@ -1049,6 +1757,7 @@ class BrowserAdapter(InterfaceAdapter):
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         state = self._controller.state
+        metrics = self._metrics_collector.get_metrics()
 
         return {
             "agentState": state.agent_state.value,
@@ -1083,6 +1792,7 @@ class BrowserAdapter(InterfaceAdapter):
                 for a in self._action_panel.get_items()
             ],
             "status": self._status_bar.get_status(),
+            "dashboardMetrics": metrics.to_dict(),
         }
 
     async def _spa_handler(self, request: "web.Request") -> "web.Response":

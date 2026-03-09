@@ -1,7 +1,9 @@
 """Settings module for UI layer.
 
-Re-exports MCP and skill settings from their original locations
-for backwards compatibility while providing a centralized access point.
+Provides centralized settings management functions that can be used by
+any interface adapter (Browser, TUI, CLI).
+
+Re-exports settings from their original locations for backwards compatibility.
 """
 
 # Re-export from existing modules
@@ -31,6 +33,37 @@ from app.tui.skill_settings import (
     remove_skill,
 )
 
+# General settings
+from app.ui_layer.settings.general_settings import (
+    read_agent_file,
+    write_agent_file,
+    restore_agent_file,
+    reset_agent_state,
+    get_general_settings,
+    update_general_settings,
+)
+
+# Proactive/scheduler settings
+from app.ui_layer.settings.proactive_settings import (
+    # Proactive mode control
+    is_proactive_enabled,
+    get_proactive_mode,
+    set_proactive_mode,
+    # Scheduler config
+    get_scheduler_config,
+    update_scheduler_config,
+    toggle_schedule,
+    toggle_schedule_runtime,
+    # Proactive tasks
+    get_proactive_tasks,
+    add_proactive_task,
+    update_proactive_task,
+    remove_proactive_task,
+    toggle_proactive_task,
+    reset_proactive_tasks,
+    reload_proactive_manager,
+)
+
 __all__ = [
     # MCP settings
     "list_mcp_servers",
@@ -54,4 +87,27 @@ __all__ = [
     "install_skill_from_git",
     "create_skill_scaffold",
     "remove_skill",
+    # General settings
+    "read_agent_file",
+    "write_agent_file",
+    "restore_agent_file",
+    "reset_agent_state",
+    "get_general_settings",
+    "update_general_settings",
+    # Proactive mode control
+    "is_proactive_enabled",
+    "get_proactive_mode",
+    "set_proactive_mode",
+    # Proactive/scheduler settings
+    "get_scheduler_config",
+    "update_scheduler_config",
+    "toggle_schedule",
+    "toggle_schedule_runtime",
+    "get_proactive_tasks",
+    "add_proactive_task",
+    "update_proactive_task",
+    "remove_proactive_task",
+    "toggle_proactive_task",
+    "reset_proactive_tasks",
+    "reload_proactive_manager",
 ]

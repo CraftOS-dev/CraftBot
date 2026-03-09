@@ -1,75 +1,146 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import {
   Activity,
-  Zap,
+  Package,
   CheckCircle,
   XCircle,
-  Clock,
   Cpu,
-  HardDrive,
-  Wifi,
-  Package,
-  Plug,
   TrendingUp,
+  DollarSign,
+  BarChart3,
+  ArrowUpRight,
+  ArrowDownRight,
+  Timer,
+  PlayCircle,
+  Hammer,
+  Wrench,
+  Bot,
+  Building2,
   Hash
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { Badge, StatusIndicator } from '../../components/ui'
 import styles from './DashboardPage.module.css'
 
-interface StatCardProps {
-  icon: React.ReactNode
-  label: string
-  value: string | number
-  subtext?: string
-  variant?: 'default' | 'primary' | 'success' | 'warning' | 'error'
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${mins}m`
+  }
+  if (hours > 0) {
+    return `${hours}h ${mins}m`
+  }
+  return `${mins}m`
 }
 
-function StatCard({ icon, label, value, subtext, variant = 'default' }: StatCardProps) {
-  return (
-    <div className={`${styles.statCard} ${styles[variant]}`}>
-      <div className={styles.statIcon}>{icon}</div>
-      <div className={styles.statContent}>
-        <span className={styles.statLabel}>{label}</span>
-        <span className={styles.statValue}>{value}</span>
-        {subtext && <span className={styles.statSubtext}>{subtext}</span>}
-      </div>
-    </div>
-  )
+function formatCost(cost: number): string {
+  if (cost >= 1) {
+    return `$${cost.toFixed(2)}`
+  }
+  if (cost >= 0.01) {
+    return `$${cost.toFixed(3)}`
+  }
+  if (cost >= 0.0001) {
+    return `$${cost.toFixed(4)}`
+  }
+  return `$${cost.toFixed(6)}`
+}
+
+function formatBytes(mb: number): string {
+  if (mb >= 1024) {
+    return `${(mb / 1024).toFixed(1)} GB`
+  }
+  return `${mb.toFixed(1)} MB`
+}
+
+function formatHour(hour: number): string {
+  const ampm = hour >= 12 ? 'PM' : 'AM'
+  const h = hour % 12 || 12
+  return `${h}:00 ${ampm}`
 }
 
 export function DashboardPage() {
-  const { status, actions, messages } = useWebSocket()
+  const { status, actions, dashboardMetrics } = useWebSocket()
 
-  // Calculate statistics
-  const tasks = actions.filter(a => a.itemType === 'task')
-  const completedTasks = tasks.filter(t => t.status === 'completed').length
-  const failedTasks = tasks.filter(t => t.status === 'error').length
-  const runningTasks = tasks.filter(t => t.status === 'running').length
-  const totalActions = actions.filter(a => a.itemType === 'action').length
+  // Calculate statistics from actions
+  const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
+  const completedTasks = useMemo(() => tasks.filter(t => t.status === 'completed').length, [tasks])
+  const failedTasks = useMemo(() => tasks.filter(t => t.status === 'error').length, [tasks])
+  const runningTasks = useMemo(() => tasks.filter(t => t.status === 'running').length, [tasks])
+  const totalActions = useMemo(() => actions.filter(a => a.itemType === 'action').length, [actions])
 
-  // Placeholder data (would come from backend in real implementation)
-  const tokenUsage = {
-    input: 12450,
-    output: 8320,
-    total: 20770,
-    cost: 0.42,
-  }
+  // Use metrics from WebSocket if available
+  const metrics = dashboardMetrics
 
-  const mcpServers = [
-    { name: 'filesystem', status: 'connected' as const, tools: 5 },
-    { name: 'browser', status: 'connected' as const, tools: 8 },
-    { name: 'shell', status: 'connected' as const, tools: 3 },
-  ]
+  // Calculate values with fallbacks
+  const uptime = metrics?.uptimeSeconds ? formatUptime(metrics.uptimeSeconds) : '0m'
+  const successRate = metrics?.task.successRate ?? 100
+  const totalCost = metrics?.cost.total ?? 0
+  const costToday = metrics?.cost.today ?? 0
+  const costThisWeek = metrics?.cost.thisWeek ?? 0
+  const costThisMonth = metrics?.cost.thisMonth ?? 0
+  const avgCostPerRequest = metrics?.cost.perRequestAvg ?? 0
+  const avgCostPerTask = metrics?.cost.perTaskAvg ?? 0
 
-  const skills = [
-    { name: 'Code Analysis', enabled: true },
-    { name: 'File Management', enabled: true },
-    { name: 'Web Search', enabled: false },
-    { name: 'Image Processing', enabled: true },
-  ]
+  const inputTokens = metrics?.token.input ?? 0
+  const outputTokens = metrics?.token.output ?? 0
+  const totalTokens = metrics?.token.total ?? 0
+  const cachedTokens = metrics?.token.cached ?? 0
 
-  const uptime = '2h 34m'
+  // Calculate token ratios
+  const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0
+  const outputRatio = totalTokens > 0 ? Math.round((outputTokens / totalTokens) * 100) : 0
+
+  const cpuPercent = metrics?.system.cpuPercent ?? 0
+  const memoryPercent = metrics?.system.memoryPercent ?? 0
+  const memoryUsed = metrics?.system.memoryUsedMb ?? 0
+  const memoryTotal = metrics?.system.memoryTotalMb ?? 0
+  const diskPercent = metrics?.system.diskPercent ?? 0
+  const diskUsed = metrics?.system.diskUsedGb ?? 0
+  const diskTotal = metrics?.system.diskTotalGb ?? 0
+  const networkSent = metrics?.system.networkSentMb ?? 0
+  const networkRecv = metrics?.system.networkRecvMb ?? 0
+  const networkSentRate = metrics?.system.networkSentRateKbps ?? 0
+  const networkRecvRate = metrics?.system.networkRecvRateKbps ?? 0
+
+  const threadPoolActive = metrics?.threadPool.activeThreads ?? 0
+  const threadPoolMax = metrics?.threadPool.maxWorkers ?? 16
+  const threadPoolUtil = metrics?.threadPool.utilizationPercent ?? 0
+
+  const requestsLastHour = metrics?.usage.requestsLastHour ?? 0
+  const requestsToday = metrics?.usage.requestsToday ?? 0
+  const peakHour = metrics?.usage.peakHour ?? 0
+  const hourlyDistribution = metrics?.usage.hourlyDistribution ?? Array(24).fill(0)
+
+  // Find max for scaling the hourly chart
+  const maxHourlyRequests = Math.max(...hourlyDistribution, 1)
+
+  // Task counts
+  const taskCompleted = metrics?.task.completed ?? completedTasks
+  const taskFailed = metrics?.task.failed ?? failedTasks
+  const taskRunning = metrics?.task.running ?? runningTasks
+
+  // MCP metrics
+  const mcpTotalServers = metrics?.mcp?.totalServers ?? 0
+  const mcpConnectedServers = metrics?.mcp?.connectedServers ?? 0
+  const mcpTotalTools = metrics?.mcp?.totalTools ?? 0
+  const mcpTotalCalls = metrics?.mcp?.totalCalls ?? 0
+  const mcpServers = metrics?.mcp?.servers ?? []
+  const mcpTopTools = metrics?.mcp?.topTools ?? []
+
+  // Skill metrics
+  const skillTotal = metrics?.skill?.totalSkills ?? 0
+  const skillEnabled = metrics?.skill?.enabledSkills ?? 0
+  const skillTotalInvocations = metrics?.skill?.totalInvocations ?? 0
+  const topSkills = metrics?.skill?.topSkills ?? []
+
+  // Model metrics
+  const modelProvider = metrics?.model?.provider ?? ''
+  const modelId = metrics?.model?.modelId ?? ''
+  const modelName = metrics?.model?.modelName ?? ''
 
   return (
     <div className={styles.dashboard}>
@@ -83,87 +154,254 @@ export function DashboardPage() {
               <p>{status.message}</p>
             </div>
           </div>
-          <Badge variant={status.state === 'idle' ? 'success' : 'primary'}>
-            {status.state.toUpperCase()}
-          </Badge>
+          <div className={styles.headerRight}>
+            <div className={styles.uptimeDisplay}>
+              <Timer size={12} />
+              <span>Uptime: {uptime}</span>
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Stats Grid */}
-      <div className={styles.statsGrid}>
-        <StatCard
-          icon={<CheckCircle size={20} />}
-          label="Tasks Completed"
-          value={completedTasks}
-          variant="success"
-        />
-        <StatCard
-          icon={<XCircle size={20} />}
-          label="Tasks Failed"
-          value={failedTasks}
-          variant="error"
-        />
-        <StatCard
-          icon={<Activity size={20} />}
-          label="Running"
-          value={runningTasks}
-          variant="primary"
-        />
-        <StatCard
-          icon={<Zap size={20} />}
-          label="Total Actions"
-          value={totalActions}
-        />
-        <StatCard
-          icon={<Hash size={20} />}
-          label="Messages"
-          value={messages.length}
-        />
-        <StatCard
-          icon={<Clock size={20} />}
-          label="Uptime"
-          value={uptime}
-        />
       </div>
 
       {/* Panels Section */}
       <div className={styles.panelsGrid}>
+        {/* Task Stats Panel */}
+        <div className={styles.panel}>
+          <div className={styles.panelHeader}>
+            <Activity size={16} />
+            <h3>Task Statistics</h3>
+            <Badge variant="default">{taskCompleted + taskFailed + taskRunning} total</Badge>
+          </div>
+          <div className={styles.panelContent}>
+            <div className={styles.statsGrid}>
+              <div className={styles.statItem}>
+                <CheckCircle size={18} className={styles.successIcon} />
+                <span className={styles.statValue}>{taskCompleted}</span>
+                <span className={styles.statLabel}>Completed</span>
+              </div>
+              <div className={styles.statItem}>
+                <XCircle size={18} className={styles.errorIcon} />
+                <span className={styles.statValue}>{taskFailed}</span>
+                <span className={styles.statLabel}>Failed</span>
+              </div>
+              <div className={styles.statItem}>
+                <PlayCircle size={18} className={styles.primaryIcon} />
+                <span className={styles.statValue}>{taskRunning}</span>
+                <span className={styles.statLabel}>Running</span>
+              </div>
+              <div className={styles.statItem}>
+                <TrendingUp size={18} className={styles.successIcon} />
+                <span className={styles.statValue}>{successRate.toFixed(0)}%</span>
+                <span className={styles.statLabel}>Success</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Cost Tracking Panel */}
+        <div className={styles.panel}>
+          <div className={styles.panelHeader}>
+            <DollarSign size={16} />
+            <h3>Cost Tracking</h3>
+            <Badge variant="primary">{formatCost(totalCost)} total</Badge>
+          </div>
+          <div className={styles.panelContent}>
+            <div className={styles.costGrid}>
+              <div className={styles.costItem}>
+                <span className={styles.costLabel}>Today</span>
+                <span className={styles.costValue}>{formatCost(costToday)}</span>
+              </div>
+              <div className={styles.costItem}>
+                <span className={styles.costLabel}>This Week</span>
+                <span className={styles.costValue}>{formatCost(costThisWeek)}</span>
+              </div>
+              <div className={styles.costItem}>
+                <span className={styles.costLabel}>This Month</span>
+                <span className={styles.costValue}>{formatCost(costThisMonth)}</span>
+              </div>
+              <div className={styles.costItem}>
+                <span className={styles.costLabel}>Avg/Request</span>
+                <span className={styles.costValue}>{formatCost(avgCostPerRequest)}</span>
+              </div>
+            </div>
+            <div className={styles.costAverage}>
+              <span>Average cost per task:</span>
+              <span className={styles.highlight}>{formatCost(avgCostPerTask)}</span>
+            </div>
+          </div>
+        </div>
+
         {/* Token Usage Panel */}
         <div className={styles.panel}>
           <div className={styles.panelHeader}>
             <TrendingUp size={16} />
             <h3>Token Usage</h3>
+            <Badge variant="default">{totalTokens.toLocaleString()} total</Badge>
           </div>
           <div className={styles.panelContent}>
-            <div className={styles.tokenStats}>
-              <div className={styles.tokenStat}>
-                <span className={styles.tokenLabel}>Input</span>
-                <span className={styles.tokenValue}>{tokenUsage.input.toLocaleString()}</span>
+            <div className={styles.tokenRatioDisplay}>
+              <div className={styles.tokenRatioBar}>
+                <div
+                  className={styles.tokenInputBar}
+                  style={{ width: `${inputRatio}%` }}
+                />
+                <div
+                  className={styles.tokenOutputBar}
+                  style={{ width: `${outputRatio}%` }}
+                />
               </div>
-              <div className={styles.tokenStat}>
-                <span className={styles.tokenLabel}>Output</span>
-                <span className={styles.tokenValue}>{tokenUsage.output.toLocaleString()}</span>
-              </div>
-              <div className={styles.tokenStat}>
-                <span className={styles.tokenLabel}>Total</span>
-                <span className={`${styles.tokenValue} ${styles.highlight}`}>
-                  {tokenUsage.total.toLocaleString()}
-                </span>
-              </div>
-              <div className={styles.tokenStat}>
-                <span className={styles.tokenLabel}>Est. Cost</span>
-                <span className={styles.tokenValue}>${tokenUsage.cost.toFixed(2)}</span>
+              <div className={styles.tokenRatioLabels}>
+                <div className={styles.tokenRatioItem}>
+                  <span className={styles.tokenInputDot} />
+                  <span>Input</span>
+                  <span className={styles.tokenRatioValue}>{inputRatio}%</span>
+                </div>
+                <div className={styles.tokenRatioItem}>
+                  <span className={styles.tokenOutputDot} />
+                  <span>Output</span>
+                  <span className={styles.tokenRatioValue}>{outputRatio}%</span>
+                </div>
               </div>
             </div>
-            <div className={styles.progressBar}>
-              <div
-                className={styles.progressFill}
-                style={{ width: `${(tokenUsage.input / tokenUsage.total) * 100}%` }}
-              />
+            <div className={styles.tokenDetails}>
+              <div className={styles.tokenDetail}>
+                <span className={styles.tokenDetailLabel}>Input</span>
+                <span className={styles.tokenDetailValue}>{inputTokens.toLocaleString()}</span>
+              </div>
+              <div className={styles.tokenDetail}>
+                <span className={styles.tokenDetailLabel}>Output</span>
+                <span className={styles.tokenDetailValue}>{outputTokens.toLocaleString()}</span>
+              </div>
+              <div className={styles.tokenDetail}>
+                <span className={styles.tokenDetailLabel}>Cached</span>
+                <span className={styles.tokenDetailValue}>{cachedTokens.toLocaleString()}</span>
+              </div>
             </div>
-            <div className={styles.progressLabels}>
-              <span>Input ({Math.round((tokenUsage.input / tokenUsage.total) * 100)}%)</span>
-              <span>Output ({Math.round((tokenUsage.output / tokenUsage.total) * 100)}%)</span>
+          </div>
+        </div>
+
+        {/* System Resources Panel (CPU, Memory, Disk, Thread Pool, Network) */}
+        <div className={styles.panel}>
+          <div className={styles.panelHeader}>
+            <Cpu size={16} />
+            <h3>System Resources</h3>
+          </div>
+          <div className={styles.panelContent}>
+            <div className={styles.resourceGrid}>
+              <div className={styles.resourceItem}>
+                <div className={styles.resourceHeader}>
+                  <span>CPU</span>
+                  <span className={cpuPercent > 80 ? styles.warning : ''}>{cpuPercent.toFixed(0)}%</span>
+                </div>
+                <div className={styles.resourceBar}>
+                  <div
+                    className={`${styles.resourceFill} ${cpuPercent > 80 ? styles.fillWarning : ''}`}
+                    style={{ width: `${Math.min(cpuPercent, 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className={styles.resourceItem}>
+                <div className={styles.resourceHeader}>
+                  <span>Memory</span>
+                  <span className={memoryPercent > 80 ? styles.warning : ''}>
+                    {formatBytes(memoryUsed)} / {formatBytes(memoryTotal)}
+                  </span>
+                </div>
+                <div className={styles.resourceBar}>
+                  <div
+                    className={`${styles.resourceFill} ${memoryPercent > 80 ? styles.fillWarning : ''}`}
+                    style={{ width: `${Math.min(memoryPercent, 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className={styles.resourceItem}>
+                <div className={styles.resourceHeader}>
+                  <span>Disk</span>
+                  <span className={diskPercent > 80 ? styles.warning : ''}>
+                    {diskUsed.toFixed(1)} GB / {diskTotal.toFixed(1)} GB
+                  </span>
+                </div>
+                <div className={styles.resourceBar}>
+                  <div
+                    className={`${styles.resourceFill} ${diskPercent > 80 ? styles.fillWarning : ''}`}
+                    style={{ width: `${Math.min(diskPercent, 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className={styles.resourceItem}>
+                <div className={styles.resourceHeader}>
+                  <span>Thread Pool</span>
+                  <span className={threadPoolUtil > 80 ? styles.warning : ''}>
+                    {threadPoolActive} / {threadPoolMax} ({threadPoolUtil.toFixed(0)}%)
+                  </span>
+                </div>
+                <div className={styles.resourceBar}>
+                  <div
+                    className={`${styles.resourceFill} ${threadPoolUtil > 80 ? styles.fillWarning : ''}`}
+                    style={{ width: `${Math.min(threadPoolUtil, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+            {/* Network I/O */}
+            <div className={styles.networkRow}>
+              <div className={styles.networkStat}>
+                <ArrowUpRight size={14} className={styles.uploadIcon} />
+                <span className={styles.networkLabel}>Upload:</span>
+                <span className={styles.networkValue}>{networkSentRate.toFixed(1)} KB/s</span>
+              </div>
+              <div className={styles.networkStat}>
+                <ArrowDownRight size={14} className={styles.downloadIcon} />
+                <span className={styles.networkLabel}>Download:</span>
+                <span className={styles.networkValue}>{networkRecvRate.toFixed(1)} KB/s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Usage Patterns Panel */}
+        <div className={styles.panel}>
+          <div className={styles.panelHeader}>
+            <BarChart3 size={16} />
+            <h3>Usage Patterns</h3>
+          </div>
+          <div className={styles.panelContent}>
+            <div className={styles.usageStats}>
+              <div className={styles.usageStat}>
+                <span className={styles.usageLabel}>Last Hour</span>
+                <span className={styles.usageValue}>{requestsLastHour}</span>
+              </div>
+              <div className={styles.usageStat}>
+                <span className={styles.usageLabel}>Today</span>
+                <span className={styles.usageValue}>{requestsToday}</span>
+              </div>
+              <div className={styles.usageStat}>
+                <span className={styles.usageLabel}>Peak</span>
+                <span className={styles.usageValue}>{formatHour(peakHour)}</span>
+              </div>
+            </div>
+            <div className={styles.hourlyChart}>
+              <div className={styles.chartLabel}>Hourly Distribution</div>
+              <div className={styles.chartBars}>
+                {hourlyDistribution.map((count, hour) => (
+                  <div
+                    key={hour}
+                    className={styles.chartBarWrapper}
+                    title={`${formatHour(hour)}: ${count} requests`}
+                  >
+                    <div
+                      className={`${styles.chartBar} ${hour === new Date().getHours() ? styles.currentHour : ''}`}
+                      style={{ height: `${(count / maxHourlyRequests) * 100}%` }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className={styles.chartTimeLabels}>
+                <span>12AM</span>
+                <span>6AM</span>
+                <span>12PM</span>
+                <span>6PM</span>
+              </div>
             </div>
           </div>
         </div>
@@ -171,22 +409,40 @@ export function DashboardPage() {
         {/* MCP Servers Panel */}
         <div className={styles.panel}>
           <div className={styles.panelHeader}>
-            <Plug size={16} />
+            <Hammer size={16} />
             <h3>MCP Servers</h3>
-            <Badge variant="success">{mcpServers.length} connected</Badge>
+            <Badge variant={mcpConnectedServers > 0 ? 'success' : 'default'}>
+              {mcpConnectedServers}/{mcpTotalServers}
+            </Badge>
           </div>
           <div className={styles.panelContent}>
-            <div className={styles.serverList}>
-              {mcpServers.map(server => (
-                <div key={server.name} className={styles.serverItem}>
-                  <StatusIndicator
-                    status={server.status === 'connected' ? 'completed' : 'error'}
-                    size="sm"
-                  />
-                  <span className={styles.serverName}>{server.name}</span>
-                  <Badge variant="default">{server.tools} tools</Badge>
+            <div className={styles.compactStats}>
+              <div className={styles.compactStatItem}>
+                <Wrench size={14} className={styles.primaryIcon} />
+                <span className={styles.compactStatValue}>{mcpTotalTools}</span>
+                <span className={styles.compactStatLabel}>Tools</span>
+              </div>
+              <div className={styles.compactStatItem}>
+                <Activity size={14} className={styles.successIcon} />
+                <span className={styles.compactStatValue}>{mcpTotalCalls}</span>
+                <span className={styles.compactStatLabel}>Calls</span>
+              </div>
+            </div>
+            <div className={styles.usageSection}>
+              <div className={styles.usageSectionHeader}>Top Tools</div>
+              {mcpTopTools.length > 0 ? (
+                <div className={styles.usageList}>
+                  {mcpTopTools.slice(0, 3).map((tool, index) => (
+                    <div key={tool.name} className={styles.usageItem}>
+                      <span className={styles.usageRank}>#{index + 1}</span>
+                      <span className={styles.usageName}>{tool.name}</span>
+                      <span className={styles.usageCount}>{tool.count}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div className={styles.emptyUsage}>No usage yet</div>
+              )}
             </div>
           </div>
         </div>
@@ -196,46 +452,64 @@ export function DashboardPage() {
           <div className={styles.panelHeader}>
             <Package size={16} />
             <h3>Skills</h3>
-            <Badge variant="default">
-              {skills.filter(s => s.enabled).length}/{skills.length}
+            <Badge variant={skillEnabled > 0 ? 'success' : 'default'}>
+              {skillEnabled}/{skillTotal}
             </Badge>
           </div>
           <div className={styles.panelContent}>
-            <div className={styles.skillsList}>
-              {skills.map(skill => (
-                <div key={skill.name} className={styles.skillItem}>
-                  <span className={styles.skillName}>{skill.name}</span>
-                  <Badge variant={skill.enabled ? 'success' : 'default'}>
-                    {skill.enabled ? 'Enabled' : 'Disabled'}
-                  </Badge>
+            <div className={styles.compactStats}>
+              <div className={styles.compactStatItem}>
+                <CheckCircle size={14} className={styles.successIcon} />
+                <span className={styles.compactStatValue}>{skillEnabled}</span>
+                <span className={styles.compactStatLabel}>Enabled</span>
+              </div>
+              <div className={styles.compactStatItem}>
+                <Activity size={14} className={styles.primaryIcon} />
+                <span className={styles.compactStatValue}>{skillTotalInvocations}</span>
+                <span className={styles.compactStatLabel}>Invocations</span>
+              </div>
+            </div>
+            <div className={styles.usageSection}>
+              <div className={styles.usageSectionHeader}>Top Skills</div>
+              {topSkills.length > 0 ? (
+                <div className={styles.usageList}>
+                  {topSkills.slice(0, 3).map((skill, index) => (
+                    <div key={skill.name} className={styles.usageItem}>
+                      <span className={styles.usageRank}>#{index + 1}</span>
+                      <span className={styles.usageName}>{skill.name}</span>
+                      <span className={styles.usageCount}>{skill.count}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div className={styles.emptyUsage}>No usage yet</div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* System Panel */}
+        {/* Model Information Panel */}
         <div className={styles.panel}>
           <div className={styles.panelHeader}>
-            <Cpu size={16} />
-            <h3>System</h3>
+            <Bot size={16} />
+            <h3>Model Information</h3>
           </div>
           <div className={styles.panelContent}>
-            <div className={styles.systemStats}>
-              <div className={styles.systemStat}>
-                <Cpu size={14} />
-                <span>Model</span>
-                <span className={styles.systemValue}>Claude 3.5 Sonnet</span>
+            <div className={styles.modelInfo}>
+              <div className={styles.modelItem}>
+                <Building2 size={14} className={styles.mutedIcon} />
+                <span className={styles.modelLabel}>Provider</span>
+                <span className={styles.modelValue}>{modelProvider || 'Not configured'}</span>
               </div>
-              <div className={styles.systemStat}>
-                <HardDrive size={14} />
-                <span>Workspace</span>
-                <span className={styles.systemValue}>workspace/</span>
+              <div className={styles.modelItem}>
+                <Bot size={14} className={styles.primaryIcon} />
+                <span className={styles.modelLabel}>Model</span>
+                <span className={styles.modelValue}>{modelName || 'Not configured'}</span>
               </div>
-              <div className={styles.systemStat}>
-                <Wifi size={14} />
-                <span>Connection</span>
-                <span className={styles.systemValue}>WebSocket</span>
+              <div className={styles.modelItem}>
+                <Hash size={14} className={styles.mutedIcon} />
+                <span className={styles.modelLabel}>Model ID</span>
+                <span className={styles.modelValueSmall}>{modelId || 'N/A'}</span>
               </div>
             </div>
           </div>

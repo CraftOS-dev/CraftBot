@@ -1,0 +1,180 @@
+/* MarkdownContent Component Styles */
+
+.markdown {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  word-break: break-word;
+  color: inherit;
+}
+
+/* Headings */
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+  font-weight: var(--font-semibold);
+  line-height: var(--leading-tight);
+  color: inherit;
+}
+
+.markdown h1 { font-size: var(--text-xl); }
+.markdown h2 { font-size: var(--text-lg); }
+.markdown h3 { font-size: var(--text-base); }
+.markdown h4,
+.markdown h5,
+.markdown h6 { font-size: var(--text-sm); }
+
+/* First heading should not have top margin */
+.markdown > h1:first-child,
+.markdown > h2:first-child,
+.markdown > h3:first-child,
+.markdown > h4:first-child {
+  margin-top: 0;
+}
+
+/* Paragraphs */
+.markdown p {
+  margin-bottom: var(--space-2);
+  color: inherit;
+}
+
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+/* Bold and italic */
+.markdown strong {
+  font-weight: var(--font-semibold);
+}
+
+.markdown em {
+  font-style: italic;
+}
+
+/* Lists */
+.markdown ul,
+.markdown ol {
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-5);
+  color: inherit;
+}
+
+.markdown ul {
+  list-style-type: disc;
+}
+
+.markdown ol {
+  list-style-type: decimal;
+}
+
+.markdown li {
+  margin-bottom: var(--space-1);
+  color: inherit;
+}
+
+.markdown li:last-child {
+  margin-bottom: 0;
+}
+
+/* Nested lists */
+.markdown ul ul,
+.markdown ol ol,
+.markdown ul ol,
+.markdown ol ul {
+  margin-top: var(--space-1);
+  margin-bottom: 0;
+}
+
+/* Inline code */
+.markdown code {
+  padding: 0.15em 0.4em;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Code blocks */
+.markdown pre {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: transparent;
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+/* Blockquotes */
+.markdown blockquote {
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 3px solid currentColor;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+/* Links */
+.markdown a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.markdown a:hover {
+  color: var(--color-primary-hover);
+}
+
+/* Horizontal rule */
+.markdown hr {
+  margin: var(--space-4) 0;
+  border: none;
+  border-top: 1px solid var(--border-primary);
+}
+
+/* Tables */
+.markdown table {
+  width: 100%;
+  margin-bottom: var(--space-3);
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  color: inherit;
+}
+
+.markdown th,
+.markdown td {
+  padding: var(--space-2);
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  text-align: left;
+  color: inherit;
+}
+
+.markdown th {
+  font-weight: var(--font-semibold);
+}
+
+/* Images */
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+
+/* Strikethrough */
+.markdown del {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* Task lists (GFM) */
+.markdown input[type="checkbox"] {
+  margin-right: var(--space-2);
+}

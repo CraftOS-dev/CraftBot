@@ -618,6 +618,12 @@ class AgentBase:
             True if a task was created and processing should continue,
             False if no task was created.
         """
+        # Check if proactive mode is enabled
+        from app.ui_layer.settings.proactive_settings import is_proactive_enabled
+        if not is_proactive_enabled():
+            logger.info("[PROACTIVE] Proactive mode is disabled, skipping trigger")
+            return False
+
         trigger_type = trigger.payload.get("type")
         frequency = trigger.payload.get("frequency", "")
         scope = trigger.payload.get("scope", "")

@@ -49,6 +49,7 @@ export function StatusIndicator({
       case 'completed':
         return <CheckCircle size={iconSize} />
       case 'error':
+      case 'cancelled':
         return <XCircle size={iconSize} />
       case 'running':
       case 'thinking':
