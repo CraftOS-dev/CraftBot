@@ -177,14 +177,21 @@ python install.py --no-conda
 python run.py --no-conda
 */
 '''
-python install.py              # Global pip (fastest, minimal deps)
-python install.py --conda      # Conda environment
-python install.py --gui --conda # Full installation with GUI components
+# Simple pip installation (no conda)
+python install.py
 
-python run.py              # For global pip install
-python run.py              # For conda environment (no flag needed, conda is automatic)
-python run.py --gui        # For full installation with GUI components
-```
+# With conda environment
+python install.py --conda
+
+# With GUI (requires conda)
+python install.py --gui --conda
+
+# Run the agent (uses whatever was installed)
+python run.py
+
+# Run with GUI mode (if installed)
+python run.py --gui
+
 
 > [!TIP]
 > **First-time setup:** CraftBot will guide you through an onboarding sequence to configure API keys, the agent's name, MCPs, and Skills.

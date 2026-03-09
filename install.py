@@ -21,6 +21,7 @@ import json
 import subprocess
 import shutil
 import time
+import threading
 from typing import Tuple, Optional, Dict, Any
 
 multiprocessing.freeze_support()
@@ -44,6 +45,122 @@ OMNIPARSER_REPO_URL = "https://github.com/zfoong/OmniParser_CraftOS.git"
 OMNIPARSER_BRANCH = "CraftOS"
 OMNIPARSER_ENV_NAME = "omni"
 OMNIPARSER_MARKER_FILE = ".omniparser_setup_complete_v1"
+
+# ==========================================
+# PROGRESS BAR
+# ==========================================
+class ProgressBar:
+    """Simple progress bar showing 0% to 100%."""
+    def __init__(self, total_steps: int = 10):
+        self.total_steps = max(1, total_steps)
+        self.current_step = 0
+        self.bar_length = 40
+    
+    def update(self, step: int = None):
+        """Update progress to step number."""
+        if step is not None:
+            self.current_step = min(step, self.total_steps - 1)
+        else:
+            self.current_step = min(self.current_step + 1, self.total_steps - 1)
+        
+        self._draw_bar()
+    
+    def _draw_bar(self):
+        """Draw the progress bar."""
+        if self.total_steps > 0:
+            percent = int((self.current_step / self.total_steps) * 100)
+        else:
+            percent = 100
+        
+        filled = int(self.bar_length * self.current_step / max(1, self.total_steps))
+        bar = '=' * filled + '-' * (self.bar_length - filled)
+        
+        sys.stdout.write(f"\r[{bar}] {percent}%")
+        sys.stdout.flush()
+    
+    def finish(self, message: str = "Complete"):
+        """Finish with 100%."""
+        self.current_step = self.total_steps
+        bar = '=' * self.bar_length
+        sys.stdout.write(f"\r[{bar}] 100% - {message}\n")
+        sys.stdout.flush()
+
+# ==========================================
+# ANIMATED PROGRESS INDICATOR
+# ==========================================
+class AnimatedProgress:
+    """Animated progress bar with percentage."""
+    def __init__(self, message: str = "Installing"):
+        self.message = message
+        self.percent = 0
+        self.bar_length = 30
+    
+    def update(self, percent: int):
+        """Update progress with percentage."""
+        self.percent = min(percent, 100)
+        filled = int(self.bar_length * self.percent / 100)
+        bar = "█" * filled + "░" * (self.bar_length - filled)
+        sys.stdout.write(f"\r{self.message} [{bar}] {self.percent}%")
+        sys.stdout.flush()
+    
+    def finish(self):
+        """Complete the progress bar."""
+        filled = self.bar_length
+        bar = "█" * filled
+        sys.stdout.write(f"\r{self.message} [{bar}] 100%\n")
+        sys.stdout.flush()
+
+def run_command_with_progress(cmd_list: list[str], message: str = "Processing", cwd: Optional[str] = None, check: bool = True, capture: bool = False, env_extras: Dict[str, str] = None) -> subprocess.CompletedProcess:
+    """Run command with animated progress bar."""
+    cmd_list = _wrap_windows_bat(cmd_list)
+    my_env = os.environ.copy()
+    if env_extras:
+        my_env.update(env_extras)
+    my_env["PYTHONUNBUFFERED"] = "1"
+
+    progress = AnimatedProgress(message)
+    
+    kwargs = {
+        'stdout': subprocess.PIPE,
+        'stderr': subprocess.PIPE,
+        'text': True,
+    }
+
+    try:
+        # Start process
+        process = subprocess.Popen(cmd_list, cwd=cwd, env=my_env, **kwargs)
+        
+        # Simulate progress updates while process runs
+        import threading
+        def update_progress():
+            steps = [10, 25, 40, 55, 70, 85, 95]
+            for step in steps:
+                if process.poll() is not None:
+                    break
+                progress.update(step)
+                time.sleep(0.5)
+        
+        # Start progress thread
+        progress_thread = threading.Thread(target=update_progress, daemon=True)
+        progress_thread.start()
+        
+        # Wait for process to finish
+        stdout, stderr = process.communicate()
+        
+        # Complete progress
+        progress.finish()
+        
+        if process.returncode != 0 and check:
+            print(f"\nError during installation:")
+            if stderr:
+                print(stderr[:500])
+            sys.exit(1)
+        
+        return subprocess.CompletedProcess(cmd_list, process.returncode, stdout, stderr)
+    
+    except FileNotFoundError as e:
+        print(f"\nExecutable not found: {e.filename}")
+        sys.exit(1)
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -72,11 +189,10 @@ def save_config_value(key: str, value: Any) -> None:
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=4)
-            print(f"Updated config: {key} = {value}")
     except IOError as e:
-        print(f"Warning: Could not save config file: {e}")
+        pass  # Silently fail if config can't be saved
 
-def run_command(cmd_list: list[str], cwd: Optional[str] = None, check: bool = True, capture: bool = False, env_extras: Dict[str, str] = None) -> subprocess.CompletedProcess:
+def run_command(cmd_list: list[str], cwd: Optional[str] = None, check: bool = True, capture: bool = False, env_extras: Dict[str, str] = None, quiet: bool = False) -> subprocess.CompletedProcess:
     cmd_list = _wrap_windows_bat(cmd_list)
     my_env = os.environ.copy()
     if env_extras:
@@ -84,22 +200,22 @@ def run_command(cmd_list: list[str], cwd: Optional[str] = None, check: bool = Tr
     my_env["PYTHONUNBUFFERED"] = "1"
 
     kwargs = {}
-    if capture:
+    if capture or quiet:
         kwargs['capture_output'] = True
         kwargs['text'] = True
     else:
-        kwargs['stdout'] = sys.stdout
-        kwargs['stderr'] = sys.stderr
-        print(f"$ {' '.join(cmd_list)}", flush=True)
+        kwargs['stdout'] = subprocess.DEVNULL
+        kwargs['stderr'] = subprocess.DEVNULL
 
     try:
         result = subprocess.run(cmd_list, cwd=cwd, check=check, env=my_env, **kwargs)
         return result
     except subprocess.CalledProcessError as e:
-        if capture:
+        if capture or quiet:
             print(f"\nError: {' '.join(cmd_list)}")
-            print(f"STDOUT: {e.stdout}")
-            print(f"STDERR: {e.stderr}")
+            if not quiet:
+                print(f"STDOUT: {e.stdout}")
+                print(f"STDERR: {e.stderr}")
         else:
             print(f"\nCommand failed.")
         sys.exit(1)
@@ -149,54 +265,46 @@ def get_conda_command() -> str:
     # Users can pass --mamba flag if they want to use mamba
     if "--mamba" in sys.argv:
         if shutil.which("mamba"):
-            print("Using mamba (faster resolver)")
             return "mamba"
-        else:
-            print("Warning: mamba not found, using conda")
     return "conda"
 
 def setup_conda_environment(env_name: str, yml_path: str = YML_FILE):
     conda_cmd = get_conda_command()
-    print(f"\nCreating/updating conda environment '{env_name}'...")
-    run_command([conda_cmd, "env", "update", "-f", yml_path])
-    print("Environment ready.")
+    try:
+        run_command_with_progress([conda_cmd, "env", "update", "-f", yml_path], f"Setting up conda environment '{env_name}'...")
+    except Exception as e:
+        raise
 
 def verify_conda_env(env_name: str) -> bool:
-    print(f"Verifying environment '{env_name}'...")
     try:
         verification_cmd = ["conda", "run", "-n", env_name, "python", "-c", "print('OK')"]
-        run_command(verification_cmd, capture=True)
-        print(f"Environment '{env_name}' verified.")
+        run_command(verification_cmd, capture=True, quiet=True)
         return True
     except:
         return False
 
 def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
-    print("\nInstalling dependencies with pip...")
-    if not os.path.exists(requirements_file):
-        print(f"Error: {requirements_file} not found.")
-        sys.exit(1)
-    run_command([sys.executable, "-m", "pip", "install", "-r", requirements_file])
-    print("Dependencies installed.")
+    try:
+        if not os.path.exists(requirements_file):
+            print(f"Error: {requirements_file} not found.")
+            sys.exit(1)
+        run_command_with_progress([sys.executable, "-m", "pip", "install", "-r", requirements_file], 
+                                 "Installing dependencies...")
+    except Exception as e:
+        raise
 
 # ==========================================
 # OMNIPARSER SETUP (GUI Mode)
 # ==========================================
 def setup_omniparser(force_cpu: bool, use_conda: bool):
     """Install OmniParser for GUI mode support."""
-    print("\n" + "="*50)
-    print(" Installing GUI Components (OmniParser)")
-    print("="*50)
 
     if not use_conda:
-        print("Error: OmniParser installation requires --conda flag.")
+        print("Error: GUI installation requires --conda flag.")
         sys.exit(1)
 
-    mode_str = f"Conda Env '{OMNIPARSER_ENV_NAME}'"
-    print(f"Mode: {mode_str}")
-
     if not shutil.which("git"):
-        print("Error: 'git' is required to install OmniParser.")
+        print("Error: 'git' is required to install GUI components.")
         print("Please install git: https://git-scm.com/downloads")
         sys.exit(1)
 
@@ -213,95 +321,185 @@ def setup_omniparser(force_cpu: bool, use_conda: bool):
         """Execute command in OmniParser conda environment."""
         full_cmd = ["conda", "run", "-n", OMNIPARSER_ENV_NAME] + cmd_list
         local_env = env_extras.copy() if env_extras else {}
-        run_command(full_cmd, cwd=work_dir, capture=capture_output, env_extras=local_env)
+        run_command(full_cmd, cwd=work_dir, capture=capture_output, env_extras=local_env, quiet=capture_output)
 
-    # Step 1: Clone/update repository
-    print(f"\n[1/6] Repository setup...")
-    if os.path.exists(repo_path):
-        print(f"Updating existing repo at {repo_path}")
-        run_command(["git", "-C", repo_path, "pull"])
-    else:
-        print(f"Cloning OmniParser...")
-        run_command(["git", "clone", "-b", OMNIPARSER_BRANCH, OMNIPARSER_REPO_URL, repo_path])
+    # Step 1: Repository setup
+    try:
+        print("🔧 Setting up OmniParser repository...")
+        if os.path.exists(repo_path):
+            run_command(["git", "-C", repo_path, "pull"], quiet=True, check=False)
+        else:
+            run_command(["git", "clone", "-b", OMNIPARSER_BRANCH, OMNIPARSER_REPO_URL, repo_path], quiet=False)
+    except Exception as e:
+        progress.finish("Error")
+        raise
 
     # Check marker file
     marker_path = os.path.join(repo_path, OMNIPARSER_MARKER_FILE)
-    if os.path.exists(marker_path):
-        print(f"\nOmniParser already installed (found marker file).")
-        print("Skipping to model weights check...")
-    else:
-        # Step 2: Create environment (conda only)
-        print(f"\n[2/6] Creating conda environment '{OMNIPARSER_ENV_NAME}'...")
+    if not os.path.exists(marker_path):
+        # Step 2: Create environment
         try:
-            run_command(["conda", "create", "-n", OMNIPARSER_ENV_NAME, "python=3.10", "-y"], capture=True)
-        except subprocess.CalledProcessError:
-            print(f"Environment '{OMNIPARSER_ENV_NAME}' already exists or creation error.")
+            print("🔧 Creating conda environment...")
+            run_command(["conda", "create", "-n", OMNIPARSER_ENV_NAME, "python=3.10", "-y"], capture=True, quiet=False, check=False)
+            run_omni_cmd(["pip", "install", "--upgrade", "pip"])
+        except Exception as e:
+            print("\n✗ Error creating environment")
+            raise
         
-        run_omni_cmd(["pip", "install", "--upgrade", "pip"])
-
         # Step 3: Install PyTorch
-        print(f"\n[3/6] Installing PyTorch...")
-        if force_cpu:
-            run_omni_cmd(["conda", "install", "pytorch", "torchvision", "torchaudio", "cpuonly", "-c", "pytorch", "-y"])
-        else:
-            run_omni_cmd(["conda", "install", "pytorch", "torchvision", "torchaudio", "pytorch-cuda=12.1", "-c", "pytorch", "-c", "nvidia", "-y"])
+        try:
+            print("🔧 Installing PyTorch...")
+            if force_cpu:
+                run_omni_cmd(["conda", "install", "pytorch", "torchvision", "torchaudio", "cpuonly", "-c", "pytorch", "-y"])
+            else:
+                run_omni_cmd(["conda", "install", "pytorch", "torchvision", "torchaudio", "pytorch-cuda=12.1", "-c", "pytorch", "-c", "nvidia", "-y"])
+        except Exception as e:
+            print("\n✗ Error installing PyTorch")
+            raise
 
-        # Step 4: Install other dependencies
-        print(f"\n[4/6] Installing dependencies...")
-        deps = ["mkl==2024.0", "sympy==1.13.1", "transformers==4.51.0", "huggingface_hub[cli]", "hf_transfer"]
-        run_omni_cmd(["pip", "install"] + deps)
+        # Step 4: Install dependencies
+        try:
+            print("🔧 Installing dependencies...")
+            deps = ["mkl==2024.0", "sympy==1.13.1", "transformers==4.51.0", "huggingface_hub[cli]", "hf_transfer"]
+            run_omni_cmd(["pip", "install"] + deps)
 
-        req_txt = os.path.join(repo_path, "requirements.txt")
-        if os.path.exists(req_txt):
-            run_omni_cmd(["pip", "install", "-r", "requirements.txt"])
+            req_txt = os.path.join(repo_path, "requirements.txt")
+            if os.path.exists(req_txt):
+                run_omni_cmd(["pip", "install", "-r", "requirements.txt"])
+        except Exception as e:
+            print("\n✗ Error installing dependencies")
+            raise
 
         # Create marker
         with open(marker_path, 'w') as f:
             f.write(f"Installed on {time.ctime()}\n")
+    else:
+        print("🔧 Environment already set up, skipping setup steps...")
 
     # Step 5: Download model weights
-    print(f"\n[5/6] Checking model weights...")
-    files_to_download = [
-        {"file": "icon_detect/train_args.yaml", "local_path": "icon_detect/train_args.yaml"},
-        {"file": "icon_detect/model.pt", "local_path": "icon_detect/model.pt"},
-        {"file": "icon_detect/model.yaml", "local_path": "icon_detect/model.yaml"},
-        {"file": "icon_caption/config.json", "local_path": "icon_caption_florence/config.json"},
-        {"file": "icon_caption/generation_config.json", "local_path": "icon_caption_florence/generation_config.json"},
-        {"file": "icon_caption/model.safetensors", "local_path": "icon_caption_florence/model.safetensors"}
-    ]
+    try:
+        print("🔧 Downloading model weights (this may take a while)...")
+        files_to_download = [
+            {"file": "icon_detect/train_args.yaml", "local_path": "icon_detect/train_args.yaml"},
+            {"file": "icon_detect/model.pt", "local_path": "icon_detect/model.pt"},
+            {"file": "icon_detect/model.yaml", "local_path": "icon_detect/model.yaml"},
+            {"file": "icon_caption/config.json", "local_path": "icon_caption_florence/config.json"},
+            {"file": "icon_caption/generation_config.json", "local_path": "icon_caption_florence/generation_config.json"},
+            {"file": "icon_caption/model.safetensors", "local_path": "icon_caption_florence/model.safetensors"}
+        ]
 
-    weights_dir = os.path.join(repo_path, "weights")
-    os.makedirs(os.path.join(weights_dir, "icon_detect"), exist_ok=True)
-    os.makedirs(os.path.join(weights_dir, "icon_caption_florence"), exist_ok=True)
+        weights_dir = os.path.join(repo_path, "weights")
+        os.makedirs(os.path.join(weights_dir, "icon_detect"), exist_ok=True)
+        os.makedirs(os.path.join(weights_dir, "icon_caption_florence"), exist_ok=True)
 
-    hf_env = {"HF_HUB_ENABLE_HF_TRANSFER": "1"}
-    for file_info in files_to_download:
-        local_dest = os.path.join(weights_dir, file_info['local_path'])
-        if not os.path.exists(local_dest):
-            print(f"Downloading {file_info['file']}...")
-            run_omni_cmd(["hf", "download", "microsoft/OmniParser-v2.0", file_info['file'], "--local-dir", "weights"],
-                        work_dir=repo_path, capture_output=True, env_extras=hf_env)
+        hf_env = {"HF_HUB_ENABLE_HF_TRANSFER": "1"}
+        for i, file_info in enumerate(files_to_download, 1):
+            local_dest = os.path.join(weights_dir, file_info['local_path'])
+            if not os.path.exists(local_dest):
+                print(f"  📦 ({i}/{len(files_to_download)}) Downloading: {file_info['local_path']}...")
+                run_omni_cmd(["hf", "download", "microsoft/OmniParser-v2.0", file_info['file'], "--local-dir", "weights"],
+                            work_dir=repo_path, capture_output=True, env_extras=hf_env)
+            else:
+                print(f"  ✓ ({i}/{len(files_to_download)}) Already have: {file_info['local_path']}")
+    except Exception as e:
+        print("\n✗ Error downloading model weights")
+        raise
 
     # Step 6: Reorganize files
-    print(f"\n[6/6] Finalizing...")
-    src_caption = os.path.join(weights_dir, "icon_caption")
-    dst_caption = os.path.join(weights_dir, "icon_caption_florence")
-    if os.path.exists(src_caption):
-        if os.path.exists(dst_caption):
-            shutil.rmtree(dst_caption)
-        shutil.move(src_caption, dst_caption)
+    try:
+        print("🔧 Organizing GUI components...")
+        src_caption = os.path.join(weights_dir, "icon_caption")
+        dst_caption = os.path.join(weights_dir, "icon_caption_florence")
+        if os.path.exists(src_caption):
+            if os.path.exists(dst_caption):
+                shutil.rmtree(dst_caption)
+            shutil.move(src_caption, dst_caption)
+        print("✓ GUI components ready\n")
+    except Exception as e:
+        print("\n✗ Error organizing files")
+        raise
 
-    print("\nGUI components installed successfully!")
+
+# ==========================================
+# MAIN
+# ==========================================
+def launch_agent_after_install(install_gui: bool, use_conda: bool):
+    """Launch the agent automatically after installation."""
+    main_script = os.path.abspath(os.path.join(BASE_DIR, "run.py"))
+    if not os.path.exists(main_script):
+        print(f"Error: {main_script} not found.")
+        sys.exit(1)
+
+    # Build args for run script
+    args = []
+    if install_gui:
+        args.append("--gui")
+
+    # Build command based on installation method
+    if use_conda:
+        env_name = get_env_name_from_yml()
+        cmd = ["conda", "run", "-n", env_name, "python", "-u", main_script] + args
+        
+        # On Windows, wrap with cmd.exe if needed
+        if sys.platform == "win32":
+            conda_exe = shutil.which("conda") or "conda"
+            if conda_exe.lower().endswith((".bat", ".cmd")):
+                cmd = ["cmd.exe", "/d", "/c"] + cmd
+    else:
+        cmd = [sys.executable, "-u", main_script] + args
+
+    # Launch the agent
+    try:
+        result = subprocess.run(cmd, cwd=BASE_DIR, env=os.environ.copy())
+        sys.exit(result.returncode)
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error launching agent: {e}")
+        sys.exit(1)
+
+
+# ==========================================
+# API KEY SETUP
+# ==========================================
+def check_api_keys() -> bool:
+    """Check if required API keys are set."""
+    required_keys = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]
+    
+    for key in required_keys:
+        if os.getenv(key):
+            return True
+    
+    return False
+
+def show_api_setup_instructions():
+    """Show instructions for setting up API keys."""
+    print("\n" + "="*50)
+    print(" ⚠ API Key Required")
+    print("="*50)
+    print("\nCraftBot needs an LLM API key to run.")
+    print("\nSupported providers:")
+    print("  1. OpenAI (fastest setup)")
+    print("  2. Google Gemini")
+    print("  3. Anthropic Claude")
+    print("\nTo set up:")
+    print("  1. Get an API key from your chosen provider")
+    print("  2. Create a .env file in this directory:")
+    print("     ")
+    print("     OPENAI_API_KEY=your-key-here")
+    print("     ")
+    print("     OR")
+    print("     ")
+    print("     GOOGLE_API_KEY=your-key-here")
+    print("     ")
+    print("  3. Save and run again: python install.py")
+    print("="*50 + "\n")
 
 
 # ==========================================
 # MAIN
 # ==========================================
 if __name__ == "__main__":
-    print("="*50)
-    print(" CraftBot Installation")
-    print("="*50)
-
     args = set(sys.argv[1:])
 
     # Parse flags
@@ -312,34 +510,24 @@ if __name__ == "__main__":
     # Validate flags
     if install_gui and not use_conda:
         print("Error: --gui requires --conda flag.")
-        print("Use: python install.py --gui --conda")
+        print("Use: python install.py --gui --conda\n")
         sys.exit(1)
 
-    # Save GUI mode preference
+    # Save installation configuration (silent)
+    save_config_value("use_conda", use_conda)
     save_config_value("gui_mode_enabled", install_gui)
     os.environ["USE_CONDA"] = str(use_conda)
 
-    print(f"\nInstallation mode:")
-    print(f"  - GUI support: {'Yes' if install_gui else 'No (use --gui --conda to enable)'}")
-    print(f"  - Using conda: {'Yes' if use_conda else 'No (global pip only)'}")
-    if install_gui and force_cpu:
-        print(f"  - PyTorch: CPU only")
-
     # Step 1: Install core dependencies
-    print("\n" + "-"*50)
-    print(" Step 1: Core Dependencies")
-    print("-"*50)
-
     if use_conda:
         is_installed, reason, conda_base = is_conda_installed()
         if not is_installed:
-            print(f"Error: Conda not found ({reason})")
+            print("Error: Conda not found")
             print("Options:")
             print("  1. Install Anaconda or Miniconda")
-            print("  2. Or use global pip: python install.py")
+            print("  2. Or use without conda: python install.py\n")
             sys.exit(1)
 
-        print(f"Conda: {reason}")
         env_name = get_env_name_from_yml()
         setup_conda_environment(env_name)
         verify_conda_env(env_name)
@@ -348,21 +536,8 @@ if __name__ == "__main__":
 
     # Step 2: Install GUI components (optional)
     if install_gui:
-        print("\n" + "-"*50)
-        print(" Step 2: GUI Components")
-        print("-"*50)
         setup_omniparser(force_cpu=force_cpu, use_conda=use_conda)
-    else:
-        print("\n" + "-"*50)
-        print(" GUI components skipped (use --gui to install)")
-        print("-"*50)
 
-    # Done
-    print("\n" + "="*50)
-    print(" Installation Complete!")
-    print("="*50)
-    print("\nNext step: Run the agent with:")
-    print("  python run.py")
-    if not install_gui:
-        print("\nTo add GUI support later, run:")
-        print("  python install.py --gui --conda")
+    # Done - silently launch the agent
+    launch_agent_after_install(install_gui, use_conda)
+
