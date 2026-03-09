@@ -43,6 +43,20 @@ class TelegramUserClient(BasePlatformClient):
         self._my_user_id: Optional[int] = None
         self._agent_sent_ids: set = set()  # track IDs of messages sent by the agent
 
+    # Generic terms the LLM may use to mean "send to self / Saved Messages"
+    _OWNER_ALIASES = {"user", "owner", "me", "self"}
+
+    def _resolve_recipient(self, recipient: str) -> str:
+        """If *recipient* is a generic alias like 'user', resolve to Saved Messages."""
+        if recipient.strip().lower() in self._OWNER_ALIASES:
+            # "me" is Telethon's built-in shortcut for Saved Messages
+            if self._my_user_id:
+                logger.info(f"[TELEGRAM_USER] Resolved '{recipient}' to own user ID {self._my_user_id}")
+                return str(self._my_user_id)
+            logger.info(f"[TELEGRAM_USER] Resolved '{recipient}' to 'me' (Saved Messages)")
+            return "me"
+        return recipient
+
     @property
     def _agent_prefix(self) -> str:
         """Return prefix like '[AgentName] ' using the configured agent name."""
@@ -206,6 +220,7 @@ class TelegramUserClient(BasePlatformClient):
             Dict with sent message info or error.
         """
         reply_to: Optional[int] = kwargs.get("reply_to")
+        resolved = self._resolve_recipient(recipient)
         prefixed_text = f"{self._agent_prefix}{text}"
 
         try:
@@ -215,7 +230,7 @@ class TelegramUserClient(BasePlatformClient):
             session, api_id, api_hash = self._session_params()
 
             async with TelegramClient(session, api_id, api_hash) as client:
-                entity = await client.get_entity(recipient)
+                entity = await client.get_entity(resolved)
                 msg = await client.send_message(entity, prefixed_text, reply_to=reply_to)
 
                 # Track sent message ID to filter echo in _handle_event
