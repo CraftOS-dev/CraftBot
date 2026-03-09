@@ -2,14 +2,11 @@
 """
 app.external_comms.platforms.whatsapp_web
 
-WhatsApp Web platform client — uses Playwright (headless Chrome) via the
-helper functions in ``app.external_comms.platforms.whatsapp_web_helpers``.
+WhatsApp Web platform client — uses a Node.js whatsapp-web.js bridge subprocess
+for event-driven messaging (replaces the old Playwright polling approach).
 
-Unlike most platform clients this one does **not** hit an HTTP API.
-Every operation is carried out by driving a real Chrome browser session that
-is logged in to WhatsApp Web.  Session management, QR-code pairing, and
-low-level browser interaction are all handled by the helpers; this module
-only exposes a high-level ``BasePlatformClient`` interface on top of them.
+The bridge subprocess is managed by ``WhatsAppBridge`` in
+``app.external_comms.platforms.whatsapp_bridge.client``.
 """
 
 from __future__ import annotations
@@ -37,6 +34,8 @@ CREDENTIAL_FILE = "whatsapp_web.json"
 @dataclass
 class WhatsAppWebCredential:
     session_id: str = ""
+    owner_phone: str = ""
+    owner_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -46,28 +45,20 @@ class WhatsAppWebCredential:
 @register_client
 class WhatsAppWebClient(BasePlatformClient):
     """
-    WhatsApp Web client backed by Playwright browser automation.
+    WhatsApp Web client backed by a whatsapp-web.js Node.js bridge subprocess.
 
-    All heavy lifting is delegated to the helper functions in
-    ``app.external_comms.platforms.whatsapp_web_helpers``.
-    Imports are done lazily inside each method so that Playwright is only
-    required at call time, not at import time.
+    All messaging and chat operations are delegated to the bridge via
+    JSON-lines IPC (stdin/stdout).
     """
 
     PLATFORM_ID = "whatsapp_web"
 
-    # Polling tunables (used by the listener loop)
-    POLL_INTERVAL: int = 10   # seconds between polling cycles
-    RETRY_DELAY: int = 5      # seconds to wait after an error
-
     def __init__(self) -> None:
         super().__init__()
         self._cred: Optional[WhatsAppWebCredential] = None
-        self._poll_task: Optional[asyncio.Task] = None
-        self._seen_fingerprints: set = set()  # dedup: "chat|sender|text|timestamp"
-        self._catchup_done: bool = False       # first poll is silent catchup
-        self._own_name: Optional[str] = None   # user's WhatsApp display name (for @mention matching)
-        self._known_groups: set = set()        # chat names confirmed as group chats
+        self._bridge = None  # WhatsAppBridge instance (lazy import)
+        self._seen_ids: set = set()  # dedup incoming message IDs
+        self._known_groups: set = set()
 
     # ------------------------------------------------------------------
     # Credential helpers
@@ -84,46 +75,68 @@ class WhatsAppWebClient(BasePlatformClient):
         return self._cred
 
     @property
-    def session_id(self) -> str:
-        return self._load().session_id
+    def owner_phone(self) -> str:
+        """Return the stored owner phone number, or empty string."""
+        return self._load().owner_phone
+
+    # ------------------------------------------------------------------
+    # Bridge access
+    # ------------------------------------------------------------------
+
+    def _get_bridge(self):
+        """Lazily import and return the WhatsAppBridge singleton."""
+        if self._bridge is None:
+            from app.external_comms.platforms.whatsapp_bridge.client import get_whatsapp_bridge
+            self._bridge = get_whatsapp_bridge()
+        return self._bridge
 
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Verify that the stored session is usable."""
-        cred = self._load()
-        status = await self.get_session_status()
-        if status is None:
-            raise RuntimeError(
-                f"WhatsApp Web session '{cred.session_id}' not found or not connected."
-            )
+        """Start the bridge and verify it becomes ready."""
+        bridge = self._get_bridge()
+        if not bridge.is_running:
+            await bridge.start()
+        if not bridge.is_ready:
+            ready = await bridge.wait_for_ready(timeout=120.0)
+            if not ready:
+                raise RuntimeError("WhatsApp bridge did not become ready within timeout")
         self._connected = True
 
     async def disconnect(self) -> None:
-        """Stop listening (if active) and mark as disconnected."""
+        """Stop listening and the bridge subprocess."""
         await super().disconnect()
+        bridge = self._get_bridge()
+        if bridge.is_running:
+            await bridge.stop()
 
     # ------------------------------------------------------------------
     # Messaging
     # ------------------------------------------------------------------
 
+    # Generic terms the LLM may use to mean "send to the device owner"
+    _OWNER_ALIASES = {"user", "owner", "me", "self"}
+
+    def _resolve_recipient(self, recipient: str) -> str:
+        """If *recipient* is a generic alias like 'user', replace with stored owner phone."""
+        if recipient.strip().lower() in self._OWNER_ALIASES:
+            phone = self.owner_phone
+            if phone:
+                logger.info(f"[WhatsApp Web] Resolved '{recipient}' to owner phone {phone}")
+                return phone
+            logger.warning(f"[WhatsApp Web] Cannot resolve '{recipient}' — owner_phone not stored in credential")
+        return recipient
+
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
-        """
-        Send a text message to *recipient* (phone number or JID).
-
-        Delegates to ``send_whatsapp_web_message``.
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            send_whatsapp_web_message,
-        )
-
-        return await send_whatsapp_web_message(
-            session_id=self.session_id,
-            to=recipient,
-            message=text,
-        )
+        """Send a text message via the bridge."""
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        resolved = self._resolve_recipient(recipient)
+        result = await bridge.send_message(to=resolved, text=text)
+        return {"status": "success" if result.get("success") else "error", **result}
 
     async def send_media(
         self,
@@ -131,21 +144,11 @@ class WhatsAppWebClient(BasePlatformClient):
         media_path: str,
         caption: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Send a media file to *recipient*.
-
-        Delegates to ``send_whatsapp_web_media``.
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            send_whatsapp_web_media,
-        )
-
-        return await send_whatsapp_web_media(
-            session_id=self.session_id,
-            to=recipient,
-            media_path=media_path,
-            caption=caption,
-        )
+        """Send media is not yet supported via the bridge — send caption as text."""
+        # TODO: Add media support to bridge.js
+        if caption:
+            return await self.send_message(recipient, f"[Media: {media_path}]\n{caption}")
+        return {"status": "error", "error": "Media sending not yet supported via bridge"}
 
     # ------------------------------------------------------------------
     # Chat / contact queries
@@ -156,66 +159,42 @@ class WhatsAppWebClient(BasePlatformClient):
         phone_number: str,
         limit: int = 50,
     ) -> Dict[str, Any]:
-        """
-        Retrieve recent messages from a specific chat.
-
-        Delegates to ``get_whatsapp_web_chat_messages``.
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_whatsapp_web_chat_messages,
-        )
-
-        return await get_whatsapp_web_chat_messages(
-            session_id=self.session_id,
-            phone_number=phone_number,
-            limit=limit,
-        )
+        """Retrieve recent messages from a specific chat."""
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"success": False, "error": "Bridge not ready"}
+        result = await bridge.get_chat_messages(chat_id=phone_number, limit=limit)
+        return {"status": "success" if result.get("success") else "error", **result}
 
     async def get_unread_chats(self) -> Dict[str, Any]:
-        """
-        Return a list of chats that currently have unread messages.
-
-        Delegates to ``get_whatsapp_web_unread_chats``.
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_whatsapp_web_unread_chats,
-        )
-
-        return await get_whatsapp_web_unread_chats(
-            session_id=self.session_id,
-        )
+        """Return a list of chats with unread messages."""
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"success": False, "error": "Bridge not ready"}
+        result = await bridge.get_unread_chats()
+        return {"status": "success" if result.get("success") else "error", **result}
 
     async def search_contact(self, name: str) -> Dict[str, Any]:
-        """
-        Resolve a contact *name* to a phone number.
-
-        Delegates to ``get_whatsapp_web_contact_phone``.
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_whatsapp_web_contact_phone,
-        )
-
-        return await get_whatsapp_web_contact_phone(
-            session_id=self.session_id,
-            contact_name=name,
-        )
+        """Search contacts by name."""
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"success": False, "error": "Bridge not ready"}
+        result = await bridge.search_contact(name=name)
+        return {"status": "success" if result.get("success") else "error", **result}
 
     async def get_session_status(self) -> Optional[Dict[str, Any]]:
-        """
-        Return the current status of the underlying browser session.
-
-        Delegates to ``get_session_status``.
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_session_status,
-        )
-
-        return await get_session_status(
-            session_id=self.session_id,
-        )
+        """Get bridge/client status."""
+        bridge = self._get_bridge()
+        if not bridge.is_running:
+            return {"status": "disconnected", "ready": False}
+        try:
+            result = await bridge.get_status()
+            return {"status": "connected" if result.get("ready") else "waiting", **result}
+        except Exception:
+            return {"status": "disconnected", "ready": False}
 
     # ------------------------------------------------------------------
-    # Listening (polling for incoming messages)
+    # Listening (event-driven via bridge callback)
     # ------------------------------------------------------------------
 
     @property
@@ -223,292 +202,240 @@ class WhatsAppWebClient(BasePlatformClient):
         return True
 
     async def start_listening(self, callback: MessageCallback) -> None:
-        """
-        Begin polling WhatsApp Web for unread messages.
-
-        Before starting the poll loop, ensures a Playwright browser session
-        is active on the current event loop (reconnects from persisted profile
-        if needed — e.g. after agent restart or when the login was done on a
-        separate thread).
-
-        Raises RuntimeError if the session cannot be established.
-        """
+        """Start the bridge and register for incoming message events."""
         if self._listening:
             return
 
-        # Invalidate cached credential so we pick up the latest session ID
-        # (e.g. after a fresh interactive connect replaced the old session).
+        # Invalidate cached credential so we pick up the latest
         self._cred = None
 
-        # Ensure we have an active Playwright session on *this* event loop.
-        # The login flow creates the session on a background thread whose event
-        # loop is closed afterwards, making the Playwright page unusable.
-        # We always clear any stale in-memory session and reconnect from the
-        # persisted browser profile so the new browser runs on the current loop.
-        sid = self.session_id
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_whatsapp_web_manager,
-            reconnect_whatsapp_web_session,
-        )
+        bridge = self._get_bridge()
 
-        manager = get_whatsapp_web_manager()
+        # Always restart the bridge fresh so its reader tasks run on the
+        # current event loop.  The login flow may have started the bridge on
+        # a background thread whose event loop is now dead.  whatsapp-web.js
+        # LocalAuth persists the session, so the restart will auto-authenticate.
+        if bridge.is_running:
+            logger.info("[WhatsApp Web] Restarting bridge on current event loop...")
+            await bridge.stop()
 
-        # Remove any stale in-memory session so reconnect_session actually
-        # launches a fresh browser on the current event loop.
-        if sid in manager._sessions:
-            logger.info(f"[WhatsApp Web] Clearing stale in-memory session {sid}")
-            manager._sessions.pop(sid, None)
-            manager._pages.pop(sid, None)
-            # Try to close the old browser gracefully (may fail if event loop is dead)
-            old_browser = manager._browsers.pop(sid, None)
-            if old_browser:
-                try:
-                    pw, ctx = old_browser
-                    await ctx.close()
-                    await pw.stop()
-                except Exception:
-                    pass  # Expected — old event loop is likely closed
+        await bridge.start()
 
-        logger.info(f"[WhatsApp Web] Reconnecting session {sid} for listener...")
-        result = await reconnect_whatsapp_web_session(
-            session_id=sid,
-            user_id="local",
-        )
-        if not result.get("success") and result.get("status") != "connected":
-            error = result.get("error", "unknown")
-            logger.warning(f"[WhatsApp Web] Could not reconnect session {sid}: {error}")
-            raise RuntimeError(f"WhatsApp Web session not connected: {error}")
+        # Register event callback
+        bridge.set_event_callback(self._on_bridge_event)
 
-        # Fetch the user's own display name for @mention matching in groups
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_whatsapp_web_own_profile_name,
-        )
-        self._own_name = await get_whatsapp_web_own_profile_name(sid)
-        if self._own_name:
-            logger.info(f"[WhatsApp Web] Own profile name: {self._own_name}")
-        else:
-            logger.warning("[WhatsApp Web] Could not determine own profile name — @mention filtering will match any '@'")
+        # Wait for ready or QR — if QR is needed the user must login first
+        logger.info("[WhatsApp Web] Waiting for bridge to become ready...")
+        event_type, _ = await bridge.wait_for_qr_or_ready(timeout=120.0)
+
+        if event_type == "qr":
+            # Not authenticated — stop the bridge and tell user to login
+            logger.warning("[WhatsApp Web] Bridge requires QR scan — user must run /whatsapp login first")
+            bridge.set_event_callback(None)
+            await bridge.stop()
+            raise RuntimeError("WhatsApp not authenticated. Please run /whatsapp login to scan the QR code first.")
+
+        if event_type != "ready":
+            bridge.set_event_callback(None)
+            raise RuntimeError("WhatsApp bridge did not become ready — timed out")
+
+        # Update credential with owner info from the bridge
+        if bridge.owner_phone or bridge.owner_name:
+            cred = self._load()
+            if cred.owner_phone != bridge.owner_phone or cred.owner_name != bridge.owner_name:
+                updated = WhatsAppWebCredential(
+                    session_id=cred.session_id,
+                    owner_phone=bridge.owner_phone or cred.owner_phone,
+                    owner_name=bridge.owner_name or cred.owner_name,
+                )
+                save_credential(CREDENTIAL_FILE, updated)
+                self._cred = updated
+                logger.info(
+                    f"[WhatsApp Web] Updated credential: phone={updated.owner_phone}, "
+                    f"name={updated.owner_name}"
+                )
 
         self._message_callback = callback
         self._listening = True
-        self._poll_task = asyncio.create_task(self._poll_loop())
-        logger.info(f"[WhatsApp Web] Listener started for session: {sid}")
+        self._connected = True
+        logger.info(
+            f"[WhatsApp Web] Listener started — connected as "
+            f"+{bridge.owner_phone} ({bridge.owner_name})"
+        )
 
     async def stop_listening(self) -> None:
-        """Cancel the polling task and clean up."""
+        """Stop listening for messages."""
         if not self._listening:
             return
 
         self._listening = False
 
-        if self._poll_task and not self._poll_task.done():
-            self._poll_task.cancel()
-            try:
-                await self._poll_task
-            except asyncio.CancelledError:
-                pass
+        bridge = self._get_bridge()
+        bridge.set_event_callback(None)
 
-        self._poll_task = None
         logger.info("[WhatsApp Web] Listener stopped")
 
-    # -- internal polling machinery --------------------------------------
+    # -- Bridge event handler ------------------------------------------------
 
-    async def _poll_loop(self) -> None:
-        """Continuously poll for new messages while ``_listening`` is True."""
-        logger.info("[WhatsApp Web] Poll loop started — running initial catchup")
-        # Catchup: record everything currently unread so we don't flood on start
-        try:
-            await self._check_for_messages()
-            fingerprints_caught = len(self._seen_fingerprints)
-            self._catchup_done = True
-            logger.info(f"[WhatsApp Web] Catchup complete — {fingerprints_caught} existing message(s) marked seen")
-        except Exception as exc:
-            logger.error(f"[WhatsApp Web] Catchup error: {exc}", exc_info=True)
-            self._catchup_done = True  # proceed anyway so we don't block forever
+    async def _on_bridge_event(self, event: str, data: Dict[str, Any]) -> None:
+        """Handle events from the bridge subprocess."""
+        if event == "message":
+            await self._handle_incoming_message(data)
+        elif event == "message_sent":
+            await self._handle_sent_message(data)
+        elif event == "disconnected":
+            self._connected = False
+            logger.warning(f"[WhatsApp Web] Disconnected: {data.get('reason', 'unknown')}")
+        elif event == "ready":
+            self._connected = True
 
-        cycle = 0
-        while self._listening:
-            try:
-                cycle += 1
-                logger.info(f"[WhatsApp Web] Poll cycle {cycle}")
-                await self._check_for_messages()
-                await asyncio.sleep(self.POLL_INTERVAL)
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.error(f"[WhatsApp Web] Poll error (cycle {cycle}): {exc}", exc_info=True)
-                await asyncio.sleep(self.RETRY_DELAY)
-        logger.info("[WhatsApp Web] Poll loop exited")
-
-    async def _check_for_messages(self) -> None:
-        """Fetch unread chats and dispatch new incoming messages.
-
-        The helpers return Playwright-scraped data in this format:
-        - get_unread_chats: {"success": bool, "unread_chats": [{"name": str, "unread_count": str}]}
-        - get_chat_messages_by_name: {"success": bool, "messages": [{"text": str, "is_outgoing": bool, "timestamp": str, "sender": str}]}
-        """
-        from app.external_comms.platforms.whatsapp_web_helpers import (
-            get_whatsapp_web_unread_chats,
-            get_whatsapp_web_chat_messages_by_name,
-        )
-
-        sid = self.session_id
-
-        unread_result = await get_whatsapp_web_unread_chats(session_id=sid)
-        if not unread_result.get("success"):
-            logger.warning(f"[WhatsApp Web] get_unread_chats failed: {unread_result.get('error', 'unknown')}")
+    async def _handle_incoming_message(self, data: Dict[str, Any]) -> None:
+        """Process an incoming message event from the bridge."""
+        if not self._listening or not self._message_callback:
             return
 
-        unread_chats: List[Dict[str, Any]] = unread_result.get("unread_chats", [])
-        if unread_chats:
-            logger.info(f"[WhatsApp Web] Found {len(unread_chats)} unread chat(s): {[c.get('name') for c in unread_chats]}")
+        msg_id = data.get("id", "")
+        if msg_id in self._seen_ids:
+            return
+        self._seen_ids.add(msg_id)
 
-        for chat in unread_chats:
-            chat_name: str = chat.get("name", "")
-            unread_count_str: str = str(chat.get("unread_count", "0"))
-            detection_source: str = chat.get("source", "badge")
-            is_muted: bool = chat.get("is_muted", False)
-            is_group: bool = chat.get("is_group", False) or chat_name in self._known_groups
+        # Skip messages from self (handled by message_sent event)
+        if data.get("from_me", False):
+            return
 
-            if not chat_name:
-                continue
+        body = data.get("body", "")
+        if not body:
+            return
 
-            # Skip muted group chats entirely
-            if is_muted and is_group:
-                logger.debug(f"[WhatsApp Web] Skipping muted group: {chat_name}")
-                continue
+        chat = data.get("chat", {})
+        contact = data.get("contact", {})
+        is_group = chat.get("is_group", False)
+        is_muted = chat.get("is_muted", False)
 
+        # Track known groups
+        chat_name = chat.get("name", "")
+        if is_group:
+            self._known_groups.add(chat_name)
+
+        # Skip muted group chats
+        if is_muted and is_group:
+            logger.debug(f"[WhatsApp Web] Skipping muted group: {chat_name}")
+            return
+
+        # In group chats, only process messages that @mention the user
+        if is_group:
+            if not self._is_mention_for_me(body):
+                return
+
+        sender_name = contact.get("name", "") or chat_name
+        sender_id = data.get("from", "")
+        timestamp = data.get("timestamp")
+
+        ts: Optional[datetime] = None
+        if timestamp:
             try:
-                unread_count = int(unread_count_str)
-            except (ValueError, TypeError):
-                unread_count = 1
+                ts = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            except Exception:
+                ts = datetime.now(tz=timezone.utc)
 
-            if unread_count == 0:
-                continue
+        platform_msg = PlatformMessage(
+            platform=self.PLATFORM_ID,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            text=body,
+            channel_id=chat.get("id", ""),
+            channel_name=chat_name,
+            message_id=msg_id,
+            timestamp=ts,
+            raw={
+                "source": "WhatsApp Web",
+                "integrationType": "whatsapp_web",
+                "is_self_message": False,
+                "is_group": is_group,
+                "contactId": sender_id,
+                "contactName": sender_name,
+                "messageBody": body,
+                "chatId": chat.get("id", ""),
+                "chatName": chat_name,
+                "timestamp": str(timestamp or ""),
+            },
+        )
 
-            # For preview-change detection (self-messages), only fetch
-            # the last few messages since we don't have a real unread count.
-            fetch_limit = unread_count + 5 if detection_source == "badge" else 3
+        await self._message_callback(platform_msg)
+        logger.info(f"[WhatsApp Web] Dispatched message from {sender_name} in {chat_name}: {body[:50]}...")
 
-            # Fetch recent messages by clicking the chat in the sidebar
-            messages_result = await get_whatsapp_web_chat_messages_by_name(
-                session_id=sid,
-                chat_name=chat_name,
-                limit=fetch_limit,
-            )
+    async def _handle_sent_message(self, data: Dict[str, Any]) -> None:
+        """Process a message sent by the user from another device (self-chat or outgoing)."""
+        if not self._listening or not self._message_callback:
+            return
 
-            if not messages_result.get("success"):
-                continue
+        # Only dispatch self-chat messages (messages to yourself)
+        if not data.get("is_self_chat", False):
+            return
 
-            all_messages: List[Dict[str, Any]] = messages_result.get("messages", [])
+        msg_id = data.get("id", "")
+        if msg_id in self._seen_ids:
+            return
+        self._seen_ids.add(msg_id)
 
-            # Only process the tail of the message list
-            messages = all_messages[-unread_count:] if len(all_messages) > unread_count else all_messages
+        body = data.get("body", "")
+        if not body:
+            return
 
-            # Self-message detection: preview_change means the user sent
-            # themselves a message (all messages appear as outgoing).
-            is_self_chat = (detection_source == "preview_change")
+        chat = data.get("chat", {})
+        chat_name = chat.get("name", "")
+        timestamp = data.get("timestamp")
 
-            # Confirm group status from message data: if any non-outgoing
-            # message has a real sender name (not "them"), it's a group.
-            if not is_group:
-                for m in messages:
-                    sender = m.get("sender", "them")
-                    if not m.get("is_outgoing", False) and sender not in ("them", "me", ""):
-                        is_group = True
-                        self._known_groups.add(chat_name)
-                        logger.info(f"[WhatsApp Web] Detected group from messages: {chat_name}")
-                        break
+        ts: Optional[datetime] = None
+        if timestamp:
+            try:
+                ts = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            except Exception:
+                ts = datetime.now(tz=timezone.utc)
 
-            # If this turns out to be a muted group after message-level detection, skip
-            if is_muted and is_group:
-                logger.debug(f"[WhatsApp Web] Skipping muted group (detected late): {chat_name}")
-                continue
+        platform_msg = PlatformMessage(
+            platform=self.PLATFORM_ID,
+            sender_id=data.get("from", ""),
+            sender_name=chat_name or "Self",
+            text=body,
+            channel_id=chat.get("id", ""),
+            channel_name=chat_name,
+            message_id=msg_id,
+            timestamp=ts,
+            raw={
+                "source": "WhatsApp Web",
+                "integrationType": "whatsapp_web",
+                "is_self_message": True,
+                "is_group": False,
+                "contactId": data.get("from", ""),
+                "contactName": chat_name or "Self",
+                "messageBody": body,
+                "chatId": chat.get("id", ""),
+                "chatName": chat_name,
+                "timestamp": str(timestamp or ""),
+            },
+        )
 
-            for msg in messages:
-                # Skip outgoing messages unless this is a self-chat
-                if msg.get("is_outgoing", False) and not is_self_chat:
-                    continue
-
-                text = msg.get("text", "")
-                if not text or text.startswith("["):
-                    # Skip empty or media-only messages ([Image], [Video], etc.)
-                    continue
-
-                # In group chats, only process messages that @mention the user
-                if is_group and not is_self_chat:
-                    if not self._is_mention_for_me(text):
-                        continue
-
-                # Deduplicate: build a fingerprint from chat + sender + text
-                sender = msg.get("sender", chat_name)
-                timestamp_str = msg.get("timestamp", "")
-                msg_fingerprint = f"{chat_name}|{sender}|{text}|{timestamp_str}"
-
-                if msg_fingerprint in self._seen_fingerprints:
-                    continue
-                self._seen_fingerprints.add(msg_fingerprint)
-
-                # During catchup we only record fingerprints, don't dispatch
-                if not self._catchup_done:
-                    continue
-
-                ts: Optional[datetime] = None
-                if timestamp_str:
-                    try:
-                        ts = datetime.now(tz=timezone.utc)
-                    except Exception:
-                        pass
-
-                platform_msg = PlatformMessage(
-                    platform=self.PLATFORM_ID,
-                    sender_id=chat_name,
-                    sender_name=sender if sender != "me" else chat_name,
-                    text=text,
-                    channel_id=chat_name,
-                    channel_name=chat_name,
-                    message_id=f"{chat_name}_{timestamp_str}_{hash(text) & 0xFFFFFFFF:08x}",
-                    timestamp=ts,
-                    raw={
-                        "source": "WhatsApp Web",
-                        "integrationType": "whatsapp_web",
-                        "is_self_message": is_self_chat,
-                        "is_group": is_group,
-                        "contactId": chat_name,
-                        "contactName": sender if sender != "me" else chat_name,
-                        "messageBody": text,
-                        "chatId": chat_name,
-                        "chatName": chat_name,
-                        "timestamp": timestamp_str,
-                    },
-                )
-
-                if self._message_callback:
-                    await self._message_callback(platform_msg)
-
-                logger.info(f"[WhatsApp Web] Dispatched message from {sender} in {chat_name}: {text[:50]}...")
+        await self._message_callback(platform_msg)
+        logger.info(f"[WhatsApp Web] Dispatched self-message: {body[:50]}...")
 
     # -- @mention helper ---------------------------------------------------
 
     def _is_mention_for_me(self, text: str) -> bool:
-        """Check whether *text* contains an @mention directed at the logged-in user.
-
-        WhatsApp renders inline mentions as ``@DisplayName`` in the message
-        text.  We match against the user's own display name (fetched at
-        listener start).  If the name is unknown we fall back to checking for
-        *any* ``@`` token — slightly noisy but safe.
-        """
+        """Check whether *text* contains an @mention directed at the logged-in user."""
         if "@" not in text:
             return False
 
         text_lower = text.lower()
 
-        if self._own_name:
-            # Check for @OwnName (case-insensitive, allow partial first-name match)
-            own_lower = self._own_name.lower()
+        # Use owner_name from bridge
+        bridge = self._get_bridge()
+        own_name = bridge.owner_name if bridge else ""
+
+        if own_name:
+            own_lower = own_name.lower()
             if f"@{own_lower}" in text_lower:
                 return True
-            # Also try first name only (WhatsApp sometimes abbreviates)
             first_name = own_lower.split()[0] if " " in own_lower else ""
             if first_name and f"@{first_name}" in text_lower:
                 return True

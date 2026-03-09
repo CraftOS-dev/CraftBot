@@ -128,6 +128,7 @@ class WhatsAppWebSession:
     user_id: str
     jid: Optional[str] = None
     phone_number: Optional[str] = None
+    display_name: Optional[str] = None
     status: str = "initializing"  # initializing, qr_ready, connected, disconnected, error
     qr_code: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -335,24 +336,90 @@ class WhatsAppWebManager:
                     is_logged_in = await page.locator('#side').count() > 0
 
                 if is_logged_in:
-                    session.status = "connected"
                     session.last_activity = datetime.utcnow()
-                    logger.info(f"[WhatsApp Web] Session {session_id} connected!")
+                    logger.info(f"[WhatsApp Web] Session {session_id} logged in, extracting owner info...")
 
-                    # Try to get phone number from profile
-                    try:
-                        # Click on profile to get phone number
-                        profile_btn = page.locator('[data-testid="menu-bar-user-avatar"]')
-                        if await profile_btn.count() > 0:
-                            await profile_btn.click()
-                            await asyncio.sleep(1)
-                            # Look for phone number text
-                            phone_elem = page.locator('[data-testid="drawer-middle-info-phone"]')
-                            if await phone_elem.count() > 0:
-                                session.phone_number = await phone_elem.text_content()
-                                session.jid = f"{session.phone_number.replace('+', '').replace(' ', '')}@s.whatsapp.net"
-                    except Exception as e:
-                        logger.debug(f"[WhatsApp Web] Could not get phone number: {e}")
+                    # Extract owner phone + name via JS (retry up to 3 times)
+                    # NOTE: status is set to "connected" AFTER extraction so that
+                    # callers waiting on status don't race ahead and kill the browser.
+                    for _attempt in range(3):
+                        try:
+                            info = await page.evaluate("""() => {
+                                try {
+                                    let phone = '';
+
+                                    // 1. localStorage "last-wid-md" — most reliable source
+                                    //    Format: '"447417378160:3@c.us"' or '"923164706597@c.us"'
+                                    for (const key of ['last-wid-md', 'last-wid']) {
+                                        const raw = localStorage.getItem(key);
+                                        if (raw) {
+                                            // Strip quotes, then extract digits before @, :, or end
+                                            const cleaned = raw.replace(/"/g, '');
+                                            const match = cleaned.match(/^(\\d+)/);
+                                            if (match) { phone = match[1]; break; }
+                                        }
+                                    }
+
+                                    // 2. WhatsApp internal store (may not be available)
+                                    if (!phone) {
+                                        const storePaths = [
+                                            () => window.Store && window.Store.Conn && window.Store.Conn.wid && window.Store.Conn.wid.user,
+                                            () => window.Store && window.Store.Conn && window.Store.Conn.wid && window.Store.Conn.wid._serialized,
+                                        ];
+                                        for (const fn of storePaths) {
+                                            try {
+                                                const v = fn();
+                                                if (v) {
+                                                    const m = String(v).match(/^(\\d+)/);
+                                                    if (m) { phone = m[1]; break; }
+                                                }
+                                            } catch {}
+                                        }
+                                    }
+
+                                    // 3. Display name from DOM
+                                    let name = '';
+                                    const avatar = document.querySelector('header img[alt]');
+                                    if (avatar) {
+                                        const alt = avatar.getAttribute('alt');
+                                        if (alt && alt.length > 0) name = alt;
+                                    }
+                                    if (!name) {
+                                        const span = document.querySelector('header span[title]');
+                                        if (span) name = span.getAttribute('title') || '';
+                                    }
+
+                                    return { phone, name };
+                                } catch (err) {
+                                    return { phone: '', name: '', error: err.message };
+                                }
+                            }""")
+
+                            phone = (info or {}).get("phone", "")
+                            name = (info or {}).get("name", "")
+
+                            if phone:
+                                session.phone_number = phone
+                                session.jid = f"{phone.replace('+', '').replace(' ', '')}@s.whatsapp.net"
+                                logger.info(f"[WhatsApp Web] Owner phone extracted: {phone}")
+                            if name:
+                                session.display_name = name
+                                logger.info(f"[WhatsApp Web] Owner name extracted: {name}")
+
+                            if phone:
+                                break  # Got what we need
+                        except Exception as e:
+                            logger.debug(f"[WhatsApp Web] Owner info extraction attempt {_attempt + 1} failed: {e}")
+
+                        if _attempt < 2:
+                            await asyncio.sleep(2)
+                    else:
+                        if not session.phone_number:
+                            logger.warning(f"[WhatsApp Web] Could not extract owner phone after 3 attempts for session {session_id}")
+
+                    # Now mark as connected — callers polling on status can proceed
+                    session.status = "connected"
+                    logger.info(f"[WhatsApp Web] Session {session_id} connected! phone={session.phone_number or 'N/A'}, name={session.display_name or 'N/A'}")
 
                     if on_connected:
                         on_connected(session.jid or "", session.phone_number or "")
@@ -1356,6 +1423,29 @@ class WhatsAppWebManager:
                 if not name:
                     continue
 
+                # Build a stable fingerprint from the preview: keep only the
+                # last message line and strip all volatile metadata (timestamps,
+                # dates, delivery indicators, etc.) that WhatsApp re-renders.
+                lines = [l.strip() for l in full_text.split('\n') if l.strip()]
+                # Last meaningful line is typically the message content.
+                # Drop lines that are just the chat name, dates, timestamps,
+                # "(You)", or badge counts.
+                msg_lines = []
+                for line in lines:
+                    # Skip: chat name itself, timestamps, date words, "(You)", pure numbers (badge counts)
+                    if line == name:
+                        continue
+                    if re.match(r'^\d{1,2}:\d{2}$', line):
+                        continue
+                    if re.match(r'^\d{1,2}/\d{1,2}/\d{2,4}$', line):
+                        continue
+                    if line.lower() in ('yesterday', 'today', '(you)'):
+                        continue
+                    if re.match(r'^\d{1,3}$', line):
+                        continue
+                    msg_lines.append(line)
+                stable_text = '\n'.join(msg_lines)
+
                 # Method 1: Has an unread badge (works for others' messages)
                 if badge_count > 0:
                     unread_chats.append({
@@ -1365,13 +1455,13 @@ class WhatsAppWebManager:
                         "is_muted": is_muted,
                         "is_group": is_group,
                     })
-                    self._chat_previews[name] = full_text
+                    self._chat_previews[name] = stable_text
                     continue
 
-                # Method 2: Full text fingerprint changed
-                # (catches self-messages and any case without badges)
+                # Method 2: Message content changed (catches self-messages
+                # and any case without badges)
                 old_text = self._chat_previews.get(name)
-                if old_text is not None and full_text and full_text != old_text:
+                if old_text is not None and stable_text and stable_text != old_text:
                     logger.info(f"[WhatsApp Web] Chat changed: '{name}'")
                     unread_chats.append({
                         "name": name,
@@ -1381,8 +1471,8 @@ class WhatsAppWebManager:
                         "is_group": is_group,
                     })
 
-                if full_text:
-                    self._chat_previews[name] = full_text
+                if stable_text:
+                    self._chat_previews[name] = stable_text
 
             if unread_chats:
                 logger.info(f"[WhatsApp Web] Chats with activity: {[(c['name'], c['unread_count']) for c in unread_chats]}")

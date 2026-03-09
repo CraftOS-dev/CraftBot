@@ -8,15 +8,14 @@ from agent_core import action
     input_schema={
         "to": {"type": "string", "description": "Recipient phone number.", "example": "1234567890"},
         "message": {"type": "string", "description": "Message text.", "example": "Hello!"},
-        "session_id": {"type": "string", "description": "Optional session ID.", "example": "session_1"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def send_whatsapp_web_text_message(input_data: dict) -> dict:
+    from app.external_comms.registry import get_client
     try:
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebClient
-        client = WhatsAppWebClient()
-        if not client.has_credentials():
+        client = get_client("whatsapp_web")
+        if not client or not client.has_credentials():
             return {"status": "error", "message": "No WhatsApp credential. Please log into whatsapp first."}
         result = await client.send_message(
             recipient=input_data["to"],
@@ -35,15 +34,14 @@ async def send_whatsapp_web_text_message(input_data: dict) -> dict:
         "to": {"type": "string", "description": "Recipient phone number.", "example": "1234567890"},
         "media_path": {"type": "string", "description": "Local media path.", "example": "/path/to/img.jpg"},
         "caption": {"type": "string", "description": "Optional caption.", "example": "Caption"},
-        "session_id": {"type": "string", "description": "Optional session ID.", "example": "session_1"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def send_whatsapp_web_media_message(input_data: dict) -> dict:
+    from app.external_comms.registry import get_client
     try:
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebClient
-        client = WhatsAppWebClient()
-        if not client.has_credentials():
+        client = get_client("whatsapp_web")
+        if not client or not client.has_credentials():
             return {"status": "error", "message": "No WhatsApp credential. Please log into whatsapp first."}
         result = await client.send_media(
             recipient=input_data["to"],
@@ -66,10 +64,10 @@ async def send_whatsapp_web_media_message(input_data: dict) -> dict:
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_whatsapp_chat_history(input_data: dict) -> dict:
+    from app.external_comms.registry import get_client
     try:
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebClient
-        client = WhatsAppWebClient()
-        if not client.has_credentials():
+        client = get_client("whatsapp_web")
+        if not client or not client.has_credentials():
             return {"status": "error", "message": "No WhatsApp credential. Please log into whatsapp first."}
         result = await client.get_chat_messages(
             phone_number=input_data["phone_number"],
@@ -88,10 +86,10 @@ async def get_whatsapp_chat_history(input_data: dict) -> dict:
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_whatsapp_unread_chats(input_data: dict) -> dict:
+    from app.external_comms.registry import get_client
     try:
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebClient
-        client = WhatsAppWebClient()
-        if not client.has_credentials():
+        client = get_client("whatsapp_web")
+        if not client or not client.has_credentials():
             return {"status": "error", "message": "No WhatsApp credential. Please log into whatsapp first."}
         result = await client.get_unread_chats()
         return {"status": result.get("status", "success"), "result": result}
@@ -109,10 +107,10 @@ async def get_whatsapp_unread_chats(input_data: dict) -> dict:
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def search_whatsapp_contact(input_data: dict) -> dict:
+    from app.external_comms.registry import get_client
     try:
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebClient
-        client = WhatsAppWebClient()
-        if not client.has_credentials():
+        client = get_client("whatsapp_web")
+        if not client or not client.has_credentials():
             return {"status": "error", "message": "No WhatsApp credential. Please log into whatsapp first."}
         result = await client.search_contact(name=input_data["name"])
         return {"status": result.get("status", "success"), "result": result}
@@ -124,16 +122,14 @@ async def search_whatsapp_contact(input_data: dict) -> dict:
     name="get_whatsapp_web_session_status",
     description="Get WhatsApp Web session status.",
     action_sets=["whatsapp"],
-    input_schema={
-        "session_id": {"type": "string", "description": "Optional session ID.", "example": "session_1"},
-    },
+    input_schema={},
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_whatsapp_web_session_status(input_data: dict) -> dict:
+    from app.external_comms.registry import get_client
     try:
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebClient
-        client = WhatsAppWebClient()
-        if not client.has_credentials():
+        client = get_client("whatsapp_web")
+        if not client or not client.has_credentials():
             return {"status": "error", "message": "No WhatsApp credential. Please log into whatsapp first."}
         result = await client.get_session_status()
         return {"status": result.get("status", "success"), "result": result}

@@ -36,3 +36,4 @@ debug_images
 **/build_*
 **/dist
 **/release
+**/*wwebjs*

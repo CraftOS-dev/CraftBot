@@ -683,67 +683,92 @@ class WhatsAppHandler(IntegrationHandler):
     async def _login_web(self, args):
         import asyncio
 
-        phone_number = args[0] if args else ""
-
         try:
-            from app.external_comms.platforms.whatsapp_web_helpers import start_whatsapp_web_session
+            from app.external_comms.platforms.whatsapp_bridge.client import get_whatsapp_bridge
         except ImportError:
-            return False, "Playwright not installed. Run: pip install playwright && playwright install chromium"
+            return False, "WhatsApp bridge not available. Ensure Node.js >= 18 is installed."
 
-        session = await start_whatsapp_web_session(user_id=LOCAL_USER_ID)
+        bridge = get_whatsapp_bridge()
 
-        if session.status == "error":
-            return False, "Failed to start WhatsApp Web session. Is Playwright installed?\n  pip install playwright && playwright install chromium"
+        # Start bridge if not already running
+        if not bridge.is_running:
+            try:
+                await bridge.start()
+            except Exception as e:
+                return False, f"Failed to start WhatsApp bridge: {e}"
 
-        # Wait for QR code (up to 30s)
-        for _ in range(30):
-            if session.status == "qr_ready" and session.qr_code:
-                break
-            if session.status == "connected":
-                break
-            if session.status == "error":
-                return False, "WhatsApp Web session failed to initialize."
-            await asyncio.sleep(1)
-        else:
-            return False, "Timed out waiting for QR code."
+        # Wait for either QR code or ready (already authenticated)
+        event_type, event_data = await bridge.wait_for_qr_or_ready(timeout=60.0)
 
-        if session.status != "connected":
-            # Save QR as temp image and open it
-            import tempfile, base64 as b64, os
-            qr_data = session.qr_code
-            if qr_data and qr_data.startswith("data:image"):
-                qr_data = qr_data.split(",", 1)[1]
-            if qr_data:
-                qr_path = os.path.join(tempfile.gettempdir(), f"whatsapp_qr_{session.session_id}.png")
+        if event_type == "ready":
+            # Already authenticated — save credential and stop the bridge
+            # (start_listening will restart it on the main event loop)
+            from app.external_comms.platforms.whatsapp_web import WhatsAppWebCredential
+            owner_phone = bridge.owner_phone or ""
+            owner_name = bridge.owner_name or ""
+            save_credential("whatsapp_web.json", WhatsAppWebCredential(
+                session_id="bridge",
+                owner_phone=owner_phone,
+                owner_name=owner_name,
+            ))
+            await bridge.stop()
+            display = owner_phone or owner_name or "connected"
+            return True, f"WhatsApp Web connected: +{display}"
+
+        if event_type == "qr":
+            # Show QR code to user — try terminal first, then image fallback
+            qr_string = (event_data or {}).get("qr_string", "")
+            if qr_string:
+                try:
+                    import qrcode, sys
+                    qr = qrcode.QRCode(border=1)
+                    qr.add_data(qr_string)
+                    qr.make(fit=True)
+                    matrix = qr.get_matrix()
+                    lines = []
+                    for row in matrix:
+                        lines.append("".join("##" if cell else "  " for cell in row))
+                    qr_text = "\n".join(lines)
+                    sys.stderr.write(f"\n{qr_text}\n\n")
+                    sys.stderr.write("Scan the QR code above with WhatsApp on your phone\n\n")
+                    sys.stderr.flush()
+                    logger.info("[WhatsApp] QR code printed to terminal")
+                except Exception as e:
+                    logger.debug(f"[WhatsApp] Could not print QR to terminal: {e}")
+
+            # Also try opening as image in browser
+            qr_data_url = (event_data or {}).get("qr_data_url")
+            if qr_data_url:
+                import tempfile, base64 as b64, os
+                qr_b64 = qr_data_url
+                if qr_b64.startswith("data:image"):
+                    qr_b64 = qr_b64.split(",", 1)[1]
+                qr_path = os.path.join(tempfile.gettempdir(), "whatsapp_qr_bridge.png")
                 with open(qr_path, "wb") as f:
-                    f.write(b64.b64decode(qr_data))
+                    f.write(b64.b64decode(qr_b64))
                 webbrowser.open(f"file://{qr_path}")
 
-            # Wait for user to scan QR (up to 120s)
-            for _ in range(120):
-                if session.status == "connected":
-                    break
-                if session.status in ("error", "disconnected"):
-                    return False, "WhatsApp Web session disconnected or failed."
-                await asyncio.sleep(1)
-            else:
+            # Wait for ready after QR scan (up to 120s)
+            ready = await bridge.wait_for_ready(timeout=120.0)
+            if not ready:
                 return False, "Timed out waiting for QR scan. Run /whatsapp login again."
 
-        # Connected — close the browser so the profile directory is unlocked.
-        # The listener will reconnect from the persisted profile on its own
-        # event loop.
-        from app.external_comms.platforms.whatsapp_web_helpers import get_whatsapp_web_manager
-        mgr = get_whatsapp_web_manager()
-        try:
-            await mgr.disconnect_session(session.session_id)
-        except Exception:
-            pass  # Best-effort cleanup
+            # Save credential with owner info, then stop bridge
+            # (start_listening will restart it on the main event loop)
+            from app.external_comms.platforms.whatsapp_web import WhatsAppWebCredential
+            owner_phone = bridge.owner_phone or ""
+            owner_name = bridge.owner_name or ""
+            save_credential("whatsapp_web.json", WhatsAppWebCredential(
+                session_id="bridge",
+                owner_phone=owner_phone,
+                owner_name=owner_name,
+            ))
+            await bridge.stop()
+            display = owner_phone or owner_name or "connected"
+            return True, f"WhatsApp Web connected: +{display}"
 
-        # Store credential
-        from app.external_comms.platforms.whatsapp_web import WhatsAppWebCredential
-        display_phone = session.phone_number or phone_number or session.session_id
-        save_credential("whatsapp_web.json", WhatsAppWebCredential(session_id=session.session_id))
-        return True, f"WhatsApp Web connected: {display_phone}\nSession ID: {session.session_id}"
+        # Timeout
+        return False, "Timed out waiting for WhatsApp bridge. Run /whatsapp login again."
 
     async def logout(self, args):
         if not has_credential("whatsapp_web.json"):
@@ -756,8 +781,12 @@ class WhatsAppHandler(IntegrationHandler):
             return True, "WhatsApp: Not connected"
         from app.external_comms.platforms.whatsapp_web import WhatsAppWebCredential
         cred = load_credential("whatsapp_web.json", WhatsAppWebCredential)
-        sid = cred.session_id if cred else "unknown"
-        return True, f"WhatsApp: Connected\n  - Session: {sid}"
+        if not cred:
+            return True, "WhatsApp: Not connected"
+        phone = cred.owner_phone or "unknown"
+        name = cred.owner_name or ""
+        label = f"+{phone}" + (f" ({name})" if name else "")
+        return True, f"WhatsApp: Connected\n  - {label}"
 
 
 

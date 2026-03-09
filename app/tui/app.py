@@ -2089,7 +2089,7 @@ class CraftApp(App):
         modal = Container(
             Container(
                 Static(f"Connecting to {name}...", id="oauth-waiting-title"),
-                Static("Scan the QR code in the browser window that opened.", classes="oauth-waiting-desc"),
+                Static("Scan the QR code that opened (check browser or terminal).", classes="oauth-waiting-desc"),
                 Static("This window will update automatically when done.", classes="oauth-waiting-hint"),
                 Horizontal(
                     Button("Cancel", id="oauth-waiting-cancel", classes="oauth-waiting-btn"),
