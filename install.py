@@ -275,7 +275,9 @@ def get_conda_command() -> str:
 def setup_conda_environment(env_name: str, yml_path: str = YML_FILE):
     conda_cmd = get_conda_command()
     try:
-        run_command_with_progress([conda_cmd, "env", "update", "-f", yml_path], f"Setting up conda environment '{env_name}'...")
+        print(f"🔧 Setting up conda environment '{env_name}'...")
+        run_command_with_progress([conda_cmd, "env", "update", "-f", yml_path], "Installing dependencies via conda")
+        print("✓ Conda environment ready")
     except Exception as e:
         raise
 
@@ -292,8 +294,10 @@ def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
         if not os.path.exists(requirements_file):
             print(f"Error: {requirements_file} not found.")
             sys.exit(1)
+        print("🔧 Installing core dependencies...")
         run_command_with_progress([sys.executable, "-m", "pip", "install", "-r", requirements_file], 
-                                 "Installing dependencies...")
+                                 "Installing packages")
+        print("✓ Core dependencies installed")
     except Exception as e:
         raise
 
@@ -522,26 +526,50 @@ if __name__ == "__main__":
     save_config_value("gui_mode_enabled", install_gui)
     os.environ["USE_CONDA"] = str(use_conda)
 
+    # Print installation header
+    print("\n" + "="*60)
+    print(" 🚀 CraftBot Installation")
+    print("="*60)
+    if use_conda:
+        print(" Mode: Conda environment")
+    else:
+        print(" Mode: Global pip")
+    if install_gui:
+        print(" GUI:  Enabled (OmniParser)")
+    else:
+        print(" GUI:  Disabled")
+    print("="*60 + "\n")
+
     # Step 1: Install core dependencies
     if use_conda:
         is_installed, reason, conda_base = is_conda_installed()
         if not is_installed:
-            print("Error: Conda not found")
-            print("Options:")
-            print("  1. Install Anaconda or Miniconda")
+            print("❌ Error: Conda not found")
+            print("\nOptions:")
+            print("  1. Install Anaconda or Miniconda from https://conda.io/")
             print("  2. Or use without conda: python install.py\n")
             sys.exit(1)
 
         env_name = get_env_name_from_yml()
         setup_conda_environment(env_name)
+        print(f"✓ Verifying conda environment...")
         verify_conda_env(env_name)
+        print("✓ Environment verified\n")
     else:
         setup_pip_environment()
+        print()
 
     # Step 2: Install GUI components (optional)
     if install_gui:
+        print("\n" + "="*60)
+        print(" 🎨 Installing GUI Components")
+        print("="*60 + "\n")
         setup_omniparser(force_cpu=force_cpu, use_conda=use_conda)
 
     # Done - silently launch the agent
+    print("="*60)
+    print(" ✅ Installation Complete!")
+    print("="*60)
+    print("\n🚀 Launching CraftBot...\n")
     launch_agent_after_install(install_gui, use_conda)
 
