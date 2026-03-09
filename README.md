@@ -183,14 +183,6 @@ python install.py --gui --conda
 python install.py --gui --conda --cpu-only
 ```
 
-**Automatic Miniconda Installation:**
-If you use the `--conda` flag and conda is not detected, the installer will offer to automatically download and install Miniconda. This is optional - you can always use pip without conda by omitting the `--conda` flag.
-
-**Launching CraftBot:**
-
-After installation, CraftBot launches automatically! To launch it manually later:
-
-**Windows (PowerShell):**
 ```powershell
 # Run with pip (no conda)
 python run.py

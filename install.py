@@ -453,10 +453,6 @@ def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
 def setup_omniparser(force_cpu: bool, use_conda: bool):
     """Install OmniParser for GUI mode support."""
 
-    if not use_conda:
-        print("Error: GUI installation requires --conda flag.")
-        sys.exit(1)
-
     if not shutil.which("git"):
         print("Error: 'git' is required to install GUI components.")
         print("Please install git: https://git-scm.com/downloads")
@@ -472,9 +468,12 @@ def setup_omniparser(force_cpu: bool, use_conda: bool):
         repo_path = os.path.abspath(repo_path)
 
     def run_omni_cmd(cmd_list: list[str], work_dir: str = repo_path, capture_output: bool = False, env_extras: Dict[str, str] = None):
-        """Execute command in OmniParser conda environment."""
-        conda_cmd = get_conda_command()
-        full_cmd = [conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME] + cmd_list
+        """Execute command in OmniParser environment (conda or direct pip)."""
+        if use_conda:
+            conda_cmd = get_conda_command()
+            full_cmd = [conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME] + cmd_list
+        else:
+            full_cmd = cmd_list
         local_env = env_extras.copy() if env_extras else {}
         run_command(full_cmd, cwd=work_dir, capture=capture_output, env_extras=local_env, quiet=capture_output)
 
@@ -492,13 +491,14 @@ def setup_omniparser(force_cpu: bool, use_conda: bool):
     # Check marker file
     marker_path = os.path.join(repo_path, OMNIPARSER_MARKER_FILE)
     if not os.path.exists(marker_path):
-        # Step 2: Create environment
-        conda_cmd = get_conda_command()
-        print("🔧 Creating conda environment...")
-        result = run_command([conda_cmd, "create", "-n", OMNIPARSER_ENV_NAME, "python=3.10", "-y"], capture=True, check=False)
-        if result.returncode != 0:
-            print(f"\n✗ Error creating conda environment 'omni'")
-            sys.exit(1)
+        # Step 2: Create environment (only if using conda)
+        if use_conda:
+            conda_cmd = get_conda_command()
+            print("🔧 Creating conda environment...")
+            result = run_command([conda_cmd, "create", "-n", OMNIPARSER_ENV_NAME, "python=3.10", "-y"], capture=True, check=False)
+            if result.returncode != 0:
+                print(f"\n✗ Error creating conda environment 'omni'")
+                sys.exit(1)
         
         print("🔧 Upgrading pip...")
         run_omni_cmd(["pip", "install", "--upgrade", "pip"])
@@ -507,23 +507,44 @@ def setup_omniparser(force_cpu: bool, use_conda: bool):
         print("🔧 Installing PyTorch...")
         pytorch_installed = False
         
-        if force_cpu:
-            print("   (CPU-only mode)")
-            result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "conda", "install", "pytorch", "torchvision", "torchaudio", "cpuonly", "-c", "pytorch", "-y"], capture=True, check=False)
-            pytorch_installed = result.returncode == 0
-        else:
-            # Try GPU version first
-            print("   (Attempting CUDA 12.1 GPU version)")
-            result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "conda", "install", "pytorch", "torchvision", "torchaudio", "pytorch-cuda=12.1", "-c", "pytorch", "-c", "nvidia", "-y"], capture=True, check=False)
-            
-            if result.returncode != 0:
-                print("   ⚠ GPU version failed. Falling back to CPU-only mode...")
+        if use_conda:
+            conda_cmd = get_conda_command()
+            if force_cpu:
+                print("   (CPU-only mode)")
                 result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "conda", "install", "pytorch", "torchvision", "torchaudio", "cpuonly", "-c", "pytorch", "-y"], capture=True, check=False)
                 pytorch_installed = result.returncode == 0
-                if pytorch_installed:
-                    print("   ✓ CPU-only PyTorch installed successfully")
             else:
-                pytorch_installed = True
+                # Try GPU version first
+                print("   (Attempting CUDA 12.1 GPU version)")
+                result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "conda", "install", "pytorch", "torchvision", "torchaudio", "pytorch-cuda=12.1", "-c", "pytorch", "-c", "nvidia", "-y"], capture=True, check=False)
+                
+                if result.returncode != 0:
+                    print("   ⚠ GPU version failed. Falling back to CPU-only mode...")
+                    result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "conda", "install", "pytorch", "torchvision", "torchaudio", "cpuonly", "-c", "pytorch", "-y"], capture=True, check=False)
+                    pytorch_installed = result.returncode == 0
+                    if pytorch_installed:
+                        print("   ✓ CPU-only PyTorch installed successfully")
+                else:
+                    pytorch_installed = True
+        else:
+            # Use pip for non-conda installation
+            if force_cpu:
+                print("   (CPU-only mode)")
+                result = run_command(["pip", "install", "torch", "torchvision", "torchaudio"], capture=True, check=False)
+                pytorch_installed = result.returncode == 0
+            else:
+                # Try GPU version first
+                print("   (Attempting CUDA 12.1 GPU version)")
+                result = run_command(["pip", "install", "torch", "torchvision", "torchaudio", "torch-cuda==12.1"], capture=True, check=False)
+                
+                if result.returncode != 0:
+                    print("   ⚠ GPU version failed. Falling back to CPU-only mode...")
+                    result = run_command(["pip", "install", "torch", "torchvision", "torchaudio"], capture=True, check=False)
+                    pytorch_installed = result.returncode == 0
+                    if pytorch_installed:
+                        print("   ✓ CPU-only PyTorch installed successfully")
+                else:
+                    pytorch_installed = True
         
         if not pytorch_installed:
             print("\n✗ Error installing PyTorch")
@@ -531,20 +552,28 @@ def setup_omniparser(force_cpu: bool, use_conda: bool):
                 print(f"\n   Error details:\n   {result.stderr[:500]}")
             print("\n⚠️  Troubleshooting:")
             print("   1. Check your internet connection")
-            print("   2. Try again with CPU-only mode: python install.py --gui --conda --cpu-only")
-            print("   3. If issues persist, check conda/PyTorch documentation")
+            print("   2. Try again with CPU-only mode: python install.py --gui --cpu-only")
+            print("   3. If issues persist, check PyTorch documentation")
             sys.exit(1)
 
         # Step 4: Install dependencies
         print("🔧 Installing dependencies...")
         deps = ["mkl==2024.0", "sympy==1.13.1", "transformers==4.51.0", "huggingface_hub[cli]", "hf_transfer"]
-        result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "pip", "install"] + deps, capture=True, check=False)
+        if use_conda:
+            conda_cmd = get_conda_command()
+            result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "pip", "install"] + deps, capture=True, check=False)
+        else:
+            result = run_command(["pip", "install"] + deps, capture=True, check=False)
         if result.returncode != 0:
             print("⚠ Warning: Some dependencies may have failed to install")
 
         req_txt = os.path.join(repo_path, "requirements.txt")
         if os.path.exists(req_txt):
-            result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "pip", "install", "-r", "requirements.txt"], cwd=repo_path, capture=True, check=False)
+            if use_conda:
+                conda_cmd = get_conda_command()
+                result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "pip", "install", "-r", "requirements.txt"], cwd=repo_path, capture=True, check=False)
+            else:
+                result = run_command(["pip", "install", "-r", "requirements.txt"], cwd=repo_path, capture=True, check=False)
             if result.returncode != 0:
                 print("⚠ Warning: Some requirements may have failed to install")
 
@@ -571,13 +600,17 @@ def setup_omniparser(force_cpu: bool, use_conda: bool):
 
     hf_env = {"HF_HUB_ENABLE_HF_TRANSFER": "1"}
     failed_downloads = []
-    conda_cmd = get_conda_command()
     for i, file_info in enumerate(files_to_download, 1):
         local_dest = os.path.join(weights_dir, file_info['local_path'])
         if not os.path.exists(local_dest):
             print(f"  📦 ({i}/{len(files_to_download)}) Downloading: {file_info['local_path']}...")
-            result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "hf", "download", "microsoft/OmniParser-v2.0", file_info['file'], "--local-dir", "weights"],
-                        cwd=repo_path, capture=True, check=False, env_extras=hf_env)
+            if use_conda:
+                conda_cmd = get_conda_command()
+                result = run_command([conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "hf", "download", "microsoft/OmniParser-v2.0", file_info['file'], "--local-dir", "weights"],
+                            cwd=repo_path, capture=True, check=False, env_extras=hf_env)
+            else:
+                result = run_command(["hf", "download", "microsoft/OmniParser-v2.0", file_info['file'], "--local-dir", "weights"],
+                            cwd=repo_path, capture=True, check=False, env_extras=hf_env)
             if result.returncode != 0:
                 failed_downloads.append(file_info['local_path'])
         else:
