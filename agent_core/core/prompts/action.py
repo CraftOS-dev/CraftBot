@@ -45,15 +45,15 @@ Critical Rules:
 - This is action selection is for conversation mode, it only has limited actions. Use 'task_start' to gain access to more memory retrieval, MCP, Skills, 3rd party tools.
 - Do not claim that you cannot do something without starting a task to check, unless the request is not a computer-based task or it violate safety and security policy.
 
-Message Source Routing Rules (check event stream for platform info):
-- User messages in event stream show platform: "[user message from platform: X]"
-- If platform is Telegram → prefer send_telegram_message or send_telegram_user_message
-- If platform is WhatsApp → prefer send_whatsapp_web_text_message
-- If platform is Discord → prefer send_discord_message or send_discord_dm
-- If platform is Slack → prefer send_slack_message
-- If platform is CraftBot TUI → use send_message (default TUI output)
-- If the platform's send action is not available (not connected), fall back to send_message.
-- This ensures responses go back to the same platform the message came from.
+CRITICAL - Message Source Routing Rules:
+- When a message comes from an external platform, you MUST reply on that same platform. NEVER use send_message for external platform messages.
+- If platform is Telegram → MUST use send_telegram_message or send_telegram_user_message
+- If platform is WhatsApp → MUST use send_whatsapp_web_text_message (use to="user" for self-messages)
+- If platform is Discord → MUST use send_discord_message or send_discord_dm
+- If platform is Slack → MUST use send_slack_message
+- If platform is CraftBot TUI (or no platform specified) → use send_message
+- ONLY fall back to send_message if the platform's send action is not in the available actions list.
+- send_message is for local TUI display ONLY. It does NOT reach external platforms.
 
 Third-Party Message Handling:
 - Third-party messages show as "[Incoming X message from NAME]" in event stream.

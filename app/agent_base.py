@@ -96,6 +96,9 @@ class TriggerData:
     session_id: str | None = None
     user_message: str | None = None  # Original user message without routing prefix
     platform: str | None = None  # Source platform (e.g., "CraftBot TUI", "Telegram", "Whatsapp")
+    is_self_message: bool = False  # True when the user sent themselves a message
+    contact_id: str | None = None  # Sender/chat ID from external platform
+    channel_id: str | None = None  # Channel/group ID from external platform
 
 class AgentBase:
     """
@@ -519,16 +522,20 @@ class AgentBase:
         """Extract and structure data from trigger."""
         # Extract platform from payload (already formatted by _handle_chat_message)
         # Default to "CraftBot TUI" for local messages without platform info
-        raw_platform = trigger.payload.get("platform", "") if trigger.payload else ""
+        payload = trigger.payload or {}
+        raw_platform = payload.get("platform", "")
         platform = raw_platform if raw_platform else "CraftBot TUI"
 
         return TriggerData(
             query=trigger.next_action_description,
-            gui_mode=trigger.payload.get("gui_mode"),
-            parent_id=trigger.payload.get("parent_action_id"),
+            gui_mode=payload.get("gui_mode"),
+            parent_id=payload.get("parent_action_id"),
             session_id=trigger.session_id,
-            user_message=trigger.payload.get("user_message"),
+            user_message=payload.get("user_message"),
             platform=platform,
+            is_self_message=payload.get("is_self_message", False),
+            contact_id=payload.get("contact_id", ""),
+            channel_id=payload.get("channel_id", ""),
         )
 
     def _extract_user_message_from_trigger(self, trigger: Trigger) -> Optional[str]:
@@ -1457,20 +1464,34 @@ class AgentBase:
             self.state_manager.record_user_message(chat_content, platform=platform)
 
             # skip_merge=True because we already did routing above
+            trigger_payload = {
+                "gui_mode": gui_mode,
+                "platform": platform,
+                "user_message": chat_content,  # Original user message for task event stream
+            }
+            # Carry external message context for platform-aware routing
+            if payload.get("external_event"):
+                trigger_payload["is_self_message"] = payload.get("is_self_message", False)
+                trigger_payload["contact_id"] = payload.get("contact_id", "")
+                trigger_payload["channel_id"] = payload.get("channel_id", "")
+
+            # Include platform in the action description so the LLM picks
+            # the correct platform-specific send action for replies.
+            # Must be directive (not just informational) for weaker LLMs.
+            platform_hint = ""
+            if platform and platform.lower() != "craftbot tui":
+                platform_hint = f" from {platform} (reply on {platform}, NOT send_message)"
+
             await self.triggers.put(
                 Trigger(
                     fire_at=time.time(),
                     priority=1,
                     next_action_description=(
                         "Please perform action that best suit this user chat "
-                        f"you just received: {chat_content}"
+                        f"you just received{platform_hint}: {chat_content}"
                     ),
                     session_id=str(uuid.uuid4()),  # Generate unique session ID
-                    payload={
-                        "gui_mode": gui_mode,
-                        "platform": platform,
-                        "user_message": chat_content,  # Original user message for task event stream
-                    },
+                    payload=trigger_payload,
                 ),
                 skip_merge=True,
             )
