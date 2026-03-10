@@ -1,14 +1,13 @@
 {
   "auto_load": true,
   "enabled_skills": [
-      "docx",
-      "pdf",
-      "playwright-mcp",
-      "pptx",
-      "xlsx"
+    "docx",
+    "pdf",
+    "playwright-mcp",
+    "pptx",
+    "xlsx"
   ],
   "disabled_skills": [
-    "1password",
     "agentmail",
     "ai-news-collector",
     "ai-ppt-generator",
@@ -146,7 +145,8 @@
     "tiktok ads",
     "file-organizer",
     "instagram api",
-    "invoice organizer"
+    "invoice organizer",
+    "1password"
   ],
   "project_skills_dir": "skills"
 }

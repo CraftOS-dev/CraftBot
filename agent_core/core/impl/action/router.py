@@ -88,6 +88,9 @@ class ActionRouter:
         Returns:
             List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
             ``parameters``, and ``reasoning`` for execution.
+
+        Raises:
+            ValueError: If LLM returns invalid format 3 times consecutively.
         """
         # Base conversation mode actions
         base_actions = ["send_message", "task_start", "ignore"]
@@ -119,22 +122,41 @@ class ActionRouter:
                 })
 
         # Build the instruction prompt for the LLM
-        prompt = SELECT_ACTION_PROMPT.format(
+        full_prompt = SELECT_ACTION_PROMPT.format(
             event_stream=self.context_engine.get_event_stream(),
             memory_context=self.context_engine.get_memory_context(query),
             query=query,
             action_candidates=self._format_candidates(action_candidates),
         )
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            decision = await self._prompt_for_decision(prompt, is_task=False)
+        max_format_retries = 3
+        current_prompt = full_prompt
 
-            # Parse parallel action decisions
-            actions = self._parse_parallel_action_decisions(decision)
+        for attempt in range(max_format_retries):
+            decision = await self._prompt_for_decision(current_prompt, is_task=False)
+
+            # Parse parallel action decisions with format error detection
+            actions, format_error = self._parse_parallel_action_decisions(decision)
+
+            if format_error:
+                # LLM returned wrong format - retry with feedback
+                logger.warning(
+                    f"[FORMAT ERROR] Conversation mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
+                )
+
+                if attempt < max_format_retries - 1:
+                    current_prompt = self._augment_prompt_with_format_error(
+                        full_prompt, attempt + 1, decision, format_error
+                    )
+                    continue
+                else:
+                    raise ValueError(
+                        f"LLM output format error after {max_format_retries} attempts. "
+                        f"Last error: {format_error}. Task aborted to prevent token waste."
+                    )
 
             if not actions:
-                # Empty action list - return empty decision
+                # Empty action list (no format error) - return empty decision
                 return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
 
             # Validate and filter parallel actions (GUI_mode=False for conversation)
@@ -172,6 +194,9 @@ class ActionRouter:
         Returns:
             List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
             ``parameters``, and ``reasoning`` for execution.
+
+        Raises:
+            ValueError: If LLM returns invalid format 3 times consecutively.
         """
         action_candidates = []
 
@@ -207,21 +232,40 @@ class ActionRouter:
             action_candidates=self._format_candidates(action_candidates),
         )
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        max_format_retries = 3
+        current_prompt = full_prompt
+
+        for attempt in range(max_format_retries):
             decision = await self._prompt_for_decision(
-                full_prompt,
+                current_prompt,
                 is_task=True,
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
             )
 
-            # Parse parallel action decisions (handles both old and new format)
-            actions = self._parse_parallel_action_decisions(decision)
+            # Parse parallel action decisions with format error detection
+            actions, format_error = self._parse_parallel_action_decisions(decision)
+
+            if format_error:
+                # LLM returned wrong format - retry with feedback
+                logger.warning(
+                    f"[FORMAT ERROR] Task mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
+                )
+
+                if attempt < max_format_retries - 1:
+                    current_prompt = self._augment_prompt_with_format_error(
+                        full_prompt, attempt + 1, decision, format_error
+                    )
+                    continue
+                else:
+                    raise ValueError(
+                        f"LLM output format error after {max_format_retries} attempts. "
+                        f"Last error: {format_error}. Task aborted to prevent token waste."
+                    )
 
             if not actions:
-                # Empty action list - return empty decision for backward compatibility
+                # Empty action list (no format error) - return empty decision for backward compatibility
                 return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
 
             # Validate and filter parallel actions
@@ -255,6 +299,9 @@ class ActionRouter:
         Returns:
             List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
             ``parameters``, and ``reasoning`` for execution.
+
+        Raises:
+            ValueError: If LLM returns invalid format 3 times consecutively.
         """
         action_candidates = []
 
@@ -290,21 +337,42 @@ class ActionRouter:
             action_candidates=self._format_candidates(action_candidates),
         )
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        max_format_retries = 3
+        current_prompt = full_prompt
+
+        for attempt in range(max_format_retries):
             decision = await self._prompt_for_decision(
-                full_prompt,
+                current_prompt,
                 is_task=True,
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
             )
 
-            # Parse parallel action decisions (handles both old and new format)
-            actions = self._parse_parallel_action_decisions(decision)
+            # Parse parallel action decisions with format error detection
+            actions, format_error = self._parse_parallel_action_decisions(decision)
+
+            if format_error:
+                # LLM returned wrong format - retry with feedback
+                logger.warning(
+                    f"[FORMAT ERROR] Simple task attempt {attempt + 1}/{max_format_retries}: {format_error}"
+                )
+
+                if attempt < max_format_retries - 1:
+                    # Augment prompt with format error feedback for retry
+                    current_prompt = self._augment_prompt_with_format_error(
+                        full_prompt, attempt + 1, decision, format_error
+                    )
+                    continue
+                else:
+                    # Max retries reached - abort
+                    raise ValueError(
+                        f"LLM output format error after {max_format_retries} attempts. "
+                        f"Last error: {format_error}. Task aborted to prevent token waste."
+                    )
 
             if not actions:
-                # Empty action list - return empty decision for backward compatibility
+                # Empty action list (no format error) - return empty decision
                 return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
 
             # Validate and filter parallel actions
@@ -315,6 +383,7 @@ class ActionRouter:
                 logger.info(f"[PARALLEL] Simple task selected {len(validated_actions)} action(s): {action_names}")
                 return validated_actions
 
+            # Actions parsed but not valid (action not found, etc.)
             logger.warning(
                 f"No valid actions found during simple task selection attempt {attempt + 1}"
             )
@@ -343,6 +412,9 @@ class ActionRouter:
         Returns:
             Dict[str, Any]: Decision payload with ``action_name``, ``parameters``,
             and ``element_to_find`` for execution.
+
+        Raises:
+            ValueError: If LLM returns invalid format 3 times consecutively.
         """
         compiled_actions = self._get_current_task_compiled_actions(session_id=session_id)
         logger.info(f"ActionRouter (GUI) using compact action space prompt with {len(compiled_actions)} actions")
@@ -365,15 +437,35 @@ class ActionRouter:
             gui_action_space=GUI_ACTION_SPACE_PROMPT,
         )
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        max_format_retries = 3
+        current_prompt = full_prompt
+
+        for attempt in range(max_format_retries):
             decision = await self._prompt_for_decision(
-                full_prompt,
+                current_prompt,
                 is_task=True,
                 static_prompt=static_prompt,
                 call_type=LLMCallType.GUI_ACTION_SELECTION,
                 session_id=session_id,
             )
+
+            # Check for GUI format errors
+            format_error = self._detect_gui_format_error(decision)
+            if format_error:
+                logger.warning(
+                    f"[FORMAT ERROR] GUI mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
+                )
+
+                if attempt < max_format_retries - 1:
+                    current_prompt = self._augment_prompt_with_gui_format_error(
+                        full_prompt, attempt + 1, decision, format_error
+                    )
+                    continue
+                else:
+                    raise ValueError(
+                        f"LLM output format error after {max_format_retries} attempts. "
+                        f"Last error: {format_error}. Task aborted to prevent token waste."
+                    )
 
             selected_action_name = decision.get("action_name", "")
             if selected_action_name == "":
@@ -548,6 +640,138 @@ class ActionRouter:
         )
         return base_prompt + feedback_block
 
+    def _augment_prompt_with_format_error(
+        self,
+        base_prompt: str,
+        attempt: int,
+        decision: Dict[str, Any],
+        format_error: str,
+    ) -> str:
+        """
+        Augment prompt with format error feedback to help LLM correct its output.
+
+        Args:
+            base_prompt: Original prompt.
+            attempt: Current attempt number.
+            decision: The parsed decision that had format issues.
+            format_error: Detailed error message explaining what was wrong.
+
+        Returns:
+            Augmented prompt with error feedback.
+        """
+        try:
+            raw_response = json.dumps(decision, indent=2, ensure_ascii=False)
+        except Exception:
+            raw_response = str(decision)
+
+        feedback_block = (
+            f"\n\n{'='*60}\n"
+            f"⚠️ OUTPUT FORMAT ERROR (Attempt {attempt}/3)\n"
+            f"{'='*60}\n\n"
+            f"{format_error}\n\n"
+            f"YOUR INCORRECT RESPONSE:\n"
+            f"```json\n{raw_response}\n```\n\n"
+            f"CORRECT FORMAT REQUIRED:\n"
+            f"```json\n"
+            f'{{\n'
+            f'  "reasoning": "<your reasoning here>",\n'
+            f'  "actions": [\n'
+            f'    {{\n'
+            f'      "action_name": "<action from available actions>",\n'
+            f'      "parameters": {{\n'
+            f'        "<param_name>": <value>\n'
+            f'      }}\n'
+            f'    }}\n'
+            f'  ]\n'
+            f'}}\n'
+            f"```\n\n"
+            f"⚠️ This is attempt {attempt} of 3. If you fail again, the task will be ABORTED.\n"
+            f"Return ONLY the corrected JSON object with the exact format shown above.\n"
+            f"{'='*60}\n"
+        )
+        return base_prompt + feedback_block
+
+    def _detect_gui_format_error(self, decision: Dict[str, Any]) -> Optional[str]:
+        """
+        Detect format errors specific to GUI mode responses.
+
+        GUI mode expects: {"action_name": "...", "parameters": {...}}
+
+        Returns:
+            Error message if format is wrong, None if format looks correct.
+        """
+        if decision is None:
+            return "Response is empty or null"
+
+        # Check for "response" key - LLM trying to respond conversationally
+        if "response" in decision and "action_name" not in decision:
+            return (
+                "WRONG FORMAT: You returned a 'response' key instead of the required GUI action format. "
+                "Do NOT respond conversationally. You MUST return a JSON with 'action_name' and 'parameters' fields. "
+                "Example: {\"action_name\": \"send_message\", \"parameters\": {\"message\": \"...\"}}"
+            )
+
+        # Check for "action" key instead of "action_name"
+        if "action" in decision and "action_name" not in decision:
+            action_value = decision.get("action", "")
+            return (
+                f"WRONG FORMAT: You used 'action' instead of 'action_name'. "
+                f"Correct your response to: {{\"action_name\": \"{action_value}\", \"parameters\": {{...}}}}"
+            )
+
+        # Check for "actions" array (non-GUI format used in GUI mode)
+        if "actions" in decision and "action_name" not in decision:
+            return (
+                "WRONG FORMAT: You used 'actions' array format, but GUI mode expects single action format. "
+                "Use: {\"action_name\": \"...\", \"parameters\": {...}} (without the actions array)"
+            )
+
+        # Check for "args" instead of "parameters"
+        if "args" in decision and "parameters" not in decision:
+            return (
+                "WRONG FORMAT: You used 'args' instead of 'parameters'. "
+                "Correct your response to: {\"action_name\": \"...\", \"parameters\": {...}}"
+            )
+
+        return None
+
+    def _augment_prompt_with_gui_format_error(
+        self,
+        base_prompt: str,
+        attempt: int,
+        decision: Dict[str, Any],
+        format_error: str,
+    ) -> str:
+        """
+        Augment GUI prompt with format error feedback.
+        """
+        try:
+            raw_response = json.dumps(decision, indent=2, ensure_ascii=False)
+        except Exception:
+            raw_response = str(decision)
+
+        feedback_block = (
+            f"\n\n{'='*60}\n"
+            f"⚠️ OUTPUT FORMAT ERROR (Attempt {attempt}/3)\n"
+            f"{'='*60}\n\n"
+            f"{format_error}\n\n"
+            f"YOUR INCORRECT RESPONSE:\n"
+            f"```json\n{raw_response}\n```\n\n"
+            f"CORRECT FORMAT REQUIRED (GUI mode - single action):\n"
+            f"```json\n"
+            f'{{\n'
+            f'  "action_name": "<action from action space>",\n'
+            f'  "parameters": {{\n'
+            f'    "<param_name>": <value>\n'
+            f'  }}\n'
+            f'}}\n'
+            f"```\n\n"
+            f"⚠️ This is attempt {attempt} of 3. If you fail again, the task will be ABORTED.\n"
+            f"Return ONLY the corrected JSON object with the exact format shown above.\n"
+            f"{'='*60}\n"
+        )
+        return base_prompt + feedback_block
+
     def _format_candidates(self, candidates: List[Dict[str, Any]]) -> str:
         """Format action candidates with compact schema for reduced prompt size."""
         if not candidates:
@@ -594,31 +818,133 @@ class ActionRouter:
             return parameters
         return {}
 
-    def _parse_parallel_action_decisions(self, decision: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _parse_parallel_action_decisions(
+        self, decision: Dict[str, Any]
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """
         Parse LLM response for parallel action format.
 
-        Expected format: {"reasoning": "...", "actions": [{...}, {...}]}
+        Expected format: {"reasoning": "...", "actions": [{"action_name": "...", "parameters": {...}}, ...]}
 
         Returns:
-            List of action decisions, each with action_name, parameters, and reasoning.
+            Tuple of (actions_list, format_error_message).
+            If format_error_message is not None, the LLM response was in wrong format.
         """
         if decision is None:
-            return []
+            return [], "Response is empty or null"
 
         reasoning = decision.get("reasoning", "")
+
+        # Detect common format errors and provide helpful feedback
+        format_error = self._detect_format_error(decision)
+        if format_error:
+            return [], format_error
 
         # Parse "actions" array format
         if "actions" in decision and isinstance(decision["actions"], list):
             actions = []
-            for action in decision["actions"]:
-                if isinstance(action, dict) and action.get("action_name"):
-                    action["reasoning"] = reasoning
-                    action["parameters"] = self._ensure_parameters(action.get("parameters"))
-                    actions.append(action)
-            return actions
+            for idx, action in enumerate(decision["actions"]):
+                if isinstance(action, dict):
+                    # Check for wrong key names within action items
+                    action_error = self._detect_action_item_error(action, idx)
+                    if action_error:
+                        return [], action_error
 
-        return []
+                    if action.get("action_name"):
+                        action["reasoning"] = reasoning
+                        action["parameters"] = self._ensure_parameters(action.get("parameters"))
+                        actions.append(action)
+
+            if not actions:
+                return [], (
+                    "The 'actions' array is empty or contains no valid action items. "
+                    "Each action item must have an 'action_name' field."
+                )
+            return actions, None
+
+        return [], "Response is missing the required 'actions' array"
+
+    def _detect_format_error(self, decision: Dict[str, Any]) -> Optional[str]:
+        """
+        Detect common LLM output format errors and return a helpful error message.
+
+        Returns:
+            Error message if format is wrong, None if format looks correct.
+        """
+        # Check for "response" key - LLM trying to respond conversationally
+        if "response" in decision and "actions" not in decision:
+            return (
+                "WRONG FORMAT: You returned a 'response' key instead of the required format. "
+                "Do NOT respond conversationally. You MUST return a JSON with 'reasoning' and 'actions' fields. "
+                "Example: {\"reasoning\": \"...\", \"actions\": [{\"action_name\": \"send_message\", \"parameters\": {\"message\": \"...\"}}]}"
+            )
+
+        # Check for "action" key instead of "actions" array
+        if "action" in decision and "actions" not in decision:
+            action_value = decision.get("action", "")
+            args_value = decision.get("args", decision.get("parameters", {}))
+            return (
+                f"WRONG FORMAT: You used 'action' key instead of 'actions' array. "
+                f"The correct format uses 'actions' (plural) as an array. "
+                f"Correct your response to: {{\"reasoning\": \"...\", \"actions\": [{{\"action_name\": \"{action_value}\", \"parameters\": {args_value}}}]}}"
+            )
+
+        # Check for "args" at top level (wrong structure)
+        if "args" in decision and "actions" not in decision:
+            return (
+                "WRONG FORMAT: You used 'args' at the top level. "
+                "The correct format is: {\"reasoning\": \"...\", \"actions\": [{\"action_name\": \"...\", \"parameters\": {...}}]}. "
+                "'parameters' should be inside each action item, not at the top level."
+            )
+
+        # Check for "message" at top level (trying to send message without proper format)
+        if "message" in decision and "actions" not in decision:
+            msg = decision.get("message", "")
+            return (
+                f"WRONG FORMAT: You tried to send a message directly. "
+                f"Use the proper action format: {{\"reasoning\": \"...\", \"actions\": [{{\"action_name\": \"send_message\", \"parameters\": {{\"message\": \"{msg[:50]}...\"}}}}]}}"
+            )
+
+        # Check if actions exists but is not a list
+        if "actions" in decision and not isinstance(decision["actions"], list):
+            return (
+                "WRONG FORMAT: 'actions' must be an array/list, not a single object. "
+                "Even for a single action, wrap it in an array: {\"reasoning\": \"...\", \"actions\": [{...}]}"
+            )
+
+        return None
+
+    def _detect_action_item_error(self, action: Dict[str, Any], idx: int) -> Optional[str]:
+        """
+        Detect format errors within an action item.
+
+        Returns:
+            Error message if format is wrong, None if format looks correct.
+        """
+        # Check for "action" instead of "action_name"
+        if "action" in action and "action_name" not in action:
+            action_value = action.get("action", "")
+            return (
+                f"WRONG FORMAT in action item {idx}: You used 'action' instead of 'action_name'. "
+                f"The correct key is 'action_name'. Example: {{\"action_name\": \"{action_value}\", \"parameters\": {{...}}}}"
+            )
+
+        # Check for "args" instead of "parameters"
+        if "args" in action and "parameters" not in action:
+            return (
+                f"WRONG FORMAT in action item {idx}: You used 'args' instead of 'parameters'. "
+                f"The correct key is 'parameters'. Example: {{\"action_name\": \"...\", \"parameters\": {{...}}}}"
+            )
+
+        # Check for "name" instead of "action_name"
+        if "name" in action and "action_name" not in action:
+            name_value = action.get("name", "")
+            return (
+                f"WRONG FORMAT in action item {idx}: You used 'name' instead of 'action_name'. "
+                f"The correct key is 'action_name'. Example: {{\"action_name\": \"{name_value}\", \"parameters\": {{...}}}}"
+            )
+
+        return None
 
     def _validate_parallel_actions(
         self,

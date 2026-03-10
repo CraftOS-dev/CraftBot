@@ -355,6 +355,46 @@
   display: none;
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile Responsive
+   ───────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Hide the Tasks & Actions panel in mobile - show only chat */
+  .actionPanel {
+    display: none;
+  }
+
+  /* Hide resize handle in mobile */
+  .resizeHandle {
+    display: none;
+  }
+
+  /* Chat panel takes full width */
+  .chatPanel {
+    flex: 1;
+    width: 100%;
+  }
+
+  /* Make messages take more width */
+  .messageWrapper {
+    max-width: 95%;
+  }
+
+  /* Smaller padding on mobile */
+  .messagesContainer {
+    padding: var(--space-3);
+  }
+
+  .inputArea {
+    padding: var(--space-2);
+  }
+
+  .statusBar {
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
 /* Input wrapper for textarea and pending attachments */
 .inputWrapper {
   flex: 1;
