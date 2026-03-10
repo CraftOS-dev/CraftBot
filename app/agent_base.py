@@ -256,6 +256,7 @@ class AgentBase:
 
         # ── misc ──
         self.is_running: bool = True
+        self._interface_mode: str = "tui"  # Will be updated in run() based on selected interface
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
         # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
@@ -1639,12 +1640,29 @@ class AgentBase:
         """
         return ""
     
+    def _get_interface_capabilities_prompt(self) -> str:
+        """
+        Return interface-specific capabilities prompt.
+        This is automatically included in the role info for subclasses to use.
+        """
+        if self._interface_mode == "browser":
+            return (
+                "\n\n## File Sharing\n"
+                "You can send files to the user using the `send_message_with_attachment` action. "
+                "Use this when the user asks you to share, send, or provide a file from the workspace."
+            )
+        return ""
+
     def _generate_role_info_prompt(self) -> str:
         """
         Subclasses override this to return role-specific system instructions
         (responsibilities, behaviour constraints, expected domain tasks, etc).
+
+        Note: Call `self._get_interface_capabilities_prompt()` and append it to include
+        interface-specific capabilities (e.g., file attachment support in browser mode).
         """
-        return "You are a general computer-use AI agent that can switch between CLI/GUI mode."
+        base_prompt = "You are a general computer-use AI agent that can switch between CLI/GUI mode."
+        return base_prompt + self._get_interface_capabilities_prompt()
 
     def _build_db_interface(self, *, data_dir: str, chroma_path: str):
         """A tiny wrapper so a subclass can point to another DB/collection."""
@@ -2070,6 +2088,8 @@ class AgentBase:
         import sys
         sys.stdout.flush()
         sys.stderr.flush()
+        # Store interface mode for context-aware prompts
+        self._interface_mode = interface_mode
 
         try:
             # Select interface based on mode

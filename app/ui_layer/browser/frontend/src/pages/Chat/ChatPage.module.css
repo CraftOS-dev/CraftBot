@@ -78,42 +78,70 @@
   margin-bottom: var(--space-2);
 }
 
+/* Message Wrapper - contains bubble + attachments */
+.messageWrapper {
+  display: flex;
+  flex-direction: column;
+  max-width: 80%;
+  gap: var(--space-2);
+}
+
+.messageWrapper.userWrapper {
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.messageWrapper.agentWrapper {
+  margin-right: auto;
+  align-items: flex-start;
+}
+
+.messageWrapper.systemWrapper {
+  margin: 0 auto;
+  align-items: center;
+  max-width: 90%;
+}
+
+.messageWrapper.errorWrapper {
+  margin-right: auto;
+  align-items: flex-start;
+}
+
+.messageWrapper.infoWrapper {
+  margin: 0 auto;
+  align-items: center;
+}
+
 /* Messages */
 .message {
-  max-width: 80%;
   padding: var(--space-3);
   border-radius: var(--radius-lg);
   background: var(--bg-tertiary);
+  width: 100%;
 }
 
 .message.user {
-  margin-left: auto;
   background: var(--color-primary);
   color: var(--color-white);
 }
 
 .message.agent {
-  margin-right: auto;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
 }
 
 .message.system {
-  margin: 0 auto;
   background: var(--bg-secondary);
   color: var(--text-secondary);
   font-size: var(--text-sm);
-  max-width: 90%;
 }
 
 .message.error {
-  margin-right: auto;
   background: var(--color-error-light);
   border: 1px solid var(--color-error);
 }
 
 .message.info {
-  margin: 0 auto;
   background: var(--color-info-light);
   color: var(--color-info);
   font-size: var(--text-sm);
@@ -143,6 +171,11 @@
 
 .messageContent {
   word-break: break-word;
+}
+
+/* Attachments underneath the bubble */
+.messageAttachments {
+  width: 100%;
 }
 
 /* Status Bar */
@@ -315,4 +348,107 @@
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* Hidden file input */
+.hiddenFileInput {
+  display: none;
+}
+
+/* Input wrapper for textarea and pending attachments */
+.inputWrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Pending attachments container */
+.pendingAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* Individual pending attachment */
+.pendingAttachment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.pendingFileName {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingFileSize {
+  color: var(--text-muted);
+}
+
+.removeAttachment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.removeAttachment:hover {
+  color: var(--color-error);
+}
+
+/* Attachment error message */
+.attachmentError {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-error-light);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-error);
+}
+
+.attachmentError span {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.attachmentError svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.dismissError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--color-error);
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dismissError:hover {
+  opacity: 1;
 }

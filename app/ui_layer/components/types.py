@@ -3,8 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 import time
+
+
+@dataclass
+class Attachment:
+    """
+    Data structure for a message attachment.
+
+    Represents a file attached to a chat message.
+
+    Attributes:
+        name: Original filename
+        path: Path relative to workspace (where the file is stored)
+        type: MIME type of the file
+        size: File size in bytes
+        url: URL to access the file (for browser display)
+    """
+
+    name: str
+    path: str
+    type: str
+    size: int
+    url: str
 
 
 @dataclass
@@ -20,6 +42,7 @@ class ChatMessage:
         style: Style identifier for rendering
         timestamp: Unix timestamp when the message was created
         message_id: Optional unique identifier for the message
+        attachments: Optional list of file attachments
     """
 
     sender: str
@@ -27,6 +50,7 @@ class ChatMessage:
     style: str
     timestamp: float = field(default_factory=time.time)
     message_id: Optional[str] = None
+    attachments: Optional[List[Attachment]] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided."""

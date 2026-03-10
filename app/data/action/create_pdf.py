@@ -2,14 +2,14 @@ from agent_core import action
 
 @action(
     name="create_pdf",
-    description="This action creates a PDF file at the specified path using the provided Markdown content. It converts the Markdown to HTML and then to a PDF using fpdf2, preserving headings, paragraphs, lists, bold and italic formatting. It handles errors such as invalid file paths or permission issues, returning a structured JSON output.",
+    description="Creates a PDF file at the specified path using the provided Markdown content. Converts Markdown to PDF using fpdf2, preserving headings, paragraphs, lists, bold and italic formatting. Use absolute paths.",
     mode="CLI",
     action_sets=["document_processing"],
     input_schema={
         "file_path": {
             "type": "string",
-            "example": "/home/user/documents/my_file.pdf",
-            "description": "The full path where the new PDF file will be created. Ensure the directory exists and is writable."
+            "example": "C:/Users/user/Documents/my_file.pdf",
+            "description": "Absolute path where the new PDF file will be created. Use full absolute paths (e.g., C:/Users/user/file.pdf or /home/user/file.pdf). Ensure the directory exists and is writable."
         },
         "content": {
             "type": "string",
@@ -25,7 +25,7 @@ from agent_core import action
         },
         "path": {
             "type": "string",
-            "example": "/home/user/documents/my_file.pdf",
+            "example": "C:/Users/user/Documents/my_file.pdf",
             "description": "The path to the newly created PDF file."
         },
         "message": {
@@ -36,7 +36,7 @@ from agent_core import action
     },
     requirement=["markdown2", "FPDF", "fpdf2"],
     test_payload={
-        "file_path": "/home/user/documents/my_file.pdf",
+        "file_path": "C:/Users/user/Documents/my_file.pdf",
         "content": "# My Title\n\nThis is a paragraph with **bold** text and a bullet list:\n- Item 1\n- Item 2",
         "simulated_mode": True
     }

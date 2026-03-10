@@ -20,8 +20,8 @@ from agent_core import action
         },
         "output_path": {
             "type": "string",
-            "example": "generated_image.png",
-            "description": "Absolute path where the generated image will be saved. If not provided, saves to temp directory."
+            "example": "C:/Users/user/Pictures/generated_image.png",
+            "description": "Absolute path where the generated image will be saved (e.g., C:/Users/user/image.png or /home/user/image.png). If not provided, saves to temp directory."
         },
         "resolution": {
             "type": "string",
@@ -45,8 +45,8 @@ from agent_core import action
         },
         "reference_images": {
             "type": "array",
-            "example": ["/path/to/reference1.png", "/path/to/reference2.png"],
-            "description": "Optional list of reference image absolute paths to guide generation (up to 14 images)."
+            "example": ["C:/Users/user/Pictures/reference1.png", "C:/Users/user/Pictures/reference2.png"],
+            "description": "Optional list of reference image absolute paths to guide generation (up to 14 images). Use full absolute paths."
         },
         "safety_filter_level": {
             "type": "string",

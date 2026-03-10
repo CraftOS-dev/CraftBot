@@ -2,14 +2,14 @@ from agent_core import action
 
 @action(
         name="list_folder",
-        description="Lists the contents of a specified folder/directory.",
+        description="Lists the contents of a specified folder/directory. Use absolute paths.",
         mode="CLI",
         action_sets=["core"],
         input_schema={
                 "path": {
                         "type": "string",
-                        "example": "/home/user/documents",
-                        "description": "The folder path to list"
+                        "example": "C:/Users/user/Documents",
+                        "description": "Absolute path to the folder to list. Use full absolute paths (e.g., C:/Users/user/Documents on Windows or /home/user/documents on Linux/Mac)."
                 }
         },
         output_schema={
@@ -33,7 +33,7 @@ from agent_core import action
                 }
         },
         test_payload={
-                "path": "/home/user/documents",
+                "path": "C:/Users/user/Documents",
                 "simulated_mode": True
         }
 )

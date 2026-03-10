@@ -11,3 +11,5 @@ export type { BadgeVariant } from './Badge'
 export { StatusIndicator } from './StatusIndicator'
 
 export { MarkdownContent } from './MarkdownContent'
+
+export { AttachmentDisplay } from './AttachmentDisplay'

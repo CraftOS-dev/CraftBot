@@ -89,7 +89,7 @@ from app.ui_layer.components.protocols import (
     StatusBarProtocol,
     FootageComponentProtocol,
 )
-from app.ui_layer.components.types import ChatMessage, ActionItem
+from app.ui_layer.components.types import ChatMessage, ActionItem, Attachment
 from app.ui_layer.events import UIEvent, UIEventType
 from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
@@ -175,15 +175,32 @@ class BrowserChatComponent(ChatComponentProtocol):
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
         self._messages.append(message)
+
+        # Build message data with optional attachments
+        message_data: Dict[str, Any] = {
+            "sender": message.sender,
+            "content": message.content,
+            "style": message.style,
+            "timestamp": message.timestamp,
+            "messageId": message.message_id,
+        }
+
+        # Include attachments if present
+        if message.attachments:
+            message_data["attachments"] = [
+                {
+                    "name": att.name,
+                    "path": att.path,
+                    "type": att.type,
+                    "size": att.size,
+                    "url": att.url,
+                }
+                for att in message.attachments
+            ]
+
         await self._adapter._broadcast({
             "type": "chat_message",
-            "data": {
-                "sender": message.sender,
-                "content": message.content,
-                "style": message.style,
-                "timestamp": message.timestamp,
-                "messageId": message.message_id,
-            },
+            "data": message_data,
         })
 
     async def clear(self) -> None:
@@ -555,6 +572,7 @@ class BrowserAdapter(InterfaceAdapter):
         self._app.router.add_get("/ws", self._websocket_handler)
         self._app.router.add_get("/api/state", self._state_handler)
         self._app.router.add_get("/api/theme.css", self._theme_css_handler)
+        self._app.router.add_get("/api/workspace/{path:.*}", self._workspace_file_handler)
 
         # Serve Vite-built frontend (production)
         frontend_dist = Path(__file__).parent.parent / "browser" / "frontend" / "dist"
@@ -631,7 +649,8 @@ class BrowserAdapter(InterfaceAdapter):
         """Handle WebSocket connections."""
         from aiohttp import web, WSMsgType
 
-        ws = web.WebSocketResponse()
+        # Increase max message size to 100MB to allow multiple large attachments
+        ws = web.WebSocketResponse(max_msg_size=100 * 1024 * 1024)
         await ws.prepare(request)
         self._ws_clients.add(ws)
 
@@ -649,6 +668,11 @@ class BrowserAdapter(InterfaceAdapter):
                         await self._handle_ws_message(data)
                     except json.JSONDecodeError:
                         pass
+                    except Exception as e:
+                        # Log error but don't break the connection
+                        import traceback
+                        print(f"[BROWSER ADAPTER] Error handling WS message: {e}")
+                        traceback.print_exc()
                 elif msg.type == WSMsgType.ERROR:
                     break
         finally:
@@ -661,10 +685,20 @@ class BrowserAdapter(InterfaceAdapter):
         msg_type = data.get("type")
 
         if msg_type == "message":
-            # User sent a message
+            # User sent a message (may include attachments)
             content = data.get("content", "")
-            if content:
+            attachments = data.get("attachments", [])
+
+            if attachments:
+                # Message with attachments - use custom handler
+                await self._handle_chat_message_with_attachments(content, attachments)
+            elif content:
+                # Regular message without attachments - use normal flow
                 await self.submit_message(content)
+
+        elif msg_type == "chat_attachment_upload":
+            # Upload attachment for chat message
+            await self._handle_chat_attachment_upload(data)
 
         elif msg_type == "command":
             # User sent a command
@@ -722,6 +756,14 @@ class BrowserAdapter(InterfaceAdapter):
         elif msg_type == "file_download":
             file_path = data.get("path", "")
             await self._handle_file_download(file_path)
+
+        elif msg_type == "open_file":
+            file_path = data.get("path", "")
+            await self._handle_open_file(file_path)
+
+        elif msg_type == "open_folder":
+            file_path = data.get("path", "")
+            await self._handle_open_folder(file_path)
 
         # Task control
         elif msg_type == "task_cancel":
@@ -2943,6 +2985,402 @@ class BrowserAdapter(InterfaceAdapter):
                 },
             })
 
+    async def _handle_chat_message_with_attachments(self, content: str, attachments: List[Dict[str, Any]]) -> None:
+        """Handle user chat message with attachments."""
+        import uuid
+        from app.ui_layer.state.ui_state import AgentStateType
+
+        try:
+            processed_attachments: List[Attachment] = []
+            attachment_note = ""
+
+            if attachments:
+                # Process each attachment - save to workspace/download/
+                download_dir = Path(AGENT_WORKSPACE_ROOT) / "download"
+                download_dir.mkdir(parents=True, exist_ok=True)
+
+                parts = []
+                for att in attachments:
+                    name = att.get("name", "unknown")
+                    file_type = att.get("type", "application/octet-stream")
+                    size = att.get("size", 0)
+                    content_b64 = att.get("content", "")
+
+                    # Generate unique filename to avoid conflicts
+                    unique_name = f"{uuid.uuid4().hex[:8]}_{name}"
+                    file_path = download_dir / unique_name
+                    relative_path = f"download/{unique_name}"
+
+                    # Save file to workspace
+                    if content_b64:
+                        try:
+                            file_content = base64.b64decode(content_b64)
+                            file_path.write_bytes(file_content)
+                            size = len(file_content)
+                        except Exception as e:
+                            print(f"[BROWSER ADAPTER] Error saving attachment {name}: {e}")
+                            continue
+
+                    # Create attachment object
+                    attachment = Attachment(
+                        name=name,
+                        path=relative_path,
+                        type=file_type,
+                        size=size,
+                        url=f"/api/workspace/{relative_path}",
+                    )
+                    processed_attachments.append(attachment)
+                    parts.append(f"{name} ({file_type}, {size} B), saved to workspace/{relative_path}")
+
+                if parts:
+                    attachment_note = "\n\nATTACHMENTS:\n" + "\n".join(parts)
+
+            # Display user message in chat with clean content and visual attachments
+            # (This is what the user sees in the chat bubble - no attachment metadata text)
+            user_message = ChatMessage(
+                sender="You",
+                content=content,
+                style="user",
+                timestamp=time.time(),
+                attachments=processed_attachments if processed_attachments else None,
+            )
+            await self._chat.append_message(user_message)
+
+            # Combine content with attachment info for agent context
+            # (This is what the agent sees in the event stream - includes file paths)
+            agent_context = content + attachment_note
+
+            if not agent_context.strip():
+                return
+
+            # Update state and route to agent directly
+            # (Skip submit_message to avoid duplicate chat message)
+            self._controller._state_store.dispatch("SET_AGENT_STATE", AgentStateType.WORKING.value)
+
+            # Route directly to agent with full context
+            payload = {
+                "text": agent_context,
+                "sender": {"id": self._adapter_id or "user", "type": "user"},
+                "gui_mode": self._controller._state_store.state.gui_mode,
+            }
+            await self._controller._agent._handle_chat_message(payload)
+
+        except Exception as e:
+            import traceback
+            print(f"[BROWSER ADAPTER] Error in _handle_chat_message_with_attachments: {e}")
+            traceback.print_exc()
+            # Still try to display an error message to the user
+            error_message = ChatMessage(
+                sender="System",
+                content=f"Error processing attachment: {str(e)}",
+                style="error",
+                timestamp=time.time(),
+            )
+            await self._chat.append_message(error_message)
+
+    async def _handle_chat_attachment_upload(self, data: Dict[str, Any]) -> None:
+        """Handle uploading a single attachment for chat."""
+        import uuid
+
+        try:
+            name = data.get("name", "unknown")
+            file_type = data.get("type", "application/octet-stream")
+            content_b64 = data.get("content", "")
+
+            if not content_b64:
+                raise ValueError("No content provided")
+
+            # Create download directory if needed
+            download_dir = Path(AGENT_WORKSPACE_ROOT) / "download"
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate unique filename
+            unique_name = f"{uuid.uuid4().hex[:8]}_{name}"
+            file_path = download_dir / unique_name
+            relative_path = f"download/{unique_name}"
+
+            # Decode and save file
+            file_content = base64.b64decode(content_b64)
+            file_path.write_bytes(file_content)
+
+            # Build response
+            await self._broadcast({
+                "type": "chat_attachment_upload",
+                "data": {
+                    "success": True,
+                    "attachment": {
+                        "name": name,
+                        "path": relative_path,
+                        "type": file_type,
+                        "size": len(file_content),
+                        "url": f"/api/workspace/{relative_path}",
+                    },
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "chat_attachment_upload",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_open_file(self, file_path: str) -> None:
+        """Open a file with the system default application."""
+        import subprocess
+        import platform
+
+        try:
+            target = self._validate_path(file_path)
+
+            if not target.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            # Open file with default application based on OS
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(str(target))
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", str(target)], check=True)
+            else:  # Linux and others
+                subprocess.run(["xdg-open", str(target)], check=True)
+
+            await self._broadcast({
+                "type": "open_file",
+                "data": {
+                    "path": file_path,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "open_file",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    async def _handle_open_folder(self, file_path: str) -> None:
+        """Open the folder containing a file in the system file explorer."""
+        import subprocess
+        import platform
+
+        try:
+            target = self._validate_path(file_path)
+
+            if not target.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            # Get parent folder
+            folder = target.parent if target.is_file() else target
+
+            # Open folder with file explorer based on OS
+            system = platform.system()
+            if system == "Windows":
+                # Use explorer with /select to highlight the file
+                if target.is_file():
+                    subprocess.run(["explorer", "/select,", str(target)], check=True)
+                else:
+                    subprocess.run(["explorer", str(folder)], check=True)
+            elif system == "Darwin":  # macOS
+                if target.is_file():
+                    subprocess.run(["open", "-R", str(target)], check=True)
+                else:
+                    subprocess.run(["open", str(folder)], check=True)
+            else:  # Linux and others
+                subprocess.run(["xdg-open", str(folder)], check=True)
+
+            await self._broadcast({
+                "type": "open_folder",
+                "data": {
+                    "path": file_path,
+                    "success": True,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "open_folder",
+                "data": {
+                    "path": file_path,
+                    "success": False,
+                    "error": str(e),
+                },
+            })
+
+    def _prepare_attachment(self, file_path: str) -> Attachment:
+        """
+        Prepare a file for attachment by validating and copying if needed.
+
+        Args:
+            file_path: Absolute path or path relative to workspace
+
+        Returns:
+            Attachment object ready to be sent
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            ValueError: If path points to a directory
+        """
+        import uuid
+        import shutil
+        import mimetypes
+
+        # Handle both absolute and relative paths
+        source_path = Path(file_path)
+
+        # Check if it's an absolute path
+        if source_path.is_absolute():
+            target = source_path
+        else:
+            # Treat as relative to workspace
+            target = self._validate_path(file_path)
+
+        if not target.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        if target.is_dir():
+            raise ValueError(f"Cannot attach directory: {file_path}")
+
+        file_name = target.name
+        file_size = target.stat().st_size
+
+        # If file is outside workspace, copy it to workspace/download/
+        workspace = Path(AGENT_WORKSPACE_ROOT).resolve()
+        if not str(target.resolve()).startswith(str(workspace)):
+            # Copy file to workspace download folder
+            download_dir = workspace / "download"
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate unique filename to avoid conflicts
+            unique_name = f"{uuid.uuid4().hex[:8]}_{file_name}"
+            dest_path = download_dir / unique_name
+            shutil.copy2(target, dest_path)
+
+            # Update paths for the attachment
+            relative_path = f"download/{unique_name}"
+        else:
+            # File is already in workspace, get relative path
+            relative_path = str(target.relative_to(workspace)).replace("\\", "/")
+
+        # Determine MIME type
+        mime_type, _ = mimetypes.guess_type(file_name)
+        if mime_type is None:
+            mime_type = "application/octet-stream"
+
+        return Attachment(
+            name=file_name,
+            path=relative_path,
+            type=mime_type,
+            size=file_size,
+            url=f"/api/workspace/{relative_path}",
+        )
+
+    async def send_message_with_attachment(
+        self,
+        message: str,
+        file_path: str,
+        sender: str = "agent",
+        style: str = "agent",
+    ) -> Dict[str, Any]:
+        """
+        Send a chat message with a single attachment from the agent.
+
+        Deprecated: Use send_message_with_attachments for new code.
+
+        Args:
+            message: The message content
+            file_path: Absolute path or path relative to workspace
+            sender: Message sender (default: "agent")
+            style: Message style (default: "agent")
+
+        Returns:
+            Dict with 'success', 'files_sent', and optionally 'errors'
+        """
+        return await self.send_message_with_attachments(message, [file_path], sender, style)
+
+    async def send_message_with_attachments(
+        self,
+        message: str,
+        file_paths: list,
+        sender: str = "agent",
+        style: str = "agent",
+    ) -> Dict[str, Any]:
+        """
+        Send a chat message with one or more attachments from the agent.
+
+        This method is called by the agent to send files to the user.
+        Supports both absolute paths and workspace-relative paths.
+
+        Args:
+            message: The message content
+            file_paths: List of absolute paths or paths relative to workspace
+            sender: Message sender (default: "agent")
+            style: Message style (default: "agent")
+
+        Returns:
+            Dict with 'success' (bool), 'files_sent' (int), and optionally 'errors' (list of str)
+        """
+        try:
+            attachments = []
+            errors = []
+
+            for file_path in file_paths:
+                try:
+                    attachment = self._prepare_attachment(file_path)
+                    attachments.append(attachment)
+                except Exception as e:
+                    errors.append(f"{file_path}: {str(e)}")
+
+            # If we have at least one successful attachment, send the message
+            if attachments:
+                chat_message = ChatMessage(
+                    sender=sender,
+                    content=message,
+                    style=style,
+                    attachments=attachments,
+                )
+                await self._chat.append_message(chat_message)
+
+            # If there were errors, send an error message listing them
+            if errors:
+                error_content = "Failed to attach some files:\n" + "\n".join(f"- {e}" for e in errors)
+                error_message = ChatMessage(
+                    sender="system",
+                    content=error_content,
+                    style="error",
+                )
+                await self._chat.append_message(error_message)
+
+            # If no attachments succeeded at all, send a general error
+            if not attachments and not errors:
+                error_message = ChatMessage(
+                    sender="system",
+                    content="No files provided to attach.",
+                    style="error",
+                )
+                await self._chat.append_message(error_message)
+                return {"success": False, "files_sent": 0, "errors": ["No files provided to attach."]}
+
+            # Return status
+            return {
+                "success": len(attachments) > 0 and len(errors) == 0,
+                "files_sent": len(attachments),
+                "errors": errors if errors else None,
+            }
+
+        except Exception as e:
+            # Send error message if attachment fails
+            error_message = ChatMessage(
+                sender="system",
+                content=f"Failed to send attachments: {str(e)}",
+                style="error",
+            )
+            await self._chat.append_message(error_message)
+            return {"success": False, "files_sent": 0, "errors": [str(e)]}
+
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         state = self._controller.state
@@ -2962,6 +3400,16 @@ class BrowserAdapter(InterfaceAdapter):
                     "style": m.style,
                     "timestamp": m.timestamp,
                     "messageId": m.message_id,
+                    **({"attachments": [
+                        {
+                            "name": att.name,
+                            "path": att.path,
+                            "type": att.type,
+                            "size": att.size,
+                            "url": att.url,
+                        }
+                        for att in m.attachments
+                    ]} if m.attachments else {}),
                 }
                 for m in self._chat.get_messages()
             ],
@@ -3025,6 +3473,49 @@ class BrowserAdapter(InterfaceAdapter):
 
         css = self._theme_adapter.get_theme_css()
         return web.Response(text=css, content_type="text/css")
+
+    async def _workspace_file_handler(self, request: "web.Request") -> "web.Response":
+        """Serve files from the workspace directory."""
+        from aiohttp import web
+        import mimetypes
+
+        try:
+            file_path = request.match_info.get("path", "")
+
+            if not file_path:
+                raise web.HTTPNotFound()
+
+            # Validate and get absolute path
+            target = self._validate_path(file_path)
+
+            if not target.exists():
+                raise web.HTTPNotFound()
+
+            if target.is_dir():
+                raise web.HTTPBadRequest(reason="Cannot serve directory")
+
+            # Determine content type
+            mime_type, _ = mimetypes.guess_type(target.name)
+            if mime_type is None:
+                mime_type = "application/octet-stream"
+
+            # Read and serve file
+            content = target.read_bytes()
+
+            return web.Response(
+                body=content,
+                content_type=mime_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{target.name}"',
+                    "Cache-Control": "no-cache",
+                }
+            )
+        except ValueError as e:
+            raise web.HTTPForbidden(reason=str(e))
+        except FileNotFoundError:
+            raise web.HTTPNotFound()
+        except Exception as e:
+            raise web.HTTPInternalServerError(reason=str(e))
 
     def _get_index_html(self) -> str:
         """Get the index HTML for the browser interface."""

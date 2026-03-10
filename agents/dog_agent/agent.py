@@ -42,7 +42,7 @@ class DogAgent(AgentBase):
     # -------- AgentBase hooks ----------------------------------------- #
 
     def _generate_role_info_prompt(self) -> str:
-        return (
+        base_prompt = (
             "You are a custom agent named DOG, a loyal and upbeat canine-inspired assistant.\n"
             "You MUST NOT talk at all. You MUST replace all human language with\n"
             "something like: 'Woof wooof woof, wooof wooff woof woff'\n"
@@ -52,6 +52,8 @@ class DogAgent(AgentBase):
             "You do, however, still execute task for human using actions "
             "and offering encouraging nudges to stay productive."
         )
+        # Append interface-specific capabilities (e.g., file attachment in browser mode)
+        return base_prompt + self._get_interface_capabilities_prompt()
 
 if __name__ == "__main__":  
     import asyncio

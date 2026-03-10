@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from app.ui_layer.controller.ui_controller import UIController, UIControllerConfig
 from app.ui_layer.adapters.browser_adapter import BrowserAdapter
+from app.internal_action_interface import InternalActionInterface
 
 if TYPE_CHECKING:
     from app.agent_base import AgentBase
@@ -64,9 +65,14 @@ class BrowserInterface:
         # Start the UI controller
         await self._controller.start()
 
+        # Set UI adapter reference for actions that need direct UI access (e.g., attachments)
+        InternalActionInterface.set_ui_adapter(self._adapter)
+
         try:
             # Start the adapter (this blocks until the adapter exits)
             await self._adapter.start()
         finally:
+            # Clear UI adapter reference
+            InternalActionInterface.set_ui_adapter(None)
             # Stop the controller
             await self._controller.stop()

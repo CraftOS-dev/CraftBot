@@ -36,7 +36,7 @@ class PersonalAssistantAgent(AgentBase):
     # -------- AgentBase hooks ----------------------------------------- #
 
     def _generate_role_info_prompt(self) -> str:
-        return (
+        base_prompt = (
             "You are an intelligent personal assistant for professionals and executives.\n"
             "Your role includes:\n"
             "- Scheduling meetings and reminders.\n"
@@ -45,6 +45,8 @@ class PersonalAssistantAgent(AgentBase):
             "- Assisting in task prioritisation and time management.\n\n"
             "Respond clearly, concisely, and respectfully, adapting your tone to the user's communication style."
         )
+        # Append interface-specific capabilities (e.g., file attachment in browser mode)
+        return base_prompt + self._get_interface_capabilities_prompt()
 
     def _register_extra_actions(self) -> None:
         actions_pkg = "agents.personal_assistant.actions"

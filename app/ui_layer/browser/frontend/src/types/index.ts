@@ -4,12 +4,21 @@
 // Chat Types
 // ─────────────────────────────────────────────────────────────────────
 
+export interface Attachment {
+  name: string
+  path: string
+  type: string
+  size: number
+  url: string
+}
+
 export interface ChatMessage {
   sender: string
   content: string
   style: 'user' | 'agent' | 'system' | 'error' | 'info'
   timestamp: number
   messageId: string
+  attachments?: Attachment[]
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -74,6 +83,10 @@ export type WSMessageType =
   | 'file_copy'
   | 'file_upload'
   | 'file_download'
+  // Chat attachment operations
+  | 'chat_attachment_upload'
+  | 'open_file'
+  | 'open_folder'
   // Task control
   | 'task_cancel'
   | 'task_cancel_response'
@@ -424,6 +437,24 @@ export interface FileDownloadResponse {
   path: string
   content?: string  // base64 encoded
   fileInfo?: FileItem
+  success: boolean
+  error?: string
+}
+
+export interface ChatAttachmentUploadResponse {
+  success: boolean
+  attachment?: Attachment
+  error?: string
+}
+
+export interface OpenFileResponse {
+  path: string
+  success: boolean
+  error?: string
+}
+
+export interface OpenFolderResponse {
+  path: string
   success: boolean
   error?: string
 }

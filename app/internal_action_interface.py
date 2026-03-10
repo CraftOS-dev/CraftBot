@@ -44,6 +44,7 @@ class InternalActionInterface:
     memory_manager: Optional[MemoryManager] = None
     scheduler: Optional["SchedulerManager"] = None
     proactive_manager: Optional["ProactiveManager"] = None
+    ui_adapter: Optional[Any] = None  # Reference to UI adapter (browser, TUI, etc.)
 
     @classmethod
     def initialize(
@@ -55,7 +56,8 @@ class InternalActionInterface:
         context_engine: Optional["ContextEngine"] = None,
         gui_module: Optional["GUIModule"] = None,
         memory_manager: MemoryManager | None = None,
-        scheduler: Optional["SchedulerManager"] = None
+        scheduler: Optional["SchedulerManager"] = None,
+        ui_adapter: Optional[Any] = None
     ):
         """
         Register the shared interfaces that actions depend on.
@@ -71,7 +73,13 @@ class InternalActionInterface:
         cls.context_engine = context_engine
         cls.gui_module = gui_module
         cls.memory_manager = memory_manager
-        cls.scheduler = scheduler 
+        cls.scheduler = scheduler
+        cls.ui_adapter = ui_adapter
+
+    @classmethod
+    def set_ui_adapter(cls, ui_adapter: Any) -> None:
+        """Set the UI adapter reference (can be called after initialization)."""
+        cls.ui_adapter = ui_adapter 
 
     # ─────────────────────── LLM Access for Actions ───────────────────────
 
@@ -152,6 +160,51 @@ class InternalActionInterface:
         if InternalActionInterface.state_manager is None:
             raise RuntimeError("InternalActionInterface not initialized with StateManager.")
         InternalActionInterface.state_manager.record_agent_message(message, platform=platform)
+
+    @staticmethod
+    async def do_chat_with_attachment(message: str, file_path: str) -> Dict[str, Any]:
+        """
+        Send a chat message with a single attachment to the user.
+
+        Deprecated: Use do_chat_with_attachments for new code.
+
+        Args:
+            message: The message content
+            file_path: Path to the file (absolute or relative to workspace)
+
+        Returns:
+            Dict with 'success', 'files_sent', and optionally 'errors'
+        """
+        return await InternalActionInterface.do_chat_with_attachments(message, [file_path])
+
+    @staticmethod
+    async def do_chat_with_attachments(message: str, file_paths: List[str]) -> Dict[str, Any]:
+        """
+        Send a chat message with one or more attachments to the user.
+
+        Args:
+            message: The message content
+            file_paths: List of paths to the files (absolute or relative to workspace)
+
+        Returns:
+            Dict with 'success' (bool), 'files_sent' (int), and optionally 'errors' (list of str)
+        """
+        ui_adapter = InternalActionInterface.ui_adapter
+
+        # Check if UI adapter supports attachments (browser adapter)
+        if ui_adapter and hasattr(ui_adapter, 'send_message_with_attachments'):
+            return await ui_adapter.send_message_with_attachments(message, file_paths)
+        else:
+            # Fallback: send message with attachment notes for non-browser adapters
+            if InternalActionInterface.state_manager is None:
+                raise RuntimeError("InternalActionInterface not initialized with StateManager.")
+
+            attachment_notes = "\n".join([f"[Attachment: {fp}]" for fp in file_paths])
+            InternalActionInterface.state_manager.record_agent_message(
+                f"{message}\n\n{attachment_notes}"
+            )
+            # For non-browser adapters, we can't verify files exist, so assume success
+            return {"success": True, "files_sent": len(file_paths), "errors": None}
 
     @staticmethod
     def do_ignore():

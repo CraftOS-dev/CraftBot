@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
-import type { ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics, TaskCancelResponse } from '../types'
+import type { ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics, TaskCancelResponse, Attachment } from '../types'
+
+// Pending attachment type for upload
+interface PendingAttachment {
+  name: string
+  type: string
+  size: number
+  content: string  // base64
+}
 
 interface WebSocketState {
   connected: boolean
@@ -14,10 +22,12 @@ interface WebSocketState {
 }
 
 interface WebSocketContextType extends WebSocketState {
-  sendMessage: (content: string) => void
+  sendMessage: (content: string, attachments?: PendingAttachment[]) => void
   sendCommand: (command: string) => void
   clearMessages: () => void
   cancelTask: (taskId: string) => void
+  openFile: (path: string) => void
+  openFolder: (path: string) => void
 }
 
 const defaultState: WebSocketState = {
@@ -258,9 +268,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [connect])
 
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, attachments?: PendingAttachment[]) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'message', content }))
+      wsRef.current.send(JSON.stringify({
+        type: 'message',
+        content,
+        attachments: attachments || []
+      }))
     }
   }, [])
 
@@ -281,6 +295,18 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const openFile = useCallback((path: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'open_file', path }))
+    }
+  }, [])
+
+  const openFolder = useCallback((path: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'open_folder', path }))
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -289,6 +315,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         sendCommand,
         clearMessages,
         cancelTask,
+        openFile,
+        openFolder,
       }}
     >
       {children}

@@ -2,32 +2,32 @@ from agent_core import action
 
 @action(
     name="convert_to_markdown",
-    description="Cleans scraped text from .txt, .md, or .docx and converts it into clean, well-structured Markdown suitable for PDF conversion.",
+    description="Cleans scraped text from .txt, .md, or .docx and converts it into clean, well-structured Markdown suitable for PDF conversion. Use absolute paths.",
     mode="CLI",
     action_sets=["document_processing"],
     input_schema={
         "input_file": {
             "type": "string",
-            "example": "/path/to/input.txt",
-            "description": "Path to the input file (txt, md, docx)."
+            "example": "C:/Users/user/Documents/input.txt",
+            "description": "Absolute path to the input file (txt, md, docx). Use full absolute paths (e.g., C:/Users/user/file.txt or /home/user/file.txt)."
         },
         "output_md": {
             "type": "string",
-            "example": "/path/to/output.md",
-            "description": "Path where the cleaned Markdown file will be saved."
+            "example": "C:/Users/user/Documents/output.md",
+            "description": "Absolute path where the cleaned Markdown file will be saved."
         }
     },
     output_schema={
         "md_file": {
             "type": "string",
-            "example": "/path/to/output.md",
+            "example": "C:/Users/user/Documents/output.md",
             "description": "Path to the generated Markdown file."
         }
     },
     requirement=["Document", "docx"],
     test_payload={
-        "input_file": "/path/to/input.txt",
-        "output_md": "/path/to/output.md",
+        "input_file": "C:/Users/user/Documents/input.txt",
+        "output_md": "C:/Users/user/Documents/output.md",
         "simulated_mode": True
     }
 )

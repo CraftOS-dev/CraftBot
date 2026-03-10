@@ -2,7 +2,7 @@ from agent_core import action
 
 @action(
     name="find_files",
-    description="Finds files by name or pattern across the system. Supports wildcards, relative paths, and recursive search.",
+    description="Finds files by name or pattern across the system. Supports wildcards and recursive search. Use absolute paths for base_directory.",
     mode="CLI",
     platforms=["linux", "darwin"],
     action_sets=["core"],
@@ -19,8 +19,8 @@ from agent_core import action
         },
         "base_directory": {
             "type": "string",
-            "example": "~/Documents",
-            "description": "The base directory to start searching from. If not provided, defaults to the agent's workspace directory."
+            "example": "/home/user/Documents",
+            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., /home/user/Documents or /Users/name/Desktop)."
         }
     },
     output_schema={
@@ -34,8 +34,8 @@ from agent_core import action
                 "type": "string"
             },
             "example": [
-                "~/Documents/file1.pdf",
-                "~/Documents/reports/file2.pdf"
+                "/home/user/Documents/file1.pdf",
+                "/home/user/Documents/reports/file2.pdf"
             ]
         },
         "message": {
@@ -46,7 +46,7 @@ from agent_core import action
     test_payload={
         "pattern": "*.pdf",
         "recursive": True,
-        "base_directory": "~/Documents",
+        "base_directory": "/home/user/Documents",
         "simulated_mode": True
     }
 )
@@ -110,7 +110,7 @@ def find_file_by_name(input_data: dict) -> dict:
 
 @action(
     name="find_files",
-    description="Finds files by name or pattern across the system. Supports wildcards, relative paths, and recursive search.",
+    description="Finds files by name or pattern across the system. Supports wildcards and recursive search. Use absolute paths for base_directory.",
     mode="CLI",
     platforms=["windows"],
     action_sets=["file_operations"],
@@ -127,8 +127,8 @@ def find_file_by_name(input_data: dict) -> dict:
         },
         "base_directory": {
             "type": "string",
-            "example": r"~\\Documents",
-            "description": "The base directory to start searching from. If not provided, defaults to the agent's workspace directory."
+            "example": "C:/Users/user/Documents",
+            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., C:/Users/user/Documents or D:/Projects)."
         }
     },
     output_schema={
@@ -142,8 +142,8 @@ def find_file_by_name(input_data: dict) -> dict:
                 "type": "string"
             },
             "example": [
-                "C:\\Users\\me\\Documents\\file1.pdf",
-                "C:\\Users\\me\\Documents\\reports\\file2.pdf"
+                "C:/Users/user/Documents/file1.pdf",
+                "C:/Users/user/Documents/reports/file2.pdf"
             ]
         },
         "message": {
@@ -154,7 +154,7 @@ def find_file_by_name(input_data: dict) -> dict:
     test_payload={
         "pattern": "*.pdf",
         "recursive": True,
-        "base_directory": r"~\\Documents",
+        "base_directory": "C:/Users/user/Documents",
         "simulated_mode": True
     }
 )
