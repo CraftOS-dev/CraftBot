@@ -118,32 +118,41 @@ def main():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     # ------------------------------
 
+    # Check if GUI mode is enabled
+    gui_mode_enabled = os.getenv("GUI_MODE_ENABLED", "False").lower() == "true"
+    docker_started = False
+
     print("--- Starting Launch Sequence ---")
     final_exit_code = 0
 
     # === TRY BLOCK: Setup and Run ===
     try:
-        # 1. Start Docker VM
-        print("\n[1/3] Launching VM Docker containers in background...")
-        if not os.path.isdir(VM_DIR):
-             print(f"[ERROR] Docker directory not found: {VM_DIR}")
-             sys.exit(1)
-        run_command(["docker", "compose", "up", "-d"], cwd=VM_DIR)
+        # 1. Start Docker VM (only if GUI mode is enabled)
+        if gui_mode_enabled:
+            print("\n[1/3] Launching VM Docker containers in background...")
+            if not os.path.isdir(VM_DIR):
+                 print(f"[ERROR] Docker directory not found: {VM_DIR}")
+                 sys.exit(1)
+            run_command(["docker", "compose", "up", "-d"], cwd=VM_DIR)
+            docker_started = True
 
-        # 2. Wait Loop
-        print(f"\n[2/3] Waiting for VM service to be ready on port {READY_PORT}...")
-        waited = 0
-        while not is_port_open(READY_HOST, READY_PORT):
-            if waited >= MAX_WAIT_SECONDS:
-                print(f"\n[ERROR] Timed out waiting for VM port {READY_PORT}.")
-                raise TimeoutError(f"Service on port {READY_PORT} did not become ready.")
-            print(".", end="", flush=True)
-            time.sleep(1)
-            waited += 1
-        print(f"\n[OK] VM Service is reachable after {waited}s!")
+            # 2. Wait Loop
+            print(f"\n[2/3] Waiting for VM service to be ready on port {READY_PORT}...")
+            waited = 0
+            while not is_port_open(READY_HOST, READY_PORT):
+                if waited >= MAX_WAIT_SECONDS:
+                    print(f"\n[ERROR] Timed out waiting for VM port {READY_PORT}.")
+                    raise TimeoutError(f"Service on port {READY_PORT} did not become ready.")
+                print(".", end="", flush=True)
+                time.sleep(1)
+                waited += 1
+            print(f"\n[OK] VM Service is reachable after {waited}s!")
 
-        # 3. Start Python Agent
-        print(f"\n[3/3] Launching Python Agent...")
+            # 3. Start Python Agent
+            print(f"\n[3/3] Launching Python Agent...")
+        else:
+            print("\n[1/1] Launching Python Agent (CLI Mode)...")
+
         print("--------------------------------")
         print("Type '/exit' or use your defined quit hotkey to stop.")
         print("Ctrl+C is handled by the app logic (ignored by wrapper).")
@@ -181,15 +190,18 @@ def main():
     finally:
         print(f"\n\n--- Cleanup Initiated (Exit Status: {final_exit_code}) ---")
         
-        # 1. Stop Docker containers
-        print("[*] Stopping Docker VM containers...")
-        try:
-            run_command(["docker", "compose", "down"], cwd=VM_DIR, check=False)
-        except Exception as e:
-             print(f"[!] Warning: Error during docker shutdown: {e}")
+        # 1. Stop Docker containers (only if started)
+        if docker_started:
+            print("[*] Stopping Docker VM containers...")
+            try:
+                run_command(["docker", "compose", "down"], cwd=VM_DIR, check=False)
+            except Exception as e:
+                 print(f"[!] Warning: Error during docker shutdown: {e}")
 
-        # 2. Clean up ports
-        kill_process_on_port(CLEANUP_PORT)
+            # 2. Clean up ports
+            kill_process_on_port(CLEANUP_PORT)
+        else:
+            print("[*] Skipping Docker cleanup (not started in CLI mode).")
 
         print("Shutdown complete.")
         sys.exit(final_exit_code)

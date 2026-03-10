@@ -68,8 +68,9 @@ CraftBot awaits your orders, set up your own CraftBot now.
 
 ### Prerequisites
 - Python **3.10+**
-- `git` and `conda` (or `pip`)
+- `git` (required to clone the repository)
 - An API key for your chosen LLM provider (OpenAI, Gemini, or Anthropic)
+- `conda` (optional - if not found, installer offers to auto-install Miniconda)
 
 ### Quick Install
 
@@ -130,8 +131,11 @@ That's it! The first run will guide you through setting up your API keys.
 GUI mode enables screen automation - the agent can see and interact with a desktop environment.
 
 ```bash
-# Install with GUI support
+# Install with GUI support (using pip, no conda required)
 python install.py --gui
+
+# Install with GUI support and conda
+python install.py --gui --conda
 
 # Run with GUI mode
 python run.py --gui
@@ -149,7 +153,7 @@ python run.py --gui
 | Flag | Description |
 |------|-------------|
 | `--gui` | Install GUI components (OmniParser) |
-| `--no-conda` | Use global pip instead of conda |
+| `--conda` | Use conda environment (optional) |
 | `--cpu-only` | Install CPU-only PyTorch (with --gui) |
 
 ### run.py
@@ -157,22 +161,63 @@ python run.py --gui
 | Flag | Description |
 |------|-------------|
 | `--gui` | Enable GUI mode (requires `install.py --gui` first) |
-| `--no-conda` | Use global pip instead of conda |
 
-**Examples:**
+**Installation Examples:**
 ```bash
-# Basic install and run
+# Simple pip installation (no conda)
 python install.py
+
+# With GUI support (using pip, no conda)
+python install.py --gui
+
+# With GUI on CPU-only systems (using pip, no conda)
+python install.py --gui --cpu-only
+
+# With conda environment (recommended for conda users)
+python install.py --conda
+
+# With GUI support and conda
+python install.py --gui --conda
+
+# With GUI on CPU-only systems with conda
+python install.py --gui --conda --cpu-only
+```
+
+```powershell
+# Run with pip (no conda)
 python run.py
 
-# Install with GUI support
-python install.py --gui
+# Run with GUI mode (pip, no conda)
 python run.py --gui
 
-# Use pip instead of conda
-python install.py --no-conda
-python run.py --no-conda
+# Run with conda environment
+conda run -n craftbot python run.py
+
+# Run with GUI mode using conda
+conda run -n craftbot python run.py --gui
+
+# Or using full path if conda not in PATH
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
 ```
+
+**Linux/macOS (Bash):**
+```bash
+# Run with pip (no conda)
+python run.py
+
+# Run with GUI mode (pip, no conda)
+python run.py --gui
+
+# Run with conda environment
+conda run -n craftbot python run.py
+
+# Run with GUI mode using conda
+conda run -n craftbot python run.py --gui
+```
+
+> [!NOTE]
+> After installation completes, exact launch commands will be displayed. Installation will automatically detect GPU availability and fall back to CPU-only mode if needed.
+
 
 > [!TIP]
 > **First-time setup:** CraftBot will guide you through an onboarding sequence to configure API keys, the agent's name, MCPs, and Skills.

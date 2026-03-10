@@ -7,8 +7,9 @@ Usage:
     python run.py --gui     # Run with GUI mode enabled
 
 Options:
-    --gui           Enable GUI mode (requires: python install.py --gui)
-    --no-conda      Use global pip instead of conda
+    --gui           Enable GUI mode (optional, requires: python install.py --gui)
+
+Note: The installation method (conda/pip) is saved from install.py and reused here.
 """
 import multiprocessing
 import os
@@ -145,6 +146,24 @@ def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
         return True, conda_exe, os.path.dirname(os.path.dirname(conda_exe))
 
     if sys.platform == "win32":
+        # Check common Miniconda/Anaconda installation paths
+        common_paths = [
+            os.path.join(os.path.expanduser("~"), "miniconda3"),
+            os.path.join(os.path.expanduser("~"), "Miniconda3"),
+            os.path.join(os.path.expanduser("~"), "anaconda3"),
+            os.path.join(os.path.expanduser("~"), "Anaconda3"),
+            "C:\\miniconda3",
+            "C:\\Miniconda3",
+            "C:\\anaconda3",
+            "C:\\Anaconda3",
+        ]
+        
+        for base_path in common_paths:
+            conda_bat = os.path.join(base_path, "condabin", "conda.bat")
+            if os.path.exists(conda_bat):
+                return True, conda_bat, base_path
+        
+        # Also check current Python directory
         for base in [os.path.dirname(os.path.dirname(sys.executable))]:
             if os.path.exists(os.path.join(base, "condabin", "conda.bat")):
                 return True, base, base
@@ -161,9 +180,38 @@ def get_env_name_from_yml() -> str:
         pass
     return "craftbot"
 
+def get_conda_command() -> str:
+    """Return conda command. Use full path on Windows if conda not in PATH."""
+    # First try to find conda in PATH
+    conda_exe = shutil.which("conda")
+    if conda_exe:
+        return conda_exe
+    
+    # On Windows, check common installation paths
+    if sys.platform == "win32":
+        common_paths = [
+            os.path.join(os.path.expanduser("~"), "miniconda3"),
+            os.path.join(os.path.expanduser("~"), "Miniconda3"),
+            os.path.join(os.path.expanduser("~"), "anaconda3"),
+            os.path.join(os.path.expanduser("~"), "Anaconda3"),
+            "C:\\miniconda3",
+            "C:\\Miniconda3",
+            "C:\\anaconda3",
+            "C:\\Anaconda3",
+        ]
+        
+        for base_path in common_paths:
+            conda_bat = os.path.join(base_path, "condabin", "conda.bat")
+            if os.path.exists(conda_bat):
+                return conda_bat
+    
+    # Fallback to just "conda" (will work if it's in PATH)
+    return "conda"
+
 def verify_env(env_name: str) -> bool:
     try:
-        cmd = ["conda", "run", "-n", env_name, "python", "-c", "print('ok')"]
+        conda_cmd = get_conda_command()
+        cmd = [conda_cmd, "run", "-n", env_name, "python", "-c", "print('ok')"]
         run_command(cmd, capture=True)
         return True
     except:
@@ -174,18 +222,19 @@ def verify_env(env_name: str) -> bool:
 # ==========================================
 def launch_omniparser(use_conda: bool) -> bool:
     """Launch OmniParser server for GUI mode."""
-    print("\nStarting OmniParser server...")
+    print("Starting GUI components (OmniParser)...")
 
     config = load_config()
     repo_path = config.get("omniparser_repo_path", os.path.abspath("OmniParser_CraftOS"))
 
     if not os.path.exists(repo_path):
-        print(f"Error: OmniParser not installed at {repo_path}")
-        print("Run 'python install.py --gui' first.")
+        print(f"Error: GUI components not installed.")
+        print("Run 'python install.py --gui --conda' first.")
         return False
 
     if use_conda:
-        cmd = ["conda", "run", "-n", OMNIPARSER_ENV_NAME, "python", "-u", "-m", "gradio_demo"]
+        conda_cmd = get_conda_command()
+        cmd = [conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "python", "-u", "-m", "gradio_demo"]
     else:
         cmd = [sys.executable, "-u", "-m", "gradio_demo"]
 
@@ -195,7 +244,7 @@ def launch_omniparser(use_conda: bool) -> bool:
         os.environ["OMNIPARSER_BASE_URL"] = OMNIPARSER_SERVER_URL
         return True
 
-    print("OmniParser server failed to start.")
+    print("Failed to start GUI components.")
     return False
 
 # ==========================================
@@ -212,18 +261,11 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
     skip_flags = {"--gui", "--no-conda"}
     pass_args = [a for a in sys.argv[1:] if a not in skip_flags]
 
-    print(f"\nLaunching CraftBot...\n")
+    print(f"Starting CraftBot...\n")
 
     # Build command
     if use_conda and env_name:
-        # Find conda executable
-        if conda_base:
-            conda_exe = os.path.join(conda_base, "condabin", "conda.bat")
-            if not os.path.exists(conda_exe):
-                conda_exe = shutil.which("conda") or "conda"
-        else:
-            conda_exe = shutil.which("conda") or "conda"
-
+        conda_exe = get_conda_command()
         cmd = [conda_exe, "run", "--no-capture-output", "-n", env_name, "python", "-u", main_script] + pass_args
 
         # On Windows, wrap .bat files with cmd.exe
@@ -232,9 +274,9 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
     else:
         cmd = [sys.executable, "-u", main_script] + pass_args
 
-    # Run in current terminal
+    # Run in current terminal with all environment variables
     try:
-        result = subprocess.run(cmd, cwd=os.path.dirname(main_script))
+        result = subprocess.run(cmd, cwd=os.path.dirname(main_script), env=os.environ.copy())
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         print("\nInterrupted.")
@@ -253,44 +295,51 @@ if __name__ == "__main__":
 
     # Parse flags
     gui_mode = "--gui" in args
-    use_conda = "--no-conda" not in args
-
-    # Load saved config
+    no_conda_flag = "--no-conda" in args
+    
+    # Load saved config to check what was actually installed
     config = load_config()
+    use_conda = config.get("use_conda", False)  # Use config instead of defaulting to True
+    
+    # Override with command-line flag if provided
+    if no_conda_flag:
+        use_conda = False
+    
     gui_installed = config.get("gui_mode_enabled", False)
 
     # Set environment variables
     os.environ["USE_CONDA"] = str(use_conda)
     os.environ["GUI_MODE_ENABLED"] = str(gui_mode)
-    os.environ["USE_OMNIPARSER"] = str(gui_mode)
+    os.environ["USE_OMNIPARSER"] = str(gui_mode and gui_installed)
 
     print(f"\nMode: {'GUI' if gui_mode else 'CLI'}")
 
-    # Check conda
+    # Check conda only if it was installed earlier
     conda_base = None
     env_name = None
 
     if use_conda:
         found, path, conda_base = is_conda_installed()
         if not found:
-            print("Error: Conda not found. Use --no-conda or install conda.")
+            print("Error: Conda not found.")
+            print("If you want to use conda, run: python install.py --conda")
+            print("Or run without conda: python run.py (global pip only)\n")
             sys.exit(1)
         env_name = get_env_name_from_yml()
         if not verify_env(env_name):
             print(f"\nEnvironment '{env_name}' not ready.")
-            print("Run 'python install.py' first.")
+            print("Run 'python install.py' or 'python install.py --conda' first.\n")
             sys.exit(1)
 
-    # Start OmniParser if GUI mode
-    if gui_mode:
-        if not gui_installed:
-            print("\nGUI components not installed.")
-            print("Run 'python install.py --gui' first.")
-            sys.exit(1)
-
+    # Start OmniParser only if GUI mode and it was installed
+    if gui_mode and gui_installed:
         if not launch_omniparser(use_conda):
             print("Warning: Continuing without OmniParser.")
             os.environ["USE_OMNIPARSER"] = "False"
+    elif gui_mode and not gui_installed:
+        print("\nGUI mode requested but components not installed.")
+        print("Run: python install.py --gui --conda\n")
+        sys.exit(1)
 
     # Launch agent
     launch_agent(env_name, conda_base, use_conda)
