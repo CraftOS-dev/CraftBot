@@ -61,8 +61,8 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  gap: var(--space-2);
-  height: 100%;
+  gap: var(--space-1);
+  flex: 1;
 }
 
 .statItem {
@@ -70,14 +70,20 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-1);
-  padding: var(--space-2);
+  padding: var(--space-1);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
 }
 
+.statHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
 .statValue {
-  font-size: var(--text-lg);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
 }
@@ -157,7 +163,47 @@
   font-weight: var(--font-semibold);
 }
 
+/* Time Period Selector - Full width centered */
+.periodSelector {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-bottom: var(--space-2);
+  width: 100%;
+}
+
+.periodButton {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.periodButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.periodButton.active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font-weight: var(--font-semibold);
+}
+
 .panelContent {
+  display: flex;
+  flex-direction: column;
   padding: var(--space-3);
   height: calc(100% - 40px);
 }
@@ -405,8 +451,14 @@
 
 .chartLabel {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   margin-bottom: var(--space-1);
+  font-weight: var(--font-medium);
+}
+
+.chartSubLabel {
+  font-weight: var(--font-normal);
+  color: var(--text-muted);
 }
 
 .chartBars {

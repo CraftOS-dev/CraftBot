@@ -992,6 +992,36 @@ class BrowserAdapter(InterfaceAdapter):
             session_id = data.get("session_id", "")
             await self._handle_whatsapp_cancel(session_id)
 
+        elif msg_type == "dashboard_metrics_filter":
+            period = data.get("period", "total")
+            await self._handle_dashboard_metrics_filter(period)
+
+    async def _handle_dashboard_metrics_filter(self, period: str) -> None:
+        """Handle filtered metrics request for specific time period."""
+        try:
+            from app.ui_layer.metrics.collector import TimePeriod
+
+            # Parse period string to enum
+            try:
+                period_enum = TimePeriod(period)
+            except ValueError:
+                period_enum = TimePeriod.TOTAL
+
+            filtered_metrics = self._metrics_collector.get_filtered_metrics(period_enum)
+
+            await self._broadcast({
+                "type": "dashboard_filtered_metrics",
+                "data": filtered_metrics.to_dict(),
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "dashboard_filtered_metrics",
+                "data": {
+                    "error": str(e),
+                    "period": period,
+                },
+            })
+
     async def _handle_task_cancel(self, task_id: str) -> None:
         """Cancel a running task."""
         try:

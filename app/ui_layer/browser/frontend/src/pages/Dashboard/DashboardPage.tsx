@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import {
   Activity,
   Package,
@@ -19,7 +19,39 @@ import {
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { Badge, StatusIndicator } from '../../components/ui'
+import type { MetricsTimePeriod } from '../../types'
 import styles from './DashboardPage.module.css'
+
+// Compact time period selector for inside cards
+interface TimePeriodSelectorProps {
+  selected: MetricsTimePeriod
+  onChange: (period: MetricsTimePeriod) => void
+}
+
+function TimePeriodSelector({ selected, onChange }: TimePeriodSelectorProps) {
+  const periods: MetricsTimePeriod[] = ['1h', '1d', '1w', '1m', 'total']
+  const labels: Record<MetricsTimePeriod, string> = {
+    '1h': '1H',
+    '1d': '1D',
+    '1w': '1W',
+    '1m': '1M',
+    'total': 'All'
+  }
+
+  return (
+    <div className={styles.periodSelector}>
+      {periods.map(p => (
+        <button
+          key={p}
+          className={`${styles.periodButton} ${selected === p ? styles.active : ''}`}
+          onClick={() => onChange(p)}
+        >
+          {labels[p]}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400)
@@ -48,8 +80,49 @@ function formatHour(hour: number): string {
   return `${h}:00 ${ampm}`
 }
 
+function getChartLabels(period: MetricsTimePeriod): { title: string; description: string } {
+  switch (period) {
+    case '1h':
+      return { title: 'Last Hour', description: 'Requests by hour of day' }
+    case '1d':
+      return { title: 'Last 24 Hours', description: 'Requests by hour' }
+    case '1w':
+      return { title: 'Last 7 Days', description: 'Aggregated by hour of day' }
+    case '1m':
+      return { title: 'Last 30 Days', description: 'Aggregated by hour of day' }
+    case 'total':
+      return { title: 'All Time', description: 'Aggregated by hour of day' }
+    default:
+      return { title: 'Hourly Distribution', description: '' }
+  }
+}
+
 export function DashboardPage() {
-  const { status, actions, dashboardMetrics } = useWebSocket()
+  const { status, actions, dashboardMetrics, filteredMetricsCache, requestFilteredMetrics } = useWebSocket()
+
+  // Time period state for each card
+  const [taskPeriod, setTaskPeriod] = useState<MetricsTimePeriod>('total')
+  const [tokenPeriod, setTokenPeriod] = useState<MetricsTimePeriod>('total')
+  const [usagePeriod, setUsagePeriod] = useState<MetricsTimePeriod>('total')
+
+  // Request filtered metrics when period changes (for all periods including 'total')
+  const handlePeriodChange = useCallback((
+    period: MetricsTimePeriod,
+    setter: (p: MetricsTimePeriod) => void
+  ) => {
+    setter(period)
+    if (!filteredMetricsCache[period]) {
+      // Request if not already cached (including 'total' for historical data)
+      requestFilteredMetrics(period)
+    }
+  }, [requestFilteredMetrics, filteredMetricsCache])
+
+  // Request 'total' metrics on initial load
+  useEffect(() => {
+    if (!filteredMetricsCache['total']) {
+      requestFilteredMetrics('total')
+    }
+  }, [requestFilteredMetrics, filteredMetricsCache])
 
   // Calculate statistics from actions
   const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
@@ -63,12 +136,13 @@ export function DashboardPage() {
 
   // Calculate values with fallbacks
   const uptime = metrics?.uptimeSeconds ? formatUptime(metrics.uptimeSeconds) : '0m'
-  const successRate = metrics?.task.successRate ?? 100
 
-  const inputTokens = metrics?.token.input ?? 0
-  const outputTokens = metrics?.token.output ?? 0
-  const totalTokens = metrics?.token.total ?? 0
-  const cachedTokens = metrics?.token.cached ?? 0
+  // Token metrics - use cached filtered metrics for all periods (including 'total')
+  const tokenFilteredData = filteredMetricsCache[tokenPeriod]
+  const inputTokens = tokenFilteredData?.token.input ?? (metrics?.token.input ?? 0)
+  const outputTokens = tokenFilteredData?.token.output ?? (metrics?.token.output ?? 0)
+  const totalTokens = tokenFilteredData?.token.total ?? (metrics?.token.total ?? 0)
+  const cachedTokens = tokenFilteredData?.token.cached ?? (metrics?.token.cached ?? 0)
 
   // Calculate token ratios
   const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0
@@ -90,18 +164,24 @@ export function DashboardPage() {
   const threadPoolMax = metrics?.threadPool.maxWorkers ?? 16
   const threadPoolUtil = metrics?.threadPool.utilizationPercent ?? 0
 
-  const requestsLastHour = metrics?.usage.requestsLastHour ?? 0
-  const requestsToday = metrics?.usage.requestsToday ?? 0
-  const peakHour = metrics?.usage.peakHour ?? 0
-  const hourlyDistribution = metrics?.usage.hourlyDistribution ?? Array(24).fill(0)
+  // Usage metrics - use cached filtered metrics for all periods (including 'total')
+  const usageFilteredData = filteredMetricsCache[usagePeriod]
+  const requestsLastHour = usageFilteredData?.usage.requestsLastHour ?? (metrics?.usage.requestsLastHour ?? 0)
+  const requestsToday = usageFilteredData?.usage.requestsToday ?? (metrics?.usage.requestsToday ?? 0)
+  const peakHour = usageFilteredData?.usage.peakHour ?? (metrics?.usage.peakHour ?? 0)
+  const hourlyDistribution = usageFilteredData?.usage.hourlyDistribution ?? (metrics?.usage.hourlyDistribution ?? Array(24).fill(0))
+  const usageRequestCount = hourlyDistribution.reduce((sum, count) => sum + count, 0)
 
   // Find max for scaling the hourly chart
   const maxHourlyRequests = Math.max(...hourlyDistribution, 1)
 
-  // Task counts
-  const taskCompleted = metrics?.task.completed ?? completedTasks
-  const taskFailed = metrics?.task.failed ?? failedTasks
-  const taskRunning = metrics?.task.running ?? runningTasks
+  // Task counts - use cached filtered metrics for all periods (including 'total')
+  const taskFilteredData = filteredMetricsCache[taskPeriod]
+  const taskCompleted = taskFilteredData?.task.completed ?? (metrics?.task.completed ?? completedTasks)
+  const taskFailed = taskFilteredData?.task.failed ?? (metrics?.task.failed ?? failedTasks)
+  const taskRunning = taskFilteredData?.task.running ?? (metrics?.task.running ?? runningTasks)
+  const taskTotal = taskFilteredData?.task.total ?? (metrics?.task.total ?? (completedTasks + failedTasks + runningTasks))
+  const taskSuccessRate = taskFilteredData?.task.successRate ?? (metrics?.task.successRate ?? 100)
 
   // MCP metrics
   const mcpTotalServers = metrics?.mcp?.totalServers ?? 0
@@ -150,29 +230,41 @@ export function DashboardPage() {
           <div className={styles.panelHeader}>
             <Activity size={16} />
             <h3>Task Statistics</h3>
-            <Badge variant="default">{taskCompleted + taskFailed + taskRunning} total</Badge>
+            <Badge variant="default">{taskTotal} total</Badge>
           </div>
           <div className={styles.panelContent}>
+            <TimePeriodSelector
+              selected={taskPeriod}
+              onChange={(p) => handlePeriodChange(p, setTaskPeriod)}
+            />
             <div className={styles.statsGrid}>
               <div className={styles.statItem}>
-                <CheckCircle size={18} className={styles.successIcon} />
+                <div className={styles.statHeader}>
+                  <CheckCircle size={12} className={styles.successIcon} />
+                  <span className={styles.statLabel}>Completed</span>
+                </div>
                 <span className={styles.statValue}>{taskCompleted}</span>
-                <span className={styles.statLabel}>Completed</span>
               </div>
               <div className={styles.statItem}>
-                <XCircle size={18} className={styles.errorIcon} />
+                <div className={styles.statHeader}>
+                  <XCircle size={12} className={styles.errorIcon} />
+                  <span className={styles.statLabel}>Failed</span>
+                </div>
                 <span className={styles.statValue}>{taskFailed}</span>
-                <span className={styles.statLabel}>Failed</span>
               </div>
               <div className={styles.statItem}>
-                <PlayCircle size={18} className={styles.primaryIcon} />
+                <div className={styles.statHeader}>
+                  <PlayCircle size={12} className={styles.primaryIcon} />
+                  <span className={styles.statLabel}>Running</span>
+                </div>
                 <span className={styles.statValue}>{taskRunning}</span>
-                <span className={styles.statLabel}>Running</span>
               </div>
               <div className={styles.statItem}>
-                <TrendingUp size={18} className={styles.successIcon} />
-                <span className={styles.statValue}>{successRate.toFixed(0)}%</span>
-                <span className={styles.statLabel}>Success</span>
+                <div className={styles.statHeader}>
+                  <TrendingUp size={12} className={styles.successIcon} />
+                  <span className={styles.statLabel}>Success</span>
+                </div>
+                <span className={styles.statValue}>{taskSuccessRate.toFixed(0)}%</span>
               </div>
             </div>
           </div>
@@ -186,6 +278,10 @@ export function DashboardPage() {
             <Badge variant="default">{totalTokens.toLocaleString()} total</Badge>
           </div>
           <div className={styles.panelContent}>
+            <TimePeriodSelector
+              selected={tokenPeriod}
+              onChange={(p) => handlePeriodChange(p, setTokenPeriod)}
+            />
             <div className={styles.tokenRatioDisplay}>
               <div className={styles.tokenRatioBar}>
                 <div
@@ -311,24 +407,32 @@ export function DashboardPage() {
           <div className={styles.panelHeader}>
             <BarChart3 size={16} />
             <h3>Usage Patterns</h3>
+            <Badge variant="default">{usageRequestCount} requests</Badge>
           </div>
           <div className={styles.panelContent}>
+            <TimePeriodSelector
+              selected={usagePeriod}
+              onChange={(p) => handlePeriodChange(p, setUsagePeriod)}
+            />
             <div className={styles.usageStats}>
               <div className={styles.usageStat}>
-                <span className={styles.usageLabel}>Last Hour</span>
-                <span className={styles.usageValue}>{requestsLastHour}</span>
+                <span className={styles.usageLabel}>Requests</span>
+                <span className={styles.usageValue}>{usageRequestCount}</span>
               </div>
               <div className={styles.usageStat}>
-                <span className={styles.usageLabel}>Today</span>
-                <span className={styles.usageValue}>{requestsToday}</span>
-              </div>
-              <div className={styles.usageStat}>
-                <span className={styles.usageLabel}>Peak</span>
+                <span className={styles.usageLabel}>Peak Hour</span>
                 <span className={styles.usageValue}>{formatHour(peakHour)}</span>
+              </div>
+              <div className={styles.usageStat}>
+                <span className={styles.usageLabel}>Peak Count</span>
+                <span className={styles.usageValue}>{Math.max(...hourlyDistribution)}</span>
               </div>
             </div>
             <div className={styles.hourlyChart}>
-              <div className={styles.chartLabel}>Hourly Distribution</div>
+              <div className={styles.chartLabel}>
+                {getChartLabels(usagePeriod).title}
+                <span className={styles.chartSubLabel}> · {getChartLabels(usagePeriod).description}</span>
+              </div>
               <div className={styles.chartBars}>
                 {hourlyDistribution.map((count, hour) => (
                   <div
@@ -337,7 +441,7 @@ export function DashboardPage() {
                     title={`${formatHour(hour)}: ${count} requests`}
                   >
                     <div
-                      className={`${styles.chartBar} ${hour === new Date().getHours() ? styles.currentHour : ''}`}
+                      className={`${styles.chartBar} ${usagePeriod === '1d' && hour === new Date().getHours() ? styles.currentHour : ''}`}
                       style={{ height: `${(count / maxHourlyRequests) * 100}%` }}
                     />
                   </div>

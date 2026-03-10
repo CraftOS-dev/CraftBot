@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
-import type { ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics, TaskCancelResponse, Attachment } from '../types'
+import type { ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics, TaskCancelResponse, Attachment, FilteredDashboardMetrics, MetricsTimePeriod } from '../types'
 
 // Pending attachment type for upload
 interface PendingAttachment {
@@ -18,6 +18,7 @@ interface WebSocketState {
   currentTask: { id: string; name: string } | null
   footageUrl: string | null
   dashboardMetrics: DashboardMetrics | null
+  filteredMetricsCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
   cancellingTaskId: string | null
 }
 
@@ -28,6 +29,7 @@ interface WebSocketContextType extends WebSocketState {
   cancelTask: (taskId: string) => void
   openFile: (path: string) => void
   openFolder: (path: string) => void
+  requestFilteredMetrics: (period: MetricsTimePeriod) => void
 }
 
 const defaultState: WebSocketState = {
@@ -43,6 +45,13 @@ const defaultState: WebSocketState = {
   currentTask: null,
   footageUrl: null,
   dashboardMetrics: null,
+  filteredMetricsCache: {
+    '1h': null,
+    '1d': null,
+    '1w': null,
+    '1m': null,
+    'total': null,
+  },
   cancellingTaskId: null,
 }
 
@@ -230,6 +239,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
+      case 'dashboard_filtered_metrics': {
+        const metrics = msg.data as unknown as FilteredDashboardMetrics
+        // Cache by period so each card can have independent data
+        setState(prev => ({
+          ...prev,
+          filteredMetricsCache: {
+            ...prev.filteredMetricsCache,
+            [metrics.period]: metrics,
+          },
+        }))
+        break
+      }
+
       case 'task_cancel_response': {
         const response = msg.data as unknown as TaskCancelResponse
         if (response.success) {
@@ -307,6 +329,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const requestFilteredMetrics = useCallback((period: MetricsTimePeriod) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'dashboard_metrics_filter',
+        period
+      }))
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -317,6 +348,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         cancelTask,
         openFile,
         openFolder,
+        requestFilteredMetrics,
       }}
     >
       {children}

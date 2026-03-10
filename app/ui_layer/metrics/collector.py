@@ -8,8 +8,18 @@ import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
+
+
+class TimePeriod(Enum):
+    """Time period for filtered metrics queries."""
+    HOUR_1 = "1h"
+    DAY_1 = "1d"
+    WEEK_1 = "1w"
+    MONTH_1 = "1m"
+    TOTAL = "total"
 
 try:
     import psutil
@@ -345,6 +355,41 @@ class DashboardMetrics:
         }
 
 
+@dataclass
+class FilteredDashboardMetrics:
+    """Filtered dashboard metrics for a specific time period."""
+    period: str  # "1h", "1d", "1w", "1m", "total"
+    token: TokenMetrics = field(default_factory=TokenMetrics)
+    task: TaskMetrics = field(default_factory=TaskMetrics)
+    usage: UsageMetrics = field(default_factory=UsageMetrics)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "period": self.period,
+            "token": {
+                "input": self.token.total_input_tokens,
+                "output": self.token.total_output_tokens,
+                "cached": self.token.total_cached_tokens,
+                "total": self.token.total_tokens,
+            },
+            "task": {
+                "total": self.task.total_tasks,
+                "completed": self.task.completed_tasks,
+                "failed": self.task.failed_tasks,
+                "running": self.task.running_tasks,
+                "successRate": round(self.task.success_rate, 1),
+            },
+            "usage": {
+                "requestsLastHour": self.usage.requests_last_hour,
+                "requestsToday": self.usage.requests_today,
+                "peakHour": self.usage.peak_hour,
+                "peakHourRequests": self.usage.peak_hour_requests,
+                "hourlyDistribution": self.usage.hourly_distribution,
+            },
+        }
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Metrics Collector
 # ─────────────────────────────────────────────────────────────────────
@@ -375,6 +420,7 @@ class MetricsCollector:
         # Task tracking
         self._task_records: List[TaskRecord] = []
         self._running_tasks: Dict[str, float] = {}  # task_id -> start_time
+        self._running_task_names: Dict[str, str] = {}  # task_id -> task_name
 
         # Token totals
         self._total_input_tokens = 0
@@ -395,6 +441,42 @@ class MetricsCollector:
         # Skill usage tracking
         self._skill_usage: Dict[str, int] = defaultdict(int)
         self._skill_total_invocations: int = 0
+
+        # Storage references for historical data
+        self._usage_storage = None
+        self._task_storage = None
+        self._init_storage()
+
+    def _init_storage(self) -> None:
+        """Initialize storage references for historical data."""
+        try:
+            from app.usage.storage import get_usage_storage
+            from app.usage.task_storage import get_task_storage
+            self._usage_storage = get_usage_storage()
+            self._task_storage = get_task_storage()
+        except Exception:
+            # Storage may not be available in all contexts
+            pass
+
+    def _get_period_bounds(self, period: TimePeriod) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """Calculate start/end datetime for the given period."""
+        now = datetime.utcnow()
+        end_date = now
+
+        if period == TimePeriod.HOUR_1:
+            start_date = now - timedelta(hours=1)
+        elif period == TimePeriod.DAY_1:
+            start_date = now - timedelta(days=1)
+        elif period == TimePeriod.WEEK_1:
+            start_date = now - timedelta(weeks=1)
+        elif period == TimePeriod.MONTH_1:
+            start_date = now - timedelta(days=30)
+        elif period == TimePeriod.TOTAL:
+            return None, None  # No bounds for total
+        else:
+            return None, None
+
+        return start_date, end_date
 
     # ─────────────────────────────────────────────────────────────────────
     # LLM Call Tracking
@@ -452,11 +534,13 @@ class MetricsCollector:
         """Record when a task starts."""
         with self._lock:
             self._running_tasks[task_id] = time.time()
+            self._running_task_names[task_id] = name
 
     def record_task_end(self, task_id: str, name: str, status: str) -> None:
         """Record when a task ends."""
         with self._lock:
             start_time = self._running_tasks.pop(task_id, time.time())
+            self._running_task_names.pop(task_id, None)
             end_time = time.time()
 
             # Calculate total cost for this task
@@ -473,6 +557,24 @@ class MetricsCollector:
                 llm_call_count=len(task_calls),
             )
             self._task_records.append(record)
+
+        # Persist to TaskStorage (outside lock to avoid blocking)
+        if self._task_storage:
+            try:
+                from app.usage.task_storage import TaskEvent
+                task_event = TaskEvent(
+                    task_id=task_id,
+                    task_name=name,
+                    status=status,
+                    start_time=datetime.fromtimestamp(start_time),
+                    end_time=datetime.fromtimestamp(end_time),
+                    total_cost=total_cost,
+                    llm_call_count=len(task_calls),
+                )
+                self._task_storage.insert_task(task_event)
+            except Exception:
+                # Don't fail task tracking if storage fails
+                pass
 
     # ─────────────────────────────────────────────────────────────────────
     # MCP Tool Usage Tracking
@@ -887,6 +989,85 @@ class MetricsCollector:
             mcp=mcp_metrics,
             skill=skill_metrics,
             model=model_metrics,
+        )
+
+    def get_filtered_metrics(self, period: TimePeriod) -> FilteredDashboardMetrics:
+        """
+        Get metrics filtered by time period.
+
+        Combines historical data from SQLite storage with in-memory session data.
+
+        Args:
+            period: The time period to filter by.
+
+        Returns:
+            FilteredDashboardMetrics with token, task, and usage data.
+        """
+        start_date, end_date = self._get_period_bounds(period)
+
+        # Initialize with defaults
+        token_metrics = TokenMetrics()
+        task_metrics = TaskMetrics()
+        usage_metrics = UsageMetrics()
+
+        # Query historical token/usage data from UsageStorage
+        if self._usage_storage:
+            try:
+                usage_summary = self._usage_storage.get_usage_summary(start_date, end_date)
+                token_metrics = TokenMetrics(
+                    total_input_tokens=usage_summary.get("total_input_tokens", 0),
+                    total_output_tokens=usage_summary.get("total_output_tokens", 0),
+                    total_cached_tokens=usage_summary.get("total_cached_tokens", 0),
+                    total_tokens=usage_summary.get("total_tokens", 0),
+                )
+
+                # Get hourly distribution
+                hourly_dist = self._usage_storage.get_hourly_distribution(start_date, end_date)
+
+                # Calculate peak hour
+                peak_hour = 0
+                peak_requests = 0
+                for hour, count in enumerate(hourly_dist):
+                    if count > peak_requests:
+                        peak_requests = count
+                        peak_hour = hour
+
+                # Calculate requests in different periods
+                total_calls = usage_summary.get("total_calls", 0)
+
+                usage_metrics = UsageMetrics(
+                    requests_last_hour=total_calls if period == TimePeriod.HOUR_1 else 0,
+                    requests_today=total_calls if period in (TimePeriod.HOUR_1, TimePeriod.DAY_1) else 0,
+                    peak_hour=peak_hour,
+                    peak_hour_requests=peak_requests,
+                    hourly_distribution=hourly_dist,
+                )
+            except Exception:
+                pass
+
+        # Query historical task data from TaskStorage
+        if self._task_storage:
+            try:
+                task_summary = self._task_storage.get_task_summary(start_date, end_date)
+                # Running tasks always come from in-memory (current session)
+                with self._lock:
+                    running_count = len(self._running_tasks)
+
+                task_metrics = TaskMetrics(
+                    total_tasks=task_summary.get("total_tasks", 0) + running_count,
+                    completed_tasks=task_summary.get("completed_tasks", 0),
+                    failed_tasks=task_summary.get("failed_tasks", 0),
+                    running_tasks=running_count,
+                    success_rate=task_summary.get("success_rate", 100.0),
+                )
+            except Exception:
+                pass
+
+        return FilteredDashboardMetrics(
+            period=period.value,
+            token=token_metrics,
+            task=task_metrics,
+            usage=usage_metrics,
         )
 
     # ─────────────────────────────────────────────────────────────────────

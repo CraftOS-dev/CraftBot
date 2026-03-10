@@ -257,7 +257,7 @@ Your persistent file system is located at: {agent_file_system_path}
 
 IMPORTANT: Always use absolute paths when working with files in the agent file system.
 
-## Core Files (use absolute paths)
+## Core Files
 - **{agent_file_system_path}/AGENT.md**: Your identity file containing agent configuration, operating model, task execution guidelines, communication rules, error handling strategies, documentation standards, and organization context including org chart.
 - **{agent_file_system_path}/USER.md**: User profile containing identity, communication preferences, interaction settings, and personality information. Reference this to personalize interactions.
 - **{agent_file_system_path}/MEMORY.md**: Persistent memory log storing distilled facts, preferences, and events from past interactions. Format: `[timestamp] [type] content`. Agent should NOT edit directly - use memory processing actions.
@@ -267,7 +267,7 @@ IMPORTANT: Always use absolute paths when working with files in the agent file s
 - **{agent_file_system_path}/TASK_HISTORY.md**: Summaries of completed tasks including task ID, status, timeline, outcome, process details, and any errors encountered.
 - **{agent_file_system_path}/PROACTIVE.md**: Configuration for scheduled proactive tasks (hourly/daily/weekly/monthly), including task instructions, conditions, priorities, deadlines, and execution history.
 
-## Working Directory (use absolute paths)
+## Working Directory
 - **{agent_file_system_path}/workspace/**: Your sandbox directory for task-related files. ALL files you create during task execution MUST be saved here, not outside.
 - **{agent_file_system_path}/workspace/tmp/{{task_id}}/**: Temporary directory for task specific temp files (e.g., plan, draft, sketch pad). These directories are automatically cleaned up when tasks end or when the agent starts.
 

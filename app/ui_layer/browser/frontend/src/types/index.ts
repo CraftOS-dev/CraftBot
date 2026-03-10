@@ -71,6 +71,8 @@ export type WSMessageType =
   | 'footage_visibility'
   | 'state_update'
   | 'dashboard_metrics'
+  | 'dashboard_metrics_filter'
+  | 'dashboard_filtered_metrics'
   // File operations
   | 'file_list'
   | 'file_read'
@@ -250,6 +252,17 @@ export interface DashboardMetrics {
   mcp: MCPMetrics
   skill: SkillMetrics
   model: ModelMetrics
+}
+
+// Time period for filtered metrics
+export type MetricsTimePeriod = '1h' | '1d' | '1w' | '1m' | 'total'
+
+// Filtered metrics response for a specific time period
+export interface FilteredDashboardMetrics {
+  period: MetricsTimePeriod
+  token: TokenMetrics
+  task: TaskMetrics
+  usage: UsageMetrics
 }
 
 // ─────────────────────────────────────────────────────────────────────

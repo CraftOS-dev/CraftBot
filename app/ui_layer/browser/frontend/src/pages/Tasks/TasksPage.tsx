@@ -296,6 +296,11 @@ export function TasksPage() {
     return `${(ms / 60000).toFixed(1)}m`
   }
 
+  const formatTimestamp = (ts?: number) => {
+    if (!ts) return '-'
+    return new Date(ts).toLocaleString()
+  }
+
   // Handle resize drag
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -455,6 +460,8 @@ export function TasksPage() {
                       <dd className={styles.mono}>{selectedItem.parentId}</dd>
                     </>
                   )}
+                  <dt>Started</dt>
+                  <dd>{formatTimestamp(selectedItem.createdAt)}</dd>
                   <dt>Duration</dt>
                   <dd>{formatDuration(selectedItem.duration)}</dd>
                 </dl>

@@ -3,7 +3,7 @@
 app.usage
 
 Local usage tracking module for CraftBot.
-Provides SQLite-based storage for LLM/VLM token usage.
+Provides SQLite-based storage for LLM/VLM token usage and task history.
 """
 
 from app.usage.storage import (
@@ -18,6 +18,12 @@ from app.usage.reporter import (
     report_usage,
 )
 
+from app.usage.task_storage import (
+    TaskEvent,
+    TaskStorage,
+    get_task_storage,
+)
+
 __all__ = [
     # Storage
     "UsageEvent",
@@ -27,4 +33,8 @@ __all__ = [
     "UsageReporter",
     "get_usage_reporter",
     "report_usage",
+    # Task Storage
+    "TaskEvent",
+    "TaskStorage",
+    "get_task_storage",
 ]

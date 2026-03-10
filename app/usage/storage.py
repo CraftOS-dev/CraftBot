@@ -340,6 +340,55 @@ class UsageStorage:
                 for row in rows
             ]
 
+    def get_hourly_distribution(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[int]:
+        """
+        Get hourly distribution of requests for the given period.
+
+        Args:
+            start_date: Start of the time range (inclusive).
+            end_date: End of the time range (inclusive).
+
+        Returns:
+            List of 24 integers representing request counts per hour (0-23).
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+
+            query = """
+                SELECT
+                    CAST(strftime('%H', timestamp) AS INTEGER) as hour,
+                    COUNT(*) as count
+                FROM usage_events
+                WHERE 1=1
+            """
+            params = []
+
+            if start_date:
+                query += " AND timestamp >= ?"
+                params.append(start_date.isoformat())
+            if end_date:
+                query += " AND timestamp <= ?"
+                params.append(end_date.isoformat())
+
+            query += " GROUP BY hour ORDER BY hour"
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            # Initialize 24-hour array
+            distribution = [0] * 24
+            for row in rows:
+                hour = row[0]
+                count = row[1]
+                if 0 <= hour < 24:
+                    distribution[hour] = count
+
+            return distribution
+
     def get_daily_usage(self, days: int = 30) -> List[Dict[str, Any]]:
         """
         Get daily usage breakdown for the last N days.
