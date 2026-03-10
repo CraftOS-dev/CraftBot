@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { ChevronRight, XCircle } from 'lucide-react'
+import { ChevronRight, XCircle, ArrowLeft } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { StatusIndicator, Badge, Button } from '../../components/ui'
+import { StatusIndicator, Badge, Button, IconButton } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import styles from './TasksPage.module.css'
 
@@ -273,6 +273,7 @@ const MAX_PANEL_WIDTH = 600
 export function TasksPage() {
   const { actions, cancelTask, cancellingTaskId } = useWebSocket()
   const [selectedItem, setSelectedItem] = useState<ActionItem | null>(null)
+  const [mobileShowDetail, setMobileShowDetail] = useState(false)
 
   // Resizable panel state
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
@@ -300,6 +301,19 @@ export function TasksPage() {
     if (!ts) return '-'
     return new Date(ts).toLocaleString()
   }
+
+  // Handle selecting an item (with mobile detail view)
+  const handleSelectItem = useCallback((item: ActionItem | null) => {
+    setSelectedItem(item)
+    if (item) {
+      setMobileShowDetail(true)
+    }
+  }, [])
+
+  // Handle back button on mobile
+  const handleMobileBack = useCallback(() => {
+    setMobileShowDetail(false)
+  }, [])
 
   // Handle resize drag
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -336,7 +350,7 @@ export function TasksPage() {
   return (
     <div className={`${styles.tasksPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
       {/* Task List - Left Side (resizable) */}
-      <div className={styles.taskList} style={{ width: panelWidth, flexShrink: 0 }}>
+      <div className={`${styles.taskList} ${mobileShowDetail ? styles.mobileHidden : ''}`} style={{ width: panelWidth, flexShrink: 0 }}>
         <div className={styles.listHeader}>
           <h3>All Tasks</h3>
           <Badge variant="default">{tasks.length}</Badge>
@@ -361,9 +375,9 @@ export function TasksPage() {
                     onClick={() => {
                       // Toggle: if task is selected, deselect; otherwise select
                       if (selectedItem?.id === task.id) {
-                        setSelectedItem(null)
+                        handleSelectItem(null)
                       } else {
-                        setSelectedItem(task)
+                        handleSelectItem(task)
                       }
                     }}
                   >
@@ -391,7 +405,7 @@ export function TasksPage() {
                           <button
                             key={action.id}
                             className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${selectedItem?.id === action.id ? styles.selected : ''}`}
-                            onClick={() => setSelectedItem(action)}
+                            onClick={() => handleSelectItem(action)}
                           >
                             {action.itemType !== 'reasoning' && (
                               <StatusIndicator status={action.status} size="sm" />
@@ -418,11 +432,18 @@ export function TasksPage() {
       />
 
       {/* Detail Panel - Right Side */}
-      <div className={styles.detailPanel}>
+      <div className={`${styles.detailPanel} ${mobileShowDetail ? styles.mobileVisible : ''}`}>
         {selectedItem ? (
           <>
             <div className={styles.detailHeader}>
               <div className={styles.detailTitle}>
+                <IconButton
+                  icon={<ArrowLeft size={18} />}
+                  variant="ghost"
+                  className={styles.mobileBackBtn}
+                  onClick={handleMobileBack}
+                  tooltip="Back to list"
+                />
                 <StatusIndicator status={selectedItem.status} size="md" />
                 <h2>{selectedItem.name}</h2>
               </div>

@@ -338,3 +338,107 @@
   word-break: break-word;
   color: var(--text-secondary);
 }
+
+/* Mobile back button - hidden on desktop */
+.mobileBackBtn {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile Responsive
+   ───────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .tasksPage {
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* Task list takes full width on mobile */
+  .taskList {
+    width: 100% !important;
+    flex-shrink: 0;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+
+  /* Hide task list when showing detail */
+  .taskList.mobileHidden {
+    display: none;
+  }
+
+  /* Hide resize handle on mobile */
+  .resizeHandle {
+    display: none;
+  }
+
+  /* Detail panel takes full width on mobile */
+  .detailPanel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: 2;
+    display: none;
+    background: var(--bg-primary);
+  }
+
+  /* Show detail panel when mobileVisible */
+  .detailPanel.mobileVisible {
+    display: flex;
+  }
+
+  /* Show mobile back button */
+  .mobileBackBtn {
+    display: flex;
+    flex-shrink: 0;
+    margin-right: var(--space-2);
+  }
+
+  /* Smaller header text on mobile */
+  .detailTitle h2 {
+    font-size: var(--text-base);
+  }
+
+  /* Smaller padding on mobile */
+  .detailContent {
+    padding: var(--space-3);
+  }
+
+  .detailHeader {
+    padding: var(--space-3);
+  }
+
+  /* Make detail list more compact */
+  .detailList {
+    grid-template-columns: 100px 1fr;
+  }
+
+  /* Nested list - stacked layout on mobile (label on top, value below) */
+  .nestedList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-left: var(--space-2);
+    border-left: 2px solid var(--border-primary);
+  }
+
+  .nestedList dt {
+    max-width: none;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    margin-bottom: var(--space-1);
+  }
+
+  .nestedList dd {
+    margin-left: var(--space-2);
+    word-break: break-word;
+  }
+}

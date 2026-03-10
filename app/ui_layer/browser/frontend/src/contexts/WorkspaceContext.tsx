@@ -40,6 +40,7 @@ interface WorkspaceContextType extends WorkspaceState {
   navigateTo: (directory: string) => Promise<void>
   refresh: () => Promise<void>
   selectFile: (file: FileItem | null) => void
+  listDirectory: (directory: string) => Promise<FileItem[]>
 
   // File operations
   readFile: (path: string) => Promise<FileReadResponse>
@@ -349,6 +350,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  const listDirectory = useCallback(async (directory: string): Promise<FileItem[]> => {
+    // If requesting current directory, return cached files
+    if (directory === state.currentDirectory) {
+      return state.files
+    }
+    // Otherwise fetch from server (using unique key to avoid conflicts)
+    const key = `file_list_${Date.now()}`
+    const response = await sendOperation<FileListResponse>('file_list', { directory }, key)
+    return response.success ? response.files : []
+  }, [sendOperation, state.currentDirectory, state.files])
+
   const readFile = useCallback(async (path: string): Promise<FileReadResponse> => {
     return sendOperation<FileReadResponse>('file_read', { path }, 'file_read')
   }, [sendOperation])
@@ -462,6 +474,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         navigateTo,
         refresh,
         selectFile,
+        listDirectory,
         readFile,
         writeFile,
         createFile,

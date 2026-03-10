@@ -1633,3 +1633,98 @@
 .skillContentEditor::placeholder {
   color: var(--text-tertiary);
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile Responsive
+   ───────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Settings page layout */
+  .settingsPage {
+    flex-direction: column;
+  }
+
+  /* Sidebar becomes icon-only row at top */
+  .sidebar {
+    width: 100%;
+    flex-direction: column;
+    border-right: none;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  /* Hide sidebar header on mobile */
+  .sidebarHeader {
+    display: none;
+  }
+
+  /* Category list as horizontal scroll */
+  .categoryList {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: var(--space-2);
+    gap: var(--space-1);
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .categoryList::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Category item - icon only */
+  .categoryItem {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 64px;
+    max-width: 64px;
+    padding: var(--space-2);
+    gap: var(--space-1);
+    flex-shrink: 0;
+  }
+
+  /* Icon - keep visible */
+  .categoryIcon {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* Hide description, show only short label */
+  .categoryInfo {
+    width: 100%;
+    text-align: center;
+  }
+
+  .categoryLabel {
+    font-size: var(--text-xs);
+    margin-bottom: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .categoryDesc {
+    display: none;
+  }
+
+  /* Hide chevron */
+  .chevron {
+    display: none;
+  }
+
+  /* Content area adjustments */
+  .content {
+    padding: var(--space-4);
+  }
+
+  .settingsSection {
+    max-width: 100%;
+  }
+
+  /* Smaller modal on mobile */
+  .modalContent {
+    max-width: calc(100vw - var(--space-8));
+    max-height: 80vh;
+  }
+}
