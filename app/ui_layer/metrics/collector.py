@@ -814,11 +814,11 @@ class MetricsCollector:
     def _get_model_metrics(self) -> ModelMetrics:
         """Get current model information."""
         try:
-            # Try to get from agent config first
-            if self._agent and hasattr(self._agent, "config"):
-                config = self._agent.config
-                provider = getattr(config, "llm_provider", "")
-                model_id = getattr(config, "llm_model", "")
+            # Try to get from agent's LLM interface first
+            if self._agent and hasattr(self._agent, "llm"):
+                llm = self._agent.llm
+                provider = getattr(llm, "provider", "")
+                model_id = getattr(llm, "model", "")
 
                 # Generate friendly name from model ID
                 model_name = self._get_friendly_model_name(model_id)

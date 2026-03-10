@@ -240,6 +240,18 @@ class UIController:
         # Update state
         self._state_store.dispatch("SET_AGENT_STATE", AgentStateType.WORKING.value)
 
+        # Emit state change event so adapters can update status immediately
+        self._event_bus.emit(
+            UIEvent(
+                type=UIEventType.AGENT_STATE_CHANGED,
+                data={
+                    "state": AgentStateType.WORKING.value,
+                    "status_message": "Agent is working...",
+                },
+                source_adapter=adapter_id,
+            )
+        )
+
         # Emit user message event
         self._event_bus.emit(
             UIEvent(
@@ -378,6 +390,18 @@ class UIController:
                     "status": event.data.get("status", "completed"),
                 },
             )
+            # Check if there are no more running items and emit IDLE state
+            if not self._state_store.state.has_running_items():
+                self._state_store.dispatch("SET_AGENT_STATE", AgentStateType.IDLE.value)
+                self._event_bus.emit(
+                    UIEvent(
+                        type=UIEventType.AGENT_STATE_CHANGED,
+                        data={
+                            "state": AgentStateType.IDLE.value,
+                            "status_message": "Agent is idle",
+                        },
+                    )
+                )
 
         elif event.type == UIEventType.GUI_MODE_CHANGED:
             self._state_store.dispatch(

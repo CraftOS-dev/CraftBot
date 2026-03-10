@@ -3171,6 +3171,7 @@ class BrowserAdapter(InterfaceAdapter):
         """Handle user chat message with attachments."""
         import uuid
         from app.ui_layer.state.ui_state import AgentStateType
+        from app.ui_layer.events import UIEvent, UIEventType
 
         try:
             processed_attachments: List[Attachment] = []
@@ -3238,6 +3239,18 @@ class BrowserAdapter(InterfaceAdapter):
             # Update state and route to agent directly
             # (Skip submit_message to avoid duplicate chat message)
             self._controller._state_store.dispatch("SET_AGENT_STATE", AgentStateType.WORKING.value)
+
+            # Emit state change event so adapters can update status immediately
+            self._controller._event_bus.emit(
+                UIEvent(
+                    type=UIEventType.AGENT_STATE_CHANGED,
+                    data={
+                        "state": AgentStateType.WORKING.value,
+                        "status_message": "Agent is working...",
+                    },
+                    source_adapter=self._adapter_id,
+                )
+            )
 
             # Route directly to agent with full context
             payload = {
