@@ -8,13 +8,8 @@
   border-bottom: 1px solid var(--border-primary);
   padding: 0 var(--space-2);
   flex-shrink: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-/* Hide scrollbar but keep functionality */
-.navBar::-webkit-scrollbar {
-  height: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .navItems {
@@ -22,6 +17,7 @@
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
+  flex: 1;
 }
 
 .navItem {
@@ -129,10 +125,6 @@
 }
 
 /* Add tab button */
-.addTabWrapper {
-  position: relative;
-}
-
 .addTabBtn {
   padding: var(--space-2) !important;
   color: var(--text-tertiary);
@@ -142,17 +134,14 @@
   color: var(--text-primary);
 }
 
-/* Add tab dropdown menu */
+/* Add tab dropdown menu (rendered via portal) */
 .addMenu {
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  left: 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   padding: var(--space-1);
-  z-index: 100;
+  z-index: 1000;
   min-width: 160px;
 }
 
