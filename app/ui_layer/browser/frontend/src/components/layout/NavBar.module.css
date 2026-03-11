@@ -8,12 +8,20 @@
   border-bottom: 1px solid var(--border-primary);
   padding: 0 var(--space-2);
   flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Hide scrollbar but keep functionality */
+.navBar::-webkit-scrollbar {
+  height: 0;
 }
 
 .navItems {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
 }
 
 .navItem {
@@ -28,6 +36,8 @@
   background: transparent;
   transition: all var(--transition-fast);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .navItem:hover {
@@ -54,6 +64,124 @@
   display: block;
 }
 
+/* Divider between static and dynamic tabs */
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-primary);
+  flex-shrink: 0;
+  margin: 0 var(--space-1);
+}
+
+/* Dynamic tab specific styles */
+.dynamicTab {
+  position: relative;
+  padding-right: var(--space-2);
+}
+
+.dynamicTab .closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: all var(--transition-fast);
+  margin-left: var(--space-1);
+  flex-shrink: 0;
+}
+
+.dynamicTab:hover .closeBtn {
+  opacity: 1;
+}
+
+.dynamicTab .closeBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.dynamicTab.active .closeBtn:hover {
+  background: var(--color-primary-light);
+}
+
+/* Drag and drop styles */
+.dynamicTab.dragging {
+  opacity: 0.4;
+}
+
+.dynamicTab.dragOver {
+  border-left: 2px solid var(--color-primary);
+}
+
+/* Inline rename input */
+.renameInput {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  padding: 0 var(--space-1);
+  width: 80px;
+  outline: none;
+}
+
+/* Add tab button */
+.addTabWrapper {
+  position: relative;
+}
+
+.addTabBtn {
+  padding: var(--space-2) !important;
+  color: var(--text-tertiary);
+}
+
+.addTabBtn:hover {
+  color: var(--text-primary);
+}
+
+/* Add tab dropdown menu */
+.addMenu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-1);
+  z-index: 100;
+  min-width: 160px;
+}
+
+.addMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.addMenuItem:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.addMenuIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Responsive: hide labels on smaller screens */
 @media (max-width: 768px) {
   .label {
@@ -62,5 +190,9 @@
 
   .navItem {
     padding: var(--space-2);
+  }
+
+  .dynamicTab .closeBtn {
+    opacity: 1;
   }
 }

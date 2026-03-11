@@ -1,0 +1,497 @@
+/* Dynamic Tab Component Styles */
+
+.tabContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+/* ─── Empty State ──────────────────────────────────────────────────── */
+
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 100%;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.placeholder h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.placeholder p {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  max-width: 400px;
+  margin: 0;
+}
+
+/* ─── Task Content Layout ──────────────────────────────────────────── */
+
+.taskContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 900px;
+}
+
+.taskHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-primary);
+}
+
+.taskHeader h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  margin: 0;
+}
+
+.taskBadge {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  margin-left: auto;
+}
+
+.waitingText {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ─── Action List (linked task actions) ────────────────────────────── */
+
+.actionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.actionItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--border-primary);
+}
+
+.actionItem.running {
+  border-left-color: var(--color-info);
+}
+
+.actionItem.completed {
+  border-left-color: var(--color-success);
+}
+
+.actionItem.error {
+  border-left-color: var(--color-error);
+}
+
+.actionStatus {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.actionName {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.actionOutput {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+/* ─── Data Sections ────────────────────────────────────────────────── */
+
+.dataSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dataSection h4 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summarySection {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+/* ─── Code Tab Specifics ───────────────────────────────────────────── */
+
+.statusAdded {
+  color: var(--color-success);
+}
+
+.statusModified {
+  color: var(--color-warning);
+}
+
+.statusDeleted {
+  color: var(--color-error);
+}
+
+/* Diff summary bar */
+.diffSummaryBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Diff file block */
+.diffBlock {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.diffHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  border: none;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
+.diffHeader:hover {
+  background: var(--bg-secondary);
+}
+
+.diffFilePath {
+  flex: 1;
+}
+
+.diffStats {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+}
+
+.diffBody {
+  border-top: 1px solid var(--border-primary);
+}
+
+.hunkHeader {
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-tertiary);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+/* Diff table */
+.diffTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  table-layout: fixed;
+}
+
+.lineNum {
+  width: 48px;
+  min-width: 48px;
+  padding: 0 var(--space-2);
+  text-align: right;
+  color: var(--text-tertiary);
+  user-select: none;
+  vertical-align: top;
+}
+
+.linePrefix {
+  width: 16px;
+  min-width: 16px;
+  padding: 0;
+  text-align: center;
+  user-select: none;
+  vertical-align: top;
+}
+
+.lineContent {
+  padding: 0 var(--space-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+/* Line type colors */
+.diffLineAdd {
+  background: rgba(46, 160, 67, 0.12);
+}
+
+.diffLineAdd .linePrefix,
+.diffLineAdd .lineContent {
+  color: var(--color-success);
+}
+
+.diffLineDelete {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.diffLineDelete .linePrefix,
+.diffLineDelete .lineContent {
+  color: var(--color-error);
+}
+
+.diffLineContext {
+  background: transparent;
+}
+
+.diffLineContext .lineContent {
+  color: var(--text-secondary);
+}
+
+/* Commits */
+.commitList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.commitItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.commitHash {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+}
+
+.commitMsg {
+  flex: 1;
+}
+
+.commitAuthor {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+/* ─── Stock Tab Specifics ──────────────────────────────────────────── */
+
+.stockHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.stockInfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ticker {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.stockName {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.priceInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.price {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.positive {
+  color: var(--color-success);
+}
+
+.negative {
+  color: var(--color-error);
+}
+
+.miniChart {
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.chartStats {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* ─── Planner Tab Specifics ────────────────────────────────────────── */
+
+.milestoneList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.milestoneItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.milestoneItem.completed {
+  color: var(--color-success);
+}
+
+.milestoneName {
+  flex: 1;
+}
+
+.milestoneDate {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.kanbanBoard {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.kanbanColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-height: 120px;
+}
+
+.kanbanHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.kanbanCount {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-full);
+  margin-left: auto;
+}
+
+.kanbanCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.kanbanCardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-primary);
+}
+
+.kanbanAssignee,
+.kanbanDue {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+/* ─── Responsive ───────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .kanbanBoard {
+    grid-template-columns: 1fr;
+  }
+
+  .stockHeader {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .priceInfo {
+    align-items: flex-start;
+  }
+}

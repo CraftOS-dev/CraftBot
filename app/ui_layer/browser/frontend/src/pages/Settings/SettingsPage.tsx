@@ -18,12 +18,13 @@ import {
   Edit2,
   Trash2,
   Power,
-  Wrench
+  Wrench,
+  PanelTop,
 } from 'lucide-react'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import { useTheme } from '../../contexts/ThemeContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, useDynamicTabs } from '../../hooks'
 import styles from './SettingsPage.module.css'
 
 type SettingsCategory =
@@ -34,6 +35,7 @@ type SettingsCategory =
   | 'mcps'
   | 'skills'
   | 'integrations'
+  | 'tabs'
 
 interface SettingsCategoryItem {
   id: SettingsCategory
@@ -84,6 +86,12 @@ const categories: SettingsCategoryItem[] = [
     label: 'Integrations',
     icon: <Globe size={18} />,
     description: 'Discord, Slack, Google Workspace',
+  },
+  {
+    id: 'tabs',
+    label: 'Dynamic Tabs',
+    icon: <PanelTop size={18} />,
+    description: 'Auto-created tabs and preferences',
   },
 ]
 
@@ -154,6 +162,8 @@ export function SettingsPage() {
         return <SkillsSettings />
       case 'integrations':
         return <IntegrationsSettings />
+      case 'tabs':
+        return <DynamicTabSettings />
       default:
         return null
     }
@@ -3730,6 +3740,90 @@ function IntegrationsSettings() {
       )}
 
       {/* Confirm Modal */}
+      <ConfirmModal {...confirmModalProps} />
+    </div>
+  )
+}
+
+// ─── Dynamic Tab Settings ─────────────────────────────────────────────
+
+function DynamicTabSettings() {
+  const { tabs, preferences, setPreferences, closeTab } = useDynamicTabs()
+  const { showToast } = useToast()
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
+
+  const handleMaxTabsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value, 10)
+    if (!isNaN(val) && val >= 1 && val <= 20) {
+      setPreferences({ maxTabs: val })
+    }
+  }
+
+  const handleCloseAll = () => {
+    confirm({
+      title: 'Close All Dynamic Tabs',
+      message: `This will close all ${tabs.length} dynamic tab(s). This cannot be undone.`,
+      confirmText: 'Close All',
+      variant: 'danger',
+    }, () => {
+      tabs.forEach(tab => closeTab(tab.id))
+      showToast('success', 'All dynamic tabs closed')
+    })
+  }
+
+  return (
+    <div className={styles.settingsSection}>
+      <div className={styles.sectionHeader}>
+        <h3>Dynamic Tabs</h3>
+        <p>Tabs are created by the agent when tasks produce structured visual data. You can manage tab limits and active tabs here.</p>
+      </div>
+
+      <div className={styles.settingsForm}>
+        <div className={styles.formGroup}>
+          <label>Maximum Tabs</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={preferences.maxTabs}
+            onChange={handleMaxTabsChange}
+          />
+          <span className={styles.hint}>Maximum number of dynamic tabs allowed (1-20)</span>
+        </div>
+      </div>
+
+      {/* Active Tabs List */}
+      {tabs.length > 0 && (
+        <div className={styles.settingsForm}>
+          <div className={styles.formGroup}>
+            <label>Active Tabs ({tabs.length})</label>
+            <div className={styles.tabList}>
+              {tabs.map(tab => (
+                <div key={tab.id} className={styles.tabItem}>
+                  <div className={styles.tabItemInfo}>
+                    <span className={styles.tabItemType}>[{tab.type}]</span>
+                    <span>{tab.label}</span>
+                  </div>
+                  <button className={styles.tabItemClose} onClick={() => closeTab(tab.id)}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.sectionFooter}>
+            <Button
+              variant="danger"
+              onClick={handleCloseAll}
+              icon={<Trash2 size={14} />}
+            >
+              Close All Tabs
+            </Button>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal {...confirmModalProps} />
     </div>
   )

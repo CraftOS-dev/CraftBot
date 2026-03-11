@@ -22,6 +22,8 @@ interface WebSocketState {
   cancellingTaskId: string | null
 }
 
+type WSMessageListener = (msg: WSMessage) => void
+
 interface WebSocketContextType extends WebSocketState {
   sendMessage: (content: string, attachments?: PendingAttachment[]) => void
   sendCommand: (command: string) => void
@@ -30,6 +32,8 @@ interface WebSocketContextType extends WebSocketState {
   openFile: (path: string) => void
   openFolder: (path: string) => void
   requestFilteredMetrics: (period: MetricsTimePeriod) => void
+  /** Subscribe to raw WS messages. Returns unsubscribe function. */
+  onRawMessage: (listener: WSMessageListener) => () => void
 }
 
 const defaultState: WebSocketState = {
@@ -62,6 +66,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   const isConnectingRef = useRef<boolean>(false)
+  const rawMessageListenersRef = useRef<Set<WSMessageListener>>(new Set())
 
   const connect = useCallback(() => {
     // Prevent duplicate connections (React StrictMode calls useEffect twice)
@@ -91,6 +96,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     ws.onmessage = (event) => {
       try {
         const msg: WSMessage = JSON.parse(event.data)
+        // Notify raw message listeners
+        rawMessageListenersRef.current.forEach(listener => {
+          try { listener(msg) } catch { /* ignore listener errors */ }
+        })
         handleMessage(msg)
       } catch (err) {
         console.error('[WS] Failed to parse message:', err)
@@ -338,6 +347,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const onRawMessage = useCallback((listener: WSMessageListener) => {
+    rawMessageListenersRef.current.add(listener)
+    return () => {
+      rawMessageListenersRef.current.delete(listener)
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -349,6 +365,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         openFile,
         openFolder,
         requestFilteredMetrics,
+        onRawMessage,
       }}
     >
       {children}

@@ -4,10 +4,11 @@ import {
   MessageSquare,
   ListTodo,
   LayoutDashboard,
-  Monitor,
   FolderOpen,
-  Settings
+  Settings,
 } from 'lucide-react'
+import { useTabKeyboardShortcuts } from '../../hooks/useTabKeyboardShortcuts'
+import { DynamicTabStrip } from './DynamicTabStrip'
 import styles from './NavBar.module.css'
 
 interface NavItem {
@@ -21,7 +22,6 @@ const navItems: NavItem[] = [
   { id: 'chat', label: 'Chat', icon: <MessageSquare size={16} />, path: '/' },
   { id: 'tasks', label: 'Tasks', icon: <ListTodo size={16} />, path: '/tasks' },
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard' },
-  // { id: 'screen', label: 'Screen', icon: <Monitor size={16} />, path: '/screen' },
   { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace' },
   { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' },
 ]
@@ -30,10 +30,10 @@ export function NavBar() {
   const location = useLocation()
   const navigate = useNavigate()
 
+  useTabKeyboardShortcuts()
+
   const isActive = (path: string) => {
-    if (path === '/') {
-      return location.pathname === '/'
-    }
+    if (path === '/') return location.pathname === '/'
     return location.pathname.startsWith(path)
   }
 
@@ -50,6 +50,8 @@ export function NavBar() {
             <span className={styles.label}>{item.label}</span>
           </button>
         ))}
+
+        <DynamicTabStrip />
       </div>
     </nav>
   )

@@ -245,6 +245,49 @@
   border-top: 1px solid var(--border-primary);
 }
 
+/* Tab List (Dynamic Tab Settings) */
+.tabList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tabItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.tabItemInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tabItemType {
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}
+
+.tabItemClose {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  display: flex;
+}
+
+.tabItemClose:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
 /* Server List */
 .serverList {
   display: flex;

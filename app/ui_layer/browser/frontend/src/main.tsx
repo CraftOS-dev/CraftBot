@@ -6,6 +6,7 @@ import { WebSocketProvider } from './contexts/WebSocketContext'
 import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
+import { DynamicTabProvider } from './contexts/DynamicTabContext'
 import './styles/global.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -15,7 +16,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <ToastProvider>
           <WebSocketProvider>
             <WorkspaceProvider>
-              <App />
+              <DynamicTabProvider>
+                <App />
+              </DynamicTabProvider>
             </WorkspaceProvider>
           </WebSocketProvider>
         </ToastProvider>

@@ -1,2 +1,6 @@
 export { useConfirmModal } from './useConfirmModal'
 export type { ConfirmModalState, ConfirmOptions } from './useConfirmModal'
+export { useDynamicTabs, useCreateAndNavigateTab } from './useDynamicTabs'
+export { useTabKeyboardShortcuts } from './useTabKeyboardShortcuts'
+export { useTabWebSocketBridge } from './useTabWebSocketBridge'
+export { useTabDragReorder } from './useTabDragReorder'

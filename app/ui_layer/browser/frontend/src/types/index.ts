@@ -92,6 +92,9 @@ export type WSMessageType =
   // Task control
   | 'task_cancel'
   | 'task_cancel_response'
+  // Dynamic tab data
+  | 'tab_data'
+  | 'tab_create'
 
 export interface WSMessage {
   type: WSMessageType
