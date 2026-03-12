@@ -39,7 +39,7 @@ Note: This does not affect saved settings or credentials."""
         self._controller.state_store.reset()
 
         # Reset agent state
-        await self._controller.agent.reset_state()
+        await self._controller.agent.reset_agent_state()
 
         return CommandResult(
             success=True,
