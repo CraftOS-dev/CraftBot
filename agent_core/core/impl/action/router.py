@@ -531,82 +531,111 @@ class ActionRouter:
 
             raw_response = None
 
-            # Use session cache if we're in a task context AND session is registered
-            if current_task_id and is_task:
-                has_session = self.llm_interface.has_session_cache(current_task_id, call_type)
+            try:
+                # Use session cache if we're in a task context AND session is registered
+                if current_task_id and is_task:
+                    has_session = self.llm_interface.has_session_cache(current_task_id, call_type)
 
-                if has_session:
-                    # Session is registered (complex task) - use session caching
-                    # CRITICAL: Use session-specific stream to prevent event leakage
-                    from agent_core import get_event_stream_manager
-                    event_stream_manager = get_event_stream_manager()
-                    # Use get_stream_by_id with session_id to get the correct task's stream
-                    effective_session_id = session_id or current_task_id
-                    stream = event_stream_manager.get_stream_by_id(effective_session_id) if event_stream_manager else None
-                    has_synced_before = stream.has_session_sync(call_type) if stream else False
+                    if has_session:
+                        # Session is registered (complex task) - use session caching
+                        # CRITICAL: Use session-specific stream to prevent event leakage
+                        from agent_core import get_event_stream_manager
+                        event_stream_manager = get_event_stream_manager()
+                        # Use get_stream_by_id with session_id to get the correct task's stream
+                        effective_session_id = session_id or current_task_id
+                        stream = event_stream_manager.get_stream_by_id(effective_session_id) if event_stream_manager else None
+                        has_synced_before = stream.has_session_sync(call_type) if stream else False
 
-                    if has_synced_before:
-                        # We've made calls before - send only delta events
-                        # CRITICAL: Pass session_id to get delta from the correct stream
-                        delta_events, has_delta = self.context_engine.get_event_stream_delta(call_type, session_id=effective_session_id)
+                        if has_synced_before:
+                            # We've made calls before - send only delta events
+                            # CRITICAL: Pass session_id to get delta from the correct stream
+                            delta_events, has_delta = self.context_engine.get_event_stream_delta(call_type, session_id=effective_session_id)
 
-                        if has_delta:
-                            # Send only the new events
-                            logger.info(f"[SESSION CACHE] Sending delta events for {call_type}")
+                            if has_delta:
+                                # Send only the new events
+                                logger.info(f"[SESSION CACHE] Sending delta events for {call_type}")
+                                raw_response = await self.llm_interface.generate_response_with_session_async(
+                                    task_id=current_task_id,
+                                    call_type=call_type,
+                                    user_prompt=delta_events,
+                                    system_prompt_for_new_session=system_prompt,
+                                )
+                                # Mark events as synced after successful call
+                                self.context_engine.mark_event_stream_synced(call_type, session_id=effective_session_id)
+                            else:
+                                # No new events - this could mean summarization happened
+                                logger.info(f"[SESSION CACHE] No delta events, resetting cache for {call_type}")
+                                self.llm_interface.end_session_cache(current_task_id, call_type)
+                                self.context_engine.reset_event_stream_sync(call_type, session_id=effective_session_id)
+                                # Fall through to first-call path
+                                has_synced_before = False
+
+                        if not has_synced_before:
+                            # First call with session - send full prompt to establish session
+                            logger.info(f"[SESSION CACHE] Creating new session for {call_type} (first call)")
                             raw_response = await self.llm_interface.generate_response_with_session_async(
                                 task_id=current_task_id,
                                 call_type=call_type,
-                                user_prompt=delta_events,
+                                user_prompt=current_prompt,
                                 system_prompt_for_new_session=system_prompt,
                             )
-                            # Mark events as synced after successful call
+                            # Mark events as synced after successful session creation
                             self.context_engine.mark_event_stream_synced(call_type, session_id=effective_session_id)
-                        else:
-                            # No new events - this could mean summarization happened
-                            logger.info(f"[SESSION CACHE] No delta events, resetting cache for {call_type}")
-                            self.llm_interface.end_session_cache(current_task_id, call_type)
-                            self.context_engine.reset_event_stream_sync(call_type, session_id=effective_session_id)
-                            # Fall through to first-call path
-                            has_synced_before = False
-
-                    if not has_synced_before:
-                        # First call with session - send full prompt to establish session
-                        logger.info(f"[SESSION CACHE] Creating new session for {call_type} (first call)")
-                        raw_response = await self.llm_interface.generate_response_with_session_async(
-                            task_id=current_task_id,
-                            call_type=call_type,
-                            user_prompt=current_prompt,
-                            system_prompt_for_new_session=system_prompt,
-                        )
-                        # Mark events as synced after successful session creation
-                        self.context_engine.mark_event_stream_synced(call_type, session_id=effective_session_id)
+                    else:
+                        # No session registered (simple task) - use prefix cache / regular response
+                        raw_response = await self.llm_interface.generate_response_async(system_prompt, current_prompt)
                 else:
-                    # No session registered (simple task) - use prefix cache / regular response
+                    # Not in task context - use regular response
                     raw_response = await self.llm_interface.generate_response_async(system_prompt, current_prompt)
-            else:
-                # Not in task context - use regular response
-                raw_response = await self.llm_interface.generate_response_async(system_prompt, current_prompt)
 
-            # Validate response before parsing
-            if not raw_response or (isinstance(raw_response, str) and not raw_response.strip()):
-                logger.error(
-                    f"[ACTION ROUTER] LLM returned empty response on attempt {attempt + 1}. "
-                    f"System prompt length: {len(system_prompt)}, User prompt length: {len(current_prompt)}"
+                # Validate response before parsing
+                if not raw_response or (isinstance(raw_response, str) and not raw_response.strip()):
+                    logger.error(
+                        f"[ACTION ROUTER] LLM returned empty response on attempt {attempt + 1}. "
+                        f"System prompt length: {len(system_prompt)}, User prompt length: {len(current_prompt)}"
+                    )
+                
+                decision, parse_error = self._parse_action_decision(raw_response)
+                if decision is not None:
+                    decision.setdefault("parameters", {})
+                    decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
+                    return decision
+
+                feedback_error = parse_error or "unknown parsing error"
+                last_error = ValueError(f"Unable to parse action decision on attempt {attempt + 1}: {feedback_error}")
+                logger.warning(
+                    f"Failed to parse LLM decision on attempt {attempt + 1}: "
+                    f"{raw_response} | error={feedback_error}"
                 )
-            
-            decision, parse_error = self._parse_action_decision(raw_response)
-            if decision is not None:
-                decision.setdefault("parameters", {})
-                decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
-                return decision
-
-            feedback_error = parse_error or "unknown parsing error"
-            last_error = ValueError(f"Unable to parse action decision on attempt {attempt + 1}: {feedback_error}")
-            logger.warning(
-                f"Failed to parse LLM decision on attempt {attempt + 1}: "
-                f"{raw_response} | error={feedback_error}"
-            )
-            current_prompt = self._augment_prompt_with_feedback(prompt, attempt + 1, raw_response, feedback_error)
+                current_prompt = self._augment_prompt_with_feedback(prompt, attempt + 1, raw_response, feedback_error)
+            except RuntimeError as e:
+                # LLM provider error (empty response, API error, auth failure, etc.)
+                error_msg = str(e)
+                logger.error(f"[ACTION ROUTER] LLM provider error on attempt {attempt + 1}: {error_msg}")
+                last_error = RuntimeError(
+                    f"Unable to generate action decision on attempt {attempt + 1}: {error_msg}. "
+                    f"Check LLM configuration, API credentials, and service availability."
+                )
+                # After 3 attempts, give up
+                if attempt >= max_retries - 1:
+                    raise last_error
+                # Otherwise, retry with more context in the prompt
+                current_prompt = self._augment_prompt_with_feedback(
+                    prompt, attempt + 1, 
+                    f"[LLM ERROR] {error_msg}", 
+                    "LLM provider failed - retrying"
+                )
+            except Exception as e:
+                # Unexpected error
+                logger.error(f"[ACTION ROUTER] Unexpected error on attempt {attempt + 1}: {e}", exc_info=True)
+                last_error = RuntimeError(f"Unexpected error in action selection on attempt {attempt + 1}: {e}")
+                if attempt >= max_retries - 1:
+                    raise last_error
+                current_prompt = self._augment_prompt_with_feedback(
+                    prompt, attempt + 1,
+                    f"[ERROR] {str(e)}",
+                    "An unexpected error occurred - retrying"
+                )
 
         if last_error:
             raise last_error

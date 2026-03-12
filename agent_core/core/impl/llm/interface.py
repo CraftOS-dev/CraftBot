@@ -285,7 +285,25 @@ class LLMInterface:
         else:  # pragma: no cover
             raise RuntimeError(f"Unknown provider {self.provider!r}")
 
-        cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
+        content = response.get("content", "").strip()
+        
+        # Check if response is empty and provide diagnostics
+        if not content:
+            error_msg = response.get("error", "")
+            if error_msg:
+                error_detail = f"LLM provider returned error: {error_msg}"
+            else:
+                error_detail = (
+                    f"LLM returned empty response. "
+                    f"Provider: {self.provider}, Model: {self.model}. "
+                    f"This may indicate: API authentication failure, invalid API key, rate limiting, "
+                    f"connection timeout, or LLM service unavailability. "
+                    f"Check your credentials and API status."
+                )
+            logger.error(f"[LLM ERROR] {error_detail}")
+            raise RuntimeError(error_detail)
+        
+        cleaned = re.sub(self._CODE_BLOCK_RE, "", content)
 
         # Update token count via hook
         current_count = self._get_token_count()
@@ -1003,11 +1021,21 @@ class LLMInterface:
             token_count_input, token_count_output, cached_tokens
         )
 
-        return {
+        result = {
             "tokens_used": total_tokens or 0,
-            "content": content or "",
             "cached_tokens": cached_tokens,
         }
+        
+        if exc_obj:
+            # Include error details for better diagnostics
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            result["content"] = ""
+            logger.error(f"[OPENAI_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        
+        return result
 
     @profile("llm_ollama_call", OperationCategory.LLM)
     def _generate_ollama(self, system_prompt: str | None, user_prompt: str) -> Dict[str, Any]:
@@ -1055,11 +1083,16 @@ class LLMInterface:
             "llm_ollama", "remote", self.model,
             token_count_input, token_count_output, 0
         )
-
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        
+        result = {"tokens_used": total_tokens or 0}
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            result["content"] = ""
+            logger.error(f"[OLLAMA_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
 
     @profile("llm_gemini_call", OperationCategory.LLM)
     def _generate_gemini(
@@ -1171,12 +1204,16 @@ class LLMInterface:
             "llm_gemini", "gemini", self.model,
             token_count_input, token_count_output, cached_tokens
         )
-
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or "",
-            "cached_tokens": cached_tokens,
-        }
+        
+        result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            result["content"] = ""
+            logger.error(f"[GEMINI_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
 
     @profile("llm_byteplus_call", OperationCategory.LLM)
     def _generate_byteplus(self, system_prompt: str | None, user_prompt: str) -> Dict[str, Any]:
@@ -1404,11 +1441,16 @@ class LLMInterface:
             "llm_byteplus", "byteplus", self.model,
             token_count_input, token_count_output, 0
         )
-
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        
+        result = {"tokens_used": total_tokens or 0}
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            result["content"] = ""
+            logger.error(f"[BYTEPLUS_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
 
     @profile("llm_anthropic_call", OperationCategory.LLM)
     def _generate_anthropic(
@@ -1540,12 +1582,16 @@ class LLMInterface:
             "llm_anthropic", "anthropic", self.model,
             token_count_input, token_count_output, cached_tokens
         )
-
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or "",
-            "cached_tokens": cached_tokens,
-        }
+        
+        result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            result["content"] = ""
+            logger.error(f"[ANTHROPIC_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
 
     # ─────────────────── CLI helper for ad‑hoc testing ───────────────────
     def _cli(self) -> None:  # pragma: no cover
