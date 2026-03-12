@@ -191,23 +191,30 @@ def _try_install_nodejs_linux(silent: bool = False) -> bool:
     if not silent:
         print("\n🔧 Attempting to install Node.js...")
     
-    # Detect package manager and install
-    package_managers = {
-        "apt-get": ["sudo", "apt-get", "update", "&&", "sudo", "apt-get", "install", "-y", "nodejs", "npm"],
-        "apt": ["sudo", "apt", "update", "&&", "sudo", "apt", "install", "-y", "nodejs", "npm"],
-        "dnf": ["sudo", "dnf", "install", "-y", "nodejs", "npm"],
-        "yum": ["sudo", "yum", "install", "-y", "nodejs", "npm"],
-        "pacman": ["sudo", "pacman", "-Sy", "nodejs", "npm"],
-        "zypper": ["sudo", "zypper", "install", "-y", "nodejs", "npm"],
-    }
+    # Detect package manager and prepare commands
+    package_managers = [
+        ("apt-get", ["sudo", "apt-get", "update"], ["sudo", "apt-get", "install", "-y", "nodejs", "npm"]),
+        ("apt", ["sudo", "apt", "update"], ["sudo", "apt", "install", "-y", "nodejs", "npm"]),
+        ("dnf", None, ["sudo", "dnf", "install", "-y", "nodejs", "npm"]),
+        ("yum", None, ["sudo", "yum", "install", "-y", "nodejs", "npm"]),
+        ("pacman", None, ["sudo", "pacman", "-Sy", "nodejs", "npm"]),
+        ("zypper", None, ["sudo", "zypper", "install", "-y", "nodejs", "npm"]),
+    ]
     
-    for pm, cmd in package_managers.items():
-        if shutil.which(pm.split()[0]):
+    for pm_name, update_cmd, install_cmd in package_managers.items():
+        if shutil.which(pm_name.split()[0]):
             if not silent:
-                print(f"   Found {pm}, installing Node.js...")
+                print(f"   Found {pm_name}, installing Node.js...")
             try:
-                full_cmd = " ".join(cmd)
-                result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True, timeout=300)
+                # Run update command if available
+                if update_cmd:
+                    try:
+                        result = subprocess.run(update_cmd, capture_output=True, text=True, timeout=300)
+                    except Exception:
+                        pass  # Update failed, but continue with install
+                
+                # Run install command
+                result = subprocess.run(install_cmd, capture_output=True, text=True, timeout=300)
                 if result.returncode == 0:
                     if not silent:
                         print("✓ Node.js installed successfully")
@@ -216,10 +223,10 @@ def _try_install_nodejs_linux(silent: bool = False) -> bool:
                     return True
                 else:
                     if not silent:
-                        print(f"   ⚠ {pm} installation failed, trying next...")
+                        print(f"   ⚠ {pm_name} installation failed, trying next...")
             except Exception as e:
                 if not silent:
-                    print(f"   ⚠ Error with {pm}: {e}, trying next...")
+                    print(f"   ⚠ Error with {pm_name}: {str(e)[:100]}, trying next...")
     
     return False
 

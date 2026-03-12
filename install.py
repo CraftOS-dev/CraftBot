@@ -573,51 +573,63 @@ def install_nodejs_linux():
     
     print("\n🔧 Installing Node.js...")
     
-    # Detect package manager
-    package_managers = {
-        "apt-get": ["sudo", "apt-get", "update", "&&", "sudo", "apt-get", "install", "-y", "nodejs", "npm"],
-        "apt": ["sudo", "apt", "update", "&&", "sudo", "apt", "install", "-y", "nodejs", "npm"],
-        "dnf": ["sudo", "dnf", "install", "-y", "nodejs", "npm"],
-        "yum": ["sudo", "yum", "install", "-y", "nodejs", "npm"],
-        "pacman": ["sudo", "pacman", "-Sy", "nodejs", "npm"],
-        "zypper": ["sudo", "zypper", "install", "-y", "nodejs", "npm"],
-    }
+    # Detect package manager and prepare install commands
+    # Format: (package_manager, update_cmd, install_cmd)
+    package_managers = [
+        ("apt-get", ["sudo", "apt-get", "update"], ["sudo", "apt-get", "install", "-y", "nodejs", "npm"]),
+        ("apt", ["sudo", "apt", "update"], ["sudo", "apt", "install", "-y", "nodejs", "npm"]),
+        ("dnf", None, ["sudo", "dnf", "install", "-y", "nodejs", "npm"]),
+        ("yum", None, ["sudo", "yum", "install", "-y", "nodejs", "npm"]),
+        ("pacman", None, ["sudo", "pacman", "-Sy", "nodejs", "npm"]),
+        ("zypper", None, ["sudo", "zypper", "install", "-y", "nodejs", "npm"]),
+    ]
     
     installed = False
-    for pm, cmd in package_managers.items():
-        if shutil.which(pm.split()[0]):
-            print(f"   Found {pm}, installing Node.js...")
+    for pm_name, update_cmd, install_cmd in package_managers:
+        if shutil.which(pm_name.split()[0]):
+            print(f"   Found {pm_name}, installing Node.js...")
             try:
-                # For complex commands with &&, we need to use shell=True
-                full_cmd = " ".join(cmd)
-                result = subprocess.run(full_cmd, shell=True, capture=True, text=True, timeout=300)
-                if result.returncode == 0:
+                # Run update command if available
+                if update_cmd:
+                    update_result = run_command(update_cmd, check=False, capture=True, quiet=True, show_error=False)
+                    if update_result and hasattr(update_result, 'returncode') and update_result.returncode != 0:
+                        print(f"   ⚠ Package manager update failed, continuing anyway...")
+                
+                # Run install command
+                install_result = run_command(install_cmd, check=False, capture=True, quiet=True, show_error=False)
+                
+                if install_result and hasattr(install_result, 'returncode') and install_result.returncode == 0:
                     print("✓ Node.js installed successfully")
                     installed = True
                     break
                 else:
-                    print(f"   ⚠ {pm} installation failed, trying next...")
+                    print(f"   ⚠ {pm_name} installation failed, trying next...")
             except Exception as e:
-                print(f"   ⚠ Error with {pm}: {e}, trying next...")
+                print(f"   ⚠ Error with {pm_name}: {str(e)[:100]}, trying next...")
     
     if not installed:
         print("\n⚠ Could not automatically install Node.js")
-        print("\nManual installation options:")
-        print("  1. Install using NodeSource (Debian/Ubuntu/Kali):")
+        print("\nOptions:")
+        print("  1. Enter sudo password when prompted")
+        print("  2. Manual installation via NodeSource (Debian/Ubuntu/Kali):")
         print("     curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -")
         print("     sudo apt-get install -y nodejs")
-        print("\n  2. Install from official website: https://nodejs.org/ (LTS version)")
-        print("\n  3. After installation, restart your terminal and run:")
-        print("     python install.py")
+        print("\n  3. Install from official website: https://nodejs.org/ (LTS version)")
+        print("\n  4. After installation, run: python install.py")
         return False
     
-    # Verify installation
-    time.sleep(1)  # Give system time to register
+    # Verify installation (with small delay)
+    time.sleep(1)
     if shutil.which("node") and shutil.which("npm"):
-        node_version = subprocess.run([shutil.which("node"), "--version"], capture=True, text=True)
-        npm_version = subprocess.run([shutil.which("npm"), "--version"], capture=True, text=True)
-        print(f"   Node.js {node_version.stdout.strip()}")
-        print(f"   npm {npm_version.stdout.strip()}")
+        try:
+            node_version = run_command([shutil.which("node"), "--version"], capture=True, quiet=True, show_error=False)
+            npm_version = run_command([shutil.which("npm"), "--version"], capture=True, quiet=True, show_error=False)
+            if node_version and hasattr(node_version, 'stdout'):
+                print(f"   Node.js {node_version.stdout.strip()}")
+            if npm_version and hasattr(npm_version, 'stdout'):
+                print(f"   npm {npm_version.stdout.strip()}")
+        except:
+            pass
         return True
     else:
         print("⚠ Node.js verification failed - it may not be in PATH")
