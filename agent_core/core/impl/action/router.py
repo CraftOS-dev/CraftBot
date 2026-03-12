@@ -587,6 +587,13 @@ class ActionRouter:
                 # Not in task context - use regular response
                 raw_response = await self.llm_interface.generate_response_async(system_prompt, current_prompt)
 
+            # Validate response before parsing
+            if not raw_response or (isinstance(raw_response, str) and not raw_response.strip()):
+                logger.error(
+                    f"[ACTION ROUTER] LLM returned empty response on attempt {attempt + 1}. "
+                    f"System prompt length: {len(system_prompt)}, User prompt length: {len(current_prompt)}"
+                )
+            
             decision, parse_error = self._parse_action_decision(raw_response)
             if decision is not None:
                 decision.setdefault("parameters", {})
@@ -606,6 +613,11 @@ class ActionRouter:
         raise ValueError("Unable to parse LLM decision")
 
     def _parse_action_decision(self, raw: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        # Check for empty or None response from LLM
+        if not raw or (isinstance(raw, str) and not raw.strip()):
+            logger.error(f"LLM returned empty response")
+            return None, "LLM returned an empty response. This may indicate an API error or the model failed to generate output."
+        
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as json_error:
