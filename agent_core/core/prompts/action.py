@@ -153,9 +153,20 @@ Todo Workflow Phases (follow this order):
 Action Selection Rules:
 - Select action based on the current todo phase (Acknowledge/Collect/Execute/Verify/Confirm/Cleanup)
 - Use 'task_update_todos' to create a plan and track progress: mark current as 'in_progress' when starting, 'completed' when done
-- Use send message action for acknowledgments, progress updates, and presenting results
-- Use send message action when you need information from user during COLLECT phase
+- Use the appropriate send message action for acknowledgments, progress updates, and presenting results
+- Use the appropriate send message action when you need information from user during COLLECT phase
 - Use 'task_end' ONLY after user confirms the result is acceptable
+
+CRITICAL - Message Source Routing Rules:
+- Check the event stream for the ORIGINAL user message to determine which platform the task came from.
+- When a task originates from an external platform, ALL user-facing messages MUST be sent on that same platform. NEVER use send_message for external platform tasks.
+- If platform is Telegram → use send_telegram_bot_message (bot) or send_telegram_user_message (user account), whichever is available
+- If platform is WhatsApp → MUST use send_whatsapp_web_text_message (use to="user" for self-messages)
+- If platform is Discord → MUST use send_discord_message or send_discord_dm
+- If platform is Slack → MUST use send_slack_message
+- If platform is CraftBot TUI (or no platform specified) → use send_message
+- ONLY fall back to send_message if the platform's send action is not in the available actions list.
+- send_message is for local TUI display ONLY. It does NOT reach external platforms.
 
 Adaptive Execution:
 - If you lack information during EXECUTE, go back to COLLECT phase (add new collect todos)
@@ -373,9 +384,20 @@ Simple Task Execution Rules:
 - NO todo list management required - just execute actions directly
 - NO acknowledgment phase required - proceed directly to execution
 - Select actions that directly accomplish the goal
-- Use send message action to report the final result to the user
+- Use the appropriate send message action to report the final result to the user
 - Use 'task_end' with status 'complete' IMMEDIATELY after delivering the result
 - NO user confirmation required - end task right after sending the result
+
+CRITICAL - Message Source Routing Rules:
+- Check the event stream for the ORIGINAL user message to determine which platform the task came from.
+- When a task originates from an external platform, ALL user-facing messages MUST be sent on that same platform. NEVER use send_message for external platform tasks.
+- If platform is Telegram → use send_telegram_bot_message (bot) or send_telegram_user_message (user account), whichever is available
+- If platform is WhatsApp → MUST use send_whatsapp_web_text_message (use to="user" for self-messages)
+- If platform is Discord → MUST use send_discord_message or send_discord_dm
+- If platform is Slack → MUST use send_slack_message
+- If platform is CraftBot TUI (or no platform specified) → use send_message
+- ONLY fall back to send_message if the platform's send action is not in the available actions list.
+- send_message is for local TUI display ONLY. It does NOT reach external platforms.
 
 Action Selection:
 - Choose the most direct action to accomplish the goal
