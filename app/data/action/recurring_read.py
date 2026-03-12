@@ -2,8 +2,8 @@ from agent_core import action
 
 
 @action(
-    name="proactive_read",
-    description="Read and parse proactive tasks from PROACTIVE.md. Returns tasks filtered by frequency. Use this to understand what proactive tasks are configured and their current state.",
+    name="recurring_read",
+    description="Read and parse recurring tasks from PROACTIVE.md. Returns tasks filtered by frequency. Use this to understand what recurring tasks are configured and their current state.",
     action_sets=["proactive"],
     input_schema={
         "frequency": {
@@ -24,7 +24,7 @@ from agent_core import action
         },
         "tasks": {
             "type": "array",
-            "description": "List of proactive task objects with id, name, frequency, instruction, enabled, priority, permission_tier, last_run, next_run, run_count"
+            "description": "List of recurring task objects with id, name, frequency, instruction, enabled, priority, permission_tier, last_run, next_run, run_count"
         },
         "planner_outputs": {
             "type": "object",
@@ -36,8 +36,8 @@ from agent_core import action
         }
     }
 )
-def proactive_read(input_data: dict) -> dict:
-    """Read proactive tasks from PROACTIVE.md."""
+def recurring_read(input_data: dict) -> dict:
+    """Read recurring tasks from PROACTIVE.md."""
     from app.proactive import get_proactive_manager
 
     manager = get_proactive_manager()
@@ -86,7 +86,12 @@ def proactive_read(input_data: dict) -> dict:
                 task_dict["conditions"] = [c.to_dict() for c in task.conditions]
             if task.outcome_history:
                 task_dict["recent_outcomes"] = [
-                    {"timestamp": o.timestamp.isoformat(), "result": o.result, "success": o.success}
+                    {
+                        "timestamp": o.timestamp.isoformat(),
+                        "result": o.result,
+                        "success": o.success,
+                        **({"permission_pending": True} if o.permission_pending else {})
+                    }
                     for o in task.outcome_history[-3:]  # Last 3 outcomes
                 ]
             task_list.append(task_dict)

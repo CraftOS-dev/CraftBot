@@ -2,9 +2,9 @@ from agent_core import action
 from datetime import datetime
 
 @action(
-    name="schedule_list",
+    name="scheduled_task_list",
     description="List all scheduled tasks configured in the scheduler. Returns details about each schedule including name, schedule expression, enabled status, and next/last run times.",
-    action_sets=["scheduler"],
+    action_sets=["scheduler", "core", "proactive"],
     input_schema={},
     output_schema={
         "schedules": {
@@ -21,7 +21,7 @@ from datetime import datetime
         }
     }
 )
-def schedule_list(input_data: dict) -> dict:
+def scheduled_task_list(input_data: dict) -> dict:
     """List all scheduled tasks."""
     import app.internal_action_interface as iai
 

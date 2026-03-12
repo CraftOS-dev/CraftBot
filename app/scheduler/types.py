@@ -14,13 +14,14 @@ class ScheduleExpression:
     """
     Parsed schedule expression.
 
-    Supports three types:
+    Supports five types:
     - "daily": Fire at a specific time every day
     - "weekly": Fire at a specific time on specific weekday(s)
     - "interval": Fire at regular intervals
     - "cron": Fire based on cron expression
+    - "once": Fire once at a specific time (one-time scheduled task)
     """
-    schedule_type: str  # "daily", "weekly", "interval", "cron"
+    schedule_type: str  # "daily", "weekly", "interval", "cron", "once"
     raw_expression: str  # Original string (e.g., "every day at 7am")
 
     # For time-based schedules (daily, weekly)
@@ -36,9 +37,12 @@ class ScheduleExpression:
     # For cron schedules
     cron_expression: Optional[str] = None
 
+    # For one-time schedules
+    fire_at: Optional[float] = None  # Unix timestamp for when to fire
+
     def __post_init__(self):
         """Validate schedule expression."""
-        valid_types = {"daily", "weekly", "interval", "cron"}
+        valid_types = {"daily", "weekly", "interval", "cron", "once"}
         if self.schedule_type not in valid_types:
             raise ValueError(f"Invalid schedule_type: {self.schedule_type}. Must be one of {valid_types}")
 
@@ -64,6 +68,10 @@ class ScheduleExpression:
         if self.schedule_type == "cron" and not self.cron_expression:
             raise ValueError("cron_expression is required for cron schedules")
 
+        if self.schedule_type == "once":
+            if self.fire_at is None:
+                raise ValueError("fire_at is required for once schedules")
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -74,6 +82,7 @@ class ScheduleExpression:
             "weekday": self.weekday,
             "interval_seconds": self.interval_seconds,
             "cron_expression": self.cron_expression,
+            "fire_at": self.fire_at,
         }
 
     @classmethod
@@ -87,6 +96,7 @@ class ScheduleExpression:
             weekday=data.get("weekday"),
             interval_seconds=data.get("interval_seconds"),
             cron_expression=data.get("cron_expression"),
+            fire_at=data.get("fire_at"),
         )
 
 
@@ -107,6 +117,7 @@ class ScheduledTask:
     enabled: bool = True
     priority: int = 50       # Trigger priority (lower = higher priority)
     mode: str = "simple"     # Task mode: "simple" or "complex"
+    recurring: bool = True   # True for recurring tasks, False for one-time immediate tasks
     action_sets: List[str] = field(default_factory=list)
     skills: List[str] = field(default_factory=list)
     payload: Dict[str, Any] = field(default_factory=dict)  # Extra trigger payload
@@ -140,6 +151,7 @@ class ScheduledTask:
             "enabled": self.enabled,
             "priority": self.priority,
             "mode": self.mode,
+            "recurring": self.recurring,
             "action_sets": self.action_sets,
             "skills": self.skills,
             "payload": self.payload,
@@ -169,6 +181,7 @@ class ScheduledTask:
             enabled=data.get("enabled", True),
             priority=data.get("priority", 50),
             mode=data.get("mode", "simple"),
+            recurring=data.get("recurring", True),
             action_sets=data.get("action_sets", []),
             skills=data.get("skills", []),
             payload=data.get("payload", {}),

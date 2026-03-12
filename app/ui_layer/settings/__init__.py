@@ -68,13 +68,13 @@ from app.ui_layer.settings.proactive_settings import (
     update_scheduler_config,
     toggle_schedule,
     toggle_schedule_runtime,
-    # Proactive tasks
-    get_proactive_tasks,
-    add_proactive_task,
-    update_proactive_task,
-    remove_proactive_task,
-    toggle_proactive_task,
-    reset_proactive_tasks,
+    # Recurring tasks
+    get_recurring_tasks,
+    add_recurring_task,
+    update_recurring_task,
+    remove_recurring_task,
+    toggle_recurring_task,
+    reset_recurring_tasks,
     reload_proactive_manager,
 )
 
@@ -154,12 +154,13 @@ __all__ = [
     "update_scheduler_config",
     "toggle_schedule",
     "toggle_schedule_runtime",
-    "get_proactive_tasks",
-    "add_proactive_task",
-    "update_proactive_task",
-    "remove_proactive_task",
-    "toggle_proactive_task",
-    "reset_proactive_tasks",
+    # Recurring tasks
+    "get_recurring_tasks",
+    "add_recurring_task",
+    "update_recurring_task",
+    "remove_recurring_task",
+    "toggle_recurring_task",
+    "reset_recurring_tasks",
     "reload_proactive_manager",
     # Memory mode control
     "is_memory_enabled",

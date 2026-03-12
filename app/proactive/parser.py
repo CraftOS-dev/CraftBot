@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
-from .types import ProactiveTask, ProactiveData
+from .types import RecurringTask, RecurringData
 
 
 class ProactiveParser:
@@ -20,33 +20,32 @@ class ProactiveParser:
 
     The format uses delimiter comments to safely identify sections:
     - <!-- PROACTIVE_TASKS_START --> ... <!-- PROACTIVE_TASKS_END -->
-    - <!-- PLANNER_OUTPUTS_START --> ... <!-- PLANNER_OUTPUTS_END -->
+
+    The "Goals, Plan, and Status" section is maintained by planners via file operations
+    and is not parsed programmatically.
 
     Each task is defined with a markdown header followed by a YAML code block.
     """
 
     TASKS_START = "<!-- PROACTIVE_TASKS_START -->"
     TASKS_END = "<!-- PROACTIVE_TASKS_END -->"
-    PLANNER_START = "<!-- PLANNER_OUTPUTS_START -->"
-    PLANNER_END = "<!-- PLANNER_OUTPUTS_END -->"
 
     # Regex patterns
     FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n---', re.DOTALL)
     TASK_HEADER_PATTERN = re.compile(r'^###\s*\[(\w+)\]\s*(.+)$', re.MULTILINE)
     YAML_BLOCK_PATTERN = re.compile(r'```yaml\s*\n(.*?)```', re.DOTALL)
-    PLANNER_SECTION_PATTERN = re.compile(r'^###\s*(.+?)\s*\((.+?)\)\s*$', re.MULTILINE)
 
     @classmethod
-    def parse(cls, content: str) -> ProactiveData:
-        """Parse PROACTIVE.md content into ProactiveData.
+    def parse(cls, content: str) -> RecurringData:
+        """Parse PROACTIVE.md content into RecurringData.
 
         Args:
             content: Raw content of PROACTIVE.md file
 
         Returns:
-            ProactiveData object with parsed tasks and metadata
+            RecurringData object with parsed tasks and metadata
         """
-        data = ProactiveData()
+        data = RecurringData()
 
         # Parse frontmatter
         frontmatter = cls._parse_frontmatter(content)
@@ -61,20 +60,20 @@ class ProactiveParser:
         # Parse tasks
         data.tasks = cls._parse_tasks(content)
 
-        # Parse planner outputs
-        data.planner_outputs = cls._parse_planner_outputs(content)
+        # Note: planner_outputs field is deprecated - planners now update
+        # the "Goals, Plan, and Status" section via file operations
 
         return data
 
     @classmethod
-    def parse_file(cls, file_path: Path) -> ProactiveData:
+    def parse_file(cls, file_path: Path) -> RecurringData:
         """Parse PROACTIVE.md file.
 
         Args:
             file_path: Path to PROACTIVE.md file
 
         Returns:
-            ProactiveData object with parsed tasks and metadata
+            RecurringData object with parsed tasks and metadata
 
         Raises:
             FileNotFoundError: If the file doesn't exist
@@ -94,7 +93,7 @@ class ProactiveParser:
         return {}
 
     @classmethod
-    def _parse_tasks(cls, content: str) -> List[ProactiveTask]:
+    def _parse_tasks(cls, content: str) -> List[RecurringTask]:
         """Extract and parse task definitions from tasks section."""
         # Find tasks section
         start_idx = content.find(cls.TASKS_START)
@@ -122,7 +121,7 @@ class ProactiveParser:
                 try:
                     yaml_data = yaml.safe_load(yaml_match.group(1))
                     if yaml_data:
-                        task = ProactiveTask.from_dict(yaml_data, name=name)
+                        task = RecurringTask.from_dict(yaml_data, name=name)
                         # Ensure frequency matches header
                         if not task.frequency:
                             task.frequency = frequency
@@ -133,39 +132,11 @@ class ProactiveParser:
         return tasks
 
     @classmethod
-    def _parse_planner_outputs(cls, content: str) -> Dict[str, str]:
-        """Extract planner outputs section."""
-        start_idx = content.find(cls.PLANNER_START)
-        end_idx = content.find(cls.PLANNER_END)
-        if start_idx == -1 or end_idx == -1:
-            return {}
-
-        planner_content = content[start_idx + len(cls.PLANNER_START):end_idx]
-
-        outputs = {}
-        # Parse each planner section
-        sections = cls.PLANNER_SECTION_PATTERN.finditer(planner_content)
-        section_list = list(sections)
-
-        for i, section_match in enumerate(section_list):
-            planner_type = section_match.group(1).strip()  # e.g., "Day Planner"
-            date_info = section_match.group(2).strip()  # e.g., "2026-02-26"
-
-            start = section_match.end()
-            end = section_list[i + 1].start() if i + 1 < len(section_list) else len(planner_content)
-            section_content = planner_content[start:end].strip()
-
-            key = f"{planner_type.lower().replace(' ', '_')}_{date_info}"
-            outputs[key] = section_content
-
-        return outputs
-
-    @classmethod
-    def serialize(cls, data: ProactiveData, template: Optional[str] = None) -> str:
-        """Serialize ProactiveData back to PROACTIVE.md format.
+    def serialize(cls, data: RecurringData, template: Optional[str] = None) -> str:
+        """Serialize RecurringData back to PROACTIVE.md format.
 
         Args:
-            data: ProactiveData to serialize
+            data: RecurringData to serialize
             template: Optional template to use (preserves non-task content)
 
         Returns:
@@ -176,8 +147,8 @@ class ProactiveParser:
         return cls._serialize_full(data)
 
     @classmethod
-    def _serialize_with_template(cls, data: ProactiveData, template: str) -> str:
-        """Serialize using existing template, replacing only task and planner sections."""
+    def _serialize_with_template(cls, data: RecurringData, template: str) -> str:
+        """Serialize using existing template, replacing only the tasks section."""
         result = template
 
         # Update frontmatter
@@ -202,23 +173,13 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
                 + result[end_idx:]
             )
 
-        # Update planner outputs section
-        planner_content = cls._serialize_planner_outputs(data.planner_outputs)
-        start_idx = result.find(cls.PLANNER_START)
-        end_idx = result.find(cls.PLANNER_END)
-        if start_idx != -1 and end_idx != -1:
-            result = (
-                result[:start_idx + len(cls.PLANNER_START)]
-                + "\n"
-                + planner_content
-                + "\n"
-                + result[end_idx:]
-            )
+        # Note: "Goals, Plan, and Status" section is managed by planners via
+        # file operations and is not modified by this serialization
 
         return result
 
     @classmethod
-    def _serialize_full(cls, data: ProactiveData) -> str:
+    def _serialize_full(cls, data: RecurringData) -> str:
         """Serialize to full PROACTIVE.md format."""
         lines = []
 
@@ -242,20 +203,32 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
         lines.append(cls.TASKS_END)
         lines.append("")
 
-        # Planner outputs section
-        lines.append(cls.PLANNER_START)
-        lines.append("## Planner Outputs")
+        # Goals, Plan, and Status section (placeholder - managed by planners)
+        lines.append("## Goals, Plan, and Status")
         lines.append("")
-        lines.append(cls._serialize_planner_outputs(data.planner_outputs))
-        lines.append(cls.PLANNER_END)
+        lines.append("### Long-Term Goals")
+        lines.append("<!-- Updated by month planner -->")
+        lines.append("No long-term goals defined yet.")
+        lines.append("")
+        lines.append("### Current Focus")
+        lines.append("<!-- Updated by week/day planner -->")
+        lines.append("No current focus defined.")
+        lines.append("")
+        lines.append("### Recent Accomplishments")
+        lines.append("<!-- Updated by planners after task completion -->")
+        lines.append("None yet.")
+        lines.append("")
+        lines.append("### Upcoming Priorities")
+        lines.append("<!-- Updated by day planner -->")
+        lines.append("None defined.")
 
         return "\n".join(lines)
 
     @classmethod
-    def _serialize_tasks(cls, tasks: List[ProactiveTask]) -> str:
+    def _serialize_tasks(cls, tasks: List[RecurringTask]) -> str:
         """Serialize tasks to markdown with YAML blocks."""
         if not tasks:
-            return "No proactive tasks configured.\n"
+            return "No recurring tasks configured.\n"
 
         lines = []
         # Group tasks by frequency
@@ -273,25 +246,6 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
                 lines.append(yaml_content.rstrip())
 
                 lines.append("```")
-                lines.append("")
-
-        return "\n".join(lines)
-
-    @classmethod
-    def _serialize_planner_outputs(cls, outputs: Dict[str, str]) -> str:
-        """Serialize planner outputs."""
-        if not outputs:
-            return "No planner outputs yet.\n"
-
-        lines = []
-        for key, content in outputs.items():
-            # Convert key back to header format
-            parts = key.rsplit("_", 1)
-            if len(parts) == 2:
-                planner_type = parts[0].replace("_", " ").title()
-                date_info = parts[1]
-                lines.append(f"### {planner_type} ({date_info})")
-                lines.append(content)
                 lines.append("")
 
         return "\n".join(lines)

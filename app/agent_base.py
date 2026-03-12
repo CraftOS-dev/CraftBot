@@ -520,8 +520,20 @@ class AgentBase:
 
                 if event_lines:
                     logger.info(f"[MEMORY] Processing {len(event_lines)} unprocessed events")
-                    self.create_process_memory_task()
-                    task_created = True
+                    task_id = self.create_process_memory_task()
+
+                    if task_id:
+                        # Queue trigger to start the task
+                        trigger = Trigger(
+                            fire_at=time.time(),
+                            priority=60,
+                            next_action_description="Process unprocessed events into long-term memory",
+                            session_id=task_id,
+                            payload={},
+                        )
+                        await self.triggers.put(trigger)
+                        logger.info(f"[MEMORY] Queued trigger for memory processing task: {task_id}")
+                        task_created = True
                 else:
                     logger.info("[MEMORY] No unprocessed events to process")
             else:

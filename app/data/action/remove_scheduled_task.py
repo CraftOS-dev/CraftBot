@@ -1,9 +1,9 @@
 from agent_core import action
 
 @action(
-    name="schedule_remove",
+    name="remove_scheduled_task",
     description="Remove a scheduled task from the scheduler by its ID.",
-    action_sets=["scheduler"],
+    action_sets=["scheduler", "core", "proactive"],
     input_schema={
         "schedule_id": {
             "type": "string",
@@ -22,7 +22,7 @@ from agent_core import action
         }
     }
 )
-def schedule_remove(input_data: dict) -> dict:
+def remove_scheduled_task(input_data: dict) -> dict:
     """Remove a scheduled task."""
     import app.internal_action_interface as iai
 

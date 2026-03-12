@@ -132,37 +132,9 @@ GOOD INSTRUCTION (detailed):
 ================================================================================
 -->
 
-<!-- PROACTIVE_TASKS_START -->
-
-<!-- Add your proactive tasks here following the format above -->
-
-<!-- PROACTIVE_TASKS_END -->
-
----
-
 <!--
 ================================================================================
-PLANNER OUTPUTS
-================================================================================
-This section is auto-populated by the day/week/month planners.
-The planners analyze recent interactions and suggest proactive opportunities.
-
-Do NOT manually edit this section - it will be overwritten by planners.
-================================================================================
--->
-
-<!-- PLANNER_OUTPUTS_START -->
-## Planner Outputs
-
-No planner outputs yet.
-
-<!-- PLANNER_OUTPUTS_END -->
-
----
-
-<!--
-================================================================================
-HOW TO ADD A NEW TASK
+HOW TO ADD A NEW RECURRING PROACTIVE TASK
 ================================================================================
 1. Add a new section between PROACTIVE_TASKS_START and PROACTIVE_TASKS_END
 2. Use the format: ### [FREQUENCY] Task Name
@@ -172,3 +144,49 @@ HOW TO ADD A NEW TASK
 6. The agent will pick up the task on the next heartbeat
 ================================================================================
 -->
+
+<!-- PROACTIVE_TASKS_START -->
+
+<!-- Add your proactive tasks here following the format above -->
+
+<!-- PROACTIVE_TASKS_END -->
+
+---
+
+## Goals, Plan, and Status
+
+<!--
+================================================================================
+GOALS, PLAN, AND STATUS
+================================================================================
+This section is maintained by the day/week/month planners to track user goals,
+plans, and current status. The planners update this section to help coordinate
+proactive assistance across different time horizons.
+
+- Month Planner: Sets long-term goals, strategic direction
+- Week Planner: Sets weekly objectives aligned with monthly goals
+- Day Planner: Sets daily priorities aligned with weekly objectives
+
+The heartbeat processor and other planners read this section to understand
+context and avoid duplicate suggestions.
+================================================================================
+-->
+
+### Long-Term Goals
+<!-- Updated by month planner -->
+No long-term goals defined yet.
+
+### Current Focus
+<!-- Updated by week/day planner -->
+No current focus defined.
+
+### Recent Accomplishments
+<!-- Updated by planners after task completion -->
+None yet.
+
+### Upcoming Priorities
+<!-- Updated by day planner -->
+None defined.
+
+---
+

@@ -2,8 +2,8 @@ from agent_core import action
 
 
 @action(
-    name="proactive_add",
-    description="Add a new proactive task to PROACTIVE.md. The task will be executed by the heartbeat processor at the specified frequency. IMPORTANT: Only add proactive tasks with user consent - ask the user first before adding recurring tasks.",
+    name="recurring_add",
+    description="Add a new recurring task to PROACTIVE.md. The task will be executed by the heartbeat processor at the specified frequency. IMPORTANT: Only add recurring tasks with user consent - ask the user first before adding recurring tasks.",
     action_sets=["proactive"],
     input_schema={
         "name": {
@@ -67,8 +67,8 @@ from agent_core import action
         }
     }
 )
-def proactive_add(input_data: dict) -> dict:
-    """Add a new proactive task."""
+def recurring_add(input_data: dict) -> dict:
+    """Add a new recurring task."""
     from app.proactive import get_proactive_manager
 
     manager = get_proactive_manager()
@@ -123,7 +123,7 @@ def proactive_add(input_data: dict) -> dict:
         return {
             "status": "ok",
             "task_id": task.id,
-            "message": f"Proactive task '{name}' created with ID: {task.id}. "
+            "message": f"Recurring task '{name}' created with ID: {task.id}. "
                       f"It will run {frequency} with permission tier {permission_tier}."
         }
 

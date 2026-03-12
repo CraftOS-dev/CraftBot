@@ -1,9 +1,9 @@
 from agent_core import action
 
 @action(
-    name="schedule_toggle",
+    name="schedule_task_toggle",
     description="Enable or disable a scheduled task by its ID.",
-    action_sets=["scheduler"],
+    action_sets=["scheduler", "proactive"],
     input_schema={
         "schedule_id": {
             "type": "string",
@@ -27,7 +27,7 @@ from agent_core import action
         }
     }
 )
-def schedule_toggle(input_data: dict) -> dict:
+def schedule_task_toggle(input_data: dict) -> dict:
     """Enable or disable a scheduled task."""
     import app.internal_action_interface as iai
 

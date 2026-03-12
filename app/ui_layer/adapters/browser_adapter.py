@@ -28,11 +28,11 @@ from app.ui_layer.settings import (
     get_scheduler_config,
     update_scheduler_config,
     toggle_schedule_runtime,
-    get_proactive_tasks,
-    add_proactive_task,
-    update_proactive_task,
-    remove_proactive_task,
-    reset_proactive_tasks,
+    get_recurring_tasks,
+    add_recurring_task,
+    update_recurring_task,
+    remove_recurring_task,
+    reset_recurring_tasks,
     reload_proactive_manager,
     # Memory settings
     get_memory_mode,
@@ -1493,7 +1493,7 @@ class BrowserAdapter(InterfaceAdapter):
         if proactive_manager:
             reload_proactive_manager(proactive_manager)
 
-        result = get_proactive_tasks(
+        result = get_recurring_tasks(
             proactive_manager,
             frequency=frequency,
             enabled_only=False
@@ -1541,7 +1541,7 @@ class BrowserAdapter(InterfaceAdapter):
         agent = self._controller.agent
         proactive_manager = getattr(agent, 'proactive_manager', None)
 
-        result = add_proactive_task(
+        result = add_recurring_task(
             proactive_manager,
             name=task_data.get("name", "New Task"),
             frequency=task_data.get("frequency", "daily"),
@@ -1594,7 +1594,7 @@ class BrowserAdapter(InterfaceAdapter):
         if "frequency" in updates:
             update_dict["frequency"] = updates["frequency"]
 
-        result = update_proactive_task(proactive_manager, task_id, update_dict)
+        result = update_recurring_task(proactive_manager, task_id, update_dict)
 
         if result.get("success"):
             await self._broadcast({
@@ -1619,7 +1619,7 @@ class BrowserAdapter(InterfaceAdapter):
         agent = self._controller.agent
         proactive_manager = getattr(agent, 'proactive_manager', None)
 
-        result = remove_proactive_task(proactive_manager, task_id)
+        result = remove_recurring_task(proactive_manager, task_id)
 
         if result.get("success"):
             await self._broadcast({
@@ -1642,7 +1642,7 @@ class BrowserAdapter(InterfaceAdapter):
 
     async def _handle_proactive_tasks_reset(self) -> None:
         """Reset all proactive tasks (restore from template)."""
-        result = reset_proactive_tasks()
+        result = reset_recurring_tasks()
 
         if result.get("success"):
             # Reload proactive manager
@@ -1915,12 +1915,12 @@ class BrowserAdapter(InterfaceAdapter):
 
             # Check if there's a create_process_memory_task method
             if hasattr(agent, 'create_process_memory_task'):
-                task = await agent.create_process_memory_task()
+                task_id = agent.create_process_memory_task()
                 await self._broadcast({
                     "type": "memory_process_trigger",
                     "data": {
                         "success": True,
-                        "taskId": task.id if task else None,
+                        "taskId": task_id,
                         "message": "Memory processing task created",
                     },
                 })

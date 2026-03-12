@@ -2,15 +2,15 @@
 """
 Proactive task management module.
 
-This module provides functionality for managing proactive tasks that the agent
+This module provides functionality for managing recurring tasks that the agent
 can execute autonomously based on scheduled heartbeats.
 """
 
 from .types import (
-    ProactiveTask,
-    ProactiveData,
-    ProactiveCondition,
-    ProactiveOutcome,
+    RecurringTask,
+    RecurringData,
+    RecurringCondition,
+    RecurringOutcome,
 )
 from .parser import (
     ProactiveParser,
@@ -23,15 +23,15 @@ from .manager import (
 )
 
 __all__ = [
-    # Types
-    "ProactiveTask",
-    "ProactiveData",
-    "ProactiveCondition",
-    "ProactiveOutcome",
-    # Parser
+    # Types (Recurring Task classes)
+    "RecurringTask",
+    "RecurringData",
+    "RecurringCondition",
+    "RecurringOutcome",
+    # Parser (Proactive framework)
     "ProactiveParser",
     "validate_yaml_block",
-    # Manager
+    # Manager (Proactive framework)
     "ProactiveManager",
     "get_proactive_manager",
     "initialize_proactive_manager",

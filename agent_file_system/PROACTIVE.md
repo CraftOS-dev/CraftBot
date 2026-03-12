@@ -140,23 +140,40 @@ GOOD INSTRUCTION (detailed):
 
 ---
 
+## Goals, Plan, and Status
+
 <!--
 ================================================================================
-PLANNER OUTPUTS
+GOALS, PLAN, AND STATUS
 ================================================================================
-This section is auto-populated by the day/week/month planners.
-The planners analyze recent interactions and suggest proactive opportunities.
+This section is maintained by the day/week/month planners to track user goals,
+plans, and current status. The planners update this section to help coordinate
+proactive assistance across different time horizons.
 
-Do NOT manually edit this section - it will be overwritten by planners.
+- Month Planner: Sets long-term goals, strategic direction
+- Week Planner: Sets weekly objectives aligned with monthly goals
+- Day Planner: Sets daily priorities aligned with weekly objectives
+
+The heartbeat processor and other planners read this section to understand
+context and avoid duplicate suggestions.
 ================================================================================
 -->
 
-<!-- PLANNER_OUTPUTS_START -->
-## Planner Outputs
+### Long-Term Goals
+<!-- Updated by month planner -->
+No long-term goals defined yet.
 
-No planner outputs yet.
+### Current Focus
+<!-- Updated by week/day planner -->
+No current focus defined.
 
-<!-- PLANNER_OUTPUTS_END -->
+### Recent Accomplishments
+<!-- Updated by planners after task completion -->
+None yet.
+
+### Upcoming Priorities
+<!-- Updated by day planner -->
+None defined.
 
 ---
 

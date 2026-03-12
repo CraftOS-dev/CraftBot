@@ -1,17 +1,21 @@
 """
-schedule_add action
+schedule_task action
 
-Add a new scheduled task or queue an immediate trigger for execution.
-Used by heartbeat-processor to spawn complex proactive tasks.
+Add a new scheduled task for execution. Supports three types:
+1. Immediate: Execute right away (schedule='immediate')
+2. One-time: Execute once at a specific time (e.g., 'at 3pm', 'tomorrow at 9am', 'in 2 hours')
+3. Recurring: Execute on a schedule (e.g., 'every day at 7am', 'every monday at 9am')
+
+One-time scheduled tasks are automatically removed after they fire.
 """
 
 from agent_core import action
 
 
 @action(
-    name="schedule_add",
-    description="Add a new scheduled task or queue an immediate trigger for execution. Use schedule='immediate' to queue a task that fires right away (useful for spawning complex proactive tasks from heartbeat-processor).",
-    action_sets=["scheduler"],
+    name="schedule_task",
+    description="Schedule a task for execution. Supports immediate execution, one-time scheduled tasks, and recurring schedules. One-time tasks are auto-removed after firing.",
+    action_sets=["scheduler", "core", "proactive"],
     input_schema={
         "name": {
             "type": "string",
@@ -25,8 +29,8 @@ from agent_core import action
         },
         "schedule": {
             "type": "string",
-            "description": "Schedule expression. Use 'immediate' for instant execution, or 'every day at 7am', 'every monday at 9am', 'every 3 hours', 'every 30 minutes', or cron expressions like '0 7 * * *'",
-            "example": "immediate"
+            "description": "Schedule expression. Immediate: 'immediate'. One-time: 'at 3pm', 'at 3:30pm today', 'tomorrow at 9am', 'in 2 hours', 'in 30 minutes'. Recurring: 'every day at 7am', 'every monday at 9am', 'every 3 hours', 'every 30 minutes', or cron '0 7 * * *'",
+            "example": "at 3pm"
         },
         "priority": {
             "type": "integer",
@@ -68,13 +72,17 @@ from agent_core import action
             "type": "string",
             "description": "ok if successful, error otherwise"
         },
+        "recurring": {
+            "type": "boolean",
+            "description": "True for recurring tasks, False for one-time tasks"
+        },
         "scheduled_for": {
             "type": "string",
             "description": "'immediate' or next fire time in ISO format"
         }
     }
 )
-def schedule_add(input_data: dict) -> dict:
+def schedule_task(input_data: dict) -> dict:
     """Add a new scheduled task or queue an immediate trigger."""
     import app.internal_action_interface as iai
     from datetime import datetime
@@ -117,7 +125,12 @@ def schedule_add(input_data: dict) -> dict:
                 payload=payload
             )
 
-        # Regular scheduled task
+        # Parse schedule to determine if it's recurring or one-time
+        from app.scheduler.parser import ScheduleParser
+        parsed = ScheduleParser.parse(schedule_expr)
+        is_recurring = parsed.schedule_type != "once"
+
+        # Add scheduled task
         schedule_id = scheduler.add_schedule(
             name=name,
             instruction=instruction,
@@ -125,6 +138,7 @@ def schedule_add(input_data: dict) -> dict:
             priority=priority,
             mode=mode,
             enabled=enabled,
+            recurring=is_recurring,
             action_sets=action_sets,
             skills=skills,
             payload=payload,
@@ -136,12 +150,14 @@ def schedule_add(input_data: dict) -> dict:
         if schedule and schedule.next_run:
             next_run = datetime.fromtimestamp(schedule.next_run).isoformat()
 
+        task_type = "recurring" if is_recurring else "one-time"
         return {
             "status": "ok",
             "schedule_id": schedule_id,
             "name": name,
+            "recurring": is_recurring,
             "scheduled_for": next_run or "unknown",
-            "message": f"Schedule '{name}' created with ID: {schedule_id}"
+            "message": f"{task_type.capitalize()} task '{name}' scheduled with ID: {schedule_id}"
         }
 
     except Exception as e:

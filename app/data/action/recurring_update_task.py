@@ -2,8 +2,8 @@ from agent_core import action
 
 
 @action(
-    name="proactive_update_task",
-    description="Update an existing proactive task in PROACTIVE.md. Can update task properties or add execution outcomes. Use this to enable/disable tasks, change instructions, or record task execution results.",
+    name="recurring_update_task",
+    description="Update an existing recurring task in PROACTIVE.md. Can update task properties or add execution outcomes. Use this to enable/disable tasks, change instructions, or record task execution results.",
     action_sets=["proactive"],
     input_schema={
         "task_id": {
@@ -18,8 +18,8 @@ from agent_core import action
         },
         "add_outcome": {
             "type": "object",
-            "description": "Optional outcome to add to task history. Include 'result' (string) and optionally 'success' (boolean, default true)",
-            "example": {"result": "Delivered morning briefing to user", "success": True}
+            "description": "Optional outcome to add to task history. Include 'result' (string), optionally 'success' (boolean, default true), and 'permission_pending' (boolean, default false) to track pending permission requests",
+            "example": {"result": "Awaiting user permission", "success": True, "permission_pending": True}
         }
     },
     output_schema={
@@ -37,8 +37,8 @@ from agent_core import action
         }
     }
 )
-def proactive_update_task(input_data: dict) -> dict:
-    """Update an existing proactive task."""
+def recurring_update_task(input_data: dict) -> dict:
+    """Update an existing recurring task."""
     from app.proactive import get_proactive_manager
 
     manager = get_proactive_manager()

@@ -13,17 +13,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from .types import ProactiveTask, ProactiveData, ProactiveOutcome
+from .types import RecurringTask, RecurringData, RecurringOutcome
 from .parser import ProactiveParser
 
 logger = logging.getLogger(__name__)
 
 
 class ProactiveManager:
-    """Manager for proactive tasks stored in PROACTIVE.md.
+    """Manager for recurring tasks stored in PROACTIVE.md.
 
     Provides thread-safe operations for reading, adding, updating, and
-    removing proactive tasks. Uses atomic file writes to prevent corruption.
+    removing recurring tasks. Uses atomic file writes to prevent corruption.
     """
 
     def __init__(self, proactive_file_path: Path):
@@ -33,21 +33,21 @@ class ProactiveManager:
             proactive_file_path: Path to PROACTIVE.md file
         """
         self.file_path = proactive_file_path
-        self._data: Optional[ProactiveData] = None
+        self._data: Optional[RecurringData] = None
         self._template: Optional[str] = None
 
-    def load(self) -> ProactiveData:
-        """Load proactive data from file.
+    def load(self) -> RecurringData:
+        """Load recurring task data from file.
 
         Returns:
-            ProactiveData object
+            RecurringData object
 
         Raises:
             FileNotFoundError: If file doesn't exist
         """
         if not self.file_path.exists():
             logger.warning(f"[PROACTIVE] File not found: {self.file_path}")
-            self._data = ProactiveData()
+            self._data = RecurringData()
             self._template = None
             return self._data
 
@@ -94,7 +94,7 @@ class ProactiveManager:
             raise
 
     @property
-    def data(self) -> ProactiveData:
+    def data(self) -> RecurringData:
         """Get loaded data, loading from file if necessary."""
         if self._data is None:
             self.load()
@@ -104,7 +104,7 @@ class ProactiveManager:
         self,
         frequency: Optional[str] = None,
         enabled_only: bool = True
-    ) -> List[ProactiveTask]:
+    ) -> List[RecurringTask]:
         """Get tasks, optionally filtered.
 
         Args:
@@ -124,7 +124,7 @@ class ProactiveManager:
 
         return tasks
 
-    def get_task(self, task_id: str) -> Optional[ProactiveTask]:
+    def get_task(self, task_id: str) -> Optional[RecurringTask]:
         """Get a task by ID.
 
         Args:
@@ -147,8 +147,8 @@ class ProactiveManager:
         permission_tier: int = 0,
         enabled: bool = True,
         conditions: Optional[List[Dict[str, Any]]] = None,
-    ) -> ProactiveTask:
-        """Add a new proactive task.
+    ) -> RecurringTask:
+        """Add a new recurring task.
 
         Args:
             name: Human-readable task name
@@ -163,7 +163,7 @@ class ProactiveManager:
             conditions: List of condition dictionaries
 
         Returns:
-            The created ProactiveTask
+            The created RecurringTask
 
         Raises:
             ValueError: If task ID already exists or frequency is invalid
@@ -182,13 +182,13 @@ class ProactiveManager:
             raise ValueError(f"Task with ID '{task_id}' already exists")
 
         # Parse conditions
-        from .types import ProactiveCondition
+        from .types import RecurringCondition
         parsed_conditions = []
         if conditions:
             for c in conditions:
-                parsed_conditions.append(ProactiveCondition.from_dict(c.copy()))
+                parsed_conditions.append(RecurringCondition.from_dict(c.copy()))
 
-        task = ProactiveTask(
+        task = RecurringTask(
             id=task_id,
             name=name,
             frequency=frequency,
@@ -212,7 +212,7 @@ class ProactiveManager:
         task_id: str,
         updates: Optional[Dict[str, Any]] = None,
         add_outcome: Optional[Dict[str, Any]] = None,
-    ) -> Optional[ProactiveTask]:
+    ) -> Optional[RecurringTask]:
         """Update an existing task.
 
         Args:
@@ -238,7 +238,8 @@ class ProactiveManager:
         if add_outcome:
             task.add_outcome(
                 result=add_outcome.get("result", ""),
-                success=add_outcome.get("success", True)
+                success=add_outcome.get("success", True),
+                permission_pending=add_outcome.get("permission_pending", False)
             )
 
         self.save()
@@ -262,7 +263,7 @@ class ProactiveManager:
             logger.warning(f"[PROACTIVE] Task not found for removal: {task_id}")
         return removed
 
-    def toggle_task(self, task_id: str, enabled: bool) -> Optional[ProactiveTask]:
+    def toggle_task(self, task_id: str, enabled: bool) -> Optional[RecurringTask]:
         """Enable or disable a task.
 
         Args:
@@ -279,7 +280,7 @@ class ProactiveManager:
         task_id: str,
         result: str,
         success: bool = True
-    ) -> Optional[ProactiveTask]:
+    ) -> Optional[RecurringTask]:
         """Record an execution outcome for a task.
 
         Args:
@@ -308,7 +309,7 @@ class ProactiveManager:
         self.save()
         logger.info(f"[PROACTIVE] Updated planner output: {key}")
 
-    def get_due_tasks(self, frequency: str) -> List[ProactiveTask]:
+    def get_due_tasks(self, frequency: str) -> List[RecurringTask]:
         """Get tasks that are due for execution.
 
         This is used by the heartbeat processor to determine which tasks

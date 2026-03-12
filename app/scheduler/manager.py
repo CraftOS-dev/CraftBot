@@ -107,6 +107,7 @@ class SchedulerManager:
         priority: int = 50,
         mode: str = "simple",
         enabled: bool = True,
+        recurring: bool = True,
         action_sets: Optional[List[str]] = None,
         skills: Optional[List[str]] = None,
         payload: Optional[Dict[str, Any]] = None,
@@ -122,6 +123,7 @@ class SchedulerManager:
             priority: Trigger priority (lower = higher priority)
             mode: Task mode ("simple" or "complex")
             enabled: Whether to enable immediately
+            recurring: True for recurring tasks, False for one-time tasks
             action_sets: Action sets to use
             skills: Skills to use
             payload: Extra trigger payload
@@ -146,6 +148,7 @@ class SchedulerManager:
             enabled=enabled,
             priority=priority,
             mode=mode,
+            recurring=recurring,
             action_sets=action_sets or [],
             skills=skills or [],
             payload=payload or {},
@@ -385,6 +388,16 @@ class SchedulerManager:
             f"[SCHEDULER] Fired schedule: {schedule.id} - {schedule.name} "
             f"(run #{schedule.run_count})"
         )
+
+        # Auto-remove non-recurring (immediate) tasks after firing
+        if not schedule.recurring:
+            logger.info(f"[SCHEDULER] One-time task fired, removing: {schedule.id}")
+            asyncio.create_task(self._remove_after_fire(schedule.id))
+
+    async def _remove_after_fire(self, schedule_id: str) -> None:
+        """Remove a one-time schedule after it has fired."""
+        await asyncio.sleep(1)  # Brief delay to ensure trigger is processed
+        self.remove_schedule(schedule_id)
 
     def _load_config(self) -> SchedulerConfig:
         """Load configuration from file."""

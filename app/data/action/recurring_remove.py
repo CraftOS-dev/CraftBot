@@ -2,8 +2,8 @@ from agent_core import action
 
 
 @action(
-    name="proactive_remove",
-    description="Remove a proactive task from PROACTIVE.md. The task will no longer be executed by heartbeat processors. Use this to clean up tasks that are no longer needed.",
+    name="recurring_remove",
+    description="Remove a recurring task from PROACTIVE.md. The task will no longer be executed by heartbeat processors. Use this to clean up tasks that are no longer needed.",
     action_sets=["proactive"],
     input_schema={
         "task_id": {
@@ -27,8 +27,8 @@ from agent_core import action
         }
     }
 )
-def proactive_remove(input_data: dict) -> dict:
-    """Remove a proactive task."""
+def recurring_remove(input_data: dict) -> dict:
+    """Remove a recurring task."""
     from app.proactive import get_proactive_manager
 
     manager = get_proactive_manager()
@@ -54,7 +54,7 @@ def proactive_remove(input_data: dict) -> dict:
             return {
                 "status": "ok",
                 "removed": True,
-                "message": f"Proactive task '{task_name}' (ID: {task_id}) has been removed."
+                "message": f"Recurring task '{task_name}' (ID: {task_id}) has been removed."
             }
         else:
             return {

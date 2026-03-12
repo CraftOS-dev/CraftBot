@@ -237,15 +237,15 @@ async def toggle_schedule_runtime(
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Proactive Tasks
+# Recurring Tasks
 # ─────────────────────────────────────────────────────────────────────
 
-def get_proactive_tasks(
+def get_recurring_tasks(
     proactive_manager,
     frequency: Optional[str] = None,
     enabled_only: bool = False
 ) -> Dict[str, Any]:
-    """Get proactive tasks from PROACTIVE.md.
+    """Get recurring tasks from PROACTIVE.md.
 
     Args:
         proactive_manager: The ProactiveManager instance
@@ -307,11 +307,11 @@ def get_proactive_tasks(
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to get proactive tasks: {str(e)}"
+            "error": f"Failed to get recurring tasks: {str(e)}"
         }
 
 
-def add_proactive_task(
+def add_recurring_task(
     proactive_manager,
     name: str,
     frequency: str,
@@ -324,7 +324,7 @@ def add_proactive_task(
     enabled: bool = True,
     conditions: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """Add a new proactive task.
+    """Add a new recurring task.
 
     Args:
         proactive_manager: The ProactiveManager instance
@@ -380,16 +380,16 @@ def add_proactive_task(
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to add proactive task: {str(e)}"
+            "error": f"Failed to add recurring task: {str(e)}"
         }
 
 
-def update_proactive_task(
+def update_recurring_task(
     proactive_manager,
     task_id: str,
     updates: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Update an existing proactive task.
+    """Update an existing recurring task.
 
     Args:
         proactive_manager: The ProactiveManager instance
@@ -427,12 +427,12 @@ def update_proactive_task(
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to update proactive task: {str(e)}"
+            "error": f"Failed to update recurring task: {str(e)}"
         }
 
 
-def remove_proactive_task(proactive_manager, task_id: str) -> Dict[str, Any]:
-    """Remove a proactive task.
+def remove_recurring_task(proactive_manager, task_id: str) -> Dict[str, Any]:
+    """Remove a recurring task.
 
     Args:
         proactive_manager: The ProactiveManager instance
@@ -460,16 +460,16 @@ def remove_proactive_task(proactive_manager, task_id: str) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to remove proactive task: {str(e)}"
+            "error": f"Failed to remove recurring task: {str(e)}"
         }
 
 
-def toggle_proactive_task(
+def toggle_recurring_task(
     proactive_manager,
     task_id: str,
     enabled: bool
 ) -> Dict[str, Any]:
-    """Toggle a proactive task on/off.
+    """Toggle a recurring task on/off.
 
     Args:
         proactive_manager: The ProactiveManager instance
@@ -479,11 +479,11 @@ def toggle_proactive_task(
     Returns:
         Dict with 'success' or 'error' fields
     """
-    return update_proactive_task(proactive_manager, task_id, {"enabled": enabled})
+    return update_recurring_task(proactive_manager, task_id, {"enabled": enabled})
 
 
-def reset_proactive_tasks() -> Dict[str, Any]:
-    """Reset proactive tasks by restoring PROACTIVE.md from template.
+def reset_recurring_tasks() -> Dict[str, Any]:
+    """Reset recurring tasks by restoring PROACTIVE.md from template.
 
     Returns:
         Dict with 'success', 'content' or 'error' fields
@@ -511,7 +511,7 @@ def reset_proactive_tasks() -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to reset proactive tasks: {str(e)}"
+            "error": f"Failed to reset recurring tasks: {str(e)}"
         }
 
 

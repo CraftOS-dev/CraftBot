@@ -171,78 +171,63 @@ class TriggerQueue:
 
     def _format_sessions_for_routing(
         self,
-        triggers: List[Trigger],
-        task_manager: Optional["TaskManager"] = None,
+        running_tasks: List["Task"],
         event_stream_manager: Optional[Any] = None,
     ) -> str:
-        """Format existing triggers/sessions with rich context for routing prompt.
+        """Format running tasks with rich context for routing prompt.
 
         Args:
-            triggers: List of existing triggers in the queue
-            task_manager: Optional task manager to retrieve task details
+            running_tasks: List of currently running tasks from TaskManager
             event_stream_manager: Optional event stream manager to retrieve recent events
 
         Returns:
             Formatted string with session context for routing decision
         """
-        if not triggers:
+        if not running_tasks:
             return "No existing sessions."
 
         sections = []
-        for i, tr in enumerate(triggers, 1):
-            # Check waiting_for_reply from trigger OR from task state
-            task = task_manager.tasks.get(tr.session_id) if task_manager else None
-            is_waiting = tr.waiting_for_reply
-            # Also check task's waiting state if available
-            if task and hasattr(task, 'waiting_for_user_reply') and task.waiting_for_user_reply:
-                is_waiting = True
-
+        for i, task in enumerate(running_tasks, 1):
+            # Check waiting_for_user_reply state on task
+            is_waiting = getattr(task, 'waiting_for_user_reply', False)
             status = "WAITING FOR REPLY" if is_waiting else "ACTIVE"
-            conversation_id = tr.payload.get("conversation_id", "N/A")
-            platform = tr.payload.get("platform", "default")
 
             lines = [
                 f"--- Session {i} ---",
-                f"Session ID: {tr.session_id}",
+                f"Session ID: {task.id}",
                 f"Status: {status}",
+                f"Task Name: \"{task.name}\"",
+                f"Original Request: \"{task.instruction}\"",
+                f"Mode: {task.mode}",
+                f"Created: {task.created_at}",
             ]
 
-            if task:
-                lines.extend([
-                    f"Task Name: \"{task.name}\"",
-                    f"Original Request: \"{task.instruction}\"",
-                    f"Mode: {task.mode}",
-                    f"Created: {task.created_at}",
-                ])
+            # Todo progress
+            if task.todos:
+                completed = sum(1 for t in task.todos if t.status == "completed")
+                in_progress_todo = next(
+                    (t for t in task.todos if t.status == "in_progress"), None
+                )
+                lines.append(f"Progress: {completed}/{len(task.todos)} todos completed")
+                if in_progress_todo:
+                    lines.append(f"Currently working on: \"{in_progress_todo.content}\"")
 
-                # Todo progress
-                if task.todos:
-                    completed = sum(1 for t in task.todos if t.status == "completed")
-                    in_progress_todo = next(
-                        (t for t in task.todos if t.status == "in_progress"), None
-                    )
-                    lines.append(f"Progress: {completed}/{len(task.todos)} todos completed")
-                    if in_progress_todo:
-                        lines.append(f"Currently working on: \"{in_progress_todo.content}\"")
+            # Get recent events from event stream for this task
+            if event_stream_manager and task.id:
+                try:
+                    stream = event_stream_manager.get_stream_by_id(task.id)
+                    if stream and stream.tail_events:
+                        # Get last 10 events for better routing context
+                        recent_events = stream.tail_events[-10:]
+                        lines.append("Recent Activity:")
+                        for rec in recent_events:
+                            lines.append(f"  - {rec.compact_line()}")
+                except Exception:
+                    pass  # Gracefully handle if event stream not available
 
-                # Get recent events from event stream for this task
-                if event_stream_manager and tr.session_id:
-                    try:
-                        stream = event_stream_manager.get_stream_by_id(tr.session_id)
-                        if stream and stream.tail_events:
-                            # Get last 10 events for better routing context
-                            # (5 was insufficient - file creation events were missed)
-                            recent_events = stream.tail_events[-10:]
-                            lines.append("Recent Activity:")
-                            for rec in recent_events:
-                                # No truncation - full context needed for accurate routing decisions
-                                lines.append(f"  - {rec.compact_line()}")
-                    except Exception:
-                        pass  # Gracefully handle if event stream not available
-            else:
-                # Fallback to trigger description if no task found
-                lines.append(f"Description: \"{tr.next_action_description}\"")
-
+            # Add platform/conversation info if available
+            platform = getattr(task, 'platform', 'default')
+            conversation_id = getattr(task, 'conversation_id', 'N/A')
             lines.append(f"Platform: {platform}")
             lines.append(f"Conversation ID: {conversation_id}")
 
@@ -268,7 +253,11 @@ class TriggerQueue:
         logger.debug(f"\n[PUT] Incoming trigger for session={trig.session_id} (skip_merge={skip_merge})")
         self._print_queue("BEFORE PUT")
 
-        existing_triggers: List[Trigger] = self._heap
+        # Get running tasks from TaskManager (the source of truth for active sessions)
+        # This includes tasks being processed (trigger consumed) AND tasks with queued triggers
+        running_tasks: List["Task"] = []
+        if self._task_manager:
+            running_tasks = [t for t in self._task_manager.tasks.values() if t.status == "running"]
 
         # Skip LLM routing if:
         # 1. Trigger already has a session_id assigned (proceed with that session)
@@ -280,11 +269,10 @@ class TriggerQueue:
 
         if has_session_id:
             logger.debug(f"[PUT] Trigger already has session_id={trig.session_id}, skipping LLM routing")
-        elif len(existing_triggers) > 0 and not skip_merge and not is_system_trigger and self._route_to_session_prompt:
-            # Use unified routing prompt with rich task context
+        elif len(running_tasks) > 0 and not skip_merge and not is_system_trigger and self._route_to_session_prompt:
+            # Use unified routing prompt with rich task context from running tasks
             existing_sessions = self._format_sessions_for_routing(
-                existing_triggers,
-                task_manager=self._task_manager,
+                running_tasks,
                 event_stream_manager=self._event_stream_manager,
             )
 
@@ -324,7 +312,7 @@ class TriggerQueue:
             else:
                 logger.debug(f"[PUT] Creating new session (no match found)")
         else:
-            logger.debug(f"[PUT] Skipping LLM merge (skip_merge={skip_merge}, is_system={is_system_trigger})")
+            logger.debug(f"[PUT] Skipping LLM routing (no_running_tasks={len(running_tasks) == 0}, skip_merge={skip_merge}, is_system={is_system_trigger})")
 
         async with self._cv:
             # find all triggers in heap with same session_id

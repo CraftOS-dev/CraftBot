@@ -4,13 +4,18 @@ Schedule Expression Parser
 
 Parses human-readable schedule expressions and cron expressions.
 
-Supported formats:
+Supported formats (recurring):
 - "every day at 7am"
 - "every day at 3:30pm"
 - "every monday at 9am"
 - "every 3 hours"
 - "every 30 minutes"
 - "0 7 * * *" (cron expression)
+
+Supported formats (one-time):
+- "at 3pm" or "at 3:30pm today"
+- "tomorrow at 9am"
+- "in 2 hours" or "in 30 minutes"
 """
 
 import re
@@ -81,6 +86,31 @@ class ScheduleParser:
         r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$"
     )
 
+    # One-time patterns
+    # Pattern for "at TIME" or "at TIME today"
+    AT_TIME_PATTERN = re.compile(
+        r"^at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+today)?$",
+        re.IGNORECASE
+    )
+
+    # Pattern for "tomorrow at TIME"
+    TOMORROW_PATTERN = re.compile(
+        r"^tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
+        re.IGNORECASE
+    )
+
+    # Pattern for "in N hours"
+    IN_HOURS_PATTERN = re.compile(
+        r"^in\s+(\d+)\s+hours?$",
+        re.IGNORECASE
+    )
+
+    # Pattern for "in N minutes"
+    IN_MINUTES_PATTERN = re.compile(
+        r"^in\s+(\d+)\s+minutes?$",
+        re.IGNORECASE
+    )
+
     @classmethod
     def parse(cls, expression: str) -> ScheduleExpression:
         """
@@ -97,7 +127,7 @@ class ScheduleParser:
         """
         expression = expression.strip()
 
-        # Try human-readable patterns first
+        # Try recurring patterns first
         result = cls._parse_daily(expression)
         if result:
             return result
@@ -115,10 +145,16 @@ class ScheduleParser:
         if result:
             return result
 
+        # Try one-time patterns
+        result = cls._parse_once(expression)
+        if result:
+            return result
+
         raise ScheduleParseError(
             f"Cannot parse schedule expression: '{expression}'. "
             f"Expected formats: 'every day at 7am', 'every monday at 9am', "
-            f"'every 3 hours', 'every 30 minutes', or cron expression like '0 7 * * *'"
+            f"'every 3 hours', 'every 30 minutes', 'at 3pm', 'tomorrow at 9am', "
+            f"'in 2 hours', or cron expression like '0 7 * * *'"
         )
 
     @classmethod
@@ -219,6 +255,73 @@ class ScheduleParser:
         )
 
     @classmethod
+    def _parse_once(cls, expression: str) -> Optional[ScheduleExpression]:
+        """Parse one-time schedule expressions."""
+        now = datetime.now()
+
+        # Try "at TIME" or "at TIME today"
+        match = cls.AT_TIME_PATTERN.match(expression)
+        if match:
+            hour = int(match.group(1))
+            minute = int(match.group(2)) if match.group(2) else 0
+            ampm = match.group(3)
+            hour = cls._convert_to_24h(hour, ampm)
+
+            scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            # If the time has passed today, schedule for tomorrow
+            if scheduled <= now:
+                scheduled += timedelta(days=1)
+
+            return ScheduleExpression(
+                schedule_type="once",
+                raw_expression=expression,
+                fire_at=scheduled.timestamp(),
+            )
+
+        # Try "tomorrow at TIME"
+        match = cls.TOMORROW_PATTERN.match(expression)
+        if match:
+            hour = int(match.group(1))
+            minute = int(match.group(2)) if match.group(2) else 0
+            ampm = match.group(3)
+            hour = cls._convert_to_24h(hour, ampm)
+
+            tomorrow = now + timedelta(days=1)
+            scheduled = tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            return ScheduleExpression(
+                schedule_type="once",
+                raw_expression=expression,
+                fire_at=scheduled.timestamp(),
+            )
+
+        # Try "in N hours"
+        match = cls.IN_HOURS_PATTERN.match(expression)
+        if match:
+            hours = int(match.group(1))
+            fire_at = now.timestamp() + (hours * 3600)
+
+            return ScheduleExpression(
+                schedule_type="once",
+                raw_expression=expression,
+                fire_at=fire_at,
+            )
+
+        # Try "in N minutes"
+        match = cls.IN_MINUTES_PATTERN.match(expression)
+        if match:
+            minutes = int(match.group(1))
+            fire_at = now.timestamp() + (minutes * 60)
+
+            return ScheduleExpression(
+                schedule_type="once",
+                raw_expression=expression,
+                fire_at=fire_at,
+            )
+
+        return None
+
+    @classmethod
     def _convert_to_24h(cls, hour: int, ampm: Optional[str]) -> int:
         """Convert 12-hour time to 24-hour time."""
         if ampm is None:
@@ -266,6 +369,10 @@ class ScheduleParser:
         elif schedule.schedule_type == "cron":
             cron = croniter(schedule.cron_expression, now)
             return cron.get_next(float)
+
+        elif schedule.schedule_type == "once":
+            # One-time schedules have a fixed fire_at time
+            return schedule.fire_at
 
         else:
             raise ValueError(f"Unknown schedule type: {schedule.schedule_type}")
