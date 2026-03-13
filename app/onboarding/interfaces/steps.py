@@ -190,7 +190,7 @@ class AgentNameStep:
         return True, None
 
     def get_default(self) -> str:
-        return "Agent"
+        return "CraftBot"
 
 
 class MCPStep:
