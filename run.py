@@ -44,6 +44,53 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
+def _bootstrap_frozen():
+    """Copy bundled config/data from _MEIPASS to CWD on first run.
+
+    PyInstaller extracts bundled files into a temp directory (sys._MEIPASS)
+    which is read-only and deleted on exit. The app expects mutable config
+    and data directories under CWD so they persist between runs.
+    """
+    if not getattr(sys, 'frozen', False):
+        return
+
+    import shutil as _shutil
+
+    meipass = sys._MEIPASS
+    cwd = os.getcwd()
+
+    # Directories to bootstrap (source relative to _MEIPASS)
+    dirs_to_copy = [
+        "app/config",
+        "app/data",
+        "agents",
+        "assets",
+    ]
+    # Individual files to bootstrap
+    files_to_copy = [
+        "config.json",
+        ".env.example",
+    ]
+
+    for rel_dir in dirs_to_copy:
+        src = os.path.join(meipass, rel_dir)
+        dst = os.path.join(cwd, rel_dir)
+        if os.path.isdir(src) and not os.path.isdir(dst):
+            print(f"  Bootstrapping {rel_dir}/...")
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            _shutil.copytree(src, dst)
+
+    for rel_file in files_to_copy:
+        src = os.path.join(meipass, rel_file)
+        dst = os.path.join(cwd, rel_file)
+        if os.path.isfile(src) and not os.path.isfile(dst):
+            print(f"  Bootstrapping {rel_file}...")
+            _shutil.copy2(src, dst)
+
+
+_bootstrap_frozen()
+
 # --- Configuration ---
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 MAIN_APP_SCRIPT = os.path.join(BASE_DIR, "main.py")

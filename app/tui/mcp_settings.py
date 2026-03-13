@@ -5,11 +5,12 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+from app.config import APP_CONFIG_PATH
 from app.logger import logger
 from app.mcp import MCPConfig, MCPServerConfig
 
 # Default MCP config path
-MCP_CONFIG_PATH = Path("app/config/mcp_config.json")
+MCP_CONFIG_PATH = APP_CONFIG_PATH / "mcp_config.json"
 
 
 def load_mcp_config() -> MCPConfig:

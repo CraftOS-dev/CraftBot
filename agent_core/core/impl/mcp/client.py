@@ -7,6 +7,7 @@ connection management, tool discovery, and action registration.
 """
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,8 +15,20 @@ from agent_core.utils.logger import logger
 from agent_core.core.impl.mcp.config import MCPConfig, MCPServerConfig
 from agent_core.core.impl.mcp.server import MCPServerConnection, MCPTool
 
-# Default config path
-DEFAULT_CONFIG_PATH = Path("app/config/mcp_config.json")
+
+def _default_config_path() -> Path:
+    """Resolve MCP config path relative to the correct base directory."""
+    rel = Path("app") / "config" / "mcp_config.json"
+    if getattr(sys, 'frozen', False):
+        # Prefer CWD (bootstrapped, user-editable) over _MEIPASS (bundled)
+        cwd_path = Path.cwd() / rel
+        if cwd_path.exists():
+            return cwd_path
+        return Path(sys._MEIPASS) / rel
+    return Path(__file__).resolve().parent.parent.parent.parent.parent / rel
+
+
+DEFAULT_CONFIG_PATH = _default_config_path()
 
 
 class MCPClient:
