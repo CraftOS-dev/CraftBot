@@ -636,19 +636,22 @@ def install_nodejs_linux():
         print("  Please restart your terminal and verify: node --version")
         return False
 
-def install_playwright_browser():
+def install_playwright_browser(use_conda: bool = False):
     """Install Playwright Chromium browser for WhatsApp Web support."""
     print("\nInstalling Playwright Chromium browser...")
     try:
-        result = run_command([sys.executable, "-m", "playwright", "install", "chromium"], check=False, capture=True, show_error=False)
+        if use_conda:
+            conda_cmd = get_conda_command()
+            env_name = get_env_name_from_yml()
+            result = run_command([conda_cmd, "run", "-n", env_name, "python", "-m", "playwright", "install", "chromium"], check=False, capture=True, show_error=False)
+        else:
+            result = run_command([sys.executable, "-m", "playwright", "install", "chromium"], check=False, capture=True, show_error=False)
         if result and hasattr(result, 'returncode') and result.returncode == 0:
             print("✓ Playwright Chromium installed")
             return True
         else:
-            # Playwright installation failed, but this is not critical for browser mode
             print("⚠ Warning: Playwright browser installation failed")
             if result and hasattr(result, 'stderr') and result.stderr:
-                # Only show first 300 chars of error
                 error_msg = result.stderr[:300].strip()
                 if error_msg:
                     print(f"  Error details: {error_msg}")
