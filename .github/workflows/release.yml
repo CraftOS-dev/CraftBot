@@ -107,6 +107,18 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        shell: bash
+        run: |
+          cd app/ui_layer/browser/frontend
+          npm install
+          npm run build
+
       - name: Create default config.json
         shell: bash
         run: |
@@ -139,11 +151,13 @@ jobs:
             --additional-hooks-dir hooks \
             --runtime-hook rthooks/rthook-rich-unicode.py \
             --add-data "assets${{ matrix.data_sep }}assets" \
+            --add-data "main.py${{ matrix.data_sep }}." \
             --add-data "config.json${{ matrix.data_sep }}." \
             --add-data ".env.example${{ matrix.data_sep }}." \
             --add-data "requirements.txt${{ matrix.data_sep }}." \
             --add-data "environment.yml${{ matrix.data_sep }}." \
             --add-data "app/data${{ matrix.data_sep }}app/data" \
+            --add-data "app/ui_layer/browser/frontend/dist${{ matrix.data_sep }}app/ui_layer/browser/frontend/dist" \
             --add-data "app/gui/docker-compose.yaml${{ matrix.data_sep }}app/gui" \
             --add-data "app/gui/Dockerfile${{ matrix.data_sep }}app/gui" \
             --add-data "app/gui/custom-cont-init.d${{ matrix.data_sep }}app/gui/custom-cont-init.d" \
