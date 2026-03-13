@@ -141,6 +141,8 @@ jobs:
             --collect-submodules chromadb \
             --hidden-import onnxruntime \
             --hidden-import tokenizers \
+            --collect-data tiktoken_ext \
+            --collect-submodules tiktoken \
             --exclude-module torch \
             --exclude-module torchvision \
             --exclude-module torchaudio \
