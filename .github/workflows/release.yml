@@ -107,6 +107,10 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Create default config.json
+        shell: bash
+        run: echo '{"use_conda": false, "gui_mode_enabled": false}' > config.json
+
       - name: Build with PyInstaller
         shell: bash
         run: |
