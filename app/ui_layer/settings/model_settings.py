@@ -41,7 +41,6 @@ PROVIDER_INFO = {
     "byteplus": {
         "name": "BytePlus",
         "api_key_env": "BYTEPLUS_API_KEY",
-        "base_url_env": "BYTEPLUS_BASE_URL",
         "requires_api_key": True,
     },
     "remote": {
