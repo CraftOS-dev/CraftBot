@@ -38,3 +38,11 @@ debug_images
 **/release
 **/*wwebjs*
 app/data/.usage/*
+
+**/CONVERSATION_HISTORY.md
+**/EVENT_UNPROCESSED.md
+**/EVENT.md
+**/TASK_HISTORY.md
+**/USER.md
+**/onboarding_config.json
+**/config.json
