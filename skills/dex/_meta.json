@@ -1,0 +1,17 @@
+{
+  "owner": "gricha",
+  "slug": "dex",
+  "displayName": "Dex Task Tracking",
+  "latest": {
+    "version": "1.1.0",
+    "publishedAt": 1769215492071,
+    "commit": "https://github.com/clawdbot/skills/commit/1bcd3abedf89240d6a9da0115008ea76ffa047f7"
+  },
+  "history": [
+    {
+      "version": "1.0.0",
+      "publishedAt": 1769214361638,
+      "commit": "https://github.com/clawdbot/skills/commit/e102f481e10a7d1bb48bf45783c6b8fa1c68569a"
+    }
+  ]
+}

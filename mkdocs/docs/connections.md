@@ -1,6 +1,6 @@
 # Connections
 
-White Collar Agent integrates with 9 external services. Each integration has two connection methods:
+CraftBot integrates with 9 external services. Each integration has two connection methods:
 
 - **Invite** (easy) — Add the CraftOS-hosted bot/app to your workspace. No API keys needed.
 - **Login** (advanced) — Bring your own bot token, API key, or OAuth credentials.
@@ -59,7 +59,9 @@ Send messages, list channels/users, search messages, read history, and upload fi
 
 Send messages/photos, get updates, look up chats, and search contacts.
 
-**Available actions:** `send_telegram_message`, `send_telegram_photo`, `get_telegram_updates`, `get_telegram_chat`, `search_telegram_contact`
+**Bot actions:** `send_telegram_bot_message`, `send_telegram_photo`, `get_telegram_updates`, `get_telegram_chat`, `search_telegram_contact`
+
+**User account actions:** `send_telegram_user_message`, `send_telegram_user_file`, `get_telegram_chats`, `read_telegram_messages`, `search_telegram_user_contacts`
 
 ### Connect
 

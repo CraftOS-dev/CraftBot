@@ -1,0 +1,98 @@
+/* AttachmentDisplay Component Styles */
+
+.attachmentContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.thumbnailWrapper {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fileIcon {
+  color: var(--text-secondary);
+}
+
+.iconFallback .fileIcon {
+  display: flex;
+}
+
+.fileInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fileName {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* Pending attachment preview (for files not yet sent) */
+.pendingAttachment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.pendingAttachment .fileName {
+  font-size: var(--text-xs);
+  max-width: 150px;
+}
+
+.removeButton {
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.removeButton:hover {
+  color: var(--color-error);
+}

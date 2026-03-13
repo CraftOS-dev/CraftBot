@@ -12,7 +12,7 @@ EXPECTED_MODE = False
 
 
 def _build_internal_interface_stub() -> tuple[types.ModuleType, type]:
-    module = types.ModuleType("core.internal_action_interface")
+    module = types.ModuleType("app.internal_action_interface")
 
     class InternalActionInterface:  # noqa: D401
         gui_mode = True
@@ -35,7 +35,7 @@ def _prepare_switch_to_cli(
 ) -> PreparedEnv:
     internal_module, interface_cls = _build_internal_interface_stub()
     return PreparedEnv(
-        extra_modules={"core.internal_action_interface": internal_module},
+        extra_modules={"app.internal_action_interface": internal_module},
         context={
             "interface_cls": interface_cls,
         },

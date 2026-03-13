@@ -1,0 +1,59 @@
+/* TopBar Component Styles */
+
+.topBar {
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-3);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.appName {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.logoImage {
+  height: 24px;
+  width: auto;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+}
+
+.statusText {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}

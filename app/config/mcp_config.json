@@ -1,0 +1,2130 @@
+{
+  "mcp_servers": [
+    {
+      "name": "filesystem",
+      "description": "Read, write, and manage files and directories",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ],
+      "env": {},
+      "enabled": true
+    },
+    {
+      "name": "github",
+      "description": "GitHub API integration for repositories, issues, and PRs",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-workspace-mcp",
+      "description": "Full natural language control over Gmail, Calendar, Drive, Docs, Sheets, Tasks, and Contacts. SETUP REQUIRED: (1) git clone https://github.com/taylorwilsdon/google_workspace_mcp, (2) pip install -r requirements.txt, (3) create Google Cloud OAuth Desktop credentials and enable Gmail/Drive/Calendar APIs, (4) update directory path in args.",
+      "transport": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "C:/path/to/google_workspace_mcp",
+        "main.py"
+      ],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "",
+        "USER_GOOGLE_EMAIL": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "gmail-mcp",
+      "description": "Send, search, label, and manage Gmail messages and drafts. SETUP REQUIRED: (1) git clone https://github.com/GongRzhe/Gmail-MCP-Server, (2) npm install, (3) npm run build, (4) create Google Cloud OAuth Desktop credentials and enable Gmail API, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/Gmail-MCP-Server/build/index.js"
+      ],
+      "env": {
+        "GOOGLE_CLIENT_ID": "",
+        "GOOGLE_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "outlook-mcp",
+      "description": "Read, search, send Outlook emails and manage calendar via Microsoft Graph. SETUP REQUIRED: (1) git clone https://github.com/XenoXilus/outlook-mcp, (2) npm install, (3) npm run build, (4) register Azure AD app at portal.azure.com (App registrations > New registration > add Mail.Read/Send, Calendars.ReadWrite permissions), (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/outlook-mcp/server/index.js"
+      ],
+      "env": {
+        "AZURE_CLIENT_ID": "",
+        "AZURE_TENANT_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "ms-teams-mcp",
+      "description": "Post messages and manage channels in Microsoft Teams via Azure Entra ID. SETUP REQUIRED: (1) git clone https://github.com/InditexTech/mcp-teams-server, (2) npm install, (3) npm run build, (4) register Azure AD app with Teams permissions, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-teams-server/dist/index.js"
+      ],
+      "env": {
+        "AZURE_CLIENT_ID": "",
+        "AZURE_CLIENT_SECRET": "",
+        "AZURE_TENANT_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "courier-mcp",
+      "description": "Send notifications across email, SMS, Slack, and push channels via Courier API. Get API key from courier.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@trycourier/mcp-server"
+      ],
+      "env": {
+        "COURIER_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "line-mcp",
+      "description": "Official LINE Bot MCP (npm, no git clone) \u2014 send messages, stickers, and images via LINE Messaging API using @line/line-bot-mcp-server. Easier setup than line-mcp-alt. Get Channel Access Token and Channel Secret from LINE Developers Console (developers.line.biz).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@line/line-bot-mcp-server"
+      ],
+      "env": {
+        "LINE_CHANNEL_ACCESS_TOKEN": "",
+        "LINE_CHANNEL_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "wechat-mcp",
+      "description": "Publish Markdown articles to WeChat Official Accounts. Get App ID and Secret from mp.weixin.qq.com (requires a registered WeChat Official Account).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@wenyan-md/mcp"
+      ],
+      "env": {
+        "WECHAT_APP_ID": "",
+        "WECHAT_APP_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "slack-mcp",
+      "description": "Official Anthropic Slack MCP \u2014 post messages, list channels, and search Slack workspaces via the @modelcontextprotocol/server-slack npm package. No git clone needed. Create a Slack app at api.slack.com/apps, add scopes (channels:read, chat:write, channels:history, groups:read), install to workspace to get Bot Token. Team ID is visible in the Slack URL.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-slack"
+      ],
+      "env": {
+        "SLACK_BOT_TOKEN": "",
+        "SLACK_TEAM_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "discord-mcp",
+      "description": "Basic Discord MCP \u2014 send and read messages via Discord Bot. Simpler than discord-mcp-full; use this for straightforward message send/read. SETUP REQUIRED: (1) git clone https://github.com/v-3/discordmcp, (2) npm install, (3) npm run build, (4) update path in args. Create Discord bot at discord.com/developers/applications and copy the Bot Token.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/discordmcp/build/index.js"
+      ],
+      "env": {
+        "DISCORD_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "discord-mcp-full",
+      "description": "Full-featured Discord MCP \u2014 message CRUD, role management, and guild info. More capabilities than discord-mcp; use this when you need role/guild management. SETUP REQUIRED: (1) git clone https://github.com/aj-geddes/discord-agent-mcp, (2) npm install, (3) npm run build, (4) update path in args. Create bot at discord.com/developers/applications.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/discord-agent-mcp/dist/index.js"
+      ],
+      "env": {
+        "DISCORD_TOKEN": "",
+        "DISCORD_GUILD_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "twilio-mcp",
+      "description": "Send SMS/MMS, make voice calls, and access 1,400+ Twilio API endpoints. Get Account SID, API Key and Secret from console.twilio.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@twilio-labs/mcp"
+      ],
+      "env": {
+        "TWILIO_ACCOUNT_SID": "",
+        "TWILIO_API_KEY": "",
+        "TWILIO_API_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "whatsapp-mcp",
+      "description": "Send and receive WhatsApp messages via the official Cloud API. Get Access Token and Phone Number ID from Meta for Developers (developers.facebook.com > WhatsApp > Getting Started).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@pinkpixel/whatsapp-mcp-server"
+      ],
+      "env": {
+        "WHATSAPP_ACCESS_TOKEN": "",
+        "WHATSAPP_PHONE_NUMBER_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "zoom-mcp",
+      "description": "Manage Zoom meetings, users, and recordings via Zoom API. SETUP REQUIRED: (1) git clone https://github.com/echelon-ai-labs/zoom-mcp, (2) npm install, (3) npm run build, (4) create Zoom OAuth Server-to-Server app at marketplace.zoom.us, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/zoom-mcp/dist/index.js"
+      ],
+      "env": {
+        "ZOOM_ACCOUNT_ID": "",
+        "ZOOM_CLIENT_ID": "",
+        "ZOOM_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "twitter-mcp",
+      "description": "Main Twitter/X MCP (vidhupv/x-mcp) \u2014 post tweets, search timelines, and manage Twitter/X account via API. Use this as the primary option. Get API Keys from developer.twitter.com (Basic plan required for write access).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "x-mcp"
+      ],
+      "env": {
+        "TWITTER_API_KEY": "",
+        "TWITTER_API_SECRET": "",
+        "TWITTER_ACCESS_TOKEN": "",
+        "TWITTER_ACCESS_TOKEN_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "twitter-mcp-alt",
+      "description": "Alternative Twitter/X MCP (DataWhisker) \u2014 extends twitter-mcp with replies, deletes, and image uploads; choose this if you need those extra actions. SETUP REQUIRED: (1) git clone https://github.com/DataWhisker/x-mcp-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/x-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "TWITTER_API_KEY": "",
+        "TWITTER_API_SECRET": "",
+        "TWITTER_ACCESS_TOKEN": "",
+        "TWITTER_ACCESS_TOKEN_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "reddit-mcp",
+      "description": "Main Reddit MCP (netixc) \u2014 retrieve posts, comments, search queries, and saved content via Reddit OAuth. Requires Reddit app credentials. SETUP REQUIRED: (1) git clone https://github.com/netixc/reddit-mcp-server, (2) run uv sync in the folder, (3) update the path in args, (4) create Reddit app at reddit.com/prefs/apps to get credentials.",
+      "transport": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "C:/path/to/reddit-mcp-server",
+        "mcp",
+        "run",
+        "server.py"
+      ],
+      "env": {
+        "REDDIT_CLIENT_ID": "",
+        "REDDIT_CLIENT_SECRET": "",
+        "REDDIT_USERNAME": "",
+        "REDDIT_PASSWORD": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "reddit-mcp-anon",
+      "description": "Anonymous Reddit MCP (karanb192) \u2014 browse posts and comments without any credentials. Alternative to reddit-mcp when you only need read-only public access. No API key needed.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "reddit-mcp-buddy"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "insta-business-mcp",
+      "description": "Main Instagram MCP (jlbadano) \u2014 post images and manage Instagram business account via official Facebook Graph API. More stable than insta-mcp; requires a Facebook Developer App. SETUP REQUIRED: (1) git clone https://github.com/jlbadano/ig-mcp, (2) npm install, (3) npm run build, (4) create Facebook App at developers.facebook.com with instagram_basic and pages_show_list permissions, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/ig-mcp/dist/index.js"
+      ],
+      "env": {
+        "INSTAGRAM_ACCESS_TOKEN": "",
+        "INSTAGRAM_BUSINESS_ACCOUNT_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "insta-mcp",
+      "description": "Alternative Instagram MCP (arjun1194/insta-mcp) \u2014 full account control via username/password login; no Facebook Developer App needed unlike instagram-mcp, but uses unofficial access which may break. No API key needed.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@arjun1194/insta-mcp"
+      ],
+      "env": {
+        "INSTAGRAM_USERNAME": "",
+        "INSTAGRAM_PASSWORD": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "facebook-mcp-server",
+      "description": "Automate Facebook page posting, moderation, and analytics via Facebook Graph API. Get Page Access Token from developers.facebook.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@HagaiHendler/facebook-mcp-server"
+      ],
+      "env": {
+        "FACEBOOK_PAGE_ACCESS_TOKEN": "",
+        "FACEBOOK_PAGE_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "facebook-ads-mcp",
+      "description": "Create and manage Facebook/Meta ad campaigns with reporting. Get Meta User Access Token from developers.facebook.com with ads_management and ads_read permissions.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gomarble-ai/facebook-ads-mcp-server"
+      ],
+      "env": {
+        "META_ACCESS_TOKEN": "",
+        "META_AD_ACCOUNT_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "tiktok-mcp",
+      "description": "TikTok video analysis and content access via TikNeuron API. Get API key from tikneuron.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@Seym0n/tiktok-mcp"
+      ],
+      "env": {
+        "TIKNEURON_MCP_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "tiktok-ads-mcp",
+      "description": "Manage TikTok ad campaigns, budgets, and performance metrics. Get App credentials from business.tiktok.com > Developer > App Management.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ysntony/tiktok-ads-mcp"
+      ],
+      "env": {
+        "TIKTOK_APP_ID": "",
+        "TIKTOK_SECRET": "",
+        "TIKTOK_ACCESS_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "youtube-mcp",
+      "description": "Main YouTube MCP (ZubeidHendricks) \u2014 manage videos, transcripts, channels, and playlists via YouTube Data API v3. Use this as the primary option. Get API key from Google Cloud Console (enable YouTube Data API v3).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "zubeid-youtube-mcp-server"
+      ],
+      "env": {
+        "YOUTUBE_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "youtube-mcp-transcript",
+      "description": "Alternative YouTube MCP (space-cadet/yt-mcp) \u2014 focused on transcript and metadata extraction. Use instead of youtube-mcp if transcript extraction is your primary need. Get API key from Google Cloud Console (enable YouTube Data API v3).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "yt-mcp"
+      ],
+      "env": {
+        "YOUTUBE_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "bilibili-mcp",
+      "description": "Main Bilibili MCP (wangshunnn) \u2014 browse and search Bilibili video content without authentication. Use this as the primary option. No API key required.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@wangshunnn/bilibili-mcp-server"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "bilibili-mcp-full",
+      "description": "Alternative Bilibili MCP (34892002/bilibili-mcp-js) \u2014 extended access including video searching and detail retrieval. Use instead of bilibili-mcp if you need richer video detail data. No API key required.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "bilibili-mcp-js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "tencentcloud-mcp",
+      "description": "Bridges AI code generation and cloud deployment for Tencent Cloud apps. Get Secret ID and Key from console.cloud.tencent.com > Access Management.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cloudbase/cloudbase-mcp"
+      ],
+      "env": {
+        "TENCENT_SECRET_ID": "",
+        "TENCENT_SECRET_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-drive-mcp",
+      "description": "Browse, read, and manage files and folders in Google Drive. SETUP REQUIRED: (1) git clone https://github.com/isaacphi/mcp-gdrive, (2) npm install, (3) npm run build, (4) create Google Cloud OAuth Desktop credentials and enable Drive API, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-gdrive/dist/index.js"
+      ],
+      "env": {
+        "GDRIVE_CREDENTIALS_PATH": "C:/path/to/credentials.json"
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-keep-mcp",
+      "description": "Find, create, update, and manage Google Keep notes. Get Google Master Token via gkeepapi docs: https://gkeepapi.readthedocs.io/en/latest/#obtaining-a-master-token. PREREQ: install uv (pip install uv).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "keep-mcp"
+      ],
+      "env": {
+        "GOOGLE_EMAIL": "",
+        "GOOGLE_MASTER_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-calendar-mcp",
+      "description": "Create, update, and manage Google Calendar events and schedules. SETUP REQUIRED: (1) git clone https://github.com/galacoder/mcp-google-calendar, (2) npm install, (3) npm run build, (4) create Google Cloud OAuth credentials and enable Calendar API, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-google-calendar/dist/index.js"
+      ],
+      "env": {
+        "GOOGLE_CLIENT_ID": "",
+        "GOOGLE_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "apple-notes-mcp",
+      "description": "Main Apple Notes MCP (arslankhanali) \u2014 read and write Apple Notes via AppleScript. Use this as the primary option. macOS ONLY \u2014 will not work on Windows.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/apple-notes-mcp/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "onenote-mcp",
+      "description": "Access OneNote notebooks, create pages, and search notes. No API key \u2014 uses Microsoft device code auth on first run. SETUP REQUIRED: (1) git clone https://github.com/danosb/onenote-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/onenote-mcp/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "icloud-mcp",
+      "description": "Manage iCloud files and notes via AppleScript. macOS ONLY \u2014 will not work on Windows.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/icloud-mcp/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "linear-mcp",
+      "description": "Create and update Linear issues, cycles, and project tracking. SETUP REQUIRED: (1) git clone https://github.com/joshduffy/mcp-servers, (2) navigate to linear folder, (3) npm install and npm run build, (4) get Linear API Key from linear.app/settings/api, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-servers/linear/dist/index.js"
+      ],
+      "env": {
+        "LINEAR_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "personalization-mcp",
+      "description": "Stores user preferences and personalizes agent responses over time. SETUP REQUIRED: (1) git clone https://github.com/YangLiangwei/PersonalizationMCP, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/PersonalizationMCP/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "notion-mcp",
+      "description": "Official Notion integration for reading and writing databases and pages. Get API Key from notion.so/my-integrations (create an internal integration and share your pages with it).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "env": {
+        "NOTION_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "obsidian-mcp",
+      "description": "Main Obsidian MCP (cyanheads/obsidian-mcp-server) \u2014 full CRUD access to a local Obsidian vault via Local REST API plugin. More feature-rich than obsidian-mcp-simple. PREREQ: install the Local REST API plugin inside Obsidian and enable it \u2014 the plugin will show you the API key and base URL.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "obsidian-mcp-server"
+      ],
+      "env": {
+        "OBSIDIAN_API_KEY": "",
+        "OBSIDIAN_BASE_URL": "http://127.0.0.1:27123",
+        "OBSIDIAN_VERIFY_SSL": "false",
+        "OBSIDIAN_ENABLE_CACHE": "true"
+      },
+      "enabled": false
+    },
+    {
+      "name": "todoist-mcp",
+      "description": "Official Todoist integration for managing tasks, projects, and labels. Get API Token from todoist.com/app/settings/integrations/developer.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@doist/todoist-mcp"
+      ],
+      "env": {
+        "TODOIST_API_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "jira-mcp",
+      "description": "Create, update, and query Jira issues and sprints via Atlassian API. Get API Token from id.atlassian.com/manage-profile/security/api-tokens.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cosmix/jira-mcp"
+      ],
+      "env": {
+        "JIRA_URL": "",
+        "JIRA_EMAIL": "",
+        "JIRA_API_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "alpaca-mcp",
+      "description": "Execute stock and crypto trades, get account info, and stream market data via Alpaca. Get API Key and Secret from alpaca.markets (paper trading available for free).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "alpaca-mcp-server"
+      ],
+      "env": {
+        "APCA_API_KEY_ID": "",
+        "APCA_API_SECRET_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "robinhood-mcp",
+      "description": "Trade stocks and options and view portfolio data via Robinhood. Get credentials from your Robinhood account.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@trayders/trayd-mcp"
+      ],
+      "env": {
+        "ROBINHOOD_USERNAME": "",
+        "ROBINHOOD_PASSWORD": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "alpha-vantage-mcp",
+      "description": "Fetch stocks, forex, crypto, and economic indicators via Alpha Vantage. Get free API key from alphavantage.co.",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "alpha_vantage_mcp"
+      ],
+      "env": {
+        "ALPHA_VANTAGE_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "yahoo-finance-mcp",
+      "description": "Retrieve stock prices, historical data, market dashboards, and portfolio reports from Yahoo Finance. No API key required. PREREQ: install uv (pip install uv).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "mcp-yahoo-finance"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "mcp-finance",
+      "description": "Multi-source finance data aggregator for stocks, news, and fundamentals. No API key required. SETUP REQUIRED: (1) git clone https://github.com/nimitmk7/mcp-finance, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/mcp-finance/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "tradingview-mcp",
+      "description": "Real-time crypto and stock market analysis with technical pattern detection and indicators via TradingView. No API key needed (uses public data). PREREQ: install uv (pip install uv).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "tradingview-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "sec-edgar-mcp",
+      "description": "Search and retrieve SEC filings, 10-K/10-Q reports, and company data. No API key required (public EDGAR).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "sec-edgar-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "octagon-sec-mcp",
+      "description": "AI-powered SEC filing analysis and financial intelligence. Get API key from octagonai.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@octagonai/octagon-sec-filings-mcp"
+      ],
+      "env": {
+        "OCTAGON_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "polymarket-mcp",
+      "description": "Trade and query prediction markets on Polymarket via API. Get API key from polymarket.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@caiovicentino/polymarket-mcp-server"
+      ],
+      "env": {
+        "POLYMARKET_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "prediction-markets-mcp",
+      "description": "Read public prediction market data from Polymarket and Kalshi (read-only). No API key required. SETUP REQUIRED: (1) git clone https://github.com/JamesANZ/prediction-market-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/prediction-market-mcp/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "kalshi-mcp",
+      "description": "Trade and query regulated prediction markets on Kalshi. Get API Key and RSA key from kalshi.com/account/api.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@9crusher/mcp-server-kalshi"
+      ],
+      "env": {
+        "KALSHI_API_KEY": "",
+        "KALSHI_RSA_PRIVATE_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "binance-mcp",
+      "description": "Fetch spot prices, account balances, and place orders on Binance. Get API Key and Secret from binance.com > Account > API Management.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@todmy/binance-mcp"
+      ],
+      "env": {
+        "BINANCE_API_KEY": "",
+        "BINANCE_API_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "bybit-mcp",
+      "description": "Trade futures/spot and query market data on Bybit exchange. Get API Key and Secret from bybit.com > Account > API. SETUP REQUIRED: (1) git clone https://github.com/dlwjdtn535/mcp-bybit-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-bybit-server/dist/index.js"
+      ],
+      "env": {
+        "BYBIT_API_KEY": "",
+        "BYBIT_API_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "hyperliquid-mcp",
+      "description": "Trade perpetual futures on Hyperliquid DEX. SETUP REQUIRED: (1) git clone https://github.com/TradingBalthazar/hyperliquid-mcp-server-v6, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/hyperliquid-mcp-server-v6/dist/index.js"
+      ],
+      "env": {
+        "HYPERLIQUID_PRIVATE_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "okx-mcp",
+      "description": "Fetch cryptocurrency price data from OKX exchange (read-only). No API key required for public price data.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@badger3000/okx-mcp-server"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "coingecko-mcp",
+      "description": "Get crypto prices, market caps, and trending coins via CoinGecko API. No API key required (public API).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@hott-j/coingecko-mcp-server"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "coinmarketcap-mcp",
+      "description": "Fetch crypto market data and rankings via CoinMarketCap API. Get free API key from coinmarketcap.com/api.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@0xanpham/my-crypto-mcp"
+      ],
+      "env": {
+        "COINMARKETCAP_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "defillama-mcp",
+      "description": "Query DeFi protocol TVL, yields, and chain analytics from DefiLlama. No API key required (public API).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@dcspark/mcp-server-defillama"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "dexpaprika-mcp",
+      "description": "Fetch DEX trading pairs, prices, and liquidity data across chains. No API key required (public API).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@coinpaprika/dexpaprika-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "funding-rates-mcp",
+      "description": "Monitor futures funding rates across major crypto exchanges. No API key required (public exchange data).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kukapay/funding-rates-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "fear-greed-mcp",
+      "description": "Fetch the Crypto Fear & Greed Index for market sentiment analysis. No API key required (public index).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kukapay/crypto-feargreed-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "crypto-indicators-mcp",
+      "description": "Calculate technical indicators (RSI, MACD, Bollinger Bands) for crypto. No API key required (public data).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kukapay/crypto-indicators-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "etf-flow-mcp",
+      "description": "Track Bitcoin and crypto ETF inflows and outflows. No API key required (public data).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kukapay/etf-flow-mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "crypto-portfolio-mcp",
+      "description": "Manage and track cryptocurrency portfolio performance. Get API key from the service provider.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kukapay/crypto-portfolio-mcp"
+      ],
+      "env": {
+        "CRYPTO_PORTFOLIO_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "crypto-sentiment-mcp",
+      "description": "Analyze social media and market sentiment for cryptocurrencies. Get API key from the service provider.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kukapay/crypto-sentiment-mcp"
+      ],
+      "env": {
+        "CRYPTO_SENTIMENT_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "ynab-mcp",
+      "description": "Read budgets, transactions, and category balances from YNAB. Get Personal Access Token from app.ynab.com/settings/developer.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/ynab-mcp/dist/index.js"
+      ],
+      "env": {
+        "YNAB_API_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "actual-budget-mcp",
+      "description": "Query and update transactions in a self-hosted Actual Budget instance. No API key required (local instance). SETUP REQUIRED: (1) git clone https://github.com/s-stefanov/actual-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/actual-mcp/dist/index.js"
+      ],
+      "env": {
+        "ACTUAL_SERVER_URL": "http://localhost:5006",
+        "ACTUAL_PASSWORD": "",
+        "ACTUAL_BUDGET_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "lunchmoney-mcp",
+      "description": "Manage transactions and budgets in Lunchmoney personal finance app. Get API key from my.lunchmoney.app/developers.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@leafeye/lunchmoney-mcp-server"
+      ],
+      "env": {
+        "LUNCHMONEY_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "xero-mcp",
+      "description": "Manage invoices, contacts, and accounting data via Xero OAuth. Register an app at developer.xero.com to get Client ID and Secret.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@xeroapi/xero-mcp-server"
+      ],
+      "env": {
+        "XERO_CLIENT_ID": "",
+        "XERO_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "postgresql-mcp",
+      "description": "PostgreSQL database access with schema inspection, query tuning, and index analysis. Set DATABASE_URI to your connection string (postgresql://user:password@host:5432/dbname). PREREQ: uv installed (pip install uv).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "postgres-mcp"
+      ],
+      "env": {
+        "DATABASE_URI": "postgresql://user:password@localhost:5432/mydb"
+      },
+      "enabled": false
+    },
+    {
+      "name": "stripe-mcp",
+      "description": "Create charges, manage customers, and query Stripe payment data. Get Secret Key from dashboard.stripe.com/apikeys.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@stripe/agent-toolkit"
+      ],
+      "env": {
+        "STRIPE_SECRET_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "hass-mcp",
+      "description": "Streamlined Home Assistant MCP (voska/hass-mcp, uvx install) \u2014 query device states, control entities, and manage automations. Easiest to install via uvx; use this as the default HA option. Get long-lived token from HA: Profile > Security > Long-Lived Access Tokens. PREREQ: install uv (pip install uv).",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "hass-mcp"
+      ],
+      "env": {
+        "HA_URL": "http://homeassistant.local:8123",
+        "HA_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "home-assistant-mcp",
+      "description": "Alternative Home Assistant MCP (tevonsb) \u2014 control lights, switches, and automations. Similar to hass-mcp but requires git clone; use if hass-mcp doesn't work for your HA version. SETUP REQUIRED: (1) git clone https://github.com/tevonsb/homeassistant-mcp, (2) npm install, (3) npm run build, (4) update path in args. Get long-lived token from HA Profile > Security > Long-Lived Access Tokens.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/homeassistant-mcp/dist/index.js"
+      ],
+      "env": {
+        "HA_URL": "http://homeassistant.local:8123",
+        "HA_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "advanced-ha-mcp",
+      "description": "Advanced Home Assistant MCP (jango-blockchained) \u2014 goes beyond hass-mcp and home-assistant-mcp with scripting, automation creation/editing, and full device management. Use this when you need to create or edit automations, not just trigger them. SETUP REQUIRED: (1) git clone https://github.com/jango-blockchained/advanced-homeassistant-mcp, (2) npm install, (3) npm run build, (4) update path in args. Get long-lived token from HA Profile.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/advanced-homeassistant-mcp/dist/index.js"
+      ],
+      "env": {
+        "HA_URL": "http://homeassistant.local:8123",
+        "HA_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "iot-mcp",
+      "description": "Control local IoT devices over MQTT or HTTP on a home network. No API key needed (local network). SETUP REQUIRED: (1) git clone https://github.com/jordy33/iot_mcp_server, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/iot_mcp_server/server.py"
+      ],
+      "env": {
+        "MQTT_BROKER": "localhost",
+        "MQTT_PORT": "1883"
+      },
+      "enabled": false
+    },
+    {
+      "name": "esp-rainmaker-mcp",
+      "description": "Control ESP RainMaker IoT devices via AI. SETUP REQUIRED: (1) git clone https://github.com/espressif/esp-rainmaker-mcp, (2) run 'uv run esp-rainmaker-cli login' once to store credentials, (3) update path in args.",
+      "transport": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "esp-rainmaker-cli",
+        "--with",
+        "mcp[cli]",
+        "mcp",
+        "run",
+        "C:/path/to/esp-rainmaker-mcp/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "whoop-mcp",
+      "description": "WHOOP recovery, sleep, strain, and biometric data. NOTE: this server runs as a local HTTP/SSE server on port 3000, not stdio. You must run it separately: git clone https://github.com/JedPattersonn/whoop-mcp, bun install, then bun run start. Connect to it at http://localhost:3000/mcp via HTTP transport instead.",
+      "transport": "stdio",
+      "command": "bun",
+      "args": [
+        "run",
+        "start",
+        "--cwd",
+        "C:/path/to/whoop-mcp"
+      ],
+      "env": {
+        "WHOOP_EMAIL": "",
+        "WHOOP_PASSWORD": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "oura-mcp",
+      "description": "Main Oura Ring MCP (rajvirtual) \u2014 access sleep, activity, and readiness scores. Use this as the primary option. Get Personal Access Token from cloud.ouraring.com/personal-access-tokens. SETUP REQUIRED: (1) git clone https://github.com/rajvirtual/oura-mcp-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/oura-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "OURA_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "apple-health-mcp",
+      "description": "Analyze Apple Health exports for steps, sleep, heart rate, and workouts. macOS ONLY \u2014 will not work on Windows.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/apple-health-mcp-server/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "open-wearables-mcp",
+      "description": "Self-hosted platform unifying wearable health data (Apple Health, Samsung Health Connect, Garmin, Polar, Suunto, Whoop) into one AI-ready API with a built-in MCP server. SETUP REQUIRED: git clone https://github.com/the-momentum/open-wearables, then docker compose up. Access MCP via the local server after setup.",
+      "transport": "stdio",
+      "command": "docker",
+      "args": [
+        "compose",
+        "up",
+        "--project-directory",
+        "C:/path/to/open-wearables"
+      ],
+      "env": {
+        "ADMIN_EMAIL": "admin@admin.com",
+        "ADMIN_PASSWORD": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "garmin-mcp-alt",
+      "description": "Garmin Connect MCP (eddmann) \u2014 22 tools for activities, health/sleep/HRV, training analysis, activity comparison, write support (log health data, manage weight), MCP resources and prompts. SETUP REQUIRED: (1) git clone https://github.com/eddmann/garmin-connect-mcp, (2) npm install, (3) npm run build, (4) update path in args. Uses Garmin Connect credentials.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/garmin-connect-mcp/dist/index.js"
+      ],
+      "env": {
+        "GARMIN_EMAIL": "",
+        "GARMIN_PASSWORD": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "fitbit-mcp",
+      "description": "Fetch Fitbit activity, sleep, and heart rate data via Fitbit OAuth. Register an app at dev.fitbit.com to get Client ID and Secret.",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "fitbit-mcp"
+      ],
+      "env": {
+        "FITBIT_CLIENT_ID": "",
+        "FITBIT_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "playwright-mcp",
+      "description": "Official Microsoft Playwright MCP \u2014 automate any browser, fill forms, click, screenshot, scrape any website. Use this as the primary option. No API key needed.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "env": {},
+      "enabled": true
+    },
+    {
+      "name": "firecrawl-mcp",
+      "description": "Crawl and scrape any website into clean Markdown \u2014 use this for news sites (CNN, BBC, Straits Times, etc.) by passing their URLs. Sign up at firecrawl.dev for a free API key.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "firecrawl-mcp"
+      ],
+      "env": {
+        "FIRECRAWL_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "browserbase-mcp",
+      "description": "Cloud browser automation with persistent sessions via BrowserBase. Sign up at browserbase.com to get API key and project ID.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "@browserbasehq/mcp-server-browserbase"
+      ],
+      "env": {
+        "BROWSERBASE_API_KEY": "",
+        "BROWSERBASE_PROJECT_ID": "",
+        "GEMINI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-scholar-mcp",
+      "description": "Search and retrieve academic papers from Google Scholar. No API key needed. SETUP REQUIRED: (1) git clone https://github.com/JackKuo666/Google-Scholar-MCP-Server, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/Google-Scholar-MCP-Server/google_scholar_server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "google-maps-mcp",
+      "description": "Main Google Maps MCP (Garblesnarff) \u2014 location search, directions, places, and distance matrix. Use this as the primary option. SETUP REQUIRED: (1) git clone https://github.com/Garblesnarff/google-maps-mcp, (2) npm install, (3) npm run build, (4) update path in args. Get API key from console.cloud.google.com (enable Maps, Places, Directions APIs).",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/google-maps-mcp/dist/index.js"
+      ],
+      "env": {
+        "GOOGLE_MAPS_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-flights-mcp",
+      "description": "Main Google Flights MCP (opspawn) \u2014 search flight prices and schedules via Google Flights public data. Use this as the primary option. No API key needed. SETUP REQUIRED: (1) git clone https://github.com/opspawn/Google-Flights-MCP-Server, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/Google-Flights-MCP-Server/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "google-flights-mcp-alt",
+      "description": "Alternative Google Flights MCP (smamidipaka6) \u2014 same Google Flights public data with a different implementation. Use if google-flights-mcp doesn't work for your setup. No API key needed. SETUP REQUIRED: (1) git clone https://github.com/smamidipaka6/flights-mcp-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/flights-mcp-server/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "amadeus-hotels-mcp",
+      "description": "Search and book hotels via Amadeus Hotel APIs. Get API Key and Secret from developers.amadeus.com (free test account available).",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/amadeus-mcp/dist/index.js"
+      ],
+      "env": {
+        "AMADEUS_API_KEY": "",
+        "AMADEUS_API_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "booking-mcp",
+      "description": "Booking.com accommodation search and booking integration. Get API key from booking.com developer portal.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@emilytha/booking-mcp-server"
+      ],
+      "env": {
+        "BOOKING_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "agoda-api-mcp",
+      "description": "Universal GraphQL/REST API-to-MCP bridge from Agoda \u2014 auto schema introspection, DuckDB SQL post-processing, recipe caching. Requires OpenAI API key plus target API auth. SETUP REQUIRED: (1) git clone https://github.com/agoda-com/api-agent, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/api-agent/dist/index.js"
+      ],
+      "env": {
+        "OPENAI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "openweathermap-mcp",
+      "description": "Fetch current weather and forecasts via OpenWeatherMap API. Get free API key from openweathermap.org/api.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@jezweb/weather-mcp-server"
+      ],
+      "env": {
+        "OPENWEATHERMAP_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "spotify-mcp",
+      "description": "Main Spotify MCP (varunneal) \u2014 control playback, search music, and manage playlists. Use this as the primary option. Requires Spotify Premium. Register an app at developer.spotify.com to get Client ID and Secret.",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "spotify-mcp"
+      ],
+      "env": {
+        "SPOTIFY_CLIENT_ID": "",
+        "SPOTIFY_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "spotify-mcp-full",
+      "description": "Alternative Spotify MCP (marcelmarais) \u2014 extends spotify-mcp with queue management and recommendations; choose this if you need queue control or recommendation features. Requires Spotify Premium. SETUP REQUIRED: (1) git clone https://github.com/marcelmarais/spotify-mcp-server, (2) npm install, (3) npm run build, (4) update path in args. Register app at developer.spotify.com.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/spotify-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "SPOTIFY_CLIENT_ID": "",
+        "SPOTIFY_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "netflix-mcp",
+      "description": "Query Netflix-style content catalog and get AI-powered show recommendations. No API key (uses local dataset). SETUP REQUIRED: (1) git clone https://github.com/AshutoshRavindraIwale/Netflix_Context_agent, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/Netflix_Context_agent/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "twitch-mcp",
+      "description": "Fetch live stream info, channel data, and clips from Twitch API. Get App ID and Secret from dev.twitch.tv/console.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mdombrov-33/twitch-mcp-server"
+      ],
+      "env": {
+        "TWITCH_CLIENT_ID": "",
+        "TWITCH_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "steam-mcp",
+      "description": "Browse Steam game library, reviews, and player statistics. Get Web API Key from steamcommunity.com/dev/apikey.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@algorhythmic/steam-mcp"
+      ],
+      "env": {
+        "STEAM_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "soundcloud-mcp",
+      "description": "Search and retrieve SoundCloud tracks and playlists via public API. No API key required.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ag2-mcp-servers/soundcloud-public-api"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "video-extraction-mcp",
+      "description": "Extract and analyze video content using vision models. Requires OpenAI API key for vision analysis. Get key from platform.openai.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@SealinGp/mcp-video-extraction"
+      ],
+      "env": {
+        "OPENAI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "what2watch-mcp",
+      "description": "Get real-time TV schedules and free streaming channel recommendations. Requires email magic link auth. SETUP REQUIRED: (1) git clone https://github.com/lio1204/what2watch-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/what2watch-mcp/dist/index.js"
+      ],
+      "env": {
+        "WHAT2WATCH_EMAIL": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "plex-mcp",
+      "description": "Browse and control your Plex media server library and playback. Get Plex Token from app.plex.tv/desktop > Account > Plex Web > request token.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@vladimir-tutin/plex-mcp-server"
+      ],
+      "env": {
+        "PLEX_TOKEN": "",
+        "PLEX_URL": "http://localhost:32400"
+      },
+      "enabled": false
+    },
+    {
+      "name": "jellyfin-mcp",
+      "description": "Browse and control an open-source Jellyfin self-hosted media server. No API key required (local server). SETUP REQUIRED: (1) git clone https://github.com/ag2-mcp-servers/jellyfin-api, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/jellyfin-api/dist/index.js"
+      ],
+      "env": {
+        "JELLYFIN_URL": "http://localhost:8096",
+        "JELLYFIN_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "elevenlabs-mcp",
+      "description": "Official ElevenLabs MCP \u2014 TTS, voice cloning, audio transcription, and conversational AI agents. Get API key from elevenlabs.io.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@elevenlabs/elevenlabs-mcp"
+      ],
+      "env": {
+        "ELEVENLABS_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "mcp-tts",
+      "description": "Multi-provider text-to-speech: ElevenLabs, Google TTS, and OpenAI TTS in one server. Requires API key for chosen provider.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@blacktop/mcp-tts"
+      ],
+      "env": {
+        "TTS_PROVIDER": "openai",
+        "OPENAI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "minimax-mcp",
+      "description": "TTS, image generation, and video generation via MiniMax AI APIs. Get API key from minimaxi.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@minimax-ai/minimax-mcp"
+      ],
+      "env": {
+        "MINIMAX_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "ffmpeg-mcp-advanced",
+      "description": "Advanced FFmpeg MCP (dubnium0) \u2014 40+ tools for video/audio processing, analysis, and streaming. Most feature-rich of the FFmpeg options; use when you need advanced processing or streaming. No API key (local FFmpeg). PREREQ: FFmpeg installed. SETUP REQUIRED: (1) git clone https://github.com/dubnium0/ffmpeg-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/ffmpeg-mcp-advanced/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "mcp-video-converter",
+      "description": "Convert video, audio, and image files between formats (MP4, WebM, MOV, MP3, PNG). No API key (local FFmpeg). PREREQ: FFmpeg installed. SETUP REQUIRED: (1) git clone https://github.com/adamanz/mcp-video-converter, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-video-converter/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "mcp-media-processor",
+      "description": "Node.js MCP for video and image processing operations. No API key (local FFmpeg). PREREQ: FFmpeg installed.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@maoxiaoke/mcp-media-processor"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "easyocr-mcp",
+      "description": "Local OCR via EasyOCR \u2014 supports multiple languages, no API key required. PREREQ: Python and easyocr package installed. SETUP REQUIRED: (1) git clone https://github.com/WindoC/easyocr-mcp, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/easyocr-mcp/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "gemini-ocr-mcp",
+      "description": "OCR powered by Google Gemini \u2014 extract text from images and base64-encoded data. Get API key from aistudio.google.com.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/gemini-ocr-mcp/server.py"
+      ],
+      "env": {
+        "GOOGLE_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "mistral-ocr-mcp",
+      "description": "Document OCR via Mistral OCR API for high-accuracy text extraction from images and PDFs. Get API key from console.mistral.ai.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/mistral-ocr-mcp/server.py"
+      ],
+      "env": {
+        "MISTRAL_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "openai-ocr-mcp",
+      "description": "Text extraction from images via OpenAI vision models. Get API key from platform.openai.com.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/openai-ocr-mcp/server.py"
+      ],
+      "env": {
+        "OPENAI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "amazon-mcp",
+      "description": "Main Amazon MCP (fewsats) \u2014 search Amazon products and complete purchases via Fewsats micropayments. Requires a Fewsats API key. Get API key from fewsats.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@fewsats/amazon-mcp"
+      ],
+      "env": {
+        "FEWSATS_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "ebay-mcp",
+      "description": "Comprehensive eBay Sell APIs \u2014 inventory, orders, marketing, analytics (325 tools). Get access token from developer.ebay.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@YosefHayim/ebay-mcp"
+      ],
+      "env": {
+        "EBAY_ACCESS_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "etsy-mcp-server",
+      "description": "Main Etsy MCP (georgejeffers) \u2014 manage listings, shop details, shipping profiles, and image uploads. Use this as the primary option. Get API key from developer.etsy.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@georgejeffers/etsy-mcp-server"
+      ],
+      "env": {
+        "ETSY_API_KEY": "",
+        "ETSY_CLIENT_SECRET": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "shopify-mcp",
+      "description": "Manage Shopify store products, orders, customers, and inventory. Get Access Token from partners.shopify.com or your store admin > Apps > Private apps.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@geli2001/shopify-mcp"
+      ],
+      "env": {
+        "SHOPIFY_ACCESS_TOKEN": "",
+        "SHOPIFY_SHOP_DOMAIN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "bitwarden-mcp",
+      "description": "Securely retrieve credentials from Bitwarden vault. PREREQ: Bitwarden CLI must be installed and unlocked. Run 'bw unlock --raw' in terminal and paste the output as BW_SESSION. Download CLI from bitwarden.com/help/cli.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bitwarden/mcp-server"
+      ],
+      "env": {
+        "BW_SESSION": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "sentry-mcp",
+      "description": "Query errors, performance issues, and release health data from Sentry. Get Auth Token from sentry.io/settings/account/api/auth-tokens.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@sentry/mcp-server"
+      ],
+      "env": {
+        "SENTRY_AUTH_TOKEN": "",
+        "SENTRY_ORG": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "kubernetes-mcp",
+      "description": "Manage Kubernetes clusters, pods, deployments, and services. PREREQ: kubectl configured with a valid kubeconfig. SETUP REQUIRED: (1) git clone https://github.com/containers/kubernetes-mcp-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/kubernetes-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "KUBECONFIG": "C:/Users/Admin/.kube/config"
+      },
+      "enabled": false
+    },
+    {
+      "name": "onepassword-mcp",
+      "description": "Retrieve credentials and secrets from 1Password via service account token. Get Service Account Token from 1password.com/settings/service-accounts.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-servers/experimental/onepassword/dist/index.js"
+      ],
+      "env": {
+        "OP_SERVICE_ACCOUNT_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "shodan-mcp-full",
+      "description": "Full-featured Shodan MCP (ADEOSec) \u2014 extends shodan-mcp with CVE lookup and vulnerability scanning. Use this when you need vuln/CVE data on top of device search. Get API key from shodan.io/dashboard. SETUP REQUIRED: (1) git clone https://github.com/ADEOSec/mcp-shodan, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-shodan/dist/index.js"
+      ],
+      "env": {
+        "SHODAN_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "virustotal-mcp",
+      "description": "Scan files, URLs, and IPs for malware and threats via VirusTotal. Get free API key from virustotal.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@burtthecoder/mcp-virustotal"
+      ],
+      "env": {
+        "VIRUSTOTAL_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "cloudflare-mcp",
+      "description": "Manage Cloudflare Workers, DNS, KV store, R2, and analytics via official MCP. Get API Token from dash.cloudflare.com/profile/api-tokens.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cloudflare/mcp-server-cloudflare"
+      ],
+      "env": {
+        "CLOUDFLARE_API_TOKEN": "",
+        "CLOUDFLARE_ACCOUNT_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "aws-s3-mcp",
+      "description": "List buckets, read, write, and delete objects in AWS S3. Set AWS credentials via environment variables or AWS credentials file.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@txn2/mcp-s3"
+      ],
+      "env": {
+        "AWS_ACCESS_KEY_ID": "",
+        "AWS_SECRET_ACCESS_KEY": "",
+        "AWS_REGION": "us-east-1"
+      },
+      "enabled": false
+    },
+    {
+      "name": "kali-mcp",
+      "description": "Access Kali Linux security tools for authorized penetration testing. Requires a local Kali Linux instance.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-kali-server"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "splunk-mcp",
+      "description": "Search Splunk logs, run SPL queries, and manage alerts and dashboards. Get API Token from your Splunk instance settings. SETUP REQUIRED: (1) git clone https://github.com/splunk/splunk-mcp-server2, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/splunk-mcp-server2/dist/index.js"
+      ],
+      "env": {
+        "SPLUNK_URL": "",
+        "SPLUNK_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "figma-mcp",
+      "description": "Official Figma MCP \u2014 read design files and extract components via the official Figma MCP server. Use this as the primary option. Get Personal Access Token from figma.com > Account Settings > Personal access tokens.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@figma/mcp"
+      ],
+      "env": {
+        "FIGMA_PERSONAL_ACCESS_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "figma-context-mcp",
+      "description": "Alternative Figma MCP (GLips/Figma-Context-MCP) \u2014 provides design context and layout data specifically tailored for AI coding assistants. Use instead of figma-mcp if you're feeding design data into code generation workflows. Get Personal Access Token from figma.com > Account Settings > Personal access tokens. SETUP REQUIRED: (1) git clone https://github.com/GLips/Figma-Context-MCP, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/Figma-Context-MCP/dist/index.js"
+      ],
+      "env": {
+        "FIGMA_PERSONAL_ACCESS_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "replicate-mcp",
+      "description": "Run any of Replicate's 1,000+ AI models including image, video, and audio. Get API Token from replicate.com/account/api-tokens.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@replicate/mcp-server"
+      ],
+      "env": {
+        "REPLICATE_API_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "stability-ai-mcp",
+      "description": "Generate, edit, and upscale images using Stability AI's Stable Diffusion models. Get API key from platform.stability.ai.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-server-stability-ai/dist/index.js"
+      ],
+      "env": {
+        "STABILITY_AI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "huggingface-mcp",
+      "description": "Run inference on thousands of HuggingFace-hosted AI models. Get API Token from huggingface.co/settings/tokens.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/huggingface-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "HUGGINGFACE_API_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "canva-mcp",
+      "description": "Create designs, edit templates, and manage brand assets via Canva API. Get API key from canva.com/developers.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@universal-mcp/canva"
+      ],
+      "env": {
+        "CANVA_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "drawio-mcp",
+      "description": "Official Draw.io MCP (jgraph/@drawio/mcp, npm) \u2014 open, create, and edit diagrams directly in the draw.io desktop editor. Official package, easiest to install. No API key required.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@drawio/mcp"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "drawio-mcp-alt",
+      "description": "Alternative Draw.io MCP (Sujimoshi) \u2014 programmatically create and edit diagrams node-by-node with batch operations. Use when you want Claude to build diagram structure from scratch (add_nodes, link_nodes, edit_nodes, remove_nodes, get_diagram_info). Outputs .drawio.svg files compatible with VSCode draw.io extension. No API key required. SETUP REQUIRED: (1) git clone https://github.com/Sujimoshi/drawio-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/drawio-mcp/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "photoshop-mcp",
+      "description": "Interface with Adobe Photoshop via Python API for AI-driven image editing and workflow automation. PREREQ: Adobe Photoshop installed. SETUP REQUIRED: (1) git clone https://github.com/loonghao/photoshop-python-api-mcp-server, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/photoshop-python-api-mcp-server/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "gimp-mcp",
+      "description": "Integrate AI models with GIMP for open-source image editing and manipulation. PREREQ: GIMP installed. No API key required. SETUP REQUIRED: (1) git clone https://github.com/libreearth/gimp-mcp, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/gimp-mcp/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "imagegen-mcp",
+      "description": "Text-to-image and image-to-image editing via OpenAI DALL-E 2/3 and gpt-image-1. Get API key from platform.openai.com.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@spartanz51/imagegen-mcp"
+      ],
+      "env": {
+        "OPENAI_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "blender-mcp",
+      "description": "Base Blender MCP (ahujasid) \u2014 connect Claude to Blender for 3D modeling with PolyHaven assets, Sketchfab models, AI model generation (Hyper3D/Hunyuan3D), viewport screenshots, and remote host support. Use this for asset-heavy creative work. PREREQ: Blender installed + Blender addon from repo. SETUP REQUIRED: (1) git clone https://github.com/ahujasid/blender-mcp, (2) pip install -r requirements.txt, (3) install Blender addon, (4) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/blender-mcp/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "blender-mcp-full",
+      "description": "Full-featured Blender MCP (poly-mcp) \u2014 51 tools with complete 3D workflow automation, boolean ops, materials, and modifiers. More powerful than blender-mcp; use when you need advanced material/modifier control. PREREQ: Blender installed + Blender addon from repo. SETUP REQUIRED: (1) git clone https://github.com/poly-mcp/Blender-MCP-Server, (2) npm install, (3) npm run build, (4) install Blender addon, (5) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/Blender-MCP-Server/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "blender-mcp-local",
+      "description": "Local-AI Blender MCP (dhakalnirajan) \u2014 controls Blender via Ollama local models instead of external APIs. Use this if you want fully offline/local AI-driven 3D modeling with no API costs. PREREQ: Blender + Ollama + Blender addon from repo. SETUP REQUIRED: (1) git clone https://github.com/dhakalnirajan/blender-open-mcp, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/blender-open-mcp/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "posthog-mcp",
+      "description": "Query PostHog product analytics events, funnels, and feature flags. Get API key from app.posthog.com/settings.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@posthog/mcp"
+      ],
+      "env": {
+        "POSTHOG_API_KEY": "",
+        "POSTHOG_HOST": "https://app.posthog.com"
+      },
+      "enabled": false
+    },
+    {
+      "name": "mixpanel-mcp",
+      "description": "Analyze Mixpanel user behavior, funnels, and retention cohorts. Get API Key from mixpanel.com/settings/project. SETUP REQUIRED: (1) git clone https://github.com/moonbirdai/mixpanel-mcp-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mixpanel-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "MIXPANEL_API_KEY": "",
+        "MIXPANEL_PROJECT_ID": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "amplitude-mcp",
+      "description": "Search Amplitude charts, dashboards, and experiment results. Get API key from analytics.amplitude.com/settings/api-keys. SETUP REQUIRED: (1) git clone https://github.com/silviorodrigues/amplitude-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/amplitude-mcp/dist/index.js"
+      ],
+      "env": {
+        "AMPLITUDE_API_KEY": "",
+        "AMPLITUDE_SECRET_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "uspto-mcp",
+      "description": "Search patents, trademarks, and IP data across 6 USPTO data sources (51 tools). No API key required (public USPTO API). SETUP REQUIRED: (1) git clone https://github.com/riemannzeta/patent_mcp_server, (2) pip install -r requirements.txt, (3) update path in args.",
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "C:/path/to/patent_mcp_server/server.py"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "deepl-mcp",
+      "description": "Translate text and documents with high-quality neural translation (500K chars/month free). Get API key from deepl.com/pro-api.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@deepl/deepl-mcp-server"
+      ],
+      "env": {
+        "DEEPL_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "canvas-lms-mcp",
+      "description": "Main Canvas LMS MCP (DMontgomery40) \u2014 interact with courses, assignments, and grades via 54 tools. Use this as the primary option. Get API Token from your Canvas instance > Account > Settings > Approved Integrations.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/mcp-canvas-lms/dist/index.js"
+      ],
+      "env": {
+        "CANVAS_API_TOKEN": "",
+        "CANVAS_BASE_URL": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "canvas-lms-mcp-alt",
+      "description": "Alternative Canvas LMS MCP (vishalsachdev) \u2014 Canvas integration for students and instructors with a different implementation. Use if canvas-lms-mcp doesn't work for your setup. SETUP REQUIRED: (1) git clone https://github.com/vishalsachdev/canvas-mcp, (2) npm install, (3) npm run build, (4) update path in args. Get API Token from your Canvas instance > Account > Settings > Approved Integrations.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/canvas-mcp/dist/index.js"
+      ],
+      "env": {
+        "CANVAS_API_TOKEN": "",
+        "CANVAS_BASE_URL": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "anki-mcp",
+      "description": "Create, review, and manage Anki flashcard decks. PREREQ: Anki desktop app must be open with AnkiConnect add-on installed (add-on code 2055492159 from ankiweb.net).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ankimcp/anki-mcp-server",
+        "--stdio"
+      ],
+      "env": {
+        "ANKI_CONNECT_URL": "http://localhost:8765"
+      },
+      "enabled": false
+    },
+    {
+      "name": "zillow-mcp",
+      "description": "Scrape Zillow for property listings, home values, and rental prices. No API key required (web scraping). SETUP REQUIRED: (1) git clone https://github.com/sap156/zillow-mcp-server, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/zillow-mcp-server/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "real-estate-mcp",
+      "description": "Analyze local real estate data and property comparables. No API key required (local data). SETUP REQUIRED: (1) git clone https://github.com/agentic-ops/real-estate-mcp, (2) npm install, (3) npm run build, (4) update path in args.",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/path/to/real-estate-mcp/dist/index.js"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "brightdata-mcp",
+      "description": "Web scraping and data extraction via BrightData's proxy network \u2014 scrape any website including real estate listings. Get API token from brightdata.com (5,000 requests/month free).",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@brightdata/mcp"
+      ],
+      "env": {
+        "API_TOKEN": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "puppeteer",
+      "description": "Browser automation and web scraping",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ],
+      "env": {},
+      "enabled": false
+    },
+    {
+      "name": "brave-search",
+      "description": "Web search using Brave Search API",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": ""
+      },
+      "enabled": false
+    },
+    {
+      "name": "google-maps",
+      "description": "Google Maps API for location services",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-google-maps"
+      ],
+      "env": {
+        "GOOGLE_MAPS_API_KEY": ""
+      },
+      "enabled": false
+    }
+  ],
+  "auto_connect": true
+}

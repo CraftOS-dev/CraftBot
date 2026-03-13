@@ -1,0 +1,506 @@
+/* ChatPage Component Styles */
+
+.chatPage {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Resizing state - disable text selection */
+.chatPage.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Chat Panel - Left Side (flexible) */
+.chatPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Resize Handle */
+.resizeHandle {
+  position: relative;
+  width: 1px;
+  background: var(--border-primary);
+  cursor: col-resize;
+  flex-shrink: 0;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 5px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.resizeHandle:hover::after,
+.chatPage.resizing .resizeHandle::after {
+  background: var(--color-gray-300);
+}
+
+.messagesContainer {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.emptyState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.emptyState h3 {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.emptyState p {
+  font-size: var(--text-sm);
+}
+
+.emptyIcon {
+  margin-bottom: var(--space-2);
+}
+
+/* Message Wrapper - contains bubble + attachments */
+.messageWrapper {
+  display: flex;
+  flex-direction: column;
+  max-width: 80%;
+  gap: var(--space-2);
+}
+
+.messageWrapper.userWrapper {
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.messageWrapper.agentWrapper {
+  margin-right: auto;
+  align-items: flex-start;
+}
+
+.messageWrapper.systemWrapper {
+  margin: 0 auto;
+  align-items: center;
+  max-width: 90%;
+}
+
+.messageWrapper.errorWrapper {
+  margin-right: auto;
+  align-items: flex-start;
+}
+
+.messageWrapper.infoWrapper {
+  margin: 0 auto;
+  align-items: center;
+}
+
+/* Messages */
+.message {
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  width: 100%;
+}
+
+.message.user {
+  background: #6ee164;
+  color: var(--color-black);
+}
+
+.message.user a {
+  color: #1e40af;
+}
+
+.message.user a:hover {
+  color: #1e3a8a;
+}
+
+.message.agent {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+}
+
+.message.system {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.message.error {
+  background: var(--color-error-light);
+  border: 1px solid var(--color-error);
+}
+
+.message.info {
+  background: var(--color-info-light);
+  color: var(--color-info);
+  font-size: var(--text-sm);
+}
+
+.messageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.sender {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+}
+
+.message.user .sender {
+  color: var(--color-black);
+}
+
+.timestamp {
+  font-size: var(--text-xs);
+  opacity: 0.7;
+}
+
+.messageContent {
+  word-break: break-word;
+}
+
+/* Attachments underneath the bubble */
+.messageAttachments {
+  width: 100%;
+}
+
+/* Status Bar */
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* Input Area */
+.inputArea {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  min-height: 36px;
+  /* Max height for ~5 lines: 5 lines × 19.5px (13px font × 1.5 line-height) + 16px padding + 2px border ≈ 116px */
+  max-height: 116px;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  line-height: var(--leading-normal);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Action Panel - Right Side (resizable) */
+.actionPanel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.panelHeader {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.panelHeader h3 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.actionList {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.emptyActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Task Items */
+.taskGroup {
+  margin-bottom: var(--space-1);
+}
+
+.taskItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.taskItem:hover {
+  background: var(--bg-tertiary);
+}
+
+.taskItem.selected {
+  background: var(--color-primary-subtle);
+}
+
+.taskName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Task cancel button - hidden by default, shown on hover */
+.taskCancelBtn {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.taskItem:hover .taskCancelBtn {
+  opacity: 1;
+}
+
+.taskCancelBtn:hover {
+  color: var(--color-error);
+  background: var(--color-error-light);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Action Items */
+.actionsList {
+  padding-left: var(--space-4);
+  margin-top: var(--space-1);
+}
+
+.actionItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.actionName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noActions {
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Hidden file input */
+.hiddenFileInput {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile Responsive
+   ───────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Hide the Tasks & Actions panel in mobile - show only chat */
+  .actionPanel {
+    display: none;
+  }
+
+  /* Hide resize handle in mobile */
+  .resizeHandle {
+    display: none;
+  }
+
+  /* Chat panel takes full width */
+  .chatPanel {
+    flex: 1;
+    width: 100%;
+  }
+
+  /* Make messages take more width */
+  .messageWrapper {
+    max-width: 95%;
+  }
+
+  /* Smaller padding on mobile */
+  .messagesContainer {
+    padding: var(--space-3);
+  }
+
+  .inputArea {
+    padding: var(--space-2);
+  }
+
+  .statusBar {
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+/* Input wrapper for textarea and pending attachments */
+.inputWrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Pending attachments container */
+.pendingAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* Individual pending attachment */
+.pendingAttachment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.pendingFileName {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingFileSize {
+  color: var(--text-muted);
+}
+
+.removeAttachment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.removeAttachment:hover {
+  color: var(--color-error);
+}
+
+/* Attachment error message */
+.attachmentError {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-error-light);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-error);
+}
+
+.attachmentError span {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.attachmentError svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.dismissError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--color-error);
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dismissError:hover {
+  opacity: 1;
+}

@@ -1,0 +1,10 @@
+{
+  "name": "feishu-memory-recall",
+  "version": "2.0.0",
+  "description": "Cross-group memory, search, and event sharing for OpenClaw Feishu agents",
+  "main": "index.js",
+  "dependencies": {
+    "commander": "^14.0.3",
+    "dotenv": "^17.2.3"
+  }
+}

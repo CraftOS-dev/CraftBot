@@ -1,0 +1,22 @@
+{
+  "owner": "lifeissea",
+  "slug": "instagram-api",
+  "displayName": "Instagram Api",
+  "latest": {
+    "version": "1.1.1",
+    "publishedAt": 1771978902904,
+    "commit": "https://github.com/openclaw/skills/commit/60cabb65159ac3be0b51b080aa0707b353d22429"
+  },
+  "history": [
+    {
+      "version": "1.1.0",
+      "publishedAt": 1771719309776,
+      "commit": "https://github.com/openclaw/skills/commit/dc2a816351a17dd97f450694d877eea5d1d1dcfb"
+    },
+    {
+      "version": "1.0.6",
+      "publishedAt": 1771510359971,
+      "commit": "https://github.com/openclaw/skills/commit/2d247815796449cdfb1c19e0bab25660643225a8"
+    }
+  ]
+}

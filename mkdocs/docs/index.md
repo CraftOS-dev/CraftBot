@@ -1,11 +1,11 @@
 
-# White Collar Agent
+# CraftBot
 
-White Collar Agent is a minimal yet powerful computer-use AI agent that can perform complex computer-based and browser-based tasks. It can autonomously interpret tasks, plan actions, and execute actions to achieve goals. Depending on the task, it can switch between CLI and GUI mode, and the codebase is designed to serve as a foundation for building your own agents.
+CraftBot is a minimal yet powerful computer-use AI agent that can perform complex computer-based and browser-based tasks. It can autonomously interpret tasks, plan actions, and execute actions to achieve goals. Depending on the task, it can switch between CLI and GUI mode, and the codebase is designed to serve as a foundation for building your own agents.
 
 ## Why this project exists
 
-White Collar Agent is aimed at teams and builders exploring:
+CraftBot is aimed at teams and builders exploring:
 - system-based agentic AI
 - runtime code generation
 - autonomous execution for real workflows
@@ -67,4 +67,4 @@ This project is licensed under the MIT License. You are free to use, host, and m
 
 Developed and maintained by CraftOS and contributors `@zfoong` and `@ahmad-ajmal`.
 
-If you find White Collar Agent useful, please star the repository and share it with others.
+If you find CraftBot useful, please star the repository and share it with others.

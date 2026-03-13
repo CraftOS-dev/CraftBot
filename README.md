@@ -1,10 +1,6 @@
 
 <div align="center">
-    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
-</div>
-<br>
-<div align="center">
-    <img src="assets/craftbot_logo_text_small.png" alt="CraftBot Logo" width="480"/>
+    <img src="assets/craftbot_readme_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 <br>
 
@@ -37,24 +33,19 @@ CraftBot is your Personal AI Assistant that lives inside your machine and works 
 </h3>
 
 It autonomously interprets tasks, plans actions, and executes them to achieve your goals.
+It learns your preferences and objectives, proactively helping you plan and initiate tasks to achieve your life goals.
+MCPs and Skills, and external App integrations are supported. 
 
-Set up CraftBot on your machine or a separate environment. Interact with it via the TUI or from anywhere through your favorite messaging apps. Extend the agent's capabilities with MCPs and Skills, and connect to tools like Google Workspace, Slack, Notion, and Telegram to expand its reach. CraftBot intelligently switches between CLI mode for standard tasks and GUI mode when screen interaction is required (GUI mode runs in an isolated environment so it won't disturb your work).
-
-CraftBot awaits your orders, set up your own CraftBot now.
+CraftBot awaits your orders. Set up your own CraftBot now.
 
 ---
 
 ## ✨ Features
 
-- **CLI/GUI Mode** — Agent intelligently switches between CLI and GUI mode based on task complexity. GUI mode enables full desktop automation with screen capture, mouse/keyboard control, and window management.
-- **Multi-LLM Support** — Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, BytePlus, and local Ollama models. Easily switch between providers.
-- **37+ Built-in Actions** — Comprehensive action library including:
-  - **File Operations**: Find, read, write, grep, and convert files
-  - **Web Capabilities**: HTTP requests, web search, PDF generation, image generation
-  - **GUI Automation**: Mouse clicks, keyboard input, screenshots, window control
-  - **Application Control**: Open apps, manage windows, clipboard operations
-- **Persistent Memory** — RAG-based semantic memory system powered by ChromaDB. The agent remembers context across sessions with intelligent retrieval and incremental updates.
-- **External tools integration** — Connect to Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, and Telegram (more to come!) with embedded credentials and OAuth support.
+- **Bring Your Own Key (BYOK)** — Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, BytePlus, and local Ollama models. Easily switch between providers.
+- **Memory System** — Distill and consolidate events that happened through the day at midnight.
+- **Proactive Agent** — Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
+- **External Tools Integration** — Connect to Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, and Telegram (more to come!) with embedded credentials and OAuth support.
 - **MCP** — Model Context Protocol integration for extending agent capabilities with external tools and services.
 - **Skills** — Extensible skill framework with built-in skills for task planning, research, code review, git operations, and more.
 - **Cross-Platform** — Full support for Windows and Linux with platform-specific code variants and Docker containerization.
@@ -62,31 +53,67 @@ CraftBot awaits your orders, set up your own CraftBot now.
 > [!IMPORTANT]
 > **Note for GUI mode:** The GUI mode is still in experimental phase. This means you may encounter issues when the agent switches to GUI mode. We are actively improving this feature.
 
+<div align="center">
+    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
+	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
+---
+
+
+## 🧰 Getting Started
+
+### Prerequisites
+- Python **3.10+**
+- `git` (required to clone the repository)
+- An API key for your chosen LLM provider (OpenAI, Gemini, or Anthropic)
+- `Node.js` **18+** (optional - only required for browser interface)
+- `conda` (optional - if not found, installer offers to auto-install Miniconda)
+
+### Quick Install
+
+```bash
+# Clone the repository
+git clone https://github.com/zfoong/CraftBot.git
+cd CraftBot
+
+# Install dependencies
+python install.py
+
+# Run the agent
+python run.py
+```
+
+That's it! The first run will guide you through setting up your API keys.
+
+**Note:** If you don't have Node.js installed, the installer will guide you with step-by-step instructions. You can also skip browser mode and use TUI instead (see modes below).
+
+### What you can do right after?
+- Talk to the agent naturally
+- Ask it to perform complex multi-step tasks
+- Type `/help` to see available commands
+- Connect to Google, Slack, Notion, and more
+
+### 🖥️ Interface Modes
+
+<div align="center">
+    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
+</div>
+
+CraftBot supports multiple UI modes. Choose based on your preference:
+
+| Mode | Command | Requirements | Best For |
+|------|---------|--------------|----------|
+| **Browser** | `python run.py` | Node.js 18+ | Modern web interface, easiest to use |
+| **TUI** | `python run.py --tui` | None | Terminal UI, no dependencies needed |
+| **CLI** | `python run.py --cli` | None | Command-line, lightweight |
+| **GUI** | `python run.py --gui` | `install.py --gui` | Desktop automation with visual feedback |
+
+**Browser mode** is the default and recommended. If you don't have Node.js, the installer will provide installation instructions or you can use **TUI mode** instead.
+
 ---
 
 ## 🧩 Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    User Interface Layer                      │
-│  ┌──────────────────┐  ┌──────────────────────────────────┐ │
-│  │  TUI (Textual)   │  │  GUI Module (Docker + Gradio)    │ │
-│  └──────────────────┘  └──────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Agent Base                              │
-│           (Task orchestration & lifecycle management)        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────┬──────────┼──────────┬─────────┐
-        ▼         ▼          ▼          ▼         ▼
-   ┌─────────┐ ┌────────┐ ┌────────┐ ┌───────┐ ┌────────┐
-   │   LLM   │ │Context │ │ Action │ │ Event │ │ Memory │
-   │Interface│ │ Engine │ │  Mgmt  │ │Stream │ │  (RAG) │
-   └─────────┘ └────────┘ └────────┘ └───────┘ └────────┘
-```
 
 | Component | Description |
 |-----------|-------------|
@@ -112,67 +139,154 @@ CraftBot awaits your orders, set up your own CraftBot now.
 - [ ] **External Tool integration** — Still adding more!
 - [X] **MCP Layer** — Done.
 - [X] **Skill Layer** — Done.
-- [ ] **Proactive Behaviour** — Pending
+- [X] **Proactive Behaviour** — Pending
 
 ---
 
-## 🧰 Getting Started
+## 🖥️ GUI Mode (Optional)
 
-### Prerequisites
-- Python **3.9+**
-- `git`, `conda`, and `pip`
-- An API key for your chosen LLM provider (e.g., OpenAI or Gemini)
+GUI mode enables screen automation - the agent can see and interact with a desktop environment. This is optional and requires additional setup.
 
-### Installation
 ```bash
-git clone https://github.com/zfoong/CraftBot.git
-cd CraftBot
-conda env create -f environment.yml
+# Install with GUI support (using pip, no conda required)
+python install.py --gui
+
+# Install with GUI support and conda
+python install.py --gui --conda
+
+# Run with GUI mode
+python run.py --gui
 ```
+
+> [!NOTE]
+> GUI mode is experimental and requires additional dependencies (~4GB for model weights). If you don't need desktop automation, skip this and use Browser/TUI mode instead which has no additional dependencies.
 
 ---
 
-## ⚡ Quick Start
+## 📋 Command Reference
 
-Export your API key:
+### install.py
+
+| Flag | Description |
+|------|-------------|
+| `--gui` | Install GUI components (OmniParser) |
+| `--conda` | Use conda environment (optional) |
+| `--cpu-only` | Install CPU-only PyTorch (with --gui) |
+
+### run.py
+
+| Flag | Description |
+|------|-------------|
+| (none) | Run in **Browser** mode (recommended, requires Node.js) |
+| `--tui` | Run in **Terminal UI** mode (no dependencies needed) |
+| `--cli` | Run in **CLI** mode (lightweight) |
+| `--gui` | Enable GUI automation mode (requires `install.py --gui` first) |
+
+**Installation Examples:**
 ```bash
-export OPENAI_API_KEY=<YOUR_KEY_HERE>
-or
-export GOOGLE_API_KEY=<YOUR_KEY_HERE>
+# Simple pip installation (no conda)
+python install.py
+
+# With GUI support (using pip, no conda)
+python install.py --gui
+
+# With GUI on CPU-only systems (using pip, no conda)
+python install.py --gui --cpu-only
+
+# With conda environment (recommended for conda users)
+python install.py --conda
+
+# With GUI support and conda
+python install.py --gui --conda
+
+# With GUI on CPU-only systems with conda
+python install.py --gui --conda --cpu-only
 ```
-Run:
+
+**Running CraftBot:**
+
+```powershell
+# Browser mode (default, requires Node.js)
+python run.py
+
+# TUI mode (no Node.js required)
+python run.py --tui
+
+# CLI mode (lightweight)
+python run.py --cli
+
+# With GPU/GUI mode
+python run.py --gui
+
+# With conda environment
+conda run -n craftbot python run.py
+
+# Or using full path if conda not in PATH
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+**Linux/macOS (Bash):**
 ```bash
-python start.py
+# Browser mode (default, requires Node.js)
+python run.py
+
+# TUI mode (no Node.js required)
+python run.py --tui
+
+# CLI mode (lightweight)
+python run.py --cli
+
+# With GPU/GUI mode
+python run.py --gui
+
+# With conda environment
+conda run -n craftbot python run.py
 ```
 
-This executes the built-in **CraftBot**, that you can communicate to:
-1. Talk to the agent  
-2. Ask it to perform complex series of tasks  
-3. Run command /help to seek help
-4. Get along with the AI agent
-5. Do advanced computer-use tasks with a dedicated but lightweight WebRTC Linux VM
+> [!NOTE]
+> **Installation:** The installer now provides clear guidance if dependencies are missing. If Node.js is not found, you'll be prompted to install it or can switch to TUI mode. Installation automatically detects GPU availability and falls back to CPU-only mode if needed.
 
-### Terminal Arguments
-| Argument | Description |
-| :--- | :--- |
-| `--only-cpu` | Run the agent on CPU mode |
-| `--fast` | Skip unecessary update checks and launch agent faster. <br> <u><b>NOTE:</b></u> You have to run without `--fast` the first time you launch |
-| `--no-omniparser` | Disable the use of microsoft omniparser to analyse UI - will greatly reduce GUI action accuracy. It is highly encouraged to use omniparser |
-| `--no-conda` | Installs all packages globally instead of inside a conda environment |
-| `--no-gui` | Disable GUI mode. The agent will run in CLI-only mode and cannot switch to GUI mode. This setting is persisted across restarts. OmniParser is also automatically disabled |
-| `--enable-gui` | Re-enable GUI mode if it was previously disabled with `--no-gui`. This setting is persisted across restarts |
+> [!TIP]
+> **First-time setup:** CraftBot will guide you through an onboarding sequence to configure API keys, the agent's name, MCPs, and Skills.
 
-**EXAMPLE**
-```bash
-python start.py --only-cpu --fast
-```
-
-> [!HINT]
-> **Onboarding:** Launching CraftBot for the first time will trigger an onboarding sequence where you set up API keys, the agent's name, MCPs, and Skills. Then, chatting with your CraftBot for the first time will prompt an interview session so it can update its USER.md and AGENT.md for future reference.
+> [!NOTE]
+> **Playwright Chromium:** Optional for WhatsApp Web integration. If installation fails, the agent will still work fine for other tasks. Install manually later with: `playwright install chromium`
 
 ---
 
-## 🔐 OAuth Setup (Optional)
+## � Troubleshooting & Common Issues
+
+### Missing Node.js (for Browser Mode)
+If you see **"npm not found in PATH"** when running `python run.py`:
+1. Download from [nodejs.org](https://nodejs.org/) (choose LTS version)
+2. Install and restart your terminal
+3. Run `python run.py` again
+
+**Alternative:** Use TUI mode instead (no Node.js needed):
+```bash
+python run.py --tui
+```
+
+### Installation Fails with Dependencies
+The installer now provides detailed error messages with solutions. If installation fails:
+- **Check Python version:** Make sure you have Python 3.10+ (`python --version`)
+- **Check internet:** Dependencies are downloaded during installation
+- **Clear pip cache:** `pip install --upgrade pip` and try again
+
+### Playwright Installation Issues
+Playwright chromium installation is optional. If it fails:
+- The agent will **still work fine** for other tasks
+- You can skip it or install later: `playwright install chromium`
+- Only needed for WhatsApp Web integration
+
+### GPU/CUDA Issues
+The installer automatically detects GPU availability:
+- If CUDA installation fails, it falls back to CPU mode automatically
+- For manual CPU setup: `python install.py --gui --cpu-only`
+
+For detailed troubleshooting, see [INSTALLATION_FIX.md](INSTALLATION_FIX.md).
+
+---
 
 The agent can connect to various services using OAuth. Release builds come with embedded credentials, but you can also use your own.
 
@@ -264,7 +378,7 @@ docker build -t craftbot .
 
 ### Run the container
 
-The image is configured to launch the agent with `python -m core.main` by default. To run it interactively:
+The image is configured to launch the agent with `python -m app.main` by default. To run it interactively:
 
 ```bash
 docker run --rm -it craftbot
@@ -288,7 +402,7 @@ GUI actions (mouse/keyboard events, screenshots) require an X11 server. You can 
   docker run --rm -it 
     -e DISPLAY=$DISPLAY \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
-    -v $(pwd)/data:/app/core/data \
+    -v $(pwd)/data:/app/app/data \
     craftbot
   ```
 
@@ -297,10 +411,10 @@ GUI actions (mouse/keyboard events, screenshots) require an X11 server. You can 
 * Run headlessly with a virtual display:
 
   ```bash
-	docker run --rm -it --env-file .env craftbot bash -lc "Xvfb :99 -screen 0 1920x1080x24 & export DISPLAY=:99 && exec python -m core.main"
+	docker run --rm -it --env-file .env craftbot bash -lc "Xvfb :99 -screen 0 1920x1080x24 & export DISPLAY=:99 && exec python -m app.main"
   ```
 
-By default the image uses Python 3.10 and bundles the Python dependencies from `environment.yml`/`requirements.txt`, so `python -m core.main` works out of the box.
+By default the image uses Python 3.10 and bundles the Python dependencies from `environment.yml`/`requirements.txt`, so `python -m app.main` works out of the box.
 
 ---
 

@@ -1,0 +1,444 @@
+/* TasksPage Component Styles */
+
+.tasksPage {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Resizing state - disable text selection */
+.tasksPage.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Task List - Left Side (resizable) */
+.taskList {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+/* Resize Handle */
+.resizeHandle {
+  position: relative;
+  width: 1px;
+  background: var(--border-primary);
+  cursor: col-resize;
+  flex-shrink: 0;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 5px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.resizeHandle:hover::after,
+.tasksPage.resizing .resizeHandle::after {
+  background: var(--color-gray-300);
+}
+
+.listHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.listHeader h3 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.listContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Task Items */
+.taskGroup {
+  margin-bottom: var(--space-1);
+}
+
+.taskItem,
+.actionItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.taskItem:hover,
+.actionItem:hover {
+  background: var(--bg-tertiary);
+}
+
+.taskItem.selected,
+.actionItem.selected {
+  background: var(--color-primary-subtle);
+}
+
+.taskItem {
+  font-weight: var(--font-medium);
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.itemName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Actions List */
+.actionsList {
+  padding-left: var(--space-6);
+  margin-top: var(--space-1);
+}
+
+.actionItem {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  padding: var(--space-1) var(--space-2);
+}
+
+.noActions {
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.statusIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Detail Panel - Right Side */
+.detailPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.emptyDetail {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.detailTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.detailTitle h2 {
+  font-size: var(--text-lg);
+}
+
+.detailActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cancelButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-error);
+}
+
+.cancelButton:hover:not(:disabled) {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.cancelButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.detailContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.detailSection {
+  margin-bottom: var(--space-6);
+}
+
+.detailSection h4 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.detailList {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.detailList dt {
+  color: var(--text-muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailList dd {
+  color: var(--text-primary);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.codeBlock {
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.errorBlock {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+/* Nested detail list for JSON data */
+.nestedList {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-primary);
+  margin-top: var(--space-1);
+}
+
+.nestedList dt {
+  color: var(--text-muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nestedList dd {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Expandable value for long text */
+.expandableValue {
+  display: inline;
+}
+
+.expandButton {
+  display: inline;
+  margin-left: var(--space-2);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.expandButton:hover {
+  color: var(--color-primary-hover);
+}
+
+/* Reasoning item - minimal styling, no icon */
+.reasoningItem {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Reasoning content in details panel */
+.reasoningContent {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}
+
+/* Mobile back button - hidden on desktop */
+.mobileBackBtn {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile Responsive
+   ───────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .tasksPage {
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* Task list takes full width on mobile */
+  .taskList {
+    width: 100% !important;
+    flex-shrink: 0;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+
+  /* Hide task list when showing detail */
+  .taskList.mobileHidden {
+    display: none;
+  }
+
+  /* Hide resize handle on mobile */
+  .resizeHandle {
+    display: none;
+  }
+
+  /* Detail panel takes full width on mobile */
+  .detailPanel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: 2;
+    display: none;
+    background: var(--bg-primary);
+  }
+
+  /* Show detail panel when mobileVisible */
+  .detailPanel.mobileVisible {
+    display: flex;
+  }
+
+  /* Show mobile back button */
+  .mobileBackBtn {
+    display: flex;
+    flex-shrink: 0;
+    margin-right: var(--space-2);
+  }
+
+  /* Smaller header text on mobile */
+  .detailTitle h2 {
+    font-size: var(--text-base);
+  }
+
+  /* Smaller padding on mobile */
+  .detailContent {
+    padding: var(--space-3);
+  }
+
+  .detailHeader {
+    padding: var(--space-3);
+  }
+
+  /* Make detail list more compact */
+  .detailList {
+    grid-template-columns: 100px 1fr;
+  }
+
+  /* Nested list - stacked layout on mobile (label on top, value below) */
+  .nestedList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-left: var(--space-2);
+    border-left: 2px solid var(--border-primary);
+  }
+
+  .nestedList dt {
+    max-width: none;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    margin-bottom: var(--space-1);
+  }
+
+  .nestedList dd {
+    margin-left: var(--space-2);
+    word-break: break-word;
+  }
+}

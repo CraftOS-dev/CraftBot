@@ -6,7 +6,7 @@ import mkdocs_gen_files
 ROOT = Path(__file__).resolve().parents[2]
 
 # Top-level packages in your repo
-PACKAGE_DIRS = ["core", "agents"]
+PACKAGE_DIRS = ["app", "agents"]
 
 def is_package_dir(d: Path) -> bool:
     return d.is_dir() and (d / "__init__.py").exists()

@@ -39,6 +39,7 @@ Ask these questions conversationally, one at a time. Wait for the user's respons
 - **Communication Style**: "How would you like me to communicate with you? Do you prefer casual and friendly, or more formal and professional? Brief responses or detailed explanations?"
 - **Proactivity**: "Should I proactively suggest tasks and reminders, or would you prefer I wait for your instructions?"
 - **Approval Level**: "For which types of actions should I ask your approval first? (e.g., sending messages, scheduling, file changes)"
+- **Preferred Messaging Platform**: "If you've connected messaging platforms like Telegram, WhatsApp, Discord, or Slack - which one should I use to send you notifications? Or would you prefer I only respond here in the terminal/TUI?"
 
 ### 4. Open-Ended Learning
 - "Is there anything else you'd like me to know about you or how you prefer to work?"
@@ -57,9 +58,9 @@ Ask these questions conversationally, one at a time. Wait for the user's respons
 3. **Update AGENT.md** if user provided a name for the agent:
    - Update the "Agent Given Name" field
 
-4. **Confirm completion**: Send a message thanking the user and summarizing what you learned
+4. **Confirm completion**: Send a message thanking the user and summarizing what you learned, then ASK if the information is accurate.
 
-5. **End task**: Use `task_end` with a summary
+5. **End task**: Use `task_end` if user did not reply or confirm the information is okay
 
 ## USER.md Template Reference
 
@@ -76,6 +77,7 @@ Ask these questions conversationally, one at a time. Wait for the user's respons
 ## Communication Preferences
 - **Preferred Tone:** [casual/formal/friendly/professional]
 - **Response Style:** [brief/detailed/balanced]
+- **Preferred Messaging Platform:** [telegram/whatsapp/discord/slack/tui]
 
 ## Agent Interaction
 - **Prefer Proactive Assistance:** [low/medium/high]
@@ -126,4 +128,4 @@ Do NOT use: `run_shell`, `run_python`, `write_file`, `create_file`, `web_search`
 - You'd like me to be moderately proactive with suggestions
 - I should ask before taking any actions that affect external systems
 
-Feel free to update these preferences anytime by using the /onboarding command. How can I help you today?"
+Is the information correct?"

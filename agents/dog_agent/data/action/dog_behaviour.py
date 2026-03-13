@@ -1,4 +1,4 @@
-from core.action.action_framework.registry import action
+from agent_core import action
 
 @action(
         name="bark",
@@ -46,7 +46,7 @@ def bark(input_data: dict) -> dict:
     message = input_data['message']
     wait_for_user_reply = bool(input_data.get('wait_for_user_reply', False))
     
-    import core.internal_action_interface as internal_action_interface
+    import app.internal_action_interface as internal_action_interface
     asyncio.run(internal_action_interface.InternalActionInterface.do_chat(message))
     
     fire_at_delay = 10800 if wait_for_user_reply else 0
@@ -70,7 +70,7 @@ def bark(input_data: dict) -> dict:
 )
 def sit(input_data: dict) -> dict:
     import asyncio
-    import core.internal_action_interface as internal_action_interface
+    import app.internal_action_interface as internal_action_interface
 
     dog_ascii = r""".
           __
@@ -83,7 +83,7 @@ def sit(input_data: dict) -> dict:
     return {"status": "success"}
 
 
-from core.action.action_framework.registry import action
+from agent_core import action
 
 @action(
     name="wiggle tail",
@@ -103,7 +103,7 @@ from core.action.action_framework.registry import action
 )
 def wiggle_tail(input_data: dict) -> dict:
     import asyncio
-    import core.internal_action_interface as internal_action_interface
+    import app.internal_action_interface as internal_action_interface
 
     dog_ascii = r""".
            __
@@ -145,7 +145,7 @@ def wiggle_tail(input_data: dict) -> dict:
 )
 def eat(input_data: dict) -> dict:
     import asyncio
-    import core.internal_action_interface as internal_action_interface
+    import app.internal_action_interface as internal_action_interface
 
     dog_ascii = r""".
            __
@@ -196,7 +196,7 @@ def eat(input_data: dict) -> dict:
 def sniff(input_data: dict) -> dict:
     import asyncio
     import time
-    import core.internal_action_interface as internal_action_interface
+    import app.internal_action_interface as internal_action_interface
 
     found = input_data["found"]
     message = f"*dog found {found}*"
@@ -277,7 +277,7 @@ def sniff(input_data: dict) -> dict:
 def dig(input_data: dict) -> dict:
     import asyncio
     import time
-    import core.internal_action_interface as internal_action_interface
+    import app.internal_action_interface as internal_action_interface
 
     found = input_data["found"]
     message = f"*dog found {found}*"

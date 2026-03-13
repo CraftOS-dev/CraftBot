@@ -1,0 +1,601 @@
+/* Onboarding Page Styles */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Progress Bar */
+.progressBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.stepIndicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepDot {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-tertiary);
+  transition: all var(--transition-base);
+}
+
+.stepDot.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-white);
+}
+
+.stepDot.completed {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: var(--color-white);
+}
+
+.stepLabel {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .stepLabel {
+    display: block;
+  }
+}
+
+.stepLabel.active {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.stepConnector {
+  width: 40px;
+  height: 2px;
+  background: var(--border-secondary);
+  transition: background var(--transition-base);
+}
+
+.stepConnector.completed {
+  background: var(--color-success);
+}
+
+.stepConnector.active {
+  background: var(--color-primary);
+}
+
+/* Main Content */
+.content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.card {
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 120px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.card.wide {
+  max-width: 640px;
+}
+
+.stepTitle {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-2);
+  flex-shrink: 0;
+}
+
+.stepDescription {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
+  line-height: var(--leading-relaxed);
+  flex-shrink: 0;
+  white-space: pre-line;
+}
+
+/* Form Elements */
+.formGroup {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.optionsList {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+/* Scrollbar styling */
+.optionsList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.optionsList::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+}
+
+.optionsList::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-full);
+}
+
+.optionsList::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* Option Item */
+.optionItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-sizing: border-box;
+}
+
+.optionItem:last-child {
+  margin-bottom: 0;
+}
+
+.optionItem:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+.optionItem.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.optionRadio {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--border-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: all var(--transition-base);
+}
+
+.optionItem.selected .optionRadio {
+  border-color: var(--color-primary);
+}
+
+.optionRadio::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.optionItem.selected .optionRadio::after {
+  opacity: 1;
+}
+
+.optionCheckbox {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: all var(--transition-base);
+}
+
+.optionItem.selected .optionCheckbox {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+/* THE FIX: Use calc to constrain width and force text wrapping */
+.optionContent {
+  flex: 1;
+  max-width: calc(100% - 30px);
+}
+
+.optionLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  margin-bottom: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.optionIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.optionItem.selected .optionIcon {
+  color: var(--color-primary);
+}
+
+.optionDescription {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  /* Force text to wrap */
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.setupBadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  color: var(--color-warning);
+  background: var(--color-warning-light, rgba(245, 158, 11, 0.1));
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  margin-left: var(--space-2);
+  white-space: nowrap;
+}
+
+/* Text Input */
+.textInput {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  transition: border-color var(--transition-base);
+  box-sizing: border-box;
+}
+
+.textInput:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.textInput::placeholder {
+  color: var(--text-muted);
+}
+
+.textInput.error {
+  border-color: var(--color-error);
+}
+
+.inputHint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-2);
+}
+
+/* Error Message */
+.errorMessage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-error-light);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-lg);
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+  flex-shrink: 0;
+}
+
+/* Buttons */
+.buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.buttonsLeft {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.buttonsRight {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Loading State */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-primary);
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loadingText {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}
+
+/* Empty Options */
+.emptyOptions {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* Optional Badge */
+.optionalBadge {
+  display: inline-block;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile Responsive Styles
+   ───────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .progressBar {
+    padding: var(--space-3);
+    gap: var(--space-1);
+  }
+
+  .stepDot {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+  }
+
+  .stepConnector {
+    width: 16px;
+  }
+
+  .content {
+    padding: var(--space-3);
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card {
+    padding: var(--space-4);
+    max-height: calc(100vh - 80px);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .card.wide {
+    max-width: 100%;
+  }
+
+  .stepTitle {
+    font-size: var(--text-xl);
+  }
+
+  .stepDescription {
+    font-size: 11px;
+    line-height: 1.3;
+    margin-bottom: var(--space-2);
+  }
+
+  .optionItem {
+    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .optionRadio,
+  .optionCheckbox {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    min-height: 16px;
+  }
+
+  .optionRadio::after {
+    width: 6px;
+    height: 6px;
+  }
+
+  .optionContent {
+    max-width: calc(100% - 24px);
+  }
+
+  .optionLabel {
+    font-size: var(--text-sm);
+  }
+
+  .optionDescription {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .textInput {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .buttons {
+    flex-direction: column-reverse;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+  }
+
+  .buttonsLeft,
+  .buttonsRight {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .buttonsRight {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .buttonsLeft {
+    justify-content: center;
+  }
+
+  .errorMessage {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-xs);
+  }
+
+  .inputHint {
+    font-size: var(--text-xs);
+  }
+
+  .optionalBadge {
+    font-size: 10px;
+    padding: 1px 6px;
+  }
+
+  .setupBadge {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .optionItem {
+    min-height: 48px;
+  }
+
+  .optionItem:hover {
+    border-color: var(--border-primary);
+    background: var(--bg-tertiary);
+  }
+
+  .optionItem.selected:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-subtle);
+  }
+
+  .optionsList {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
+
+/* Landscape mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+  .progressBar {
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .stepDot {
+    width: 20px;
+    height: 20px;
+  }
+
+  .content {
+    padding: var(--space-2) var(--space-4);
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card {
+    max-height: calc(100vh - 60px);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .stepTitle {
+    font-size: var(--text-lg);
+    margin-bottom: var(--space-1);
+  }
+
+  .stepDescription {
+    margin-bottom: var(--space-2);
+  }
+
+  .buttons {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+  }
+}

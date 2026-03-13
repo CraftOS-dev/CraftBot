@@ -1,0 +1,37 @@
+{
+  "owner": "jacobthejacobs",
+  "slug": "remindme",
+  "displayName": "Remind Me",
+  "latest": {
+    "version": "2.0.2",
+    "publishedAt": 1770853231820,
+    "commit": "https://github.com/openclaw/skills/commit/e72841c871ff8e81b17c8696c7fbb07497412582"
+  },
+  "history": [
+    {
+      "version": "2.0.1",
+      "publishedAt": 1770852706264,
+      "commit": "https://github.com/openclaw/skills/commit/45ebe38d794505921e246eb5a6c0df7a54c8320b"
+    },
+    {
+      "version": "1.2.2",
+      "publishedAt": 1770503173370,
+      "commit": "https://github.com/openclaw/skills/commit/f1c3aa0adb1cf6bd75dcb0b3eeaa2c8a72554bc9"
+    },
+    {
+      "version": "1.2.1",
+      "publishedAt": 1770402202710,
+      "commit": "https://github.com/openclaw/skills/commit/a354dd0a57461fbdaf77293d84e3e053911965f0"
+    },
+    {
+      "version": "1.1.18",
+      "publishedAt": 1770340282779,
+      "commit": "https://github.com/openclaw/skills/commit/b772e16a28bf7beba950eeea12760cc89cf81c0d"
+    },
+    {
+      "version": "1.1.2",
+      "publishedAt": 1770336566682,
+      "commit": "https://github.com/clawdbot/skills/commit/5a91443ee08eea19d42a6a07545d6d2dd63bda0c"
+    }
+  ]
+}

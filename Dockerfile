@@ -42,4 +42,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
-CMD ["python", "-m", "core.main"]
+CMD ["python", "-m", "app.main"]

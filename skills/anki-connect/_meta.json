@@ -1,0 +1,11 @@
+{
+  "owner": "gyroninja",
+  "slug": "anki-connect",
+  "displayName": "Anki Connect",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769986069185,
+    "commit": "https://github.com/clawdbot/skills/commit/a3bb8c78fc6fadf39105c814f0b2a419b0179677"
+  },
+  "history": []
+}

@@ -1,0 +1,169 @@
+{
+  "enabled": true,
+  "schedules": [
+    {
+      "id": "memory-processing",
+      "name": "Daily Memory Processing",
+      "instruction": "Process unprocessed events into long-term memory",
+      "schedule": "every day at 3am",
+      "enabled": true,
+      "priority": 100,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [],
+      "skills": [],
+      "payload": {
+        "type": "memory_processing",
+        "scheduled": true
+      }
+    },
+    {
+      "id": "hourly-heartbeat",
+      "name": "Hourly Heartbeat",
+      "instruction": "Execute hourly proactive tasks from PROACTIVE.md",
+      "schedule": "every 1 hours",
+      "enabled": true,
+      "priority": 60,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
+      "payload": {
+        "type": "proactive_heartbeat",
+        "frequency": "hourly"
+      }
+    },
+    {
+      "id": "daily-heartbeat",
+      "name": "Daily Heartbeat",
+      "instruction": "Execute daily proactive tasks from PROACTIVE.md",
+      "schedule": "every day at 8am",
+      "enabled": true,
+      "priority": 40,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive",
+        "web_research"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
+      "payload": {
+        "type": "proactive_heartbeat",
+        "frequency": "daily"
+      }
+    },
+    {
+      "id": "weekly-heartbeat",
+      "name": "Weekly Heartbeat",
+      "instruction": "Execute weekly proactive tasks from PROACTIVE.md",
+      "schedule": "every sunday at 6pm",
+      "enabled": true,
+      "priority": 45,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
+      "payload": {
+        "type": "proactive_heartbeat",
+        "frequency": "weekly"
+      }
+    },
+    {
+      "id": "monthly-heartbeat",
+      "name": "Monthly Heartbeat",
+      "instruction": "Execute monthly proactive tasks from PROACTIVE.md",
+      "schedule": "0 9 1 * *",
+      "enabled": true,
+      "priority": 50,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "heartbeat-processor"
+      ],
+      "payload": {
+        "type": "proactive_heartbeat",
+        "frequency": "monthly"
+      }
+    },
+    {
+      "id": "day-planner",
+      "name": "Daily Planning",
+      "instruction": "Review interactions and plan proactive tasks for today",
+      "schedule": "every day at 7am",
+      "enabled": true,
+      "priority": 35,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "day-planner"
+      ],
+      "payload": {
+        "type": "proactive_planner",
+        "scope": "day"
+      }
+    },
+    {
+      "id": "week-planner",
+      "name": "Weekly Planning",
+      "instruction": "Review week's interactions and plan proactive tasks",
+      "schedule": "every sunday at 5pm",
+      "enabled": true,
+      "priority": 35,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "week-planner"
+      ],
+      "payload": {
+        "type": "proactive_planner",
+        "scope": "week"
+      }
+    },
+    {
+      "id": "month-planner",
+      "name": "Monthly Planning",
+      "instruction": "Review month's interactions and plan proactive tasks",
+      "schedule": "0 8 1 * *",
+      "enabled": true,
+      "priority": 35,
+      "mode": "simple",
+      "recurring": true,
+      "action_sets": [
+        "file_operations",
+        "proactive"
+      ],
+      "skills": [
+        "month-planner"
+      ],
+      "payload": {
+        "type": "proactive_planner",
+        "scope": "month"
+      }
+    }
+  ]
+}

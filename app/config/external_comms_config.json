@@ -1,0 +1,20 @@
+{
+  "telegram": {
+    "enabled": false,
+    "mode": "bot",
+    "bot_token": "",
+    "bot_username": "",
+    "api_id": "",
+    "api_hash": "",
+    "phone_number": "",
+    "auto_reply": true
+  },
+  "whatsapp": {
+    "enabled": false,
+    "mode": "web",
+    "session_id": "",
+    "phone_number_id": "",
+    "access_token": "",
+    "auto_reply": true
+  }
+}

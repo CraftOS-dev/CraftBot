@@ -1,0 +1,11 @@
+{
+  "owner": "luccast",
+  "slug": "gogcli",
+  "displayName": "gogcli - Google Workspace CLI",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769362342566,
+    "commit": "https://github.com/clawdbot/skills/commit/7bbcb4813ae2efc94bea758a40c6727b9c0cbeb4"
+  },
+  "history": []
+}

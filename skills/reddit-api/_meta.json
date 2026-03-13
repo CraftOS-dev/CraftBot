@@ -1,0 +1,17 @@
+{
+  "owner": "atyachin",
+  "slug": "reddit-api",
+  "displayName": "Reddit Search",
+  "latest": {
+    "version": "1.2.0",
+    "publishedAt": 1770892657780,
+    "commit": "https://github.com/openclaw/skills/commit/edd4912930d1c2051ecd08a41ab43515b3a3619c"
+  },
+  "history": [
+    {
+      "version": "1.0.0",
+      "publishedAt": 1770883331265,
+      "commit": "https://github.com/openclaw/skills/commit/2fd44532e1d64c71cd69f393ac3a37c13afa497e"
+    }
+  ]
+}

@@ -1,12 +1,13 @@
 .null-ls*
 apps/controlpanel/.vs/
 apps/chatserver/uploads/
+app/data/.usage/*
 chroma_db_actions/
 chroma_db_taskdocs/
 chroma_db_memory/
 core/chroma_db_actions/
 **/logs/
-workspace/
+agent_file_system/workspace/
 craftbot/external_tools/
 craftbot/generated_task_document/
 **/__pycache__/
@@ -35,3 +36,5 @@ debug_images
 **/build_*
 **/dist
 **/release
+**/*wwebjs*
+app/data/.usage/*

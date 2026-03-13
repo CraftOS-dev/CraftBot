@@ -48,8 +48,6 @@ Process 50 lines at a time to avoid memory issues.
 
 ## Rules
 
-### DISCARD
-
 - Silent background task. NEVER use send_message or interact with user.
 - Immediately discard these event types:
   - `[reasoning]`, `[action_start]`, `[gui_action]`, `[screen_description]`
@@ -57,14 +55,6 @@ Process 50 lines at a time to avoid memory issues.
   - Greetings, small talk, acknowledgments ("hi", "thanks", "ok")
   - Screen descriptions ("The current screen displays...")
   - Truncated text ending in `...`
-
-### SAVE CONDITION
-
-Only save the memory if it contains lasting value:
-- User preference or personal fact
-- Scheduled event with specific date
-- Important decision
-- Contact information or deadline
 
 ### Format (Strict)
 
@@ -92,6 +82,40 @@ Note: Get actual names from existing MEMORY.md. Never use "user", "conversation 
 
 - Check MEMORY.md before saving. Skip if similar memory exists. 
 - Actively remove memories you found duplicated in MEMORY.md, keeping only the latest one.
+
+### CRITICAL DISTILLATION RULES
+
+**Core principle:** Memory is for LASTING PERSONAL INSIGHTS that improve future interactions, not event logging.
+
+**The Future Utility Test:** Before saving, ask: "Will knowing this help me serve the user better in a FUTURE conversation?" If the answer is no, discard it.
+
+**NEVER save (these belong in EVENT.md, not MEMORY.md):**
+- Task lifecycle: `task_completion`, `task_started`, `task_failed`
+- Conversation content: `user_request`, `user message`, `agent message`
+- Transient actions: what user asked agent to do, what agent did
+- Status updates: "completed X", "working on Y", "finished Z"
+- One-time context: information only relevant to the current task
+
+**SAVE CONDITION:**
+
+Only save the memory if it contains lasting value:
+- User preference or personal fact
+- Scheduled event with specific date
+- Important decision
+- Contact information or deadline
+
+**ALWAYS save (high future utility):**
+- WHO the user is (identity, profession, relationships, contacts)
+- WHAT the user likes/dislikes (preferences, opinions, feelings, pet peeves)
+- HOW the user wants things done (communication style, workflows, standards)
+- WHEN things matter to them (deadlines, scheduled events, recurring patterns)
+- WHY the user makes decisions (goals, motivations, priorities)
+
+**Examples of future utility:**
+- ✓ "John prefers concise responses" → Agent adjusts tone in ALL future chats
+- ✓ "John is allergic to peanuts" → Agent remembers for ANY food-related task
+- ✗ "John asked to schedule a meeting" → Only relevant to that one task
+- ✗ "Task completed successfully" → No future value
 
 ## Allowed Actions
 

@@ -1,0 +1,14 @@
+{
+  "name": "craftbot-whatsapp-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WhatsApp Web bridge for CraftBot using whatsapp-web.js",
+  "main": "bridge.js",
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.1",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

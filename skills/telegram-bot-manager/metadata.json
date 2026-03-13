@@ -1,0 +1,29 @@
+{
+  "name": "telegram-bot-manager",
+  "displayName": "Telegram Bot Manager",
+  "version": "1.0.0",
+  "description": "Manage and configure Telegram bots for OpenClaw. Handles bot registration, token validation, and network connectivity checks.",
+  "author": "OpenClaw",
+  "license": "MIT",
+  "tags": ["telegram", "bot", "integration", "messaging", "automation"],
+  "categories": ["integrations", "messaging"],
+  "requires": {
+    "openclaw": ">=1.0.0",
+    "python": ">=3.6"
+  },
+  "resources": {
+    "scripts": 3,
+    "references": 2,
+    "assets": 0
+  },
+  "features": [
+    "Automated bot setup",
+    "Connectivity testing",
+    "Webhook management",
+    "Troubleshooting guides",
+    "Security best practices"
+  ],
+  "changelog": {
+    "1.0.0": "Initial release"
+  }
+}

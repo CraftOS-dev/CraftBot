@@ -1,0 +1,12 @@
+{
+  "name": "google-sheets-skill",
+  "version": "1.0.0",
+  "description": "Google Sheets CLI tool for Clawdbot",
+  "main": "scripts/sheets.js",
+  "scripts": {
+    "sheets": "node scripts/sheets.js"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.0"
+  }
+}

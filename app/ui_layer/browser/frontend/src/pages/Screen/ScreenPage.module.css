@@ -1,0 +1,112 @@
+/* ScreenPage Component Styles */
+
+.screenPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.headerLeft h2 {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.screenContainer {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-black);
+  overflow: auto;
+}
+
+.screenWrapper {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.screenshot {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+  max-width: 400px;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.emptyState h3 {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.emptyState p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.hint {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+
+.footer {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.footerText {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}

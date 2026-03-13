@@ -1,0 +1,112 @@
+/* StatusIndicator Component Styles */
+
+/* ─────────────────────────────────────────────────────────────────────
+   Icon variant (for task/action status)
+   ───────────────────────────────────────────────────────────────────── */
+
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* Status colors - applied to SVG icons */
+.running,
+.thinking,
+.working {
+  color: var(--color-primary);
+}
+
+.completed {
+  color: var(--color-success);
+}
+
+.error,
+.cancelled {
+  color: var(--color-error);
+}
+
+.pending,
+.waiting,
+.idle {
+  color: var(--color-gray-500);
+}
+
+/* Spinning animation for loader icon */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Dot variant (for agent status)
+   ───────────────────────────────────────────────────────────────────── */
+
+.dot {
+  display: inline-block;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Dot sizes */
+.dot_sm {
+  width: 6px;
+  height: 6px;
+}
+
+.dot_md {
+  width: 8px;
+  height: 8px;
+}
+
+.dot_lg {
+  width: 10px;
+  height: 10px;
+}
+
+/* Dot status colors */
+.dot_idle {
+  background: var(--color-success);
+}
+
+.dot_working,
+.dot_thinking,
+.dot_running {
+  background: var(#ff4f18, #ff9878);
+}
+
+.dot_error,
+.dot_cancelled {
+  background: var(--color-error);
+}
+
+.dot_pending,
+.dot_waiting {
+  background: var(--color-gray-500);
+}
+
+/* Pulse animation for active agent states */
+.pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}

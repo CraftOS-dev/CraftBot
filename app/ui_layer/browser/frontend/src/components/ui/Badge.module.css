@@ -1,0 +1,55 @@
+/* Badge Component Styles */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+/* Variants */
+.default {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.primary {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.success {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.warning {
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.error {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.info {
+  background: var(--color-info-light);
+  color: var(--color-info);
+}
+
+/* Dot indicator */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.withDot {
+  padding-left: var(--space-1);
+}

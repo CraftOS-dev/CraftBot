@@ -54,7 +54,7 @@ export GOOGLE_API_KEY="<YOUR_KEY_HERE>"
 ### 5) Start the agent (CLI)
 
 ```bash
-python -m core.main
+python -m app.main
 ```
 
 Once it launches, you can:
@@ -100,7 +100,7 @@ GUI actions (mouse/keyboard events, screenshots) require an X11 server. Choose o
 docker run --rm -it \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -v $(pwd)/data:/app/core/data \
+  -v $(pwd)/data:/app/app/data \
   craftbot
 ```
 
@@ -108,7 +108,7 @@ docker run --rm -it \
 
 ```bash
 docker run --rm -it --env-file .env craftbot \
-  bash -lc "Xvfb :99 -screen 0 1920x1080x24 & export DISPLAY=:99 && exec python -m core.main"
+  bash -lc "Xvfb :99 -screen 0 1920x1080x24 & export DISPLAY=:99 && exec python -m app.main"
 ```
 
 ---
@@ -120,5 +120,5 @@ docker run --rm -it --env-file .env craftbot \
 
   * your environment is activated,
   * your API key is set,
-  * you’re launching with `python -m core.main`.
+  * you’re launching with `python -m app.main`.
 

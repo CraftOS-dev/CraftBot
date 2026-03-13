@@ -4,7 +4,7 @@ services:
   # ──────────────────────────────────────────────
   desktop:
     build:
-      context: ./core/gui
+      context: ./app/gui
       dockerfile: Dockerfile
     container_name: simple-agent-desktop
     security_opt:
@@ -20,8 +20,8 @@ services:
       - SELKIES_MANUAL_WIDTH=1064
       - SELKIES_MANUAL_HEIGHT=1064
     volumes:
-      - ./core/gui/config:/config
-      - ./core/gui/custom-cont-init.d:/custom-cont-init.d:ro
+      - ./app/gui/config:/config
+      - ./app/gui/custom-cont-init.d:/custom-cont-init.d:ro
     ports:
       - "3001:3000"
     shm_size: "2gb"

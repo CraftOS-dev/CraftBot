@@ -1,0 +1,11 @@
+{
+  "owner": "jotamed",
+  "slug": "outlook",
+  "displayName": "Outlook",
+  "latest": {
+    "version": "1.3.0",
+    "publishedAt": 1769367682148,
+    "commit": "https://github.com/clawdbot/skills/commit/c05a216d01a8ac0fec51ec7c5c2c8964071b357f"
+  },
+  "history": []
+}

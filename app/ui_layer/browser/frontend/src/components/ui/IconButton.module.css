@@ -1,0 +1,80 @@
+/* IconButton Component Styles */
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.iconButton:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Variants */
+.ghost {
+  background: transparent;
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.secondary {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+/* Active State */
+.active {
+  color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.active:hover:not(:disabled) {
+  background: var(--color-primary-light);
+}
+
+/* Sizes */
+.sm {
+  width: 24px;
+  height: 24px;
+}
+
+.sm svg {
+  width: 14px;
+  height: 14px;
+}
+
+.md {
+  width: 32px;
+  height: 32px;
+}
+
+.md svg {
+  width: 16px;
+  height: 16px;
+}
+
+.lg {
+  width: 40px;
+  height: 40px;
+}
+
+.lg svg {
+  width: 20px;
+  height: 20px;
+}

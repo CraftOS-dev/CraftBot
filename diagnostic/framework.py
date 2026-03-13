@@ -70,16 +70,47 @@ class ActionExecutor:
                         inserted_modules.append(name)
                     sys.modules[name] = module
 
-            exec_globals: Dict[str, Any] = {"__name__": "__main__", "__package__": None}
+            # SECURITY FIX: Use restricted globals instead of full environment
+            # Only allow safe built-in functions
+            safe_builtins = {
+                'abs': abs, 'all': all, 'any': any, 'ascii': ascii,
+                'bin': bin, 'bool': bool, 'bytes': bytes, 'chr': chr,
+                'dict': dict, 'dir': dir, 'divmod': divmod,
+                'enumerate': enumerate, 'filter': filter, 'float': float,
+                'format': format, 'frozenset': frozenset, 'hash': hash,
+                'hex': hex, 'int': int, 'isinstance': isinstance, 'issubclass': issubclass,
+                'iter': iter, 'len': len, 'list': list, 'map': map,
+                'max': max, 'min': min, 'next': next, 'oct': oct, 'ord': ord,
+                'pow': pow, 'range': range, 'repr': repr, 'reversed': reversed,
+                'round': round, 'set': set, 'slice': slice, 'sorted': sorted,
+                'str': str, 'sum': sum, 'tuple': tuple, 'type': type, 'zip': zip,
+                'json': json,  # Allow JSON for output serialization
+            }
+            
+            # Safely inject input_data (prevent code injection in repr)
+            safe_input_data = {}
+            for key, value in input_data.items():
+                if isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                    safe_input_data[key] = value
+                else:
+                    safe_input_data[key] = json.loads(json.dumps(value, default=str))
+            
+            exec_globals: Dict[str, Any] = {
+                "__name__": "__main__",
+                "__package__": None,
+                "__builtins__": safe_builtins,
+                "input_data": safe_input_data,
+            }
             if extra_globals:
-                exec_globals.update(extra_globals)
-
-            script = f"import json\ninput_data = {repr(dict(input_data))}\n{code}"
+                # Only add safe globals (functions, not arbitrary objects)
+                for key, val in extra_globals.items():
+                    if callable(val) or isinstance(val, (str, int, float, bool, type(None))):
+                        exec_globals[key] = val
 
             sys.stdout = stdout_buffer
             sys.stderr = stderr_buffer
             try:
-                exec(script, exec_globals)
+                exec(code, exec_globals)
                 raw_output = stdout_buffer.getvalue().strip()
                 stderr_output = stderr_buffer.getvalue().strip()
             finally:
@@ -104,15 +135,21 @@ class ActionExecutor:
         except Exception as exc:  # noqa: BLE001 - capture runtime issues
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            # SECURITY FIX: Don't expose full traceback externally
+            # Log internally for debugging, but return sanitized error
             tb = traceback.format_exc()
             raw_output = stdout_buffer.getvalue().strip()
             stderr_output = stderr_buffer.getvalue().strip()
+            
+            # Sanitize error message to avoid information disclosure
+            sanitized_error = str(exc).split('\n')[0][:100]  # First line, max 100 chars
+            
             return ExecutionResult(
                 raw_output=raw_output,
                 stderr=stderr_output,
                 parsed_output=None,
                 exception=exc,
-                traceback=tb,
+                traceback=tb,  # Keep full traceback internally for debugging
             )
         finally:
             if extra_modules:

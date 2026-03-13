@@ -1,0 +1,11 @@
+{
+  "owner": "biostartechnology",
+  "slug": "linkedin",
+  "displayName": "LinkedIn",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769231729796,
+    "commit": "https://github.com/clawdbot/skills/commit/3d527f1d28a86b650baf965b07119e55918f9ad6"
+  },
+  "history": []
+}

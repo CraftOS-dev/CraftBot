@@ -1,0 +1,17 @@
+{
+  "proactive": {
+    "enabled": false
+  },
+  "general": {
+    "agent_name": "CraftBot"
+  },
+  "memory": {
+    "enabled": true
+  },
+  "model": {
+    "llm_provider": "gemini",
+    "vlm_provider": "gemini",
+    "llm_model": "gemini-2.5-pro",
+    "vlm_model": "gemini-2.5-pro"
+  }
+}

@@ -13,8 +13,8 @@ import yaml
 from importlib import import_module
 from pathlib import Path
 
-from core.agent_base import AgentBase
-from core.logger import logger
+from app.agent_base import AgentBase
+from app.logger import logger
 
 
 class PersonalAssistantAgent(AgentBase):
@@ -29,14 +29,14 @@ class PersonalAssistantAgent(AgentBase):
         self._bundle_path = bundle_path
         self._cfg = cfg
         super().__init__(
-            data_dir=cfg.get("data_dir", "core/data"),
+            data_dir=cfg.get("data_dir", "app/data"),
             chroma_path=str(bundle_path / cfg.get("rag_dir", "rag_docs")),
         )
 
     # -------- AgentBase hooks ----------------------------------------- #
 
     def _generate_role_info_prompt(self) -> str:
-        return (
+        base_prompt = (
             "You are an intelligent personal assistant for professionals and executives.\n"
             "Your role includes:\n"
             "- Scheduling meetings and reminders.\n"
@@ -45,6 +45,8 @@ class PersonalAssistantAgent(AgentBase):
             "- Assisting in task prioritisation and time management.\n\n"
             "Respond clearly, concisely, and respectfully, adapting your tone to the user's communication style."
         )
+        # Append interface-specific capabilities (e.g., file attachment in browser mode)
+        return base_prompt + self._get_interface_capabilities_prompt()
 
     def _register_extra_actions(self) -> None:
         actions_pkg = "agents.personal_assistant.actions"

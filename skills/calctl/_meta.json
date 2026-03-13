@@ -1,0 +1,11 @@
+{
+  "owner": "rainbat",
+  "slug": "calctl",
+  "displayName": "Calctl",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769032161705,
+    "commit": "https://github.com/clawdbot/skills/commit/a812a18a6462fb4d6bdfe3b954330a2c6e38db3a"
+  },
+  "history": []
+}
