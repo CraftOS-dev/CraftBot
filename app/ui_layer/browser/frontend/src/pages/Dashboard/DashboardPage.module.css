@@ -260,6 +260,13 @@
   background: var(--color-primary);
 }
 
+.tokenCachedDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+}
+
 .tokenRatioValue {
   font-weight: var(--font-semibold);
   color: var(--text-primary);

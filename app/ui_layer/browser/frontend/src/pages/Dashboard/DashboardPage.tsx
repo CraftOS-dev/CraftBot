@@ -147,6 +147,7 @@ export function DashboardPage() {
   // Calculate token ratios
   const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0
   const outputRatio = totalTokens > 0 ? Math.round((outputTokens / totalTokens) * 100) : 0
+  const cachedRatio = inputTokens > 0 ? Math.round((cachedTokens / inputTokens) * 100) : 0
 
   const cpuPercent = metrics?.system.cpuPercent ?? 0
   const memoryPercent = metrics?.system.memoryPercent ?? 0
@@ -303,6 +304,11 @@ export function DashboardPage() {
                   <span className={styles.tokenOutputDot} />
                   <span>Output</span>
                   <span className={styles.tokenRatioValue}>{outputRatio}%</span>
+                </div>
+                <div className={styles.tokenRatioItem}>
+                  <span className={styles.tokenCachedDot} />
+                  <span>Cached</span>
+                  <span className={styles.tokenRatioValue}>{cachedRatio}%</span>
                 </div>
               </div>
             </div>
