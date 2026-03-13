@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
+from aiohttp.client_exceptions import ClientConnectionResetError
+
 from app.config import AGENT_WORKSPACE_ROOT
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -829,10 +831,13 @@ class BrowserAdapter(InterfaceAdapter):
                 "data": initial_state,
             })
             print(f"[BROWSER ADAPTER] Initial state sent successfully")
+        except (ConnectionResetError, ClientConnectionResetError, RuntimeError) as e:
+            # Gracefully handle connection closing - don't show traceback for expected errors
+            print(f"[BROWSER ADAPTER] Connection closed before initial state could be sent")
+            self._ws_clients.discard(ws)
+            return ws
         except Exception as e:
             print(f"[BROWSER ADAPTER] Error sending initial state: {e}")
-            import traceback
-            traceback.print_exc()
             self._ws_clients.discard(ws)
             return ws
 
@@ -859,10 +864,10 @@ class BrowserAdapter(InterfaceAdapter):
                     # Continue on message errors, don't close connection
         except asyncio.CancelledError:
             print(f"[BROWSER ADAPTER] WebSocket cancelled")
+        except (ClientConnectionResetError, ConnectionResetError):
+            pass  # Silently handle expected connection errors
         except Exception as e:
             print(f"[BROWSER ADAPTER] WebSocket loop error: {e}")
-            import traceback
-            traceback.print_exc()
         finally:
             self._ws_clients.discard(ws)
             print(f"[BROWSER ADAPTER] WebSocket client disconnected. Total clients: {len(self._ws_clients)}")
@@ -2742,7 +2747,11 @@ class BrowserAdapter(InterfaceAdapter):
         for ws in self._ws_clients:
             try:
                 await ws.send_str(json_msg)
+            except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
+                # Silently handle expected connection errors
+                disconnected.add(ws)
             except Exception:
+                # Log unexpected errors
                 disconnected.add(ws)
 
         # Clean up disconnected clients
