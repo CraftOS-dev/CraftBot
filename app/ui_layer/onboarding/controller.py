@@ -15,7 +15,7 @@ from app.onboarding.interfaces.steps import (
     StepOption,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_env
+from app.tui.settings import save_settings_to_json
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -247,9 +247,9 @@ class OnboardingFlowController:
         selected_mcp_servers = self._state.collected_data.get("mcp", [])
         selected_skills = self._state.collected_data.get("skills", [])
 
-        # Save provider configuration
+        # Save provider configuration to settings.json
         if provider and api_key:
-            save_settings_to_env(provider, api_key)
+            save_settings_to_json(provider, api_key)
 
         # Update controller state if available
         if self._controller:
@@ -269,6 +269,29 @@ class OnboardingFlowController:
 
         # Mark hard onboarding complete
         onboarding_manager.mark_hard_complete(agent_name=agent_name)
+
+        # Trigger soft onboarding now that hard onboarding is done
+        # This is needed because the soft onboarding check in agent.run() happens
+        # before interface starts (and thus before hard onboarding completes)
+        if onboarding_manager.needs_soft_onboarding and self._controller:
+            import asyncio
+            asyncio.create_task(self._trigger_soft_onboarding_async())
+
+    async def _trigger_soft_onboarding_async(self) -> None:
+        """
+        Async helper to trigger soft onboarding after hard onboarding completes.
+
+        Uses the agent's trigger_soft_onboarding method which properly creates
+        the task and fires a trigger to start it.
+        """
+        if not self._controller:
+            return
+
+        agent = self._controller.agent
+        task_id = await agent.trigger_soft_onboarding()
+        if task_id:
+            from agent_core.utils.logger import logger
+            logger.info(f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}")
 
     def get_progress_text(self) -> str:
         """

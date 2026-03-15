@@ -18,7 +18,7 @@ from app.models.model_registry import MODEL_REGISTRY
 from app.models.types import InterfaceType
 
 from app.tui.styles import TUI_CSS
-from app.tui.settings import save_settings_to_env, get_api_key_env_name
+from app.tui.settings import save_settings_to_json, get_api_key_env_name, get_api_key_for_provider
 from app.tui.widgets import ConversationLog, PasteableInput, VMFootageWidget, TaskSelected
 from app.tui.mcp_settings import (
     list_mcp_servers,
@@ -178,9 +178,8 @@ class CraftApp(App):
         if self._api_key:
             return True
 
-        # Check environment variable
-        api_key_env = get_api_key_env_name(self._provider)
-        if api_key_env and os.getenv(api_key_env):
+        # Check settings.json or environment variable
+        if get_api_key_for_provider(self._provider):
             return True
 
         return False
@@ -700,16 +699,9 @@ class CraftApp(App):
         if self._api_key:
             self._saved_api_keys[self._provider] = self._api_key
 
-        # Persist settings to .env file and update environment variables
+        # Persist settings to settings.json (also syncs to os.environ)
         if self._api_key:
-            save_settings_to_env(self._provider, self._api_key)
-
-            # Also update current process environment variables
-            api_key_env = get_api_key_env_name(self._provider)
-            if api_key_env:
-                os.environ[api_key_env] = self._api_key
-            os.environ["LLM_PROVIDER"] = self._provider
-
+            save_settings_to_json(self._provider, self._api_key)
             self.notify("Settings saved!", severity="information", timeout=2)
         else:
             self.notify("Settings saved (using existing API key)", severity="information", timeout=2)
@@ -721,10 +713,8 @@ class CraftApp(App):
         api_key_required = self._provider not in ("remote",)  # Ollama doesn't need API key
 
         if api_key_required:
-            # Check environment variable first, then local setting
-            api_key_env = get_api_key_env_name(self._provider)
-            env_api_key = os.getenv(api_key_env, "") if api_key_env else ""
-            effective_api_key = self._api_key or env_api_key
+            # Check local setting first, then settings.json/environment
+            effective_api_key = self._api_key or get_api_key_for_provider(self._provider)
 
             if not effective_api_key:
                 self.notify(

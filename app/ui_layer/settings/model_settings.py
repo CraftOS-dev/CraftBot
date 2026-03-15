@@ -5,6 +5,8 @@ Provides functions for managing model configuration including:
 - API key management
 - Model selection per provider
 - Connection testing
+
+All settings are stored in settings.json (not .env).
 """
 
 import os
@@ -21,26 +23,30 @@ from app.models import (
 )
 
 
-# Provider display names
+# Provider display names and settings.json key mapping
 PROVIDER_INFO = {
     "openai": {
         "name": "OpenAI",
         "api_key_env": "OPENAI_API_KEY",
+        "settings_key": "openai",
         "requires_api_key": True,
     },
     "anthropic": {
         "name": "Anthropic",
         "api_key_env": "ANTHROPIC_API_KEY",
+        "settings_key": "anthropic",
         "requires_api_key": True,
     },
     "gemini": {
         "name": "Google Gemini",
         "api_key_env": "GOOGLE_API_KEY",
+        "settings_key": "google",
         "requires_api_key": True,
     },
     "byteplus": {
         "name": "BytePlus",
         "api_key_env": "BYTEPLUS_API_KEY",
+        "settings_key": "byteplus",
         "requires_api_key": True,
     },
     "remote": {
@@ -61,7 +67,9 @@ def _load_settings() -> Dict[str, Any]:
             "model": {
                 "llm_provider": "anthropic",
                 "vlm_provider": "anthropic",
-            }
+            },
+            "api_keys": {},
+            "endpoints": {},
         }
 
     try:
@@ -75,7 +83,9 @@ def _load_settings() -> Dict[str, Any]:
             "model": {
                 "llm_provider": "anthropic",
                 "vlm_provider": "anthropic",
-            }
+            },
+            "api_keys": {},
+            "endpoints": {},
         }
 
 
@@ -90,66 +100,33 @@ def _save_settings(settings: Dict[str, Any]) -> bool:
         return False
 
 
-def _get_env_path() -> Path:
-    """Get the path to .env file."""
-    return Path(".env")
+def _sync_to_environ(settings: Dict[str, Any]) -> None:
+    """Sync settings to os.environ for current session."""
+    # Sync model provider
+    model = settings.get("model", {})
+    if model.get("llm_provider"):
+        os.environ["LLM_PROVIDER"] = model["llm_provider"]
+    if model.get("vlm_provider"):
+        os.environ["VLM_PROVIDER"] = model["vlm_provider"]
 
+    # Sync API keys
+    api_keys = settings.get("api_keys", {})
+    key_mapping = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "byteplus": "BYTEPLUS_API_KEY",
+    }
+    for settings_key, env_var in key_mapping.items():
+        if api_keys.get(settings_key):
+            os.environ[env_var] = api_keys[settings_key]
 
-def _read_env_file() -> Dict[str, str]:
-    """Read environment variables from .env file."""
-    env_path = _get_env_path()
-    env_vars = {}
-
-    if env_path.exists():
-        try:
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        key, _, value = line.partition("=")
-                        env_vars[key.strip()] = value.strip()
-        except Exception:
-            pass
-
-    return env_vars
-
-
-def _write_env_file(env_vars: Dict[str, str]) -> bool:
-    """Write environment variables to .env file."""
-    env_path = _get_env_path()
-
-    try:
-        # Read existing content to preserve comments and order
-        existing_lines = []
-        updated_keys = set()
-
-        if env_path.exists():
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if stripped and not stripped.startswith("#") and "=" in stripped:
-                        key = stripped.split("=", 1)[0].strip()
-                        if key in env_vars:
-                            # Update this line with new value
-                            if env_vars[key]:  # Only write non-empty values
-                                existing_lines.append(f"{key}={env_vars[key]}\n")
-                            updated_keys.add(key)
-                        else:
-                            existing_lines.append(line if line.endswith("\n") else line + "\n")
-                    else:
-                        existing_lines.append(line if line.endswith("\n") else line + "\n")
-
-        # Add new keys that weren't in the file
-        for key, value in env_vars.items():
-            if key not in updated_keys and value:
-                existing_lines.append(f"{key}={value}\n")
-
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(existing_lines)
-
-        return True
-    except Exception:
-        return False
+    # Sync endpoints
+    endpoints = settings.get("endpoints", {})
+    if endpoints.get("remote_model_url"):
+        os.environ["REMOTE_MODEL_URL"] = endpoints["remote_model_url"]
+    if endpoints.get("byteplus_base_url"):
+        os.environ["BYTEPLUS_BASE_URL"] = endpoints["byteplus_base_url"]
 
 
 def _mask_api_key(api_key: str) -> str:
@@ -214,11 +191,12 @@ def get_model_settings() -> Dict[str, Any]:
     try:
         settings = _load_settings()
         model_settings = settings.get("model", {})
-        env_vars = _read_env_file()
+        api_keys_settings = settings.get("api_keys", {})
+        endpoints_settings = settings.get("endpoints", {})
 
         # Get configured providers
-        llm_provider = model_settings.get("llm_provider") or env_vars.get("LLM_PROVIDER", "anthropic")
-        vlm_provider = model_settings.get("vlm_provider") or env_vars.get("VLM_PROVIDER", llm_provider)
+        llm_provider = model_settings.get("llm_provider") or os.getenv("LLM_PROVIDER", "anthropic")
+        vlm_provider = model_settings.get("vlm_provider") or os.getenv("VLM_PROVIDER", llm_provider)
 
         # Get custom models if set
         llm_model = model_settings.get("llm_model")
@@ -227,10 +205,17 @@ def get_model_settings() -> Dict[str, Any]:
         # Check API key status for each provider
         api_keys = {}
         for provider_id, info in PROVIDER_INFO.items():
+            settings_key = info.get("settings_key")
             api_key_env = info.get("api_key_env")
-            if api_key_env:
-                # Check env file first, then os.environ
-                key = env_vars.get(api_key_env) or os.getenv(api_key_env, "")
+
+            if settings_key or api_key_env:
+                # Check settings.json first, then os.environ
+                key = ""
+                if settings_key:
+                    key = api_keys_settings.get(settings_key, "")
+                if not key and api_key_env:
+                    key = os.getenv(api_key_env, "")
+
                 api_keys[provider_id] = {
                     "has_key": bool(key),
                     "masked_key": _mask_api_key(key) if key else "",
@@ -244,10 +229,15 @@ def get_model_settings() -> Dict[str, Any]:
 
         # Get base URLs for providers that support them
         base_urls = {}
-        if "BYTEPLUS_BASE_URL" in env_vars:
-            base_urls["byteplus"] = env_vars["BYTEPLUS_BASE_URL"]
-        if "REMOTE_MODEL_URL" in env_vars:
-            base_urls["remote"] = env_vars["REMOTE_MODEL_URL"]
+        if endpoints_settings.get("byteplus_base_url"):
+            base_urls["byteplus"] = endpoints_settings["byteplus_base_url"]
+        elif os.getenv("BYTEPLUS_BASE_URL"):
+            base_urls["byteplus"] = os.getenv("BYTEPLUS_BASE_URL")
+
+        if endpoints_settings.get("remote_model_url"):
+            base_urls["remote"] = endpoints_settings["remote_model_url"]
+        elif os.getenv("REMOTE_MODEL_URL"):
+            base_urls["remote"] = os.getenv("REMOTE_MODEL_URL")
 
         return {
             "success": True,
@@ -277,6 +267,8 @@ def update_model_settings(
 ) -> Dict[str, Any]:
     """Update model settings.
 
+    All settings are saved to settings.json (not .env).
+
     Args:
         llm_provider: New LLM provider
         vlm_provider: New VLM provider
@@ -294,17 +286,17 @@ def update_model_settings(
         settings = _load_settings()
         if "model" not in settings:
             settings["model"] = {}
-
-        env_updates = {}
+        if "api_keys" not in settings:
+            settings["api_keys"] = {}
+        if "endpoints" not in settings:
+            settings["endpoints"] = {}
 
         # Update providers
         if llm_provider:
             settings["model"]["llm_provider"] = llm_provider
-            env_updates["LLM_PROVIDER"] = llm_provider
 
         if vlm_provider:
             settings["model"]["vlm_provider"] = vlm_provider
-            env_updates["VLM_PROVIDER"] = vlm_provider
 
         # Update custom models
         if llm_model is not None:
@@ -312,19 +304,19 @@ def update_model_settings(
         if vlm_model is not None:
             settings["model"]["vlm_model"] = vlm_model if vlm_model else None
 
-        # Update API key
+        # Update API key in settings.json
         if provider_for_key and api_key is not None:
             info = PROVIDER_INFO.get(provider_for_key, {})
-            api_key_env = info.get("api_key_env")
-            if api_key_env:
-                env_updates[api_key_env] = api_key
+            settings_key = info.get("settings_key")
+            if settings_key:
+                settings["api_keys"][settings_key] = api_key
 
-        # Update base URL
+        # Update base URL in settings.json
         if provider_for_url and base_url is not None:
-            info = PROVIDER_INFO.get(provider_for_url, {})
-            base_url_env = info.get("base_url_env")
-            if base_url_env:
-                env_updates[base_url_env] = base_url
+            if provider_for_url == "byteplus":
+                settings["endpoints"]["byteplus_base_url"] = base_url
+            elif provider_for_url == "remote":
+                settings["endpoints"]["remote_model_url"] = base_url
 
         # Save settings.json
         if not _save_settings(settings):
@@ -333,13 +325,8 @@ def update_model_settings(
                 "error": "Failed to save settings.json",
             }
 
-        # Save .env updates
-        if env_updates:
-            if not _write_env_file(env_updates):
-                return {
-                    "success": False,
-                    "error": "Failed to save .env file",
-                }
+        # Sync to os.environ for current session
+        _sync_to_environ(settings)
 
         # Return updated settings
         return get_model_settings()
@@ -367,21 +354,27 @@ def test_connection(
         Dict with test results
     """
     try:
-        # If no API key provided, try to get it from environment
+        settings = _load_settings()
+        api_keys_settings = settings.get("api_keys", {})
+        endpoints_settings = settings.get("endpoints", {})
+
+        # If no API key provided, try to get it from settings.json or environment
         if api_key is None:
             info = PROVIDER_INFO.get(provider, {})
+            settings_key = info.get("settings_key")
             api_key_env = info.get("api_key_env")
-            if api_key_env:
-                env_vars = _read_env_file()
-                api_key = env_vars.get(api_key_env) or os.getenv(api_key_env)
 
-        # If no base URL provided, try to get it from environment
+            if settings_key:
+                api_key = api_keys_settings.get(settings_key)
+            if not api_key and api_key_env:
+                api_key = os.getenv(api_key_env)
+
+        # If no base URL provided, try to get it from settings.json or environment
         if base_url is None and provider in ["byteplus", "remote"]:
-            info = PROVIDER_INFO.get(provider, {})
-            base_url_env = info.get("base_url_env")
-            if base_url_env:
-                env_vars = _read_env_file()
-                base_url = env_vars.get(base_url_env) or os.getenv(base_url_env)
+            if provider == "byteplus":
+                base_url = endpoints_settings.get("byteplus_base_url") or os.getenv("BYTEPLUS_BASE_URL")
+            elif provider == "remote":
+                base_url = endpoints_settings.get("remote_model_url") or os.getenv("REMOTE_MODEL_URL")
 
         # Run connection test
         result = test_provider_connection(
@@ -425,7 +418,8 @@ def validate_can_save(
         errors = []
 
         vlm_provider = vlm_provider or llm_provider
-        env_vars = _read_env_file()
+        settings = _load_settings()
+        api_keys_settings = settings.get("api_keys", {})
 
         # Check each provider needs API key
         providers_to_check = {llm_provider}
@@ -436,14 +430,18 @@ def validate_can_save(
             info = PROVIDER_INFO.get(provider, {})
 
             if info.get("requires_api_key", True):
+                settings_key = info.get("settings_key")
                 api_key_env = info.get("api_key_env")
 
                 # Check if we have an API key (either new one or existing)
                 has_key = False
                 if provider_for_key == provider and api_key:
                     has_key = True
+                elif settings_key:
+                    existing = api_keys_settings.get(settings_key)
+                    has_key = bool(existing)
                 elif api_key_env:
-                    existing = env_vars.get(api_key_env) or os.getenv(api_key_env)
+                    existing = os.getenv(api_key_env)
                     has_key = bool(existing)
 
                 if not has_key:

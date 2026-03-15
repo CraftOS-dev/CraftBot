@@ -6,7 +6,7 @@ import os
 from typing import List
 
 from app.ui_layer.commands.base import Command, CommandResult
-from app.tui.settings import save_settings_to_env
+from app.tui.settings import save_settings_to_json, get_current_provider, get_api_key_for_provider
 
 
 class ProviderCommand(Command):
@@ -75,13 +75,13 @@ Examples:
 
     async def _show_current_provider(self) -> CommandResult:
         """Show the current provider configuration."""
-        current = os.getenv("LLM_PROVIDER", "openai")
+        current = get_current_provider()
         env_key, display_name = self.PROVIDERS.get(current, (None, current))
 
         lines = [f"Current provider: {display_name} ({current})"]
 
         if env_key:
-            api_key = os.getenv(env_key, "")
+            api_key = get_api_key_for_provider(current)
             if api_key:
                 masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
                 lines.append(f"API key: {masked}")
@@ -96,13 +96,8 @@ Examples:
         """Set the provider and optionally the API key."""
         env_key, display_name = self.PROVIDERS[provider]
 
-        # Save to .env
-        save_settings_to_env(provider, api_key)
-
-        # Update environment
-        os.environ["LLM_PROVIDER"] = provider
-        if env_key and api_key:
-            os.environ[env_key] = api_key
+        # Save to settings.json (also syncs to os.environ)
+        save_settings_to_json(provider, api_key)
 
         # Reinitialize the LLM
         try:

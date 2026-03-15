@@ -1,15 +1,51 @@
 """Settings utilities for the TUI interface."""
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from app.logger import logger
 from app.models.provider_config import PROVIDER_CONFIG
+from app.config import SETTINGS_CONFIG_PATH
 
 
-def save_settings_to_env(provider: str, api_key: str) -> bool:
-    """Save provider and API key to .env file.
+# Provider to settings.json api_keys key mapping
+PROVIDER_TO_SETTINGS_KEY = {
+    "openai": "openai",
+    "gemini": "google",
+    "google": "google",
+    "byteplus": "byteplus",
+    "anthropic": "anthropic",
+}
+
+
+def _load_settings() -> Dict[str, Any]:
+    """Load settings from settings.json."""
+    if not SETTINGS_CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(SETTINGS_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_settings(settings: Dict[str, Any]) -> bool:
+    """Save settings to settings.json."""
+    try:
+        SETTINGS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(SETTINGS_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"[SETTINGS] Failed to save settings.json: {e}")
+        return False
+
+
+def save_settings_to_json(provider: str, api_key: str) -> bool:
+    """Save provider and API key to settings.json.
 
     Args:
         provider: The LLM provider name
@@ -19,58 +55,52 @@ def save_settings_to_env(provider: str, api_key: str) -> bool:
         True if saved successfully, False otherwise
     """
     try:
-        env_path = Path(".env")
-        env_lines: list[str] = []
+        settings = _load_settings()
 
-        # Read existing .env file if it exists
-        if env_path.exists():
-            with open(env_path, "r", encoding="utf-8") as f:
-                env_lines = f.readlines()
+        # Ensure model section exists
+        if "model" not in settings:
+            settings["model"] = {}
 
-        # Get the API key environment variable name for this provider
-        key_lookup = {
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GOOGLE_API_KEY",
-            "byteplus": "BYTEPLUS_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-        }
-        api_key_env = key_lookup.get(provider)
+        # Update provider
+        settings["model"]["llm_provider"] = provider
+        settings["model"]["vlm_provider"] = provider
 
-        # Update or add the LLM_PROVIDER and API key
-        updated_provider = False
-        updated_api_key = False
+        # Update API key if provided
+        if api_key:
+            if "api_keys" not in settings:
+                settings["api_keys"] = {}
 
-        new_lines = []
-        for line in env_lines:
-            stripped = line.strip()
-            if stripped.startswith("LLM_PROVIDER="):
-                new_lines.append(f"LLM_PROVIDER={provider}\n")
-                updated_provider = True
-            elif api_key_env and stripped.startswith(f"{api_key_env}="):
-                if api_key:
-                    new_lines.append(f"{api_key_env}={api_key}\n")
-                    updated_api_key = True
-                # Skip empty API key lines (don't write them)
-            else:
-                new_lines.append(line if line.endswith("\n") else line + "\n")
+            settings_key = PROVIDER_TO_SETTINGS_KEY.get(provider, provider)
+            settings["api_keys"][settings_key] = api_key
 
-        # Add new entries if not updated
-        if not updated_provider:
-            new_lines.append(f"LLM_PROVIDER={provider}\n")
+        # Save to file
+        if not _save_settings(settings):
+            return False
 
-        if api_key_env and api_key and not updated_api_key:
-            new_lines.append(f"{api_key_env}={api_key}\n")
+        # Also sync to os.environ for current session
+        _sync_to_environ(provider, api_key)
 
-        # Write back to .env file
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-
-        logger.info(f"[SETTINGS] Saved provider={provider} to .env file")
+        logger.info(f"[SETTINGS] Saved provider={provider} to settings.json")
         return True
 
     except Exception as e:
-        logger.error(f"[SETTINGS] Failed to save to .env file: {e}")
+        logger.error(f"[SETTINGS] Failed to save to settings.json: {e}")
         return False
+
+
+def _sync_to_environ(provider: str, api_key: str) -> None:
+    """Sync provider and API key to os.environ for current session."""
+    os.environ["LLM_PROVIDER"] = provider
+    os.environ["VLM_PROVIDER"] = provider
+
+    if api_key:
+        api_key_env = get_api_key_env_name(provider)
+        if api_key_env:
+            os.environ[api_key_env] = api_key
+
+
+# Keep old function name as alias for backwards compatibility
+save_settings_to_env = save_settings_to_json
 
 
 def get_api_key_env_name(provider: str) -> Optional[str]:
@@ -78,3 +108,27 @@ def get_api_key_env_name(provider: str) -> Optional[str]:
     if provider not in PROVIDER_CONFIG:
         return None
     return PROVIDER_CONFIG[provider].api_key_env
+
+
+def get_current_provider() -> str:
+    """Get the current LLM provider from settings.json or os.environ."""
+    settings = _load_settings()
+    return settings.get("model", {}).get("llm_provider") or os.environ.get("LLM_PROVIDER", "openai")
+
+
+def get_api_key_for_provider(provider: str) -> str:
+    """Get the API key for a provider from settings.json or os.environ."""
+    settings = _load_settings()
+    settings_key = PROVIDER_TO_SETTINGS_KEY.get(provider, provider)
+
+    # Try settings.json first
+    api_key = settings.get("api_keys", {}).get(settings_key, "")
+    if api_key:
+        return api_key
+
+    # Fall back to os.environ
+    api_key_env = get_api_key_env_name(provider)
+    if api_key_env:
+        return os.environ.get(api_key_env, "")
+
+    return ""

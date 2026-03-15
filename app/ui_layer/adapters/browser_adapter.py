@@ -630,7 +630,7 @@ class BrowserAdapter(InterfaceAdapter):
         self,
         controller: "UIController",
         host: str = "localhost",
-        port: int = 8080,
+        port: int = 7926,
     ) -> None:
         super().__init__(controller, "browser")
         self._host = host

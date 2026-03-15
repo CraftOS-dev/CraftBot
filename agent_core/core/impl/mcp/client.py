@@ -317,6 +317,89 @@ class MCPClient:
 
         return status
 
+    async def reload(self, config_path: Optional[Path] = None) -> Dict[str, Any]:
+        """
+        Hot-reload MCP configuration and reconnect servers.
+
+        This method:
+        1. Reloads the config file from disk
+        2. Disconnects servers that are no longer enabled or removed
+        3. Connects new servers that are now enabled
+        4. Re-registers all tools as actions
+
+        Args:
+            config_path: Path to the configuration file. If None, uses the
+                        path from initialization or default path.
+
+        Returns:
+            Dictionary with reload results including connected/disconnected servers
+        """
+        result = {
+            "success": True,
+            "disconnected": [],
+            "connected": [],
+            "failed": [],
+            "total_tools": 0,
+            "message": "",
+        }
+
+        # Use provided path, stored path, or default
+        config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+
+        # Reload configuration
+        try:
+            new_config = MCPConfig.load(config_path)
+            logger.info(f"[MCP] Reloaded config with {len(new_config.mcp_servers)} server(s)")
+        except Exception as e:
+            logger.error(f"[MCP] Failed to reload config: {e}")
+            result["success"] = False
+            result["message"] = f"Failed to reload config: {e}"
+            return result
+
+        # Get list of currently enabled servers from new config
+        enabled_server_names = {s.name for s in new_config.get_enabled_servers()}
+        current_server_names = set(self._servers.keys())
+
+        # Disconnect servers that are no longer enabled or removed
+        servers_to_disconnect = current_server_names - enabled_server_names
+        for server_name in servers_to_disconnect:
+            try:
+                await self.disconnect_server(server_name)
+                result["disconnected"].append(server_name)
+                logger.info(f"[MCP] Disconnected server '{server_name}' (no longer enabled)")
+            except Exception as e:
+                logger.warning(f"[MCP] Error disconnecting '{server_name}': {e}")
+
+        # Update config before connecting new servers
+        self._config = new_config
+
+        # Connect new servers that are now enabled
+        servers_to_connect = enabled_server_names - current_server_names
+        for server_name in servers_to_connect:
+            try:
+                success = await self.connect_server(server_name)
+                if success:
+                    result["connected"].append(server_name)
+                    logger.info(f"[MCP] Connected new server '{server_name}'")
+                else:
+                    result["failed"].append(server_name)
+            except Exception as e:
+                logger.error(f"[MCP] Failed to connect '{server_name}': {e}")
+                result["failed"].append(server_name)
+
+        # Re-register all tools as actions
+        result["total_tools"] = self.register_tools_as_actions()
+
+        result["message"] = (
+            f"Reload complete. Connected: {len(result['connected'])}, "
+            f"Disconnected: {len(result['disconnected'])}, "
+            f"Failed: {len(result['failed'])}, "
+            f"Total tools: {result['total_tools']}"
+        )
+
+        logger.info(f"[MCP] {result['message']}")
+        return result
+
 
 # Global singleton instance
 mcp_client = MCPClient()

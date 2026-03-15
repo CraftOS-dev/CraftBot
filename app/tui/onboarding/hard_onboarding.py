@@ -14,7 +14,7 @@ from app.onboarding.interfaces.steps import (
     SkillsStep,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_env
+from app.tui.settings import save_settings_to_json
 from app.logger import logger
 
 if TYPE_CHECKING:
@@ -101,24 +101,55 @@ class TUIHardOnboarding(OnboardingInterface):
 
         self._collected_data["completed"] = True
 
-        # Save provider and API key to .env
+        # Save provider and API key to settings.json
         provider = self._collected_data.get("provider", "openai")
         api_key = self._collected_data.get("api_key", "")
 
         if provider and api_key:
-            save_settings_to_env(provider, api_key)
-            logger.info(f"[ONBOARDING] Saved provider={provider} to .env")
+            # save_settings_to_json also syncs to os.environ for current session
+            save_settings_to_json(provider, api_key)
+            logger.info(f"[ONBOARDING] Saved provider={provider} to settings.json")
 
         # Update the app's provider and api_key
         self._app._provider = provider
         self._app._api_key = api_key
         self._app._saved_api_keys[provider] = api_key
 
+        # Configure the interface with the new provider and reinitialize the LLM
+        if self._app._interface and provider and api_key:
+            self._app._interface.configure_provider(provider, api_key)
+            if self._app._interface._agent:
+                self._app._interface._agent.llm.reinitialize(provider)
+                logger.info(f"[ONBOARDING] Reinitialized LLM with provider: {provider}")
+
         # Mark hard onboarding as complete
         agent_name = self._collected_data.get("agent_name", "Agent")
         onboarding_manager.mark_hard_complete(agent_name=agent_name)
 
         logger.info("[ONBOARDING] Hard onboarding completed successfully")
+
+        # Trigger soft onboarding now that hard onboarding is done
+        # This is needed because the soft onboarding check in agent.run() happens
+        # before interface starts (and thus before hard onboarding completes)
+        if onboarding_manager.needs_soft_onboarding:
+            import asyncio
+            asyncio.create_task(self._trigger_soft_onboarding_async())
+
+    async def _trigger_soft_onboarding_async(self) -> None:
+        """
+        Async helper to trigger soft onboarding after hard onboarding completes.
+
+        Uses the agent's trigger_soft_onboarding method which properly creates
+        the task and fires a trigger to start it.
+        """
+        if not self._app._interface or not self._app._interface._agent:
+            logger.warning("[ONBOARDING] Cannot trigger soft onboarding: no agent reference")
+            return
+
+        agent = self._app._interface._agent
+        task_id = await agent.trigger_soft_onboarding()
+        if task_id:
+            logger.info(f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}")
 
     async def trigger_soft_onboarding(self) -> Optional[str]:
         """

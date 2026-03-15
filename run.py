@@ -798,13 +798,10 @@ if __name__ == "__main__":
             sys.exit(1)
         print_step_done()
 
-        # Wait for services
-        print("\n  Initializing services")
-        
-        # Wait for frontend and backend to be ready
+        # Wait for services silently (agent prints steps 3-8)
         frontend_ready = False
         backend_ready = False
-        
+
         # Wait for frontend
         frontend_start = time.time()
         while time.time() - frontend_start < 30:
@@ -820,7 +817,7 @@ if __name__ == "__main__":
             except:
                 pass
             time.sleep(0.5)
-        
+
         # Wait for backend
         backend_start = time.time()
         while time.time() - backend_start < 60:
@@ -836,10 +833,6 @@ if __name__ == "__main__":
             except:
                 pass
             time.sleep(0.5)
-        
-        # Show progress bar only at 100% when ready
-        print_progress_bar(100)
-        print()  # New line after progress bar
 
         # Small delay to ensure agent's stdout is flushed before we print
         # The agent prints steps 3-8, and we want them to appear before the ready banner
@@ -862,12 +855,8 @@ if __name__ == "__main__":
             print("   Check the error messages above for details")
             if use_conda:
                 print(f"   Try running: conda activate {env_name} && python main.py --browser")
-        elif frontend_ready:
-            print("\n⚠ Warning: Backend may not be fully ready")
-            print_ready_banner(FRONTEND_URL)
-            webbrowser.open(FRONTEND_URL)
         else:
-            print("\n⚠ Warning: Services may not be ready")
+            # Frontend or backend may still be starting, but proceed anyway
             print_ready_banner(FRONTEND_URL)
             webbrowser.open(FRONTEND_URL)
 

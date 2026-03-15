@@ -140,7 +140,7 @@ class BytePlusCacheManager:
         logger.info(f"[BYTEPLUS REQUEST] URL: {url}")
         logger.info(f"[BYTEPLUS REQUEST] Payload: {self._sanitize_payload_for_logging(payload)}")
 
-        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        response = requests.post(url, json=payload, headers=headers, timeout=600)
 
         # Log the response status
         logger.info(f"[BYTEPLUS RESPONSE] Status: {response.status_code}")

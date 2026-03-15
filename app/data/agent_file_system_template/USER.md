@@ -3,7 +3,7 @@
 - **Preferred Name:** (Ask the users for info)
 - **Email:** (Ask the users for info)
 - **Location:** (Ask the users for info)
-- **Timezone:** (Ask the users for info)
+- **Timezone:** (Infer from location)
 - **Job:** (Ask the users for info)
 
 ## Communication Preferences
@@ -13,6 +13,10 @@
 ## Agent Interaction
 - **Prefer Proactive Assistance:** (Ask the users for info)
 - **Approval Required For:** (Ask the users for info)
+
+## Life Goals
+- **Goals:** (Ask the users for info)
+- **Help Wanted:** (Ask the users for info)
 
 ## Personality
 

@@ -174,21 +174,16 @@ class EventTransformer:
 
     @classmethod
     def _is_hidden_event(cls, kind: str, message: str) -> bool:
-        """Check if this event should be hidden from the chat."""
-        # Check against hidden event kinds
+        """Check if this event should be hidden from the chat.
+
+        Only filters based on event KIND, not message content.
+        Filtering based on message content was removed because it incorrectly
+        hid legitimate agent chat messages containing common phrases like
+        "I should", "let me", etc.
+        """
+        # Check against hidden event kinds only
         for hidden_kind in cls.HIDDEN_EVENT_KINDS:
             if hidden_kind in kind:
-                return True
-
-        # Also check message content for reasoning patterns
-        message_lower = message.lower() if message else ""
-        reasoning_indicators = [
-            "thinking about", "considering", "analyzing",
-            "let me think", "i should", "i need to",
-            "reasoning:", "thought:", "plan:",
-        ]
-        for indicator in reasoning_indicators:
-            if indicator in message_lower:
                 return True
 
         return False

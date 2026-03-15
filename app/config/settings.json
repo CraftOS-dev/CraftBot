@@ -1,9 +1,9 @@
 {
-  "proactive": {
-    "enabled": false
-  },
   "general": {
     "agent_name": "CraftBot"
+  },
+  "proactive": {
+    "enabled": false
   },
   "memory": {
     "enabled": true
@@ -13,5 +13,55 @@
     "vlm_provider": "gemini",
     "llm_model": "gemini-2.5-pro",
     "vlm_model": "gemini-2.5-pro"
+  },
+  "api_keys": {
+    "openai": "",
+    "anthropic": "",
+    "google": "",
+    "byteplus": ""
+  },
+  "endpoints": {
+    "remote_model_url": "",
+    "byteplus_base_url": "",
+    "google_api_base": "",
+    "google_api_version": ""
+  },
+  "gui": {
+    "enabled": true,
+    "use_omniparser": false,
+    "omniparser_url": "http://127.0.0.1:7861"
+  },
+  "cache": {
+    "prefix_ttl": 3600,
+    "session_ttl": 7200,
+    "min_tokens": 500
+  },
+  "oauth": {
+    "google": {
+      "client_id": "",
+      "client_secret": ""
+    },
+    "linkedin": {
+      "client_id": "",
+      "client_secret": ""
+    },
+    "slack": {
+      "client_id": "",
+      "client_secret": ""
+    },
+    "notion": {
+      "client_id": "",
+      "client_secret": ""
+    },
+    "outlook": {
+      "client_id": ""
+    }
+  },
+  "web_search": {
+    "google_cse_id": ""
+  },
+  "browser": {
+    "port": 7926,
+    "startup_ui": false
   }
 }

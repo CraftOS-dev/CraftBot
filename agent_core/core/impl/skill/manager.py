@@ -90,6 +90,69 @@ class SkillManager:
         asyncio.get_event_loop().run_until_complete(self._discover_skills())
         return len(self._skills)
 
+    async def reload(self, config_path: Optional[Path] = None) -> Dict[str, Any]:
+        """
+        Hot-reload skills configuration and rediscover skills.
+
+        This method:
+        1. Reloads the config file from disk
+        2. Rediscovers all skills from configured directories
+        3. Applies enabled/disabled status from config
+
+        Args:
+            config_path: Path to skills_config.json. If None, uses the
+                        path from initialization.
+
+        Returns:
+            Dictionary with reload results
+        """
+        result = {
+            "success": True,
+            "total_skills": 0,
+            "enabled_skills": 0,
+            "new_skills": [],
+            "removed_skills": [],
+            "message": "",
+        }
+
+        # Use provided path or stored path
+        config_path = config_path or self._config_path
+
+        # Track current skills before reload
+        old_skill_names = set(self._skills.keys())
+
+        # Reload configuration
+        if config_path and Path(config_path).exists():
+            try:
+                self._config = SkillsConfig.load(config_path)
+                self._config_path = config_path
+                logger.info(f"[SKILLS] Reloaded config from {config_path}")
+            except Exception as e:
+                logger.warning(f"[SKILLS] Failed to reload config: {e}")
+                result["success"] = False
+                result["message"] = f"Failed to reload config: {e}"
+                return result
+
+        # Rediscover skills
+        await self._discover_skills()
+
+        # Calculate changes
+        new_skill_names = set(self._skills.keys())
+        result["new_skills"] = list(new_skill_names - old_skill_names)
+        result["removed_skills"] = list(old_skill_names - new_skill_names)
+        result["total_skills"] = len(self._skills)
+        result["enabled_skills"] = len(self.get_enabled_skills())
+
+        result["message"] = (
+            f"Reload complete. Total: {result['total_skills']}, "
+            f"Enabled: {result['enabled_skills']}, "
+            f"New: {len(result['new_skills'])}, "
+            f"Removed: {len(result['removed_skills'])}"
+        )
+
+        logger.info(f"[SKILLS] {result['message']}")
+        return result
+
     # ─────────────────────── Getters ───────────────────────
 
     def get_all_skills(self) -> List[Skill]:

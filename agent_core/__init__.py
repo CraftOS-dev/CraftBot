@@ -228,6 +228,16 @@ from agent_core.core.impl.onboarding import (
     load_state as load_onboarding_state,
     save_state as save_onboarding_state,
 )
+# Settings
+from agent_core.core.impl.settings import (
+    SettingsManager,
+    settings_manager,
+)
+# Config Watcher
+from agent_core.core.impl.config import (
+    ConfigWatcher,
+    config_watcher,
+)
 
 __all__ = [
     # Version
@@ -428,4 +438,10 @@ __all__ = [
     "DEFAULT_AGENT_NAME",
     "load_onboarding_state",
     "save_onboarding_state",
+    # Settings
+    "SettingsManager",
+    "settings_manager",
+    # Config Watcher
+    "ConfigWatcher",
+    "config_watcher",
 ]
