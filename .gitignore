@@ -46,3 +46,4 @@ app/data/.usage/*
 **/USER.md
 **/onboarding_config.json
 **/config.json
+**/settings.json
