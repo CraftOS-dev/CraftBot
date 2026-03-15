@@ -156,8 +156,8 @@ class LLMInterface:
 
         Args:
             provider: Optional provider override. If None, uses current provider.
-            api_key: Optional API key. If None, uses stored key.
-            base_url: Optional base URL. If None, uses stored URL.
+            api_key: Optional API key. If None, reads from settings.json.
+            base_url: Optional base URL. If None, reads from settings.json.
 
         Returns:
             True if initialization was successful, False otherwise.
@@ -166,8 +166,15 @@ class LLMInterface:
         from app.models.types import InterfaceType
 
         target_provider = provider or self.provider
-        target_api_key = api_key or self._init_api_key
-        target_base_url = base_url or self._init_base_url
+
+        # Read API key and base URL from settings.json if not provided
+        if api_key is None or base_url is None:
+            from app.config import get_api_key, get_base_url
+            target_api_key = api_key if api_key is not None else get_api_key(target_provider)
+            target_base_url = base_url if base_url is not None else get_base_url(target_provider)
+        else:
+            target_api_key = api_key
+            target_base_url = base_url
 
         try:
             logger.info(f"[LLM] Reinitializing with provider: {target_provider}")

@@ -81,7 +81,6 @@ class SettingsManager:
     - Centralized access to all settings
     - Hot-reload capability when settings.json changes
     - Type-safe getters for common settings
-    - Backwards compatibility with os.environ for API keys
     """
 
     _instance: Optional["SettingsManager"] = None
@@ -113,7 +112,6 @@ class SettingsManager:
         """
         self._settings_path = Path(settings_path) if settings_path else DEFAULT_SETTINGS_PATH
         self._load_settings()
-        self._sync_to_environ()
         logger.info(f"[SETTINGS] Initialized from {self._settings_path}")
 
     def _load_settings(self) -> None:
@@ -145,88 +143,6 @@ class SettingsManager:
             else:
                 base[key] = value
 
-    def _sync_to_environ(self) -> None:
-        """
-        Sync API keys and critical settings to os.environ for backwards compatibility.
-        This allows existing code that reads from os.environ to continue working.
-        """
-        # API Keys
-        api_keys = self._settings.get("api_keys", {})
-        env_mapping = {
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "google": "GOOGLE_API_KEY",
-            "byteplus": "BYTEPLUS_API_KEY"
-        }
-        for key, env_var in env_mapping.items():
-            value = api_keys.get(key, "")
-            if value:
-                os.environ[env_var] = value
-
-        # Model provider
-        model = self._settings.get("model", {})
-        if model.get("llm_provider"):
-            os.environ["LLM_PROVIDER"] = model["llm_provider"]
-        if model.get("vlm_provider"):
-            os.environ["VLM_PROVIDER"] = model["vlm_provider"]
-
-        # Endpoints
-        endpoints = self._settings.get("endpoints", {})
-        if endpoints.get("remote_model_url"):
-            os.environ["REMOTE_MODEL_URL"] = endpoints["remote_model_url"]
-        if endpoints.get("byteplus_base_url"):
-            os.environ["BYTEPLUS_BASE_URL"] = endpoints["byteplus_base_url"]
-        if endpoints.get("google_api_base"):
-            os.environ["GOOGLE_API_BASE"] = endpoints["google_api_base"]
-        if endpoints.get("google_api_version"):
-            os.environ["GOOGLE_API_VERSION"] = endpoints["google_api_version"]
-
-        # GUI
-        gui = self._settings.get("gui", {})
-        os.environ["GUI_MODE_ENABLED"] = str(gui.get("enabled", True))
-        os.environ["USE_OMNIPARSER"] = str(gui.get("use_omniparser", False))
-        if gui.get("omniparser_url"):
-            os.environ["OMNIPARSER_BASE_URL"] = gui["omniparser_url"]
-
-        # Cache
-        cache = self._settings.get("cache", {})
-        os.environ["CACHE_PREFIX_TTL"] = str(cache.get("prefix_ttl", 3600))
-        os.environ["CACHE_SESSION_TTL"] = str(cache.get("session_ttl", 7200))
-        os.environ["CACHE_MIN_TOKENS"] = str(cache.get("min_tokens", 500))
-
-        # OAuth
-        oauth = self._settings.get("oauth", {})
-        if oauth.get("google", {}).get("client_id"):
-            os.environ["GOOGLE_CLIENT_ID"] = oauth["google"]["client_id"]
-        if oauth.get("google", {}).get("client_secret"):
-            os.environ["GOOGLE_CLIENT_SECRET"] = oauth["google"]["client_secret"]
-        if oauth.get("linkedin", {}).get("client_id"):
-            os.environ["LINKEDIN_CLIENT_ID"] = oauth["linkedin"]["client_id"]
-        if oauth.get("linkedin", {}).get("client_secret"):
-            os.environ["LINKEDIN_CLIENT_SECRET"] = oauth["linkedin"]["client_secret"]
-        if oauth.get("slack", {}).get("client_id"):
-            os.environ["SLACK_SHARED_CLIENT_ID"] = oauth["slack"]["client_id"]
-        if oauth.get("slack", {}).get("client_secret"):
-            os.environ["SLACK_SHARED_CLIENT_SECRET"] = oauth["slack"]["client_secret"]
-        if oauth.get("notion", {}).get("client_id"):
-            os.environ["NOTION_SHARED_CLIENT_ID"] = oauth["notion"]["client_id"]
-        if oauth.get("notion", {}).get("client_secret"):
-            os.environ["NOTION_SHARED_CLIENT_SECRET"] = oauth["notion"]["client_secret"]
-        if oauth.get("outlook", {}).get("client_id"):
-            os.environ["OUTLOOK_CLIENT_ID"] = oauth["outlook"]["client_id"]
-
-        # Web search
-        web_search = self._settings.get("web_search", {})
-        if web_search.get("google_cse_id"):
-            os.environ["GOOGLE_CSE_ID"] = web_search["google_cse_id"]
-
-        # Browser - only set if not already set by run.py (run.py takes precedence)
-        browser = self._settings.get("browser", {})
-        if "BROWSER_PORT" not in os.environ:
-            os.environ["BROWSER_PORT"] = str(browser.get("port", 7926))
-        if "BROWSER_STARTUP_UI" not in os.environ:
-            os.environ["BROWSER_STARTUP_UI"] = "1" if browser.get("startup_ui") else "0"
-
     def reload(self) -> Dict[str, Any]:
         """
         Hot-reload settings from file.
@@ -242,7 +158,6 @@ class SettingsManager:
         try:
             old_settings = self._deep_copy(self._settings)
             self._load_settings()
-            self._sync_to_environ()
 
             # Notify callbacks
             for callback in self._reload_callbacks:

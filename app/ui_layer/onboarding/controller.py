@@ -251,6 +251,20 @@ class OnboardingFlowController:
         if provider and api_key:
             save_settings_to_json(provider, api_key)
 
+            # Reinitialize the LLM with the new provider settings
+            if self._controller and self._controller.agent:
+                try:
+                    success = self._controller.agent.reinitialize_llm(provider)
+                    if success:
+                        from agent_core.utils.logger import logger
+                        logger.info(f"[ONBOARDING] Reinitialized LLM with provider: {provider}")
+                    else:
+                        from agent_core.utils.logger import logger
+                        logger.warning(f"[ONBOARDING] Failed to reinitialize LLM with provider: {provider}")
+                except Exception as e:
+                    from agent_core.utils.logger import logger
+                    logger.warning(f"[ONBOARDING] Error reinitializing LLM: {e}")
+
         # Update controller state if available
         if self._controller:
             self._controller.state_store.dispatch("SET_PROVIDER", provider)

@@ -164,9 +164,16 @@ def main(argv: list[str]) -> int:
     p.add_argument("--dry-run", action="store_true", help="print prompts + exit (no API calls)")
     args = p.parse_args(argv)
 
-    api_key = args.api_key or os.environ.get("OPENAI_API_KEY")
+    api_key = args.api_key
     if not api_key:
-        print("missing OPENAI_API_KEY (or --api-key)", file=sys.stderr)
+        # Try reading from settings.json
+        try:
+            from app.config import get_api_key
+            api_key = get_api_key('openai')
+        except ImportError:
+            pass
+    if not api_key:
+        print("missing API key: provide --api-key or configure in Settings > Model Settings", file=sys.stderr)
         return 2
 
     out_dir = args.out_dir or _default_out_dir()

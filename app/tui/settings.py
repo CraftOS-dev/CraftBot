@@ -61,6 +61,13 @@ def save_settings_to_json(provider: str, api_key: str) -> bool:
         if "model" not in settings:
             settings["model"] = {}
 
+        # Check if provider changed - if so, clear model overrides
+        old_provider = settings["model"].get("llm_provider")
+        if provider != old_provider:
+            # Clear model overrides so default model for new provider is used
+            settings["model"]["llm_model"] = None
+            settings["model"]["vlm_model"] = None
+
         # Update provider
         settings["model"]["llm_provider"] = provider
         settings["model"]["vlm_provider"] = provider
@@ -101,24 +108,13 @@ def get_api_key_env_name(provider: str) -> Optional[str]:
 
 
 def get_current_provider() -> str:
-    """Get the current LLM provider from settings.json or os.environ."""
+    """Get the current LLM provider from settings.json."""
     settings = _load_settings()
-    return settings.get("model", {}).get("llm_provider") or os.environ.get("LLM_PROVIDER", "openai")
+    return settings.get("model", {}).get("llm_provider", "anthropic")
 
 
 def get_api_key_for_provider(provider: str) -> str:
-    """Get the API key for a provider from settings.json or os.environ."""
+    """Get the API key for a provider from settings.json."""
     settings = _load_settings()
     settings_key = PROVIDER_TO_SETTINGS_KEY.get(provider, provider)
-
-    # Try settings.json first
-    api_key = settings.get("api_keys", {}).get(settings_key, "")
-    if api_key:
-        return api_key
-
-    # Fall back to os.environ
-    api_key_env = get_api_key_env_name(provider)
-    if api_key_env:
-        return os.environ.get(api_key_env, "")
-
-    return ""
+    return settings.get("api_keys", {}).get(settings_key, "")
