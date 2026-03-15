@@ -23,16 +23,16 @@ DEFAULT_SETTINGS = {
         "agent_name": "CraftBot"
     },
     "proactive": {
-        "enabled": True
+        "enabled": False
     },
     "memory": {
         "enabled": True
     },
     "model": {
-        "llm_provider": "openai",
-        "vlm_provider": "openai",
-        "llm_model": "",
-        "vlm_model": ""
+        "llm_provider": "gemini",
+        "vlm_provider": "gemini",
+        "llm_model": None,
+        "vlm_model": None
     },
     "api_keys": {
         "openai": "",
@@ -42,7 +42,7 @@ DEFAULT_SETTINGS = {
     },
     "endpoints": {
         "remote_model_url": "",
-        "byteplus_base_url": "",
+        "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
         "google_api_base": "",
         "google_api_version": ""
     },
@@ -115,17 +115,27 @@ class SettingsManager:
         logger.info(f"[SETTINGS] Initialized from {self._settings_path}")
 
     def _load_settings(self) -> None:
-        """Load settings from file, merging with defaults."""
+        """Load settings from file, merging with defaults. Creates file if missing."""
         self._settings = self._deep_copy(DEFAULT_SETTINGS)
 
-        if self._settings_path and self._settings_path.exists():
-            try:
-                with open(self._settings_path, "r", encoding="utf-8") as f:
-                    file_settings = json.load(f)
-                self._deep_merge(self._settings, file_settings)
-                logger.debug(f"[SETTINGS] Loaded settings from {self._settings_path}")
-            except Exception as e:
-                logger.warning(f"[SETTINGS] Failed to load settings: {e}, using defaults")
+        if self._settings_path:
+            if self._settings_path.exists():
+                try:
+                    with open(self._settings_path, "r", encoding="utf-8") as f:
+                        file_settings = json.load(f)
+                    self._deep_merge(self._settings, file_settings)
+                    logger.debug(f"[SETTINGS] Loaded settings from {self._settings_path}")
+                except Exception as e:
+                    logger.warning(f"[SETTINGS] Failed to load settings: {e}, using defaults")
+            else:
+                # Create settings file with defaults if it doesn't exist
+                try:
+                    self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(self._settings_path, "w", encoding="utf-8") as f:
+                        json.dump(self._settings, f, indent=2)
+                    logger.info(f"[SETTINGS] Created default settings file at {self._settings_path}")
+                except Exception as e:
+                    logger.warning(f"[SETTINGS] Failed to create default settings file: {e}")
 
     def _deep_copy(self, obj: Any) -> Any:
         """Deep copy a nested dict/list structure."""
