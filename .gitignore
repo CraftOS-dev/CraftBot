@@ -38,7 +38,7 @@ debug_images
 **/release
 **/*wwebjs*
 app/data/.usage/*
-
+app/config/settings.json
 **/CONVERSATION_HISTORY.md
 **/EVENT_UNPROCESSED.md
 **/EVENT.md
@@ -46,4 +46,3 @@ app/data/.usage/*
 **/USER.md
 **/onboarding_config.json
 **/config.json
-**/settings.json
