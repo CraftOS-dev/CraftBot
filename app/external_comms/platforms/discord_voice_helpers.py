@@ -45,11 +45,10 @@ except ImportError:
 
 
 def _get_openai_audio_api_key() -> str:
-    """Get the OpenAI Audio API key from config or environment."""
-    key = get_config("OPENAI_AUDIO_API_KEY")
-    if key:
-        return key
-    return os.getenv("OPENAI_AUDIO_API_KEY", "")
+    """Get the OpenAI Audio API key from settings.json."""
+    from app.config import get_api_key
+    # Use the OpenAI API key for audio transcription
+    return get_api_key("openai")
 
 
 @dataclass

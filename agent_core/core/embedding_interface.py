@@ -42,6 +42,8 @@ class EmbeddingInterface:
         self,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ):
         self.provider = provider
         self._gemini_client: GeminiClient | None = None
@@ -50,6 +52,8 @@ class EmbeddingInterface:
             provider=self.provider,
             interface=InterfaceType.EMBEDDING,
             model_override=model,
+            api_key=api_key,
+            base_url=base_url,
         )
 
         self.model = ctx["model"]

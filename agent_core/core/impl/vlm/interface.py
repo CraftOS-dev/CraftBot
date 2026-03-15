@@ -57,6 +57,8 @@ class VLMInterface:
         *,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         temperature: float = 0.5,
         deferred: bool = False,
         get_token_count: Optional[GetTokenCountHook] = None,
@@ -69,6 +71,10 @@ class VLMInterface:
         self._anthropic_client = None
         self._initialized = False
         self._deferred = deferred
+
+        # Store for reinitialization
+        self._init_api_key = api_key
+        self._init_base_url = base_url
 
         # Hooks for runtime-specific behavior
         self._get_token_count = get_token_count or (lambda: 0)
@@ -83,6 +89,8 @@ class VLMInterface:
             provider=provider,
             interface=InterfaceType.VLM,
             model_override=model,
+            api_key=api_key,
+            base_url=base_url,
             deferred=deferred,
         )
 
@@ -102,11 +110,18 @@ class VLMInterface:
         """Check if the VLM client is properly initialized."""
         return self._initialized
 
-    def reinitialize(self, provider: Optional[str] = None) -> bool:
-        """Reinitialize the VLM client with current environment variables.
+    def reinitialize(
+        self,
+        provider: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> bool:
+        """Reinitialize the VLM client with new settings.
 
         Args:
             provider: Optional provider override. If None, uses current provider.
+            api_key: Optional API key. If None, reads from settings.json.
+            base_url: Optional base URL. If None, reads from settings.json.
 
         Returns:
             True if initialization was successful, False otherwise.
@@ -115,12 +130,24 @@ class VLMInterface:
         from app.models.types import InterfaceType
 
         target_provider = provider or self.provider
+
+        # Read API key and base URL from settings.json if not provided
+        if api_key is None or base_url is None:
+            from app.config import get_api_key, get_base_url
+            target_api_key = api_key if api_key is not None else get_api_key(target_provider)
+            target_base_url = base_url if base_url is not None else get_base_url(target_provider)
+        else:
+            target_api_key = api_key
+            target_base_url = base_url
+
         try:
             logger.info(f"[VLM] Reinitializing with provider: {target_provider}")
             ctx = ModelFactory.create(
                 provider=target_provider,
                 interface=InterfaceType.VLM,
                 model_override=None,
+                api_key=target_api_key,
+                base_url=target_base_url,
                 deferred=False,
             )
 

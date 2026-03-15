@@ -75,12 +75,9 @@ class GeminiClient:
         if not api_key:
             raise ValueError("`api_key` must be a non-empty string.")
 
-        env_base = os.getenv("GOOGLE_API_BASE")
-        env_version = os.getenv("GOOGLE_API_VERSION")
-
         self._api_key = api_key
-        self._api_base = (api_base or env_base or DEFAULT_API_BASE).rstrip("/")
-        self._api_version = api_version or env_version or DEFAULT_API_VERSION
+        self._api_base = (api_base or DEFAULT_API_BASE).rstrip("/")
+        self._api_version = api_version or DEFAULT_API_VERSION
         self._timeout = timeout
 
     # ------------------------------------------------------------------

@@ -29,12 +29,8 @@ from typing import Tuple, Optional, Dict, Any
 
 multiprocessing.freeze_support()
 
-# Load .env if dotenv is available (optional, not required for fresh install)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # dotenv not installed yet, that's fine
+# Configuration is loaded from settings.json - no .env file is used
+# All settings come from app/config/settings.json
 
 # --- Base directory ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1113,13 +1109,18 @@ def launch_agent_after_install(install_gui: bool, use_conda: bool):
 # API KEY SETUP
 # ==========================================
 def check_api_keys() -> bool:
-    """Check if required API keys are set."""
-    required_keys = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]
-    
-    for key in required_keys:
-        if os.getenv(key):
-            return True
-    
+    """Check if required API keys are set in settings.json."""
+    settings_path = os.path.join(BASE_DIR, "app", "config", "settings.json")
+    try:
+        with open(settings_path, 'r') as f:
+            settings = json.load(f)
+        api_keys = settings.get("api_keys", {})
+        # Check if any API key is configured
+        for key in ["openai", "anthropic", "google", "byteplus"]:
+            if api_keys.get(key):
+                return True
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
     return False
 
 def show_api_setup_instructions():
@@ -1134,13 +1135,17 @@ def show_api_setup_instructions():
     print("  3. Anthropic Claude")
     print("\nTo set up:")
     print("  1. Get an API key from your chosen provider")
-    print("  2. Create a .env file in this directory:")
+    print("  2. Add it to app/config/settings.json:")
     print("     ")
-    print("     OPENAI_API_KEY=your-key-here")
+    print('     "api_keys": {')
+    print('       "openai": "your-key-here"')
+    print('     }')
     print("     ")
     print("     OR")
     print("     ")
-    print("     GOOGLE_API_KEY=your-key-here")
+    print('     "api_keys": {')
+    print('       "google": "your-key-here"')
+    print('     }')
     print("     ")
     print("  3. Save and run again: python install.py")
     print("="*50 + "\n")

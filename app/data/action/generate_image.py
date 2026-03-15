@@ -109,15 +109,16 @@ def generate_image(input_data: dict) -> dict:
         }
 
     # Check for API key first - before any package installation
-    # Use GOOGLE_API_KEY (same as Gemini LLM provider in provider_config.py)
-    api_key = os.environ.get('GOOGLE_API_KEY')
+    # Read from settings.json (google/gemini provider key)
+    from app.config import get_api_key
+    api_key = get_api_key('gemini')
     if not api_key:
         return {
             'status': 'error',
             'image_paths': [],
             'prompt_used': '',
             'resolution': '',
-            'message': 'GOOGLE_API_KEY environment variable is not set. Please help the user set up the Google API key. Steps: 1) Go to https://aistudio.google.com/apikey 2) Create a new API key 3) Set it as environment variable: set GOOGLE_API_KEY=your_key_here (Windows) or export GOOGLE_API_KEY=your_key_here (Linux/Mac)'
+            'message': 'Google API key is not configured. Please set it in Settings > Model Settings > API Keys. Steps: 1) Go to https://aistudio.google.com/apikey 2) Create a new API key 3) Add it in Settings under the Google/Gemini provider.'
         }
 
     # Validate required input

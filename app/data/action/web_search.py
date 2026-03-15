@@ -146,8 +146,10 @@ def web_search(input_data: dict) -> dict:
         """Search using Google Custom Search API."""
         try:
             from googleapiclient.discovery import build
-            api_key = os.getenv('GOOGLE_API_KEY')
-            cse_id = os.getenv('GOOGLE_CSE_ID')
+            from app.config import get_api_key, get_web_search_cse_id
+
+            api_key = get_api_key('google')
+            cse_id = get_web_search_cse_id()
             if not api_key or not cse_id:
                 raise Exception('No Google API credentials')
 

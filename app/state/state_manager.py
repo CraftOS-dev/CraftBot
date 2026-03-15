@@ -268,7 +268,9 @@ class StateManager:
         else:
             event_label = "agent message"
 
-        # Log to task-specific stream if within a task
+        # Log to task-specific stream if within a task, otherwise to main stream.
+        # We only log to ONE stream to avoid duplicate messages in the UI,
+        # since the UI controller watches all streams.
         if task_id:
             self.event_stream_manager.log(
                 event_label,
@@ -276,15 +278,13 @@ class StateManager:
                 display_message=content,
                 task_id=task_id,
             )
-
-        # Also log to main event stream (for conversation-level context)
-        # This ensures agent messages appear in the main event stream alongside user messages
-        main_stream = self.event_stream_manager.get_main_stream()
-        main_stream.log(
-            event_label,
-            content,
-            display_message=content,
-        )
+        else:
+            main_stream = self.event_stream_manager.get_main_stream()
+            main_stream.log(
+                event_label,
+                content,
+                display_message=content,
+            )
 
         # Record to conversation history for context injection into future tasks
         self.event_stream_manager.record_conversation_message(

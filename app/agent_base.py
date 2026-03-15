@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from agent_core import Action
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
+from agent_core import settings_manager, config_watcher
 
 from app.config import (
     AGENT_WORKSPACE_ROOT,
@@ -118,6 +119,8 @@ class AgentBase:
         data_dir: str = "app/data",
         chroma_path: str = "./chroma_db",
         llm_provider: str = "anthropic",
+        llm_api_key: str | None = None,
+        llm_base_url: str | None = None,
         deferred_init: bool = False,
     ) -> None:
         """
@@ -130,6 +133,8 @@ class AgentBase:
                 RAG components.
             llm_provider: Provider name passed to :class:`LLMInterface` and
                 :class:`VLMInterface`.
+            llm_api_key: API key for the LLM provider.
+            llm_base_url: Base URL for the LLM provider (optional).
             deferred_init: If True, allow LLM/VLM initialization to be deferred
                 until API key is configured (useful for first-time setup).
         """
@@ -142,10 +147,17 @@ class AgentBase:
         # LLM + prompt plumbing (may be deferred if API key not yet configured)
         self.llm = LLMInterface(
             provider=llm_provider,
+            api_key=llm_api_key,
+            base_url=llm_base_url,
             db_interface=self.db_interface,
             deferred=deferred_init,
         )
-        self.vlm = VLMInterface(provider=llm_provider, deferred=deferred_init)
+        self.vlm = VLMInterface(
+            provider=llm_provider,
+            api_key=llm_api_key,
+            base_url=llm_base_url,
+            deferred=deferred_init,
+        )
 
         self.event_stream_manager = EventStreamManager(
             self.llm,
@@ -2073,6 +2085,74 @@ class AgentBase:
             logger.debug(f"[SKILLS] Traceback: {traceback.format_exc()}")
 
     # =====================================
+    # Config Watcher (Hot-Reload)
+    # =====================================
+
+    async def _initialize_config_watcher(self) -> None:
+        """
+        Initialize the config watcher for hot-reload of configuration files.
+
+        This method:
+        1. Initializes the settings manager
+        2. Registers all config files with the config watcher
+        3. Starts the file watcher to monitor for changes
+
+        When any config file changes, the appropriate reload callback is invoked
+        automatically to apply changes without restart.
+        """
+        try:
+            from app.config import PROJECT_ROOT
+
+            # Initialize settings manager
+            settings_path = PROJECT_ROOT / "app" / "config" / "settings.json"
+            settings_manager.initialize(settings_path)
+
+            # Get event loop for async callbacks
+            event_loop = asyncio.get_event_loop()
+
+            # Register settings.json
+            config_watcher.register(
+                settings_path,
+                settings_manager.reload,
+                name="settings.json"
+            )
+
+            # Register mcp_config.json
+            mcp_config_path = PROJECT_ROOT / "app" / "config" / "mcp_config.json"
+            if mcp_config_path.exists():
+                from app.mcp import mcp_client
+                config_watcher.register(
+                    mcp_config_path,
+                    mcp_client.reload,
+                    name="mcp_config.json"
+                )
+
+            # Register skills_config.json
+            skills_config_path = PROJECT_ROOT / "app" / "config" / "skills_config.json"
+            if skills_config_path.exists():
+                from app.skill import skill_manager
+                config_watcher.register(
+                    skills_config_path,
+                    skill_manager.reload,
+                    name="skills_config.json"
+                )
+
+            # Register external_comms_config.json
+            external_comms_config_path = PROJECT_ROOT / "app" / "config" / "external_comms_config.json"
+            if external_comms_config_path.exists():
+                # We'll register this after external_comms is initialized
+                self._external_comms_config_path = external_comms_config_path
+
+            # Start the config watcher
+            config_watcher.start(event_loop)
+            logger.info("[CONFIG_WATCHER] Config hot-reload initialized")
+
+        except Exception as e:
+            import traceback
+            logger.warning(f"[CONFIG_WATCHER] Failed to initialize config watcher: {e}")
+            logger.debug(f"[CONFIG_WATCHER] Traceback: {traceback.format_exc()}")
+
+    # =====================================
     # External Libraries
     # =====================================
 
@@ -2094,6 +2174,7 @@ class AgentBase:
         *,
         provider: str | None = None,
         api_key: str = "",
+        base_url: str | None = None,
         interface_mode: str = "tui",
     ) -> None:
         """
@@ -2104,6 +2185,7 @@ class AgentBase:
                 chat starts; defaults to the provider configured during
                 initialization.
             api_key: Optional API key presented in the interface for convenience.
+            base_url: Optional base URL for the provider.
             interface_mode: "tui" for Textual interface, "cli" for command line.
         """
         # Check if browser startup UI is active
@@ -2123,6 +2205,9 @@ class AgentBase:
 
         # Startup progress messages
         print_startup_step(3, 8, "Initializing agent")
+
+        # Initialize settings manager and config watcher for hot-reload
+        await self._initialize_config_watcher()
 
         # Initialize MCP client and register tools
         print_startup_step(4, 8, "Connecting to MCP servers")
@@ -2168,6 +2253,14 @@ class AgentBase:
         from app.external_comms.manager import initialize_manager
         self._external_comms = initialize_manager(self)
         await self._external_comms.start()
+
+        # Register external_comms config for hot-reload (after manager is initialized)
+        if hasattr(self, "_external_comms_config_path") and self._external_comms_config_path:
+            config_watcher.register(
+                self._external_comms_config_path,
+                self._external_comms.reload,
+                name="external_comms_config.json"
+            )
 
         # Startup complete (only print in CLI mode, browser mode handles this in run.py)
         if not browser_ui:

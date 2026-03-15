@@ -3,8 +3,7 @@
 app.main
 
 Main driver code that starts the **vanilla BaseAgent**.
-Environment variables let you tweak connection details without code
-changes, making this usable inside Docker containers.
+All configuration is read from settings.json (not .env files).
 
 Run this before the app directory, using 'python -m app.main'
 """
@@ -56,12 +55,7 @@ _suppress_console_logging_early()
 
 import argparse
 import asyncio
-import os
 import sys
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # Register agent_core state provider and config before importing AgentBase
 # This ensures shared code can access state via get_state()
@@ -72,6 +66,8 @@ from app.state.agent_state import STATE
 StateRegistry.register(lambda: STATE)
 ConfigRegistry.register_workspace_root(".")
 
+# Import settings reader (reads directly from settings.json)
+from app.config import get_llm_provider, get_api_key, get_base_url
 from app.agent_base import AgentBase
 
 
@@ -114,61 +110,22 @@ def _parse_cli_args() -> dict:
     return vars(args)
 
 
-def _initial_settings() -> tuple[str, str, bool]:
-    """Determine initial provider and API key settings.
+def _initial_settings() -> tuple[str, str, str, bool]:
+    """Determine initial provider, API key, and base URL from settings.json.
 
     Returns:
-        Tuple of (provider, api_key, has_valid_key) where has_valid_key
+        Tuple of (provider, api_key, base_url, has_valid_key) where has_valid_key
         indicates if a working API key was found.
     """
-    # If LLM_PROVIDER is explicitly set, use it
-    explicit_provider = os.getenv("LLM_PROVIDER")
-    if explicit_provider:
-        key_lookup = {
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GOOGLE_API_KEY",
-            "byteplus": "BYTEPLUS_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-        }
-        key_name = key_lookup.get(explicit_provider, "")
-        api_key = os.getenv(key_name, "") if key_name else ""
-        # Remote (Ollama) doesn't require API key
-        has_key = bool(api_key) or explicit_provider == "remote"
-        return explicit_provider, api_key, has_key
+    # Read directly from settings.json
+    provider = get_llm_provider()
+    api_key = get_api_key(provider)
+    base_url = get_base_url(provider)
 
-    # Default to BytePlus if its API key is available
-    byteplus_key = os.getenv("BYTEPLUS_API_KEY", "")
-    if byteplus_key:
-        return "byteplus", byteplus_key, True
+    # Remote (Ollama) doesn't require API key
+    has_key = bool(api_key) or provider == "remote"
 
-    # Auto-detect provider based on which API key is set
-    fallback_providers = [
-        ("openai", "OPENAI_API_KEY"),
-        ("gemini", "GOOGLE_API_KEY"),
-        ("anthropic", "ANTHROPIC_API_KEY"),
-    ]
-    for provider, key_name in fallback_providers:
-        api_key = os.getenv(key_name, "")
-        if api_key:
-            return provider, api_key, True
-
-    # No API keys found - default to openai but flag as not configured
-    # This allows the TUI to start so user can configure settings
-    return "openai", "", False
-
-
-def _apply_api_key(provider: str, api_key: str) -> None:
-    """Apply provider and API key to environment variables."""
-    key_lookup = {
-        "openai": "OPENAI_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-        "byteplus": "BYTEPLUS_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-    }
-    key_name = key_lookup.get(provider)
-    if key_name and api_key:
-        os.environ[key_name] = api_key
-    os.environ["LLM_PROVIDER"] = provider
+    return provider, api_key, base_url, has_key
 
 
 async def main_async() -> None:
@@ -177,31 +134,28 @@ async def main_async() -> None:
     cli_mode = cli_args.get("cli", False)
     browser_mode = cli_args.get("browser", False)
 
-    # CLI args override environment variables if provided
-    if cli_args.get("provider"):
-        os.environ["LLM_PROVIDER"] = cli_args["provider"]
-    if cli_args.get("api_key"):
-        # Apply to appropriate env var based on provider
-        arg_provider = cli_args.get("provider") or os.getenv("LLM_PROVIDER", "openai")
-        key_lookup = {
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GOOGLE_API_KEY",
-            "byteplus": "BYTEPLUS_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-        }
-        key_name = key_lookup.get(arg_provider)
-        if key_name:
-            os.environ[key_name] = cli_args["api_key"]
+    # Get settings from settings.json
+    provider, api_key, base_url, has_valid_key = _initial_settings()
 
-    provider, api_key, has_valid_key = _initial_settings()
-    _apply_api_key(provider, api_key)
+    # CLI args override settings.json if provided
+    if cli_args.get("provider"):
+        provider = cli_args["provider"]
+        api_key = get_api_key(provider)
+        base_url = get_base_url(provider)
+        has_valid_key = bool(api_key) or provider == "remote"
+
+    if cli_args.get("api_key"):
+        api_key = cli_args["api_key"]
+        has_valid_key = True
 
     # Use deferred initialization if no valid API key is configured yet
     # This allows the TUI/CLI to start so first-time users can configure settings
     agent = AgentBase(
-        data_dir=os.getenv("DATA_DIR", "app/data"),
-        chroma_path=os.getenv("CHROMA_PATH", "./chroma_db"),
+        data_dir="app/data",
+        chroma_path="./chroma_db",
         llm_provider=provider,
+        llm_api_key=api_key,
+        llm_base_url=base_url,
         deferred_init=not has_valid_key,
     )
 
@@ -217,7 +171,7 @@ async def main_async() -> None:
     else:
         interface_mode = "tui"
 
-    await agent.run(provider=provider, api_key=api_key, interface_mode=interface_mode)
+    await agent.run(provider=provider, api_key=api_key, base_url=base_url, interface_mode=interface_mode)
 
 
 def main() -> None:

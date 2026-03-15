@@ -334,7 +334,7 @@ class BytePlusCacheManager:
         logger.info(f"[BYTEPLUS REQUEST] URL: {url}")
         logger.info(f"[BYTEPLUS REQUEST] Payload: {self._sanitize_payload_for_logging(payload)}")
 
-        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        response = requests.post(url, json=payload, headers=headers, timeout=600)
 
         # Log the response status
         logger.info(f"[BYTEPLUS RESPONSE] Status: {response.status_code}")
@@ -765,6 +765,8 @@ class LLMInterface:
         *,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         db_interface: Optional[Any] = None,
         temperature: float = 0.0,
         max_tokens: int = 8000,
@@ -778,10 +780,16 @@ class LLMInterface:
         self._initialized = False
         self._deferred = deferred
 
+        # Store for reinitialization
+        self._init_api_key = api_key
+        self._init_base_url = base_url
+
         ctx = ModelFactory.create(
             provider=provider,
             interface=InterfaceType.LLM,
             model_override=model,
+            api_key=api_key,
+            base_url=base_url,
             deferred=deferred,
         )
 
@@ -823,22 +831,34 @@ class LLMInterface:
         """Check if the LLM client is properly initialized."""
         return self._initialized
 
-    def reinitialize(self, provider: Optional[str] = None) -> bool:
-        """Reinitialize the LLM client with current environment variables.
+    def reinitialize(
+        self,
+        provider: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> bool:
+        """Reinitialize the LLM client with new settings.
 
         Args:
             provider: Optional provider override. If None, uses current provider.
+            api_key: Optional API key. If None, uses stored key.
+            base_url: Optional base URL. If None, uses stored URL.
 
         Returns:
             True if initialization was successful, False otherwise.
         """
         target_provider = provider or self.provider
+        target_api_key = api_key or self._init_api_key
+        target_base_url = base_url or self._init_base_url
+
         try:
             logger.info(f"[LLM] Reinitializing with provider: {target_provider}")
             ctx = ModelFactory.create(
                 provider=target_provider,
                 interface=InterfaceType.LLM,
                 model_override=None,
+                api_key=target_api_key,
+                base_url=target_base_url,
                 deferred=False,
             )
 
@@ -1679,7 +1699,7 @@ class LLMInterface:
                 }
             }
             url: str = f"{self.remote_url.rstrip('/')}/generate"
-            response = requests.post(url, json=payload, timeout=120)
+            response = requests.post(url, json=payload, timeout=600)
             response.raise_for_status()
             result = response.json()
 
@@ -1983,7 +2003,7 @@ class LLMInterface:
             logger.info(f"[BYTEPLUS STANDARD REQUEST] Model: {self.model}, Temp: {self.temperature}, MaxTokens: {self.max_tokens}")
             logger.info(f"[BYTEPLUS STANDARD REQUEST] Messages count: {len(messages)}")
 
-            response = requests.post(url, json=payload, headers=headers, timeout=120)
+            response = requests.post(url, json=payload, headers=headers, timeout=600)
 
             # Log response status
             logger.info(f"[BYTEPLUS STANDARD RESPONSE] Status: {response.status_code}")

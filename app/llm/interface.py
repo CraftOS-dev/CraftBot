@@ -41,6 +41,8 @@ class LLMInterface(_LLMInterface):
         *,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         db_interface: Optional[Any] = None,
         temperature: float = 0.0,
         max_tokens: int = 8000,
@@ -80,6 +82,8 @@ class LLMInterface(_LLMInterface):
         super().__init__(
             provider=provider,
             model=model,
+            api_key=api_key,
+            base_url=base_url,
             temperature=temperature,
             max_tokens=max_tokens,
             deferred=deferred,

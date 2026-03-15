@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Model factory for creating provider-specific model contexts."""
+"""Model factory for creating provider-specific model contexts.
 
-import os
+API keys and base URLs should be passed directly - no environment variable reading.
+"""
+
 from openai import OpenAI
 from anthropic import Anthropic
+from typing import Optional
 
 from agent_core.core.models.types import InterfaceType
 from agent_core.core.models.model_registry import MODEL_REGISTRY
@@ -17,7 +20,9 @@ class ModelFactory:
         *,
         provider: str,
         interface: InterfaceType,
-        model_override: str | None = None,
+        model_override: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         deferred: bool = False,
     ) -> dict:
         """Create model context for a given provider.
@@ -26,6 +31,8 @@ class ModelFactory:
             provider: The LLM provider name (openai, gemini, anthropic, byteplus, remote)
             interface: The interface type (LLM or VLM)
             model_override: Optional model name override
+            api_key: API key for the provider (required for most providers)
+            base_url: Base URL override (for byteplus/remote)
             deferred: If True, don't raise error if API key is missing (for lazy init)
 
         Returns:
@@ -37,10 +44,8 @@ class ModelFactory:
         cfg = PROVIDER_CONFIG[provider]
         model = model_override or MODEL_REGISTRY[provider][interface]
 
-        # Resolve base URL (if any)
-        base_url = None
-        if cfg.default_base_url:
-            base_url = os.getenv(cfg.base_url_env, cfg.default_base_url)
+        # Use provided base_url or fall back to default
+        resolved_base_url = base_url or cfg.default_base_url
 
         # Default empty context (used when deferred and no API key)
         empty_context = {
@@ -48,7 +53,7 @@ class ModelFactory:
             "model": model,
             "client": None,
             "gemini_client": None,
-            "remote_url": base_url if provider == "remote" else None,
+            "remote_url": resolved_base_url if provider == "remote" else None,
             "byteplus": None,
             "anthropic_client": None,
             "initialized": False,
@@ -56,11 +61,10 @@ class ModelFactory:
 
         # Providers
         if provider == "openai":
-            api_key = os.getenv(cfg.api_key_env)
             if not api_key:
                 if deferred:
                     return empty_context
-                raise EnvironmentError("OPENAI_API_KEY not set")
+                raise ValueError("API key required for OpenAI")
 
             return {
                 "provider": provider,
@@ -74,11 +78,10 @@ class ModelFactory:
             }
 
         if provider == "gemini":
-            api_key = os.getenv(cfg.api_key_env)
             if not api_key:
                 if deferred:
                     return empty_context
-                raise EnvironmentError("GOOGLE_API_KEY not set")
+                raise ValueError("API key required for Gemini")
 
             return {
                 "provider": provider,
@@ -92,11 +95,10 @@ class ModelFactory:
             }
 
         if provider == "anthropic":
-            api_key = os.getenv(cfg.api_key_env)
             if not api_key:
                 if deferred:
                     return empty_context
-                raise EnvironmentError("ANTHROPIC_API_KEY not set")
+                raise ValueError("API key required for Anthropic")
 
             return {
                 "provider": provider,
@@ -110,11 +112,10 @@ class ModelFactory:
             }
 
         if provider == "byteplus":
-            api_key = os.getenv(cfg.api_key_env)
             if not api_key:
                 if deferred:
                     return empty_context
-                raise EnvironmentError("BYTEPLUS_API_KEY not set")
+                raise ValueError("API key required for BytePlus")
 
             return {
                 "provider": provider,
@@ -124,7 +125,7 @@ class ModelFactory:
                 "remote_url": None,
                 "byteplus": {
                     "api_key": api_key,
-                    "base_url": base_url,
+                    "base_url": resolved_base_url,
                 },
                 "anthropic_client": None,
                 "initialized": True,
@@ -137,7 +138,7 @@ class ModelFactory:
                 "model": model,
                 "client": None,
                 "gemini_client": None,
-                "remote_url": base_url,
+                "remote_url": resolved_base_url,
                 "byteplus": None,
                 "anthropic_client": None,
                 "initialized": True,

@@ -118,10 +118,11 @@ class ProviderStep:
         return False, f"Invalid provider. Choose from: {', '.join(valid_providers)}"
 
     def get_default(self) -> str:
-        # Check environment variable for existing provider
-        env_provider = os.environ.get("LLM_PROVIDER", "").lower()
-        if env_provider and env_provider in [p[0] for p in self.PROVIDERS]:
-            return env_provider
+        # Check settings.json for existing provider
+        from app.config import get_llm_provider
+        current_provider = get_llm_provider().lower()
+        if current_provider and current_provider in [p[0] for p in self.PROVIDERS]:
+            return current_provider
         return "openai"
 
 
@@ -163,11 +164,9 @@ class ApiKeyStep:
         return True, None
 
     def get_default(self) -> str:
-        # Check environment variable for existing key
-        env_var = self.PROVIDER_ENV_VARS.get(self.provider)
-        if env_var:
-            return os.environ.get(env_var, "")
-        return ""
+        # Check settings.json for existing key
+        from app.config import get_api_key
+        return get_api_key(self.provider)
 
     def get_env_var_name(self) -> Optional[str]:
         """Get the environment variable name for the current provider."""

@@ -527,18 +527,10 @@ class TUIAdapter(InterfaceAdapter):
         )
 
     def configure_provider(self, provider: str, api_key: str) -> None:
-        """Configure environment variables for the selected provider."""
-        import os
-        key_lookup = {
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GOOGLE_API_KEY",
-            "byteplus": "BYTEPLUS_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-        }
-        key_name = key_lookup.get(provider)
-        if key_name and api_key:
-            os.environ[key_name] = api_key
-        os.environ["LLM_PROVIDER"] = provider
+        """Configure provider settings (saves to settings.json and syncs to os.environ)."""
+        from app.tui.settings import save_settings_to_json
+        # save_settings_to_json handles both persistence and os.environ sync
+        save_settings_to_json(provider, api_key)
 
     async def request_shutdown(self) -> None:
         """Stop the interface and close the Textual application."""

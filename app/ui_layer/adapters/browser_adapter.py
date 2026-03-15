@@ -630,7 +630,7 @@ class BrowserAdapter(InterfaceAdapter):
         self,
         controller: "UIController",
         host: str = "localhost",
-        port: int = 8080,
+        port: int = 7926,
     ) -> None:
         super().__init__(controller, "browser")
         self._host = host
@@ -2319,18 +2319,83 @@ class BrowserAdapter(InterfaceAdapter):
             })
 
     async def _handle_model_settings_update(self, data: Dict[str, Any]) -> None:
-        """Update model settings."""
+        """Update model settings.
+
+        Validates API key presence and tests connection BEFORE saving settings.
+        """
         try:
+            new_provider = data.get("llmProvider")
+            vlm_provider = data.get("vlmProvider")
+            api_key = data.get("apiKey")
+            provider_for_key = data.get("providerForKey")
+            base_url = data.get("baseUrl")
+
+            # Step 1: Validate API key presence before saving
+            if new_provider:
+                validation = validate_can_save(
+                    llm_provider=new_provider,
+                    vlm_provider=vlm_provider,
+                    api_key=api_key,
+                    provider_for_key=provider_for_key,
+                )
+                if not validation.get("can_save"):
+                    errors = validation.get("errors", ["API key required"])
+                    await self._broadcast({
+                        "type": "model_settings_update",
+                        "data": {
+                            "success": False,
+                            "error": "; ".join(errors),
+                        },
+                    })
+                    return
+
+            # Step 2: Test connection before saving
+            if new_provider:
+                # Determine the API key to test with
+                test_api_key = api_key
+                if not test_api_key and provider_for_key != new_provider:
+                    # Use existing key from settings if not providing a new one
+                    from app.config import get_api_key
+                    test_api_key = get_api_key(new_provider)
+
+                test_result = test_connection(
+                    provider=new_provider,
+                    api_key=test_api_key,
+                    base_url=base_url,
+                )
+                if not test_result.get("success"):
+                    error_msg = test_result.get("error", "Connection test failed")
+                    await self._broadcast({
+                        "type": "model_settings_update",
+                        "data": {
+                            "success": False,
+                            "error": f"Connection test failed: {error_msg}",
+                        },
+                    })
+                    return
+
+            # Step 3: Now save settings (validation and connection test passed)
             result = update_model_settings(
-                llm_provider=data.get("llmProvider"),
-                vlm_provider=data.get("vlmProvider"),
+                llm_provider=new_provider,
+                vlm_provider=vlm_provider,
                 llm_model=data.get("llmModel"),
                 vlm_model=data.get("vlmModel"),
-                api_key=data.get("apiKey"),
-                provider_for_key=data.get("providerForKey"),
-                base_url=data.get("baseUrl"),
+                api_key=api_key,
+                provider_for_key=provider_for_key,
+                base_url=base_url,
                 provider_for_url=data.get("providerForUrl"),
             )
+
+            # Reinitialize LLM/VLM with new provider settings
+            if result.get("success") and new_provider:
+                try:
+                    agent = self._controller.agent
+                    agent.reinitialize_llm(new_provider)
+                    logger.info(f"[BROWSER] LLM reinitialized with provider: {new_provider}")
+                except Exception as e:
+                    logger.warning(f"[BROWSER] Failed to reinitialize LLM: {e}")
+                    result["warning"] = f"Settings saved but LLM reinitialization failed: {e}"
+
             await self._broadcast({
                 "type": "model_settings_update",
                 "data": result,

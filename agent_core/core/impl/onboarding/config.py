@@ -38,13 +38,18 @@ HARD_ONBOARDING_STEPS = [
 ]
 
 # Soft onboarding interview questions template
+# Questions are grouped to reduce conversation turns
 SOFT_ONBOARDING_QUESTIONS = [
+    # Batch 1: Identity (asked together)
     "name",                        # What should I call you?
     "job",                         # What do you do for work?
-    "location",                    # Where are you located?
-    "timezone",                    # What timezone are you in?
+    "location",                    # Where are you located? (timezone inferred from this)
+    # Batch 2: Preferences (asked together)
     "tone",                        # How would you like me to communicate?
     "proactivity",                 # Should I be proactive or wait for instructions?
     "approval",                    # What actions need your approval?
+    # Batch 3: Messaging
     "preferred_messaging_platform",  # Where should I send notifications? (telegram/whatsapp/discord/slack/tui)
+    # Batch 4: Life goals
+    "life_goals",                  # What are your life goals and what do you want help with?
 ]

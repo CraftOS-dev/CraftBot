@@ -204,6 +204,88 @@ class ExternalCommsManager:
             },
         }
 
+    async def reload(self) -> Dict[str, Any]:
+        """
+        Hot-reload external communications configuration.
+
+        This method:
+        1. Reloads the config from external_comms_config.json
+        2. Stops clients that are no longer enabled
+        3. Starts clients that are newly enabled
+
+        Returns:
+            Dictionary with reload results.
+        """
+        from app.external_comms.config import reload_config
+        from app.external_comms.registry import get_all_clients
+
+        result = {
+            "success": True,
+            "stopped": [],
+            "started": [],
+            "message": "",
+        }
+
+        try:
+            # Reload config from file
+            self._config = reload_config()
+            logger.info("[EXTERNAL_COMMS] Configuration reloaded")
+
+            # Get current state
+            currently_active = set(self._active_clients.keys())
+            _import_all_platforms()
+            all_clients = get_all_clients()
+
+            # Determine which platforms should be active based on new config
+            should_be_active = set()
+            for platform_id, client in all_clients.items():
+                if not client.supports_listening:
+                    continue
+                if not client.has_credentials():
+                    continue
+                should_be_active.add(platform_id)
+
+            # Stop platforms that should no longer be active
+            to_stop = currently_active - should_be_active
+            for platform_id in to_stop:
+                try:
+                    client = self._active_clients.get(platform_id)
+                    if client:
+                        await client.stop_listening()
+                        del self._active_clients[platform_id]
+                        result["stopped"].append(platform_id)
+                        logger.info(f"[EXTERNAL_COMMS] Stopped {platform_id}")
+                except Exception as e:
+                    logger.warning(f"[EXTERNAL_COMMS] Error stopping {platform_id}: {e}")
+
+            # Start platforms that should now be active but aren't
+            to_start = should_be_active - currently_active
+            for platform_id in to_start:
+                try:
+                    client = all_clients.get(platform_id)
+                    if client:
+                        await client.start_listening(self._handle_platform_message)
+                        if client.is_listening:
+                            self._active_clients[platform_id] = client
+                            result["started"].append(platform_id)
+                            logger.info(f"[EXTERNAL_COMMS] Started {platform_id}")
+                except Exception as e:
+                    logger.warning(f"[EXTERNAL_COMMS] Error starting {platform_id}: {e}")
+
+            result["message"] = (
+                f"Reload complete. Stopped: {len(result['stopped'])}, "
+                f"Started: {len(result['started'])}, "
+                f"Active: {len(self._active_clients)}"
+            )
+            logger.info(f"[EXTERNAL_COMMS] {result['message']}")
+
+        except Exception as e:
+            result["success"] = False
+            result["message"] = f"Reload failed: {e}"
+            logger.error(f"[EXTERNAL_COMMS] Reload failed: {e}")
+
+        return result
+
 
 # Global manager instance
 _manager: Optional[ExternalCommsManager] = None

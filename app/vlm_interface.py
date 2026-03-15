@@ -41,12 +41,16 @@ class VLMInterface(_VLMInterface):
         *,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         temperature: float = 0.5,
         deferred: bool = False,
     ) -> None:
         super().__init__(
             provider=provider,
             model=model,
+            api_key=api_key,
+            base_url=base_url,
             temperature=temperature,
             deferred=deferred,
             get_token_count=_get_token_count,

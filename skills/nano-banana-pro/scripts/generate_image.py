@@ -20,10 +20,15 @@ from pathlib import Path
 
 
 def get_api_key(provided_key: str | None) -> str | None:
-    """Get API key from argument first, then environment."""
+    """Get API key from argument first, then settings.json."""
     if provided_key:
         return provided_key
-    return os.environ.get("GEMINI_API_KEY")
+    # Try reading from settings.json
+    try:
+        from app.config import get_api_key as _get_api_key
+        return _get_api_key('gemini')
+    except ImportError:
+        return None
 
 
 def main():
