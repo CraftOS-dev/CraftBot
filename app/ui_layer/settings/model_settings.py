@@ -254,13 +254,29 @@ def update_model_settings(
             settings["endpoints"] = {}
 
         # Update providers
+        # When provider changes, clear the model override so default model is used
+        old_llm_provider = settings["model"].get("llm_provider")
+        old_vlm_provider = settings["model"].get("vlm_provider")
+
         if llm_provider:
             settings["model"]["llm_provider"] = llm_provider
+            # Clear LLM model if provider changed (unless new model explicitly provided)
+            if llm_provider != old_llm_provider and llm_model is None:
+                settings["model"]["llm_model"] = None
 
         if vlm_provider:
             settings["model"]["vlm_provider"] = vlm_provider
+            # Clear VLM model if provider changed (unless new model explicitly provided)
+            if vlm_provider != old_vlm_provider and vlm_model is None:
+                settings["model"]["vlm_model"] = None
+        elif llm_provider and llm_provider != old_llm_provider:
+            # If only llm_provider changed and vlm_provider not specified,
+            # also update vlm_provider to match and clear vlm_model
+            settings["model"]["vlm_provider"] = llm_provider
+            if vlm_model is None:
+                settings["model"]["vlm_model"] = None
 
-        # Update custom models
+        # Update custom models (explicit values override the auto-clear above)
         if llm_model is not None:
             settings["model"]["llm_model"] = llm_model if llm_model else None
         if vlm_model is not None:

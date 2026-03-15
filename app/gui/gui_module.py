@@ -74,8 +74,13 @@ class GUIModule:
         event_stream_manager: EventStreamManager = None,
         tui_footage_callback = None,
     ):
-        self.llm: LLMInterface = LLMInterface(provider=provider)
-        self.vlm: VLMInterface = VLMInterface(provider=provider)
+        # Read API key and base URL from settings.json
+        from app.config import get_api_key, get_base_url
+        api_key = get_api_key(provider)
+        base_url = get_base_url(provider)
+
+        self.llm: LLMInterface = LLMInterface(provider=provider, api_key=api_key, base_url=base_url)
+        self.vlm: VLMInterface = VLMInterface(provider=provider, api_key=api_key, base_url=base_url)
         self.action_library: ActionLibrary = action_library
         self.action_router: ActionRouter = action_router
         self.context_engine: ContextEngine = context_engine
@@ -84,13 +89,16 @@ class GUIModule:
         self._tui_footage_callback = tui_footage_callback
 
         # ==================================
-        #  CONFIG
+        #  CONFIG - Read from settings.json
         # ==================================
-        omniparser_base_url: str = os.getenv("OMNIPARSER_BASE_URL", "http://127.0.0.1:7861")
-        
-        self.can_use_omniparser: bool = (os.getenv("USE_OMNIPARSER", "False") == "True") and (omniparser_base_url is not None)
+        from app.config import get_settings
+        gui_settings = get_settings().get("gui", {})
+        omniparser_base_url: str = gui_settings.get("omniparser_url", "http://127.0.0.1:7861")
+        use_omniparser: bool = gui_settings.get("use_omniparser", False)
+
+        self.can_use_omniparser: bool = use_omniparser and (omniparser_base_url is not None)
         logger.info(f"[can_use_omniparser]: {self.can_use_omniparser}")
-        
+
         if self.can_use_omniparser:
             self.gradio_client: Client | None = Client(omniparser_base_url)
         else:

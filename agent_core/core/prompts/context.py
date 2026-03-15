@@ -188,7 +188,8 @@ Config file: `app/config/settings.json`
 
 When you need different model capabilities or need to set API keys:
 1. Use `read_file` to check current settings in `app/config/settings.json`
-2. Use `stream_edit` to update model configuration and/or API keys:
+2. If the target model has no API key, you MUST ask the user for one. Without a valid API key, all LLM requests will fail.
+3. Use `stream_edit` to update model configuration and/or API keys:
 ```json
 {
   "model": {
@@ -205,7 +206,7 @@ When you need different model capabilities or need to set API keys:
   }
 }
 ```
-3. The system will automatically detect the change and update settings (model changes take effect in new tasks)
+4. The system will automatically detect the change and update settings (model changes take effect in new tasks)
 
 Available providers: openai, anthropic, gemini, byteplus, remote (Ollama)
 
