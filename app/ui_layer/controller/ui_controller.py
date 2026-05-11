@@ -540,6 +540,7 @@ class UIController:
         from app.ui_layer.commands.builtin import (
             HelpCommand,
             ClearCommand,
+            ClearTasksCommand,
             ResetCommand,
             ExitCommand,
             MenuCommand,
@@ -552,6 +553,7 @@ class UIController:
 
         self._command_registry.register(HelpCommand(self))
         self._command_registry.register(ClearCommand(self))
+        self._command_registry.register(ClearTasksCommand(self))
         self._command_registry.register(ResetCommand(self))
         self._command_registry.register(ExitCommand(self))
         self._command_registry.register(MenuCommand(self))

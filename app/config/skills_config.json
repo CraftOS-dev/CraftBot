@@ -9,7 +9,9 @@
     "xlsx",
     "living-ui-creator",
     "living-ui-manager",
-    "living-ui-modify"
+    "living-ui-modify",
+    "craftbot-skill-creator",
+    "craftbot-skill-improve"
   ],
   "disabled_skills": [
     "cli-anything",

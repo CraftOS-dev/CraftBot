@@ -50,7 +50,11 @@ from app.config import (
 
 from app.internal_action_interface import InternalActionInterface
 from app.llm import LLMInterface, LLMCallType
-from agent_core.core.impl.llm.errors import classify_llm_error, LLMConsecutiveFailureError
+from agent_core.core.impl.llm.errors import (
+    classify_llm_error,
+    classify_llm_error_message,
+    LLMConsecutiveFailureError,
+)
 from app.vlm_interface import VLMInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
@@ -1297,27 +1301,70 @@ class AgentBase:
         if not session_to_use or not self.event_stream_manager:
             return
 
-        # Get user-friendly error message
-        user_message = classify_llm_error(error)
-
-        # Fatal LLM errors must not re-queue the task - that causes infinite retry loops
-        # Walk the full exception chain (__cause__, __context__) to detect wrapped errors
+        # Walk the exception chain (__cause__, __context__) to detect the
+        # fatal-LLM case. We need the LLMConsecutiveFailureError to surface
+        # the *cause* of the 5 failures (e.g. "rate-limited on Google AI
+        # Studio"), not the meta-message about retry counts.
         is_fatal_llm_error = False
+        fatal_exc: LLMConsecutiveFailureError | None = None
+        seen: set[int] = set()
         exc: BaseException | None = error
-        while exc is not None:
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
             if isinstance(exc, LLMConsecutiveFailureError):
                 is_fatal_llm_error = True
+                fatal_exc = exc
                 break
-            exc = exc.__cause__ or exc.__context__
-            if exc is error:  # prevent infinite loop on circular chains
+            cause = exc.__cause__ or exc.__context__
+            if cause is None or cause is exc:
                 break
+            exc = cause
+
+        # Compose the user-facing message. For the fatal case we lead with
+        # the cause (already a rich detailed string from the classifier)
+        # and prefix the abort context. For non-fatal cases the RuntimeError
+        # we receive was already constructed from `info.message` upstream
+        # in interface.py, so str(error) IS the rich text — classify is a
+        # no-op fallthrough that returns the same string back.
+        if is_fatal_llm_error and fatal_exc is not None and fatal_exc.last_error_info is not None:
+            cause_msg = fatal_exc.last_error_info.message
+            user_message = f"Aborted after consecutive failures. {cause_msg}"
+        elif is_fatal_llm_error and fatal_exc is not None:
+            # Old code path that didn't attach last_error_info — fall back
+            # to the wrapper's str(). Better than empty.
+            user_message = str(fatal_exc)
+        else:
+            try:
+                user_message = classify_llm_error_message(error)
+            except Exception:
+                user_message = str(error) or "AI service error"
 
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
+            # Only fatal errors surface as a red chat bubble. Non-fatal cases
+            # (single parse failure, transient API hiccup, etc.) are still
+            # recorded into the event stream so the LLM sees the failure in
+            # its next-attempt context — but we use a non-error kind so the
+            # transformer does NOT emit a chat-visible ERROR_MESSAGE. The
+            # agent retries automatically via _create_new_trigger below, and
+            # the user shouldn't see a scary error bubble for something that
+            # is being silently recovered. If retries pile up past the
+            # consecutive-failure threshold, the fatal branch above kicks in
+            # and the rich classified message is surfaced then.
+            #
+            # NOTE: We must change the *kind* rather than just unsetting
+            # display_message — when kind is in ERROR_KINDS the transformer
+            # falls back to event.message (the full traceback) for the chat
+            # bubble, which would be even worse. Using kind="warning" follows
+            # the existing convention (see the limit-reached events earlier
+            # in this file) and the LLM still understands the entry from the
+            # message text.
+            log_kind = "error" if is_fatal_llm_error else "warning"
+            log_display_message = user_message if is_fatal_llm_error else None
             self.event_stream_manager.log(
-                "error",
+                log_kind,
                 f"[REACT] {type(error).__name__}: {error}\n{tb}",
-                display_message=user_message,
+                display_message=log_display_message,
                 task_id=session_to_use,
             )
             self.state_manager.bump_event_stream()
@@ -1364,12 +1411,13 @@ class AgentBase:
     # ----- Agent Limits -----
 
     async def _check_agent_limits(self) -> bool:
-        agent_properties = STATE.get_agent_properties()
+        from app.state.agent_state import get_session_props
+        current_task_id: str = STATE.get_agent_property("current_task_id", "")
+        agent_properties = get_session_props(current_task_id).to_dict()
         action_count: int = agent_properties.get("action_count", 0)
         max_actions: int = agent_properties.get("max_actions_per_task", 0)
         token_count: int = agent_properties.get("token_count", 0)
         max_tokens: int = agent_properties.get("max_tokens_per_task", 0)
-        current_task_id: str = agent_properties.get("current_task_id", "")
 
         # Check action limits
         if (action_count / max_actions) >= 1.0:
@@ -1535,13 +1583,9 @@ class AgentBase:
             logger.warning(f"[LIMIT] Task {session_id} not found for limit continue")
             return
 
-        # Reset counters
-        STATE.set_agent_property("action_count", 0)
-        STATE.set_agent_property("token_count", 0)
-
-        # Also reset on the StateSession for this session
+        # Reset per-task counters on this session's StateSession.
         from agent_core.core.state.session import StateSession
-        session = StateSession.get(session_id)
+        session = StateSession.get_or_none(session_id)
         if session:
             session.agent_properties.set_property("action_count", 0)
             session.agent_properties.set_property("token_count", 0)
@@ -3047,24 +3091,10 @@ class AgentBase:
                 from app.skill import skill_manager
 
                 async def _reload_skills_and_sync():
-                    """Reload skills, sync slash commands, and broadcast the
-                    refreshed skill list so the Settings page UI updates
-                    without a manual reload."""
+                    """Reload skills and sync skill slash commands."""
                     result = await skill_manager.reload()
                     if self.ui_controller:
                         self.ui_controller.sync_skill_commands()
-                        # Broadcast the refreshed list to the active adapter
-                        # (e.g. browser) so any open Settings page sees the
-                        # new / re-enabled skill immediately.
-                        adapter = getattr(self.ui_controller, "_adapter", None)
-                        broadcast_handler = getattr(adapter, "_handle_skill_list", None)
-                        if broadcast_handler is not None:
-                            try:
-                                await broadcast_handler()
-                            except Exception as e:
-                                logger.debug(
-                                    f"[SKILLS] Failed to broadcast skill list update: {e}"
-                                )
                     return result
 
                 config_watcher.register(

@@ -782,7 +782,8 @@ class GUIModule:
         return reasoning_result, int(item_index)
 
     async def _check_agent_limits(self) -> bool:
-        agent_properties = STATE.get_agent_properties()
+        from app.state.agent_state import get_session_props
+        agent_properties = get_session_props().to_dict()
         action_count: int = agent_properties.get("action_count", 0)
         max_actions: int = agent_properties.get("max_actions_per_task", 0)
         token_count: int = agent_properties.get("token_count", 0)

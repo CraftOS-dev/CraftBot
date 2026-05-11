@@ -10,17 +10,17 @@ from typing import Any, Dict, Optional
 
 from agent_core.core.impl.llm import LLMInterface as _LLMInterface
 from agent_core.core.hooks.types import UsageEventData
-from app.state.agent_state import STATE
+from app.state.agent_state import get_session_props
 
 
 def _get_token_count() -> int:
-    """Get token count from CraftBot's global STATE."""
-    return STATE.get_agent_property("token_count", 0)
+    """Get token count from the active task's StateSession (per-task counter)."""
+    return get_session_props().get_property("token_count", 0)
 
 
 def _set_token_count(count: int) -> None:
-    """Set token count in CraftBot's global STATE."""
-    STATE.set_agent_property("token_count", count)
+    """Set token count on the active task's StateSession (per-task counter)."""
+    get_session_props().set_property("token_count", count)
 
 
 async def _report_usage(event: UsageEventData) -> None:

@@ -125,6 +125,16 @@ class ActionPanelProtocol(Protocol):
         """Clear all items from the panel."""
         ...
 
+    async def clear_terminal_tasks(self) -> int:
+        """
+        Remove tasks whose status is completed/error/cancelled, along with
+        their child actions. Running/waiting tasks are preserved.
+
+        Returns:
+            Number of items removed.
+        """
+        ...
+
     def select_task(self, task_id: Optional[str]) -> None:
         """
         Select a task for detail view.

@@ -6,11 +6,8 @@ import asyncio
 import base64
 import json
 import os
-import re
 import shutil
 import time
-import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
@@ -433,8 +430,6 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     input_data=stored.input_data,
                     output_data=stored.output_data,
                     error_message=stored.error_message,
-                    selected_skills=list(stored.selected_skills or []),
-                    workflow_id=stored.workflow_id,
                 ))
         except Exception:
             # Storage may not be available, continue without persistence
@@ -456,8 +451,6 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     input_data=item.input_data,
                     output_data=item.output_data,
                     error_message=item.error_message,
-                    selected_skills=list(item.selected_skills or []),
-                    workflow_id=item.workflow_id,
                 )
                 self._storage.insert_item(stored)
             except Exception:
@@ -491,8 +484,6 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 "input": item.input_data,
                 "output": item.output_data,
                 "error": item.error_message,
-                "selectedSkills": list(item.selected_skills or []),
-                "workflowId": item.workflow_id,
             },
         })
 
@@ -652,6 +643,57 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         await self._adapter._broadcast({
             "type": "action_clear",
         })
+
+    async def clear_terminal_tasks(self) -> int:
+        """
+        Remove tasks whose status is completed/error/cancelled, along with
+        their child actions. Running/waiting tasks remain visible.
+
+        Returns:
+            Number of tasks removed (does not count child actions).
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
+
+        # Find terminal task IDs in the in-memory list
+        terminal_task_ids = {
+            item.id
+            for item in self._items
+            if item.item_type == "task" and item.status in terminal_statuses
+        }
+
+        if not terminal_task_ids:
+            return 0
+
+        # Remove the tasks themselves and any actions that belong to them
+        removed_ids = [
+            item.id
+            for item in self._items
+            if item.id in terminal_task_ids or item.parent_id in terminal_task_ids
+        ]
+        self._items = [
+            item
+            for item in self._items
+            if item.id not in terminal_task_ids and item.parent_id not in terminal_task_ids
+        ]
+
+        # Mirror in storage so a refresh doesn't bring them back. We let
+        # storage compute its own ID set rather than pass our list, since
+        # storage may carry tasks not currently loaded in memory.
+        if self._storage:
+            try:
+                self._storage.clear_terminal_tasks()
+            except Exception:
+                pass
+
+        # Tell each connected client to drop the removed items individually,
+        # so any other (running) tasks they're watching stay in place.
+        for item_id in removed_ids:
+            await self._adapter._broadcast({
+                "type": "action_remove",
+                "data": {"id": item_id},
+            })
+
+        return len(terminal_task_ids)
 
     def select_task(self, task_id: Optional[str]) -> None:
         """Select task - handled by frontend."""
@@ -1127,10 +1169,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "type": "init",
                 "data": initial_state,
             })
-            await ws.send_json({
-                "type": "skill_meta",
-                "data": self._get_skill_meta(),
-            })
         except (ConnectionResetError, ClientConnectionResetError, RuntimeError) as e:
             # Gracefully handle connection closing
             self._ws_clients.discard(ws)
@@ -1333,9 +1371,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "clear_tasks":
             await self._handle_clear_tasks()
 
-        elif msg_type == "create_skill_from_task":
-            await self._handle_create_skill_from_task(data)
-
         # Scheduler/Proactive operations
         elif msg_type == "scheduler_config_get":
             await self._handle_scheduler_config_get()
@@ -1423,7 +1458,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             provider = data.get("provider", "")
             api_key = data.get("apiKey")
             base_url = data.get("baseUrl")
-            await self._handle_model_connection_test(provider, api_key, base_url)
+            model = data.get("model")
+            await self._handle_model_connection_test(provider, api_key, base_url, model)
 
         elif msg_type == "model_validate_save":
             await self._handle_model_validate_save(data)
@@ -1431,6 +1467,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "ollama_models_get":
             base_url = data.get("baseUrl")
             await self._handle_ollama_models_get(base_url)
+
+        elif msg_type == "openrouter_models_get":
+            await self._handle_openrouter_models_get(
+                base_url=data.get("baseUrl"),
+                force_refresh=bool(data.get("forceRefresh", False)),
+            )
+
+        elif msg_type == "openrouter_credits_get":
+            await self._handle_openrouter_credits_get(
+                api_key=data.get("apiKey"),
+                base_url=data.get("baseUrl"),
+            )
 
         elif msg_type == "slow_mode_get":
             await self._handle_slow_mode_get()
@@ -2875,492 +2923,46 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             })
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Skill creation from a completed task
-    # ─────────────────────────────────────────────────────────────────────
-
-    # `workflow_id` is functional infrastructure, NOT a "this task is
-    # internal" tag. It is set only on workflows that need:
-    #   1. WorkflowLockManager serialization (memory_processing — only
-    #      one memory pass at a time; the lock is auto-released in
-    #      TaskManager._end_task by keying off task.workflow_id).
-    #   2. Post-completion side effects (skill_creation / skill_improvement
-    #      trigger SkillManager.reload() and auto-enable the new skill in
-    #      TaskManager._end_task).
-    # Tasks tagged with one of these are internal by definition (they ARE
-    # the skill / memory infrastructure) and must never be eligible as
-    # source tasks for the "Create Skill" flow. Heartbeats, planners, and
-    # the onboarding interview don't need either of those two services, so
-    # they don't set workflow_id — _INTERNAL_SKILL_NAMES covers them.
-    _INTERNAL_WORKFLOW_IDS = frozenset({
-        "skill_creation",
-        "skill_improvement",
-        "memory_processing",
-    })
-
-    # Detection of internal tasks via `selected_skills` — needed because
-    # most internal workflows (heartbeats, planners, soft onboarding) only
-    # set selected_skills, not workflow_id. This is the union of every
-    # skill in the repo with `user-invocable: false`. A task whose
-    # selected_skills intersects this set is system-spawned and the
-    # "Create Skill" button must not appear on it.
-    # Used together with _INTERNAL_WORKFLOW_IDS via OR — see the frontend
-    # `isInternalWorkflowTask` for the combined check.
-    _INTERNAL_SKILL_NAMES = frozenset({
-        "craftbot-skill-creator",
-        "craftbot-skill-improve",
-        "memory-processor",
-        "heartbeat-processor",
-        "user-profile-interview",
-        "day-planner",
-        "week-planner",
-        "month-planner",
-    })
-
-    # Names the user may not type into the SkillCreatorModal (validated in
-    # _handle_create_skill_from_task). Kept separate from
-    # _INTERNAL_SKILL_NAMES because the two answer different questions:
-    #   _INTERNAL_SKILL_NAMES → "is this *task* a system task?" (hides the
-    #     Create Skill button on its detail panel)
-    #   _RESERVED_SKILL_NAMES → "is this *name* one the user can claim?"
-    #     (modal input validation)
-    # The contents happen to coincide today, but a future user-invocable
-    # skill that we still don't want overwritten would belong only here,
-    # and an internal skill we'd let users replace would belong only in
-    # _INTERNAL_SKILL_NAMES — keeping them split avoids a re-split later.
-    _RESERVED_SKILL_NAMES = frozenset({
-        "craftbot-skill-creator",
-        "craftbot-skill-improve",
-        "memory-processor",
-        "user-profile-interview",
-        "heartbeat-processor",
-        "day-planner",
-        "week-planner",
-        "month-planner",
-    })
-
-    _SKILL_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
-
-    def _get_skill_meta(self) -> Dict[str, Any]:
-        return {
-            "internalWorkflowIds": sorted(self._INTERNAL_WORKFLOW_IDS),
-            "internalSkillNames": sorted(self._INTERNAL_SKILL_NAMES),
-            "reservedSkillNames": sorted(self._RESERVED_SKILL_NAMES),
-        }
-
-    async def _handle_create_skill_from_task(self, data: Dict[str, Any]) -> None:
+    async def _handle_clear_conversation(self) -> None:
         """
-        Spawn a workflow task that creates or improves a skill, using a
-        completed source task as evidence. Writes a per-task SKILL_SOURCE
-        markdown file before queueing the trigger.
+        Clear the chat conversation log only.
+
+        Drops chat messages from the panel and from chat_storage. The
+        action panel (tasks/actions) is left alone so running tasks are
+        not disrupted. Dashboard usage/task metrics live in a separate
+        database and are not touched.
         """
-        response_type = "create_skill_from_task"
-
-        async def _err(msg: str) -> None:
-            await self._broadcast({
-                "type": response_type,
-                "data": {"success": False, "error": msg},
-            })
-
-        # ---- Validate request shape ----------------------------------
-        source_task_id = (data.get("taskId") or "").strip()
-        mode = data.get("mode")
-        skill_name_raw = (data.get("skillName") or "").strip()
-        target_skill_raw = (data.get("targetSkill") or "").strip()
-
-        # `verb` is the imperative form used inside the agent's instruction
-        # string ("Create skill 'x'."). `task_title_verb` is the progressive
-        # form used in the user-facing task title shown in the action panel
-        # ("Creating skill: x") so users see what the agent is *doing*, not
-        # a command at them.
-        if mode == "create":
-            workflow_id = "skill_creation"
-            workflow_skill = "craftbot-skill-creator"
-            target = skill_name_raw
-            verb = "Create"
-            task_title_verb = "Creating"
-        elif mode == "improve":
-            workflow_id = "skill_improvement"
-            workflow_skill = "craftbot-skill-improve"
-            target = target_skill_raw
-            verb = "Improve"
-            task_title_verb = "Improving"
-        else:
-            await _err("invalid_mode")
-            return
-
-        if not source_task_id:
-            await _err("missing_task_id")
-            return
-        if not target:
-            await _err("missing_skill_name")
-            return
-        if not self._SKILL_NAME_PATTERN.fullmatch(target):
-            await _err("invalid_skill_name")
-            return
-        if target in self._RESERVED_SKILL_NAMES:
-            await _err("reserved_skill_name")
-            return
-
-        # ---- Look up source task -------------------------------------
-        # The in-memory `task_manager.tasks` dict only holds RUNNING tasks —
-        # `_finalize_task` pops the entry when a task ends. So a completed
-        # source task is never resolvable via `get_task_by_id`. Source from
-        # the durable ActionItem record instead (in-memory panel first, then
-        # `actions.db` SQLite as fallback). Both paths carry `selected_skills`
-        # and `workflow_id` thanks to the earlier payload extension.
-        agent = self._controller.agent
-        task_manager = getattr(agent, "task_manager", None)
-        if task_manager is None:
-            await _err("task_manager_unavailable")
-            return
-
-        source_item = self._lookup_source_action_item(source_task_id)
-        if source_item is None:
-            await _err("source_task_not_found")
-            return
-        if source_item.item_type != "task":
-            await _err("source_task_not_found")
-            return
-        if source_item.status != "completed":
-            await _err("source_task_not_completed")
-            return
-        # Reject any task that is itself a CraftBot internal workflow.
-        # Two signals — either is sufficient:
-        #   1. `workflow_id` matches a known internal id (memory processing,
-        #      skill creation/improvement)
-        #   2. `selected_skills` intersects the user-invocable:false skill
-        #      set (soft onboarding, heartbeat, planners — these don't set
-        #      workflow_id, only selected_skills)
-        if (source_item.workflow_id or "") in self._INTERNAL_WORKFLOW_IDS:
-            await _err("source_task_is_internal_workflow")
-            return
-        if any(s in self._INTERNAL_SKILL_NAMES for s in (source_item.selected_skills or [])):
-            await _err("source_task_is_internal_workflow")
-            return
-
-        # ---- Skill existence checks ----------------------------------
-        skills_dir = Path(__file__).resolve().parents[3] / "skills"
-        target_dir = skills_dir / target
-        target_skill_md = target_dir / "SKILL.md"
-
-        if mode == "create":
-            if target_skill_md.exists():
-                await _err("skill_already_exists")
-                return
-            try:
-                from app.tui.skill_settings import get_skill_info
-                if get_skill_info(target):
-                    await _err("skill_already_exists")
-                    return
-            except Exception:
-                pass
-        else:  # improve
-            if not target_skill_md.exists():
-                await _err("skill_not_found")
-                return
-
-        # ---- Acquire workflow lock -----------------------------------
-        lock_manager = getattr(agent, "workflow_lock_manager", None)
-        if lock_manager is None:
-            await _err("workflow_lock_unavailable")
-            return
-        if not await lock_manager.try_acquire(workflow_id):
-            await _err("workflow_busy")
-            return
-
-        new_task_id = uuid.uuid4().hex
-        source_md_path: Optional[Path] = None
         try:
-            # ---- Build SKILL_SOURCE_<id>.md --------------------------
-            from app.config import AGENT_FILE_SYSTEM_PATH
-            source_md_path = Path(AGENT_FILE_SYSTEM_PATH) / f"SKILL_SOURCE_{new_task_id}.md"
-            source_md_path.parent.mkdir(parents=True, exist_ok=True)
-            existing_skill_md = target_skill_md if mode == "improve" else None
-            source_md_path.write_text(
-                self._build_skill_source_md(
-                    mode=mode,
-                    target_skill=target,
-                    source_item=source_item,
-                    existing_skill_md=existing_skill_md,
-                ),
-                encoding="utf-8",
-            )
-
-            # ---- Ensure the workflow skill is enabled ----------------
-            try:
-                enable_skill(workflow_skill)
-            except Exception as e:
-                logger.debug(f"[SKILL_CREATOR] enable_skill({workflow_skill}) noop/failed: {e}")
-
-            # ---- Spawn the workflow task -----------------------------
-            # Use absolute paths in the instruction so the agent can pass
-            # them verbatim to read_file / write_file / stream_edit. With
-            # relative paths (e.g. "skills/<name>/SKILL.md") the agent has
-            # been observed mistakenly prepending the source-file's prefix
-            # (`agent_file_system/`), landing the new SKILL.md inside the
-            # agent file system instead of the project's `skills/` dir.
-            absolute_source_path = source_md_path.resolve()
-            absolute_target_path = target_skill_md.resolve()
-            instruction = (
-                f"SILENT BACKGROUND TASK — do not message the user.\n"
-                f"{verb} skill '{target}'.\n"
-                f"Source file (read this — absolute path, use verbatim): {absolute_source_path}\n"
-                f"Target file (write the new SKILL.md here — absolute path, use verbatim): {absolute_target_path}\n"
-                f"Mode: {mode}\n"
-                f"Skill name: {target}\n"
-                f"Read the source file, follow the {workflow_skill} skill instructions, "
-                f"write the new skill to the target file (use the absolute target path verbatim), "
-                f"and end the task with task_end."
-            )
-            # No colon in the title — EventTransformer._create_task_start_event
-            # splits on the first ":" and keeps only the suffix, which would
-            # otherwise leave the panel showing just the bare skill name.
-            task_name = f'{task_title_verb} skill "{target}"'
-            task_manager.create_task(
-                task_name=task_name,
-                task_instruction=instruction,
-                mode="complex",
-                action_sets=["file_operations"],
-                selected_skills=[workflow_skill],
-                session_id=new_task_id,
-                workflow_id=workflow_id,
-            )
-
-            # ---- Queue trigger so execution actually starts ---------
-            from app.trigger import Trigger
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=60,
-                next_action_description=f"{verb} skill '{target}' from completed task",
-                session_id=new_task_id,
-                payload={},
-            )
-            await agent.triggers.put(trigger)
-
-            # Acknowledge in the chat immediately so the user sees the work
-            # being picked up. The agent will follow up with a presentation
-            # message when the workflow completes (see craftbot-skill-* SKILL.md).
-            ack_text = (
-                f"Creating skill `{target}` from the completed task."
-                if mode == "create"
-                else f"Improving skill `{target}` based on the recent task."
-            )
-            try:
-                await self._display_chat_message("System", ack_text, "system")
-            except Exception as e:
-                logger.debug(f"[SKILL_CREATOR] ack chat message failed: {e}")
-
+            await self._chat.clear()
             await self._broadcast({
-                "type": response_type,
-                "data": {
-                    "success": True,
-                    "taskId": new_task_id,
-                    "skillName": target,
-                    "mode": mode,
-                },
+                "type": "clear_conversation",
+                "data": {"success": True},
             })
-            return
-
         except Exception as e:
-            logger.warning(f"[SKILL_CREATOR] handler failed: {e}", exc_info=True)
-            # Release the lock since the task never took ownership.
-            try:
-                await lock_manager.release(workflow_id)
-            except Exception:
-                pass
-            # Best-effort cleanup of the source file we wrote.
-            if source_md_path is not None:
-                try:
-                    source_md_path.unlink()
-                except Exception:
-                    pass
-            await _err(str(e) or "internal_error")
-            return
+            await self._broadcast({
+                "type": "clear_conversation",
+                "data": {"success": False, "error": str(e)},
+            })
 
-    def _lookup_source_action_item(self, item_id: str) -> Optional[ActionItem]:
-        """Find a task-level ActionItem by id.
-
-        Tries the in-memory action panel first (fastest, current session),
-        then falls back to ActionStorage (`actions.db`) so completed tasks
-        from previous sessions still resolve. Both sources carry
-        `selected_skills` and `workflow_id` after the payload extension.
+    async def _handle_clear_tasks(self) -> None:
         """
-        # In-memory first
-        try:
-            for item in (self._action_panel._items if self._action_panel else []):
-                if item.id == item_id:
-                    return item
-        except Exception:
-            pass
+        Clear only finished tasks (completed/error/cancelled) and their
+        child actions from the panel. Running/waiting tasks are preserved.
 
-        # SQLite fallback
-        try:
-            storage = getattr(self._action_panel, "_storage", None) if self._action_panel else None
-            if storage is not None:
-                stored = storage.get_item(item_id)
-                if stored is not None:
-                    return ActionItem(
-                        id=stored.id,
-                        name=stored.name,
-                        status=stored.status,
-                        item_type=stored.item_type,
-                        parent_id=stored.parent_id,
-                        created_at=stored.created_at,
-                        completed_at=stored.completed_at,
-                        input_data=stored.input_data,
-                        output_data=stored.output_data,
-                        error_message=stored.error_message,
-                        selected_skills=list(stored.selected_skills or []),
-                        workflow_id=stored.workflow_id,
-                    )
-        except Exception:
-            pass
-
-        return None
-
-    def _gather_child_action_items(self, parent_id: str) -> List[ActionItem]:
-        """Collect every child ActionItem under `parent_id`, deduped by id.
-
-        Pulls from in-memory first, then ActionStorage. Result is sorted by
-        creation time. The two sources usually overlap completely; the union
-        is the safe choice for a task that just completed (in-memory has the
-        absolute-latest state) or one that was loaded from disk after a
-        restart (storage is the only source).
+        Dashboard usage/task metrics are persisted in a separate database
+        and are not affected.
         """
-        seen_ids: Set[str] = set()
-        children: List[ActionItem] = []
-
         try:
-            for item in (self._action_panel._items if self._action_panel else []):
-                if item.parent_id == parent_id and item.id not in seen_ids:
-                    children.append(item)
-                    seen_ids.add(item.id)
-        except Exception:
-            pass
-
-        try:
-            storage = getattr(self._action_panel, "_storage", None) if self._action_panel else None
-            if storage is not None:
-                for sit in storage.get_items(limit=2000, include_running=True):
-                    if sit.parent_id == parent_id and sit.id not in seen_ids:
-                        children.append(ActionItem(
-                            id=sit.id,
-                            name=sit.name,
-                            status=sit.status,
-                            item_type=sit.item_type,
-                            parent_id=sit.parent_id,
-                            created_at=sit.created_at,
-                            completed_at=sit.completed_at,
-                            input_data=sit.input_data,
-                            output_data=sit.output_data,
-                            error_message=sit.error_message,
-                            selected_skills=list(sit.selected_skills or []),
-                            workflow_id=sit.workflow_id,
-                        ))
-                        seen_ids.add(sit.id)
-        except Exception:
-            pass
-
-        children.sort(key=lambda it: it.created_at or 0.0)
-        return children
-
-    def _build_skill_source_md(
-        self,
-        *,
-        mode: str,
-        target_skill: str,
-        source_item: ActionItem,
-        existing_skill_md: Optional[Path],
-    ) -> str:
-        """Compose the per-task SKILL_SOURCE markdown file from durable
-        ActionItem records (the live `Task` object is gone by the time the
-        user clicks Create Skill — see _lookup_source_action_item).
-
-        Sections:
-          frontmatter (mode, target_skill, source_task_id, generated_at)
-          ## Task name           — from ActionItem.name
-          ## Outcome             — status, created, ended, selected_skills, workflow_id
-          ## Action trace        — every child action+reasoning row from the DB
-          ## Existing SKILL.md   — verbatim, improve mode only
-        """
-        FIELD_CAP = 2048
-        ERROR_CAP = 300
-
-        def truncate(value: Optional[str], cap: int = FIELD_CAP) -> str:
-            if value is None:
-                return "(none)"
-            text = str(value)
-            if len(text) <= cap:
-                return text
-            return text[:cap] + f"\n…[truncated {len(text) - cap} chars]"
-
-        def fmt_ts(ts: Optional[float]) -> str:
-            if not ts:
-                return "(unknown)"
-            try:
-                return datetime.fromtimestamp(ts).isoformat()
-            except Exception:
-                return str(ts)
-
-        child_items = self._gather_child_action_items(source_item.id)
-
-        selected_skills_str = ", ".join(source_item.selected_skills or []) or "(none)"
-        workflow_id_str = source_item.workflow_id or "(none)"
-
-        lines: List[str] = [
-            "---",
-            f"mode: {mode}",
-            f"target_skill: {target_skill}",
-            f"source_task_id: {source_item.id}",
-            f"generated_at: {datetime.utcnow().isoformat()}Z",
-            "---",
-            "",
-            "# Source Task Context",
-            "",
-            "## Task name",
-            truncate(source_item.name),
-            "",
-            "## Outcome",
-            f"- Status: {source_item.status}",
-            f"- Created: {fmt_ts(source_item.created_at)}",
-            f"- Ended: {fmt_ts(source_item.completed_at)}",
-            f"- Selected skills: {selected_skills_str}",
-            f"- Workflow id: {workflow_id_str}",
-            "",
-            "## Action trace",
-            "",
-        ]
-
-        if not child_items:
-            lines.append("(no recorded actions)")
-        else:
-            for idx, item in enumerate(child_items, 1):
-                duration_ms = item.duration
-                duration_str = f"{duration_ms}ms" if duration_ms is not None else "—"
-                lines.append(
-                    f"### [{idx}] {item.name} — {item.status} ({duration_str}) [{item.item_type}]"
-                )
-                lines.append(f"- input: {truncate(item.input_data)}")
-                lines.append(f"- output: {truncate(item.output_data)}")
-                err_text = item.error_message
-                lines.append(
-                    f"- error: {truncate(err_text, ERROR_CAP) if err_text else '(none)'}"
-                )
-                lines.append("")
-
-        if existing_skill_md is not None:
-            lines.append("## Existing SKILL.md")
-            lines.append("")
-            try:
-                existing = existing_skill_md.read_text(encoding="utf-8")
-            except Exception as e:
-                existing = f"(failed to read: {e})"
-            lines.append("```")
-            lines.append(existing)
-            lines.append("```")
-
-        return "\n".join(lines)
+            removed = await self._action_panel.clear_terminal_tasks()
+            await self._broadcast({
+                "type": "clear_tasks",
+                "data": {"success": True, "removed": removed},
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "clear_tasks",
+                "data": {"success": False, "error": str(e)},
+            })
 
     # ─────────────────────────────────────────────────────────────────────
     # Scheduler/Proactive Operation Handlers
@@ -4072,6 +3674,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         provider: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> None:
         """Test connection to a model provider."""
         try:
@@ -4079,6 +3682,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 provider=provider,
                 api_key=api_key,
                 base_url=base_url,
+                model=model,
             )
             await self._broadcast({
                 "type": "model_connection_test",
@@ -4130,6 +3734,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast({
                 "type": "ollama_models_get",
                 "data": {"success": False, "models": [], "error": str(e)},
+            })
+
+    async def _handle_openrouter_models_get(
+        self,
+        base_url: Optional[str] = None,
+        force_refresh: bool = False,
+    ) -> None:
+        """Fetch the OpenRouter model catalog and broadcast it.
+
+        The catalog is public (no auth) and large (~300 entries). The helper
+        caches it in-process for 5 min; pass forceRefresh=True from the UI
+        to bypass the cache.
+        """
+        try:
+            from app.ui_layer.settings.openrouter_catalog import fetch_models
+            result = await asyncio.to_thread(
+                fetch_models, base_url, force_refresh=force_refresh
+            )
+            await self._broadcast({"type": "openrouter_models_get", "data": result})
+        except Exception as e:
+            await self._broadcast({
+                "type": "openrouter_models_get",
+                "data": {"success": False, "models": [], "error": str(e)},
+            })
+
+    async def _handle_openrouter_credits_get(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> None:
+        """Fetch the OpenRouter account credit balance for the configured key."""
+        try:
+            from app.ui_layer.settings.openrouter_catalog import fetch_credits
+            result = await asyncio.to_thread(fetch_credits, api_key, base_url)
+            await self._broadcast({"type": "openrouter_credits_get", "data": result})
+        except Exception as e:
+            await self._broadcast({
+                "type": "openrouter_credits_get",
+                "data": {"success": False, "error": str(e)},
             })
 
     # ─────────────────────────────────────────────────────────────────────
@@ -5743,8 +5386,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "input": a.input_data,
                     "output": a.output_data,
                     "error": a.error_message,
-                    "selectedSkills": list(a.selected_skills or []),
-                    "workflowId": a.workflow_id,
                 }
                 for a in older_items
             ]
@@ -6330,8 +5971,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "input": a.input_data,
                     "output": a.output_data,
                     "error": a.error_message,
-                    "selectedSkills": list(a.selected_skills or []),
-                    "workflowId": a.workflow_id,
                 }
                 for a in self._action_panel.get_items()
             ],

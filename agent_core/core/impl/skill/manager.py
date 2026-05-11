@@ -189,12 +189,8 @@ class SkillManager:
         }
 
     # Maximum tokens for skill instructions (approximate: ~4 chars per token)
-    # This prevents skill instructions from overwhelming the context.
-    # 16000 tokens (~64 KB of text) comfortably fits the largest single skill
-    # in the repo (~8200 tokens) plus headroom for multi-skill combos. The
-    # earlier 2000-token cap was truncating most non-trivial skills,
-    # including the workflow ones (memory-processor, craftbot-skill-*).
-    MAX_SKILL_INSTRUCTIONS_TOKENS = 16000
+    # This prevents skill instructions from overwhelming the context
+    MAX_SKILL_INSTRUCTIONS_TOKENS = 2000
 
     def get_skill_instructions(self, skill_names: List[str], max_tokens: Optional[int] = None) -> str:
         """

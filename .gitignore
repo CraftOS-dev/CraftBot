@@ -49,7 +49,7 @@ app/config/settings.json
 **/CONVERSATION_HISTORY.md
 **/EVENT_UNPROCESSED.md
 **/EVENT.md
-agent_file_system/TASK_HISTORY.md
+**/TASK_HISTORY.md
 **/USER.md
 **/onboarding_config.json
 **/config.json

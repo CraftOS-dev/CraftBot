@@ -41,4 +41,9 @@ PROVIDER_CONFIG = {
         api_key_env="XAI_API_KEY",
         default_base_url="https://api.x.ai/v1",
     ),
+    "openrouter": ProviderConfig(
+        api_key_env="OPENROUTER_API_KEY",
+        base_url_env="OPENROUTER_BASE_URL",
+        default_base_url="https://openrouter.ai/api/v1",
+    ),
 }

@@ -348,20 +348,6 @@ class InterfaceAdapter(ABC):
         if not task_id:
             return
 
-        # Look up the source Task to capture skill/workflow context for the UI
-        selected_skills: List[str] = []
-        workflow_id: Optional[str] = None
-        try:
-            agent = getattr(self._controller, "agent", None)
-            task_manager = getattr(agent, "task_manager", None) if agent else None
-            if task_manager is not None:
-                task = task_manager.get_task_by_id(task_id)
-                if task is not None:
-                    selected_skills = list(task.selected_skills or [])
-                    workflow_id = task.workflow_id
-        except Exception:
-            pass
-
         if self.action_panel:
             asyncio.create_task(
                 self.action_panel.add_item(
@@ -370,8 +356,6 @@ class InterfaceAdapter(ABC):
                         name=event.data.get("task_name", "Task"),
                         status="running",
                         item_type="task",
-                        selected_skills=selected_skills,
-                        workflow_id=workflow_id,
                     )
                 )
             )

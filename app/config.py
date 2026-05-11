@@ -100,12 +100,14 @@ def _get_default_settings() -> Dict[str, Any]:
             "anthropic": "",
             "google": "",
             "byteplus": "",
+            "openrouter": "",
         },
         "endpoints": {
             "remote_model_url": "",
             "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
             "google_api_base": "",
             "google_api_version": "",
+            "openrouter_base_url": "",
         },
         "web_search": {
             "google_cse_id": "",
@@ -221,6 +223,7 @@ def get_api_key(provider: str) -> str:
         "gemini": "google",
         "google": "google",
         "byteplus": "byteplus",
+        "openrouter": "openrouter",
     }
 
     settings_key = key_map.get(provider, provider)
@@ -247,6 +250,9 @@ def get_base_url(provider: str) -> Optional[str]:
         return url if url else "http://localhost:11434"
     elif provider == "gemini" or provider == "google":
         return endpoints.get("google_api_base") or None
+    elif provider == "openrouter":
+        url = endpoints.get("openrouter_base_url", "")
+        return url if url else "https://openrouter.ai/api/v1"
 
     return None
 

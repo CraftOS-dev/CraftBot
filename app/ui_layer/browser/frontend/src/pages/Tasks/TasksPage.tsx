@@ -1,23 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply, Plus } from 'lucide-react'
+import { ChevronRight, XCircle, ArrowLeft, Reply } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
+import { StatusIndicator, Badge, Button, IconButton } from '../../components/ui'
 import type { ActionItem } from '../../types'
-import { useSkillCreator } from './useSkillCreator'
 import styles from './TasksPage.module.css'
-
-function isInternalWorkflowTask(
-  item: ActionItem,
-  internalWorkflowIds: Set<string>,
-  internalSkillNames: Set<string>,
-): boolean {
-  if (item.workflowId && internalWorkflowIds.has(item.workflowId)) return true
-  for (const s of item.selectedSkills ?? []) {
-    if (internalSkillNames.has(s)) return true
-  }
-  return false
-}
 
 // Expandable value component for long text
 const MAX_VALUE_LENGTH = 80
@@ -285,14 +272,10 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions, messages, cancelTask, cancellingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
-  const internalWorkflowIds = useMemo(() => new Set(skillMeta.internalWorkflowIds), [skillMeta.internalWorkflowIds])
-  const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
-  const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
+  const { actions, messages, cancelTask, cancellingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions } = useWebSocket()
   const navigate = useNavigate()
   const [selectedItem, setSelectedItem] = useState<ActionItem | null>(null)
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
-  const skillCreator = useSkillCreator()
 
   // Resizable panel state
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
@@ -527,15 +510,6 @@ export function TasksPage() {
                     >
                       {cancellingTaskId === selectedItem.id ? 'Cancelling...' : 'Cancel Task'}
                     </Button>
-                  ) : selectedItem.status === 'completed' && !isInternalWorkflowTask(selectedItem, internalWorkflowIds, internalSkillNames) ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Plus size={14} />}
-                      onClick={() => skillCreator.open(selectedItem)}
-                    >
-                      Create Skill
-                    </Button>
                   ) : (selectedItem.status === 'error' || selectedItem.status === 'cancelled') && (
                     <Badge variant="error">Aborted</Badge>
                   )}
@@ -607,17 +581,6 @@ export function TasksPage() {
           </div>
         )}
       </div>
-
-      <SkillCreatorModal
-        isOpen={skillCreator.isOpen}
-        sourceSkills={skillCreator.sourceSkills}
-        reservedNames={reservedSkillNames}
-        status={skillCreator.status}
-        serverError={skillCreator.serverError}
-        successInfo={skillCreator.successInfo}
-        onClose={skillCreator.close}
-        onSubmit={skillCreator.submit}
-      />
     </div>
   )
 }

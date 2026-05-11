@@ -50,8 +50,6 @@ export interface ActionItem {
   output?: string
   error?: string
   duration?: number
-  selectedSkills?: string[]
-  workflowId?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -107,9 +105,6 @@ export type WSMessageType =
   // Task control
   | 'task_cancel'
   | 'task_cancel_response'
-  // Skill creation from completed task
-  | 'create_skill_from_task'
-  | 'skill_meta'
   // Option click (interactive buttons in chat)
   | 'option_click'
   // Onboarding
@@ -164,12 +159,6 @@ export interface InitialState {
   dashboardMetrics?: DashboardMetrics
   needsHardOnboarding?: boolean
   agentName?: string
-}
-
-export interface SkillMeta {
-  internalWorkflowIds: string[]
-  internalSkillNames: string[]
-  reservedSkillNames: string[]
 }
 
 // ─────────────────────────────────────────────────────────────────────

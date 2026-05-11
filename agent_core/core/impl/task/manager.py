@@ -701,86 +701,6 @@ class TaskManager:
             except Exception as e:
                 logger.warning(f"[ONBOARDING] Failed to mark soft onboarding complete: {e}")
 
-        # Skill creator/improver workflow finished — reload SkillManager so
-        # the new (or edited) skill is invocable immediately, and delete the
-        # per-task SKILL_SOURCE markdown the handler wrote.
-        if (task.workflow_id or "") in {"skill_creation", "skill_improvement"}:
-            # Always clean up the SOURCE file, regardless of completion status
-            try:
-                if self.agent_file_system_path:
-                    src_path = self.agent_file_system_path / f"SKILL_SOURCE_{task.id}.md"
-                    if src_path.exists():
-                        src_path.unlink()
-                        logger.info(f"[SKILL_CREATOR] Removed {src_path.name}")
-            except Exception as e:
-                logger.warning(f"[SKILL_CREATOR] Failed to remove SKILL_SOURCE for {task.id}: {e}")
-
-            # Reload skills only on success — a failed/cancelled task is
-            # unlikely to have left the skill in a useful state, but reloading
-            # is harmless either way. Restrict to completed for clarity.
-            if status == "completed":
-                try:
-                    from agent_core.core.impl.skill.manager import SkillManager
-                    skill_manager = SkillManager()
-                    await skill_manager.reload()
-                    logger.info(
-                        f"[SKILL_CREATOR] Reloaded skills after {task.workflow_id} task {task.id}"
-                    )
-
-                    # The freshly-discovered skill is loaded but NOT enabled
-                    # by default: skills_config.json has a non-empty
-                    # `enabled_skills` whitelist, so any skill not in that
-                    # list (or in `disabled_skills`) is treated as disabled.
-                    # Enable it so it shows up in the settings list and as a
-                    # slash command. `enable_skill` saves the config, which
-                    # the file watcher in agent_base picks up and uses to
-                    # call `sync_skill_commands` automatically.
-                    target_skill = self._extract_target_skill_name(task.instruction)
-                    if target_skill:
-                        if task.workflow_id == "skill_creation":
-                            try:
-                                if skill_manager.enable_skill(target_skill):
-                                    logger.info(
-                                        f"[SKILL_CREATOR] Enabled new skill '{target_skill}'"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"[SKILL_CREATOR] enable_skill('{target_skill}') "
-                                        f"returned False — skill may not have been written"
-                                    )
-                            except Exception as e:
-                                logger.warning(
-                                    f"[SKILL_CREATOR] enable_skill('{target_skill}') failed: {e}"
-                                )
-                        else:
-                            # improve mode: skill is already enabled; force a
-                            # config save anyway so the file watcher re-syncs
-                            # slash commands (the description / arg-hint may
-                            # have changed during the improve workflow).
-                            try:
-                                skill_manager.enable_skill(target_skill)
-                            except Exception:
-                                pass
-                except Exception as e:
-                    logger.warning(f"[SKILL_CREATOR] Skill reload failed: {e}")
-
-    @staticmethod
-    def _extract_target_skill_name(instruction: Optional[str]) -> Optional[str]:
-        """Pull the `Skill name: <name>` value out of a skill-workflow task
-        instruction. The handler in browser_adapter formats the instruction
-        with a fixed `Skill name: <name>` line; this parser is the inverse.
-        Returns None if the line is missing or malformed.
-        """
-        if not instruction:
-            return None
-        for line in instruction.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith("skill name:"):
-                value = stripped.split(":", 1)[1].strip()
-                # Defensive — keep only kebab-case characters
-                return value or None
-        return None
-
     def _sync_state_manager(self, task: Optional[Task]) -> None:
         """Sync task state to the state manager and persist to disk."""
         if self.state_manager:
@@ -793,20 +713,16 @@ class TaskManager:
                 logger.warning(f"[TaskManager] Failed to persist task {task.id}: {e}")
 
     def _log_to_task_history(self, task: Task, note: Optional[str] = None) -> None:
-        """Log completed task to TASK_HISTORY.md.
-
-        Mirrors the EVENT.md / CONVERSATION_HISTORY.md pattern: just append
-        with open(..., "a"), which auto-creates the file if missing. The
-        template at app/data/agent_file_system_template/TASK_HISTORY.md
-        provides a header for users who hit Reset; users without the
-        template still get a working append-only log starting from the
-        first task completion.
-        """
+        """Log completed task to TASK_HISTORY.md."""
         if not self.agent_file_system_path:
             return
 
         try:
             task_history_path = self.agent_file_system_path / "TASK_HISTORY.md"
+
+            if not task_history_path.exists():
+                logger.warning(f"[TaskManager] TASK_HISTORY.md not found at {task_history_path}")
+                return
 
             entry_lines = [
                 f"### Task: {task.name}",

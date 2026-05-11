@@ -16,6 +16,3 @@ export { AttachmentDisplay } from './AttachmentDisplay'
 
 export { ConfirmModal } from './ConfirmModal'
 export type { ConfirmModalProps } from './ConfirmModal'
-
-export { SkillCreatorModal } from './SkillCreatorModal'
-export type { SkillCreatorModalProps, SkillCreatorMode, SkillCreatorSubmit } from './SkillCreatorModal'

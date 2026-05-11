@@ -37,7 +37,7 @@ class LLMCallType(str, Enum):
 from app.models.factory import ModelFactory
 from app.models.types import InterfaceType
 from app.google_gemini_client import GeminiAPIError, GeminiClient
-from app.state.agent_state import STATE
+from app.state.agent_state import STATE, get_session_props
 from agent_core import profile, OperationCategory
 
 # Logging setup — fall back to a basic logger if the project‑level logger
@@ -949,7 +949,8 @@ class LLMInterface:
         cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
 
         tokens_used = response.get("tokens_used", 0)
-        STATE.set_agent_property("token_count", STATE.get_agent_property("token_count", 0) + tokens_used)
+        _props = get_session_props()
+        _props.set_property("token_count", _props.get_property("token_count", 0) + tokens_used)
 
         if _slow_mode_active and tokens_used > 0:
             from app.rate_limiter import get_rate_limiter
@@ -1219,10 +1220,8 @@ class LLMInterface:
             response = self._generate_gemini(effective_system_prompt, user_prompt, call_type=call_type)
             cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
             _tokens_used = response.get("tokens_used", 0)
-            STATE.set_agent_property(
-                "token_count",
-                STATE.get_agent_property("token_count", 0) + _tokens_used
-            )
+            _props = get_session_props(task_id)
+            _props.set_property("token_count", _props.get_property("token_count", 0) + _tokens_used)
             if _slow_mode_active and _tokens_used > 0:
                 from app.rate_limiter import get_rate_limiter
                 get_rate_limiter().record_usage(_tokens_used)
@@ -1246,10 +1245,8 @@ class LLMInterface:
             response = self._generate_openai(effective_system_prompt, user_prompt, call_type=call_type)
             cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
             _tokens_used = response.get("tokens_used", 0)
-            STATE.set_agent_property(
-                "token_count",
-                STATE.get_agent_property("token_count", 0) + _tokens_used
-            )
+            _props = get_session_props(task_id)
+            _props.set_property("token_count", _props.get_property("token_count", 0) + _tokens_used)
             if _slow_mode_active and _tokens_used > 0:
                 from app.rate_limiter import get_rate_limiter
                 get_rate_limiter().record_usage(_tokens_used)
@@ -1334,10 +1331,8 @@ class LLMInterface:
 
             cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
             _tokens_used = response.get("tokens_used", 0)
-            STATE.set_agent_property(
-                "token_count",
-                STATE.get_agent_property("token_count", 0) + _tokens_used
-            )
+            _props = get_session_props(task_id)
+            _props.set_property("token_count", _props.get_property("token_count", 0) + _tokens_used)
             if _slow_mode_active and _tokens_used > 0:
                 from app.rate_limiter import get_rate_limiter
                 get_rate_limiter().record_usage(_tokens_used)
@@ -1422,10 +1417,8 @@ class LLMInterface:
         cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
 
         _tokens_used = response.get("tokens_used", 0)
-        STATE.set_agent_property(
-            "token_count",
-            STATE.get_agent_property("token_count", 0) + _tokens_used
-        )
+        _props = get_session_props(task_id)
+        _props.set_property("token_count", _props.get_property("token_count", 0) + _tokens_used)
         if _slow_mode_active and _tokens_used > 0:
             from app.rate_limiter import get_rate_limiter
             get_rate_limiter().record_usage(_tokens_used)

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
 import ReactDOM from 'react-dom'
-import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff } from 'lucide-react'
+import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, ChevronDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
@@ -54,13 +54,47 @@ const formatFileSize = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
+// Stable per-day key (local time) for grouping consecutive messages by date.
+const getDateKey = (timestamp: number): string => {
+  const d = new Date(timestamp * 1000)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+// Slack-style date divider label: "Today", "Yesterday", weekday for the
+// last week, otherwise a full localized date.
+const formatDateDivider = (timestamp: number): string => {
+  const date = new Date(timestamp * 1000)
+  const now = new Date()
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+
+  if (sameDay(date, now)) return 'Today'
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (sameDay(date, yesterday)) return 'Yesterday'
+
+  const msPerDay = 1000 * 60 * 60 * 24
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const daysDiff = Math.round((startOfToday.getTime() - startOfDate.getTime()) / msPerDay)
+
+  if (daysDiff > 0 && daysDiff < 7) {
+    return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  }
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
 export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const {
     messages,
     actions,
     connected,
     sendMessage,
-    sendCommand,
     sendOptionClick,
     openFile,
     openFolder,
@@ -113,6 +147,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const wasNearBottomRef = useRef(true)
   const prevMessageCountRef = useRef(0)
   const hasInitialScrolled = useRef(false)
+  const prevScrollTopRef = useRef(0)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const attachmentValidation = useMemo(() => {
     const totalSize = pendingAttachments.reduce((sum, att) => sum + att.size, 0)
@@ -141,12 +177,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     return lastSeenIdx + 1
   }, [orderedMessages, lastSeenMessageId])
 
-  const isNearBottom = useCallback(() => {
-    const container = parentRef.current
-    if (!container) return true
-    return container.scrollHeight - container.scrollTop - container.clientHeight < 100
-  }, [])
-
   // Close language dropdown when clicking outside
   useEffect(() => {
     if (!langOpen) return
@@ -167,19 +197,45 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     return () => document.removeEventListener('keydown', handler)
   }, [previewAttachment])
 
-  // Track scroll position + load older messages on scroll-to-top
+  // Track scroll position + direction, and load older messages on scroll-to-top.
+  // The scroll-to-bottom button surfaces when the user is scrolling *toward*
+  // the bottom but hasn't arrived yet — scrolling up to read history hides it.
   useEffect(() => {
     const container = parentRef.current
     if (!container) return
+    prevScrollTopRef.current = container.scrollTop
     const handleScroll = () => {
-      wasNearBottomRef.current = isNearBottom()
-      if (container.scrollTop < 100 && hasMoreMessages && !loadingOlderMessages) {
+      const scrollTop = container.scrollTop
+      const distFromBottom = container.scrollHeight - scrollTop - container.clientHeight
+      const nearBottom = distFromBottom < 100
+      wasNearBottomRef.current = nearBottom
+
+      const delta = scrollTop - prevScrollTopRef.current
+      prevScrollTopRef.current = scrollTop
+
+      if (nearBottom) {
+        setShowScrollToBottom(false)
+      } else if (delta > 0) {
+        // Scrolling down (toward latest) — offer a quick jump.
+        setShowScrollToBottom(true)
+      } else if (delta < 0) {
+        // Scrolling up (reading history) — get out of the way.
+        setShowScrollToBottom(false)
+      }
+
+      if (scrollTop < 100 && hasMoreMessages && !loadingOlderMessages) {
         loadOlderMessages()
       }
     }
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [isNearBottom, hasMoreMessages, loadingOlderMessages, loadOlderMessages])
+  }, [hasMoreMessages, loadingOlderMessages, loadOlderMessages])
+
+  const scrollToBottom = useCallback(() => {
+    if (orderedMessages.length === 0) return
+    virtualizer.scrollToIndex(orderedMessages.length - 1, { align: 'end', behavior: 'smooth' })
+    setShowScrollToBottom(false)
+  }, [virtualizer, orderedMessages.length])
 
   // Scroll to unread on mount, auto-scroll on new messages if near bottom
   useEffect(() => {
@@ -314,24 +370,12 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         setIsListening(false)
       }
 
-      const trimmed = input.trim()
-      // Slash commands route through the dedicated command channel so no
-      // optimistic user bubble is inserted — the backend's CommandExecutor
-      // responds with system/error messages rather than echoing user input.
-      // Attachments + slash command falls through to chat (commands don't
-      // accept attachments), which preserves the existing behavior for that
-      // edge case.
-      const isSlashCommand = trimmed.startsWith('/') && pendingAttachments.length === 0
-      if (isSlashCommand) {
-        sendCommand(trimmed)
-      } else {
-        sendMessage(
-          trimmed,
-          pendingAttachments.length > 0 ? pendingAttachments : undefined,
-          replyContext,
-          livingUIId
-        )
-      }
+      sendMessage(
+        input.trim(),
+        pendingAttachments.length > 0 ? pendingAttachments : undefined,
+        replyContext,
+        livingUIId
+      )
       if (!connected) {
         showToast('info', 'Reconnecting — your message will send when the connection is restored.')
       }
@@ -486,64 +530,86 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
 
   return (
     <div className={styles.chat}>
-      <div className={styles.messagesContainer} ref={parentRef}>
-        {orderedMessages.length === 0 ? (
-          <div className={styles.emptyState}>
-            <div className={styles.emptyIcon}>
-              <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-                <rect width="32" height="32" rx="6" fill="var(--color-primary-light)"/>
-                <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <h3>{emptyMessage || 'Start a conversation'}</h3>
-            <p>{livingUIId ? 'Ask the agent about this UI' : 'Send a message to begin interacting with CraftBot'}</p>
-          </div>
-        ) : (
-          <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {loadingOlderMessages && (
-              <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
-                <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
+      <div className={styles.messagesArea}>
+        <div className={styles.messagesContainer} ref={parentRef}>
+          {orderedMessages.length === 0 ? (
+            <div className={styles.emptyState}>
+              <div className={styles.emptyIcon}>
+                <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
+                  <rect width="32" height="32" rx="6" fill="var(--color-primary-light)"/>
+                  <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
               </div>
-            )}
-            {virtualizer.getVirtualItems().map((virtualItem) => {
-              const message = orderedMessages[virtualItem.index]
-              // Prefer clientId as the React key so that when a pending optimistic
-              // message is reconciled with the server echo (messageId changes from
-              // `pending:<cid>` to the real id), React reuses the same DOM node —
-              // letting the CSS transform transition animate the slide into
-              // its server-canonical sorted position.
-              const rowKey = message.clientId || message.messageId || virtualItem.index
-              return (
-                <div
-                  key={rowKey}
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualItem.start}px)`,
-                    transition: 'transform 250ms ease',
-                  }}
-                >
-                  <ChatMessageItem
-                    message={message}
-                    onOpenFile={openFile}
-                    onOpenFolder={openFolder}
-                    onReply={handleChatReply}
-                    onOptionClick={sendOptionClick}
-                  />
+              <h3>{emptyMessage || 'Start a conversation'}</h3>
+              <p>{livingUIId ? 'Ask the agent about this UI' : 'Send a message to begin interacting with CraftBot'}</p>
+            </div>
+          ) : (
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {loadingOlderMessages && (
+                <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
+                  <Loader2 size={14} style={{ display: 'inline', animation: 'spin 1s linear infinite' }} /> Loading older messages...
                 </div>
-              )
-            })}
-          </div>
+              )}
+              {virtualizer.getVirtualItems().map((virtualItem) => {
+                const message = orderedMessages[virtualItem.index]
+                const prev = virtualItem.index > 0 ? orderedMessages[virtualItem.index - 1] : null
+                const showDateDivider = !prev || getDateKey(prev.timestamp) !== getDateKey(message.timestamp)
+                // Prefer clientId as the React key so that when a pending optimistic
+                // message is reconciled with the server echo (messageId changes from
+                // `pending:<cid>` to the real id), React reuses the same DOM node —
+                // letting the CSS transform transition animate the slide into
+                // its server-canonical sorted position.
+                const rowKey = message.clientId || message.messageId || virtualItem.index
+                return (
+                  <div
+                    key={rowKey}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualItem.start}px)`,
+                      transition: 'transform 250ms ease',
+                    }}
+                  >
+                    {showDateDivider && (
+                      <div className={styles.dateDivider} role="separator" aria-label={formatDateDivider(message.timestamp)}>
+                        <span className={styles.dateDividerLine} />
+                        <span className={styles.dateDividerLabel}>{formatDateDivider(message.timestamp)}</span>
+                        <span className={styles.dateDividerLine} />
+                      </div>
+                    )}
+                    <ChatMessageItem
+                      message={message}
+                      onOpenFile={openFile}
+                      onOpenFolder={openFolder}
+                      onReply={handleChatReply}
+                      onOptionClick={sendOptionClick}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        {showScrollToBottom && orderedMessages.length > 0 && (
+          <button
+            type="button"
+            className={styles.scrollToBottomBtn}
+            onClick={scrollToBottom}
+            aria-label="Scroll to latest message"
+            title="Scroll to latest message"
+          >
+            <ChevronDown size={18} />
+          </button>
         )}
       </div>
 
@@ -559,16 +625,19 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         <IconButton icon={<Paperclip size={18} />} variant="ghost" tooltip="Attach file" onClick={handleAttachClick} />
 
         <div className={styles.micGroup} ref={langDropdownRef}>
-          <IconButton
-            icon={isListening ? <MicOff size={18} /> : <Mic size={18} />}
-            variant="ghost"
-            active={isListening}
-            tooltip={isListening ? 'Stop listening' : 'Voice input'}
-            onClick={toggleListening}
-            className={isListening ? styles.micListening : undefined}
-          />
           <button
-            className={styles.langBtn}
+            type="button"
+            className={`${styles.micCombo}${isListening ? ` ${styles.micComboActive}` : ''}`}
+            title={isListening ? 'Stop listening' : 'Voice input'}
+            onClick={toggleListening}
+          >
+            <span className={styles.micIconWrap}>
+              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+              {isListening && <span className={styles.micPulseRing} />}
+            </span>
+          </button>
+          <button
+            className={`${styles.langBtn}${isListening ? ` ${styles.langBtnActive}` : ''}`}
             onClick={() => !isListening && setLangOpen(o => !o)}
             title="Speech language"
             disabled={isListening}
@@ -643,12 +712,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                   </button>
                 </div>
               ))}
-            </div>
-          )}
-
-          {isListening && (
-            <div className={styles.listeningDots}>
-              <span /><span /><span />
             </div>
           )}
 

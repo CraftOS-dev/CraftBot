@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from app.state.types import AgentProperties
 from app.task import Task
+from agent_core.core.state.session import StateSession
 
 @dataclass
 class AgentState:
@@ -58,3 +59,23 @@ class AgentState:
 
 # ---- Global runtime state ----
 STATE = AgentState()
+
+
+def get_session_props(session_id: Optional[str] = None) -> AgentProperties:
+    """Return the AgentProperties bag that owns per-task counters
+    (token_count, action_count) for the active task.
+
+    If `session_id` is given, returns that session's properties; otherwise
+    uses STATE.agent_properties.current_task_id to find the active session.
+    Falls back to the global STATE.agent_properties when no session exists
+    (e.g. conversation mode or before a task is created).
+
+    This is the single source of truth for per-task counters — the global
+    STATE counters must not be used for limit checks or token attribution.
+    """
+    sid = session_id or STATE.agent_properties.get_property("current_task_id", "")
+    if sid:
+        session = StateSession.get_or_none(sid)
+        if session is not None:
+            return session.agent_properties
+    return STATE.agent_properties

@@ -72,6 +72,13 @@ class StateSession:
     ) -> "StateSession":
         """Create or update a session for the given session_id.
 
+        If a session already exists for this session_id, its `agent_properties`
+        (which hold per-task counters like action_count and token_count) are
+        preserved across re-entries. Only the session context fields (task,
+        event_stream, gui_mode) are refreshed. Counters are reset only at task
+        end via StateSession.end(), or explicitly when the user resumes past a
+        limit.
+
         Args:
             session_id: Unique identifier for this session (typically task_id)
             current_task: The Task object for this session
@@ -81,6 +88,14 @@ class StateSession:
         Returns:
             The created or updated StateSession instance
         """
+        existing = cls._instances.get(session_id)
+        if existing is not None:
+            existing.current_task = current_task
+            existing.event_stream = event_stream
+            existing.gui_mode = gui_mode
+            existing.agent_properties.set_property("current_task_id", session_id)
+            return existing
+
         inst = cls()
         inst.session_id = session_id
         inst.current_task = current_task

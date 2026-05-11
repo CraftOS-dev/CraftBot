@@ -603,6 +603,65 @@
   line-height: 1.5;
 }
 
+/* Compact danger row — for low-risk maintenance actions */
+.dangerRowList {
+  display: flex;
+  flex-direction: column;
+}
+
+.dangerRow {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.dangerRow:first-child {
+  padding-top: var(--space-1);
+}
+
+.dangerRow:last-child {
+  padding-bottom: var(--space-1);
+}
+
+.dangerRow + .dangerRow {
+  border-top: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.dangerRowIcon {
+  align-self: start;
+  margin-top: 2px;
+  color: var(--color-red);
+}
+
+.dangerRowInfo {
+  min-width: 0;
+}
+
+.dangerRowTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-red);
+  margin: 0 0 2px 0;
+  line-height: 1.2;
+}
+
+.dangerRowHint {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.dangerRowAction {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 96px;
+}
+
 /* Status Messages */
 .statusSuccess {
   display: inline-flex;
@@ -2160,4 +2219,311 @@
   padding: 0;
   margin: 0;
   background: transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   OpenRouter model picker + credits banner
+   Used only when provider === 'openrouter'.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* Credits row — label-style, not an input. Mirrors the muted-text look
+   used elsewhere in settings (see .hint at line 183). No background, no
+   border — just a row of text with a trailing link. */
+.orCreditsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-1);
+}
+
+.orCreditsLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.orCreditsLabel strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.orCreditsKey {
+  color: var(--text-muted);
+}
+
+.orCreditsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.orCreditsLink:hover {
+  text-decoration: underline;
+}
+
+.orPicker {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header reuses the shared .searchInput control (see line 1543) so the
+   style is consistent with Skills/MCP/Integrations search bars. */
+.orPickerHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.orPickerHeader .searchInput {
+  flex: 1;
+}
+
+.orPickerRefreshBtn {
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.orPickerRefreshBtn:hover {
+  background: var(--bg-tertiary);
+}
+
+.orPickerRefreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.orPickerFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Filter chips behave as toggle-buttons. Visual language mirrors the
+   shared .toggle switch (line 245): gray surface when off, primary
+   when on — so the on/off semantics match the rest of settings. */
+.orPickerChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.orPickerChip:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.orPickerChip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.orPickerChipActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-white);
+}
+
+.orPickerChipActive:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.orPickerUpstream {
+  margin-left: auto;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.orPickerList {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.orPickerStatus {
+  padding: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.orPickerError {
+  padding: 12px 14px;
+  color: var(--color-warning);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.orPickerError button {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--border-primary);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.orPickerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+.orPickerRow:last-child {
+  border-bottom: none;
+}
+
+.orPickerRow:hover {
+  background: var(--bg-tertiary);
+}
+
+.orPickerRowSelected {
+  background: var(--color-primary-light);
+  border-left: 3px solid var(--color-primary);
+  padding-left: 9px;
+}
+
+.orPickerRowLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.orPickerRowName {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.orPickerRowSlug {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.orPickerRowRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 160px;
+  text-align: right;
+}
+
+.orPickerRowMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.orPickerCtx {
+  font-variant-numeric: tabular-nums;
+}
+
+.orPickerCap {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+}
+
+.orPickerRowPrice {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.orPickerPriceUnit {
+  color: var(--text-tertiary);
+}
+
+.orPickerFreeBadge {
+  background: var(--color-success-light);
+  color: var(--color-success);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.orPickerSlug {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.orPickerSlug label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.orPickerSlug input {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
 }

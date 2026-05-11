@@ -8,10 +8,9 @@ Provides local persistence for action history across agent restarts.
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -20,17 +19,6 @@ try:
 except Exception:
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-
-def _decode_skills(value: Optional[str]) -> List[str]:
-    """Decode the JSON-encoded selected_skills column. Tolerates legacy NULL/garbage."""
-    if not value:
-        return []
-    try:
-        decoded = json.loads(value)
-        return decoded if isinstance(decoded, list) else []
-    except (ValueError, TypeError):
-        return []
 
 
 @dataclass
@@ -47,9 +35,6 @@ class StoredActionItem:
     input_data: Optional[str] = None
     output_data: Optional[str] = None
     error_message: Optional[str] = None
-    # Task-level metadata (populated only when item_type == "task")
-    selected_skills: List[str] = field(default_factory=list)
-    workflow_id: Optional[str] = None
 
     @property
     def duration(self) -> Optional[int]:
@@ -71,8 +56,6 @@ class StoredActionItem:
             "input": self.input_data,
             "output": self.output_data,
             "error": self.error_message,
-            "selectedSkills": self.selected_skills,
-            "workflowId": self.workflow_id,
         }
 
 
@@ -118,19 +101,9 @@ class ActionStorage:
                     input_data TEXT,
                     output_data TEXT,
                     error_message TEXT,
-                    selected_skills TEXT,
-                    workflow_id TEXT,
                     db_created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-
-            # Idempotent column add for pre-existing DBs
-            cursor.execute("PRAGMA table_info(action_items)")
-            existing_columns = {row[1] for row in cursor.fetchall()}
-            if "selected_skills" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN selected_skills TEXT")
-            if "workflow_id" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN workflow_id TEXT")
 
             # Create indexes for common queries
             cursor.execute("""
@@ -159,15 +132,13 @@ class ActionStorage:
         Args:
             item: The StoredActionItem to insert or update.
         """
-        skills_json = json.dumps(item.selected_skills) if item.selected_skills else None
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO action_items
                 (id, name, status, item_type, parent_id, created_at,
-                 completed_at, input_data, output_data, error_message,
-                 selected_skills, workflow_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 completed_at, input_data, output_data, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item.id,
                 item.name,
@@ -179,8 +150,6 @@ class ActionStorage:
                 item.input_data,
                 item.output_data,
                 item.error_message,
-                skills_json,
-                item.workflow_id,
             ))
             conn.commit()
 
@@ -249,8 +218,7 @@ class ActionStorage:
 
             query = """
                 SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       completed_at, input_data, output_data, error_message
                 FROM action_items
             """
             if not include_running:
@@ -272,8 +240,6 @@ class ActionStorage:
                     input_data=row[7],
                     output_data=row[8],
                     error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
                 )
                 for row in rows
             ]
@@ -293,8 +259,7 @@ class ActionStorage:
             # Get last N items ordered by created_at DESC, then reverse
             cursor.execute("""
                 SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       completed_at, input_data, output_data, error_message
                 FROM action_items
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -313,8 +278,6 @@ class ActionStorage:
                     input_data=row[7],
                     output_data=row[8],
                     error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
                 )
                 for row in rows
             ]
@@ -336,8 +299,7 @@ class ActionStorage:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       completed_at, input_data, output_data, error_message
                 FROM action_items
                 WHERE id = ?
             """, (item_id,))
@@ -355,8 +317,6 @@ class ActionStorage:
                     input_data=row[7],
                     output_data=row[8],
                     error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
                 )
             return None
 
@@ -374,6 +334,52 @@ class ActionStorage:
             cursor.execute("DELETE FROM action_items")
             conn.commit()
             return count
+
+    def clear_terminal_tasks(self) -> List[str]:
+        """
+        Delete tasks whose status is completed/error/cancelled, plus all
+        their child actions. Running/waiting tasks are preserved so the
+        user can keep monitoring active work.
+
+        Returns:
+            List of removed item IDs (terminal tasks + their child actions).
+        """
+        terminal_statuses = ("completed", "error", "cancelled")
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+
+            placeholders = ",".join("?" for _ in terminal_statuses)
+            cursor.execute(
+                f"""
+                SELECT id FROM action_items
+                WHERE item_type = 'task' AND status IN ({placeholders})
+                """,
+                terminal_statuses,
+            )
+            terminal_task_ids = [row[0] for row in cursor.fetchall()]
+
+            if not terminal_task_ids:
+                return []
+
+            id_placeholders = ",".join("?" for _ in terminal_task_ids)
+            cursor.execute(
+                f"""
+                SELECT id FROM action_items
+                WHERE id IN ({id_placeholders}) OR parent_id IN ({id_placeholders})
+                """,
+                terminal_task_ids + terminal_task_ids,
+            )
+            removed_ids = [row[0] for row in cursor.fetchall()]
+
+            cursor.execute(
+                f"""
+                DELETE FROM action_items
+                WHERE id IN ({id_placeholders}) OR parent_id IN ({id_placeholders})
+                """,
+                terminal_task_ids + terminal_task_ids,
+            )
+            conn.commit()
+            return removed_ids
 
     def delete_item(self, item_id: str) -> bool:
         """
@@ -458,8 +464,7 @@ class ActionStorage:
             placeholders = ','.join('?' * len(task_ids))
             cursor.execute(f"""
                 SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       completed_at, input_data, output_data, error_message
                 FROM action_items
                 WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
                 ORDER BY created_at ASC
@@ -478,8 +483,6 @@ class ActionStorage:
                     input_data=row[7],
                     output_data=row[8],
                     error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
                 )
                 for row in rows
             ]
@@ -516,8 +519,7 @@ class ActionStorage:
             placeholders = ','.join('?' * len(task_ids))
             cursor.execute(f"""
                 SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       completed_at, input_data, output_data, error_message
                 FROM action_items
                 WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
                 ORDER BY created_at ASC
@@ -536,8 +538,6 @@ class ActionStorage:
                     input_data=row[7],
                     output_data=row[8],
                     error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
                 )
                 for row in rows
             ]

@@ -65,7 +65,7 @@ class ModelFactory:
             Dictionary with provider context including client instances
         """
         # OpenAI-compatible providers that use OpenAI client with a custom base_url
-        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok"}
+        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter"}
 
         if provider not in PROVIDER_CONFIG:
             raise ValueError(f"Unsupported provider: {provider}")

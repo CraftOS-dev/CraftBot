@@ -387,13 +387,23 @@ class ActionManager:
 
         logger.debug(f"Persisting final state for action {action.name}...")
 
-        # Update action count in state
-        state = get_state_or_none()
-        if state:
-            state.set_agent_property(
+        # Update action count on the per-task StateSession (per-task counter).
+        # Falls back to the global state provider when no session is registered
+        # (e.g. transient/conversation-mode actions before any task is created).
+        from agent_core.core.state.session import StateSession
+        session = StateSession.get_or_none(session_id) if session_id else None
+        if session is not None:
+            session.agent_properties.set_property(
                 "action_count",
-                state.get_agent_property("action_count", 0) + 1
+                session.agent_properties.get_property("action_count", 0) + 1,
             )
+        else:
+            state = get_state_or_none()
+            if state:
+                state.set_agent_property(
+                    "action_count",
+                    state.get_agent_property("action_count", 0) + 1
+                )
 
         # Call on_action_end hook if provided
         if self._on_action_end:

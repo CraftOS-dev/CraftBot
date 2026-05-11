@@ -19,9 +19,8 @@ PROVIDER_TO_SETTINGS_KEY = {
     "byteplus": "byteplus",
     "anthropic": "anthropic",
     "deepseek": "deepseek",
-    "minimax": "minimax",
-    "moonshot": "moonshot",
     "grok": "grok",
+    "openrouter": "openrouter",
 }
 
 

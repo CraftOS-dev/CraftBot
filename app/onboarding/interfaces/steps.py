@@ -109,8 +109,6 @@ class ProviderStep:
         ("byteplus", "BytePlus", "Kimi models"),
         ("anthropic", "Anthropic", "Claude models"),
         ("deepseek", "DeepSeek", "DeepSeek models"),
-        ("minimax", "MiniMax", "MiniMax models"),
-        ("moonshot", "Moonshot", "Moonshot models"),
         ("grok", "Grok (xAI)", "Grok models"),
         ("remote", "Ollama (Local)", "Self-hosted models"),
     ]
@@ -154,8 +152,6 @@ class ApiKeyStep:
         "byteplus": "BYTEPLUS_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
-        "minimax": "MINIMAX_API_KEY",
-        "moonshot": "MOONSHOT_API_KEY",
         "grok": "XAI_API_KEY",
         "remote": None,  # Ollama uses a base URL, not an API key
     }
