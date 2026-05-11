@@ -653,57 +653,6 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             "type": "action_clear",
         })
 
-    async def clear_terminal_tasks(self) -> int:
-        """
-        Remove tasks whose status is completed/error/cancelled, along with
-        their child actions. Running/waiting tasks remain visible.
-
-        Returns:
-            Number of tasks removed (does not count child actions).
-        """
-        terminal_statuses = {"completed", "error", "cancelled"}
-
-        # Find terminal task IDs in the in-memory list
-        terminal_task_ids = {
-            item.id
-            for item in self._items
-            if item.item_type == "task" and item.status in terminal_statuses
-        }
-
-        if not terminal_task_ids:
-            return 0
-
-        # Remove the tasks themselves and any actions that belong to them
-        removed_ids = [
-            item.id
-            for item in self._items
-            if item.id in terminal_task_ids or item.parent_id in terminal_task_ids
-        ]
-        self._items = [
-            item
-            for item in self._items
-            if item.id not in terminal_task_ids and item.parent_id not in terminal_task_ids
-        ]
-
-        # Mirror in storage so a refresh doesn't bring them back. We let
-        # storage compute its own ID set rather than pass our list, since
-        # storage may carry tasks not currently loaded in memory.
-        if self._storage:
-            try:
-                self._storage.clear_terminal_tasks()
-            except Exception:
-                pass
-
-        # Tell each connected client to drop the removed items individually,
-        # so any other (running) tasks they're watching stay in place.
-        for item_id in removed_ids:
-            await self._adapter._broadcast({
-                "type": "action_remove",
-                "data": {"id": item_id},
-            })
-
-        return len(terminal_task_ids)
-
     def select_task(self, task_id: Optional[str]) -> None:
         """Select task - handled by frontend."""
         pass
@@ -1474,8 +1423,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             provider = data.get("provider", "")
             api_key = data.get("apiKey")
             base_url = data.get("baseUrl")
-            model = data.get("model")
-            await self._handle_model_connection_test(provider, api_key, base_url, model)
+            await self._handle_model_connection_test(provider, api_key, base_url)
 
         elif msg_type == "model_validate_save":
             await self._handle_model_validate_save(data)
@@ -1483,18 +1431,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "ollama_models_get":
             base_url = data.get("baseUrl")
             await self._handle_ollama_models_get(base_url)
-
-        elif msg_type == "openrouter_models_get":
-            await self._handle_openrouter_models_get(
-                base_url=data.get("baseUrl"),
-                force_refresh=bool(data.get("forceRefresh", False)),
-            )
-
-        elif msg_type == "openrouter_credits_get":
-            await self._handle_openrouter_credits_get(
-                api_key=data.get("apiKey"),
-                base_url=data.get("baseUrl"),
-            )
 
         elif msg_type == "slow_mode_get":
             await self._handle_slow_mode_get()
@@ -2939,47 +2875,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             })
 
-    async def _handle_clear_conversation(self) -> None:
-        """
-        Clear the chat conversation log only.
-
-        Drops chat messages from the panel and from chat_storage. The
-        action panel (tasks/actions) is left alone so running tasks are
-        not disrupted. Dashboard usage/task metrics live in a separate
-        database and are not touched.
-        """
-        try:
-            await self._chat.clear()
-            await self._broadcast({
-                "type": "clear_conversation",
-                "data": {"success": True},
-            })
-        except Exception as e:
-            await self._broadcast({
-                "type": "clear_conversation",
-                "data": {"success": False, "error": str(e)},
-            })
-
-    async def _handle_clear_tasks(self) -> None:
-        """
-        Clear only finished tasks (completed/error/cancelled) and their
-        child actions from the panel. Running/waiting tasks are preserved.
-
-        Dashboard usage/task metrics are persisted in a separate database
-        and are not affected.
-        """
-        try:
-            removed = await self._action_panel.clear_terminal_tasks()
-            await self._broadcast({
-                "type": "clear_tasks",
-                "data": {"success": True, "removed": removed},
-            })
-        except Exception as e:
-            await self._broadcast({
-                "type": "clear_tasks",
-                "data": {"success": False, "error": str(e)},
-            })
-
     # ─────────────────────────────────────────────────────────────────────
     # Skill creation from a completed task
     # ─────────────────────────────────────────────────────────────────────
@@ -4177,7 +4072,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         provider: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: Optional[str] = None,
     ) -> None:
         """Test connection to a model provider."""
         try:
@@ -4185,7 +4079,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 provider=provider,
                 api_key=api_key,
                 base_url=base_url,
-                model=model,
             )
             await self._broadcast({
                 "type": "model_connection_test",
@@ -4237,45 +4130,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast({
                 "type": "ollama_models_get",
                 "data": {"success": False, "models": [], "error": str(e)},
-            })
-
-    async def _handle_openrouter_models_get(
-        self,
-        base_url: Optional[str] = None,
-        force_refresh: bool = False,
-    ) -> None:
-        """Fetch the OpenRouter model catalog and broadcast it.
-
-        The catalog is public (no auth) and large (~300 entries). The helper
-        caches it in-process for 5 min; pass forceRefresh=True from the UI
-        to bypass the cache.
-        """
-        try:
-            from app.ui_layer.settings.openrouter_catalog import fetch_models
-            result = await asyncio.to_thread(
-                fetch_models, base_url, force_refresh=force_refresh
-            )
-            await self._broadcast({"type": "openrouter_models_get", "data": result})
-        except Exception as e:
-            await self._broadcast({
-                "type": "openrouter_models_get",
-                "data": {"success": False, "models": [], "error": str(e)},
-            })
-
-    async def _handle_openrouter_credits_get(
-        self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-    ) -> None:
-        """Fetch the OpenRouter account credit balance for the configured key."""
-        try:
-            from app.ui_layer.settings.openrouter_catalog import fetch_credits
-            result = await asyncio.to_thread(fetch_credits, api_key, base_url)
-            await self._broadcast({"type": "openrouter_credits_get", "data": result})
-        except Exception as e:
-            await self._broadcast({
-                "type": "openrouter_credits_get",
-                "data": {"success": False, "error": str(e)},
             })
 
     # ─────────────────────────────────────────────────────────────────────

@@ -375,52 +375,6 @@ class ActionStorage:
             conn.commit()
             return count
 
-    def clear_terminal_tasks(self) -> List[str]:
-        """
-        Delete tasks whose status is completed/error/cancelled, plus all
-        their child actions. Running/waiting tasks are preserved so the
-        user can keep monitoring active work.
-
-        Returns:
-            List of removed item IDs (terminal tasks + their child actions).
-        """
-        terminal_statuses = ("completed", "error", "cancelled")
-        with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.cursor()
-
-            placeholders = ",".join("?" for _ in terminal_statuses)
-            cursor.execute(
-                f"""
-                SELECT id FROM action_items
-                WHERE item_type = 'task' AND status IN ({placeholders})
-                """,
-                terminal_statuses,
-            )
-            terminal_task_ids = [row[0] for row in cursor.fetchall()]
-
-            if not terminal_task_ids:
-                return []
-
-            id_placeholders = ",".join("?" for _ in terminal_task_ids)
-            cursor.execute(
-                f"""
-                SELECT id FROM action_items
-                WHERE id IN ({id_placeholders}) OR parent_id IN ({id_placeholders})
-                """,
-                terminal_task_ids + terminal_task_ids,
-            )
-            removed_ids = [row[0] for row in cursor.fetchall()]
-
-            cursor.execute(
-                f"""
-                DELETE FROM action_items
-                WHERE id IN ({id_placeholders}) OR parent_id IN ({id_placeholders})
-                """,
-                terminal_task_ids + terminal_task_ids,
-            )
-            conn.commit()
-            return removed_ids
-
     def delete_item(self, item_id: str) -> bool:
         """
         Delete an item by ID.

@@ -49,11 +49,4 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "grok-4-0709",
         InterfaceType.EMBEDDING: None,
     },
-    "openrouter": {
-        # OpenRouter slugs follow `<provider>/<model>` format. Default to a Claude
-        # model so KV caching exercises the cache_control path on first use.
-        InterfaceType.LLM: "anthropic/claude-sonnet-4.5",
-        InterfaceType.VLM: "anthropic/claude-sonnet-4.5",
-        InterfaceType.EMBEDDING: None,
-    },
 }

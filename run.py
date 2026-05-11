@@ -502,8 +502,26 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
         def log_message(self, format, *args):
             pass  # Suppress request logging
 
+    class _QuietHTTPServer(http.server.HTTPServer):
+        """Swallows ConnectionAbortedError / ConnectionResetError /
+        BrokenPipeError. These happen when a browser closes a connection
+        mid-response (page reload, tab close, fetch().abort, devtools
+        refresh, etc.) — completely normal and harmless, but the default
+        BaseHTTPRequestHandler dumps a full traceback to stderr per
+        occurrence. They were piling up in craftbot.log."""
+
+        def handle_error(self, request, client_address):
+            import sys as _sys
+            exc_type = _sys.exc_info()[0]
+            if exc_type is not None and issubclass(
+                exc_type,
+                (ConnectionAbortedError, ConnectionResetError, BrokenPipeError),
+            ):
+                return
+            super().handle_error(request, client_address)
+
     try:
-        httpd = http.server.HTTPServer(("localhost", FRONTEND_PORT), FrontendHandler)
+        httpd = _QuietHTTPServer(("localhost", FRONTEND_PORT), FrontendHandler)
     except OSError as e:
         if not silent:
             print(f"Error: Could not start static frontend server: {e}")

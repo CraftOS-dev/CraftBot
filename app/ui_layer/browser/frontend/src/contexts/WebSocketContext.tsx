@@ -1038,26 +1038,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   ) => {
     const clientId = newClientId()
 
-    // Slash commands are handled by the controller's command executor and
-    // never produce a user chat bubble — skip the optimistic insert so a
-    // "pending" bubble doesn't linger when the server has nothing to echo.
-    const isSlashCommand = content.trimStart().startsWith('/')
-
-    if (!isSlashCommand) {
-      // Optimistic insert: show the user's bubble immediately at reduced opacity.
-      // The server echo (case 'chat_message') will replace this entry in place by
-      // matching on clientId, flipping `pending` -> false.
-      const optimistic: ChatMessage = {
-        sender: 'You',
-        content,
-        style: 'user',
-        timestamp: Date.now() / 1000,
-        messageId: `pending:${clientId}`,
-        clientId,
-        pending: true,
-      }
-      setState(prev => ({ ...prev, messages: [...prev.messages, optimistic] }))
+    // Optimistic insert: show the user's bubble immediately at reduced opacity.
+    // The server echo (case 'chat_message') will replace this entry in place by
+    // matching on clientId, flipping `pending` -> false.
+    const optimistic: ChatMessage = {
+      sender: 'You',
+      content,
+      style: 'user',
+      timestamp: Date.now() / 1000,
+      messageId: `pending:${clientId}`,
+      clientId,
+      pending: true,
     }
+    setState(prev => ({ ...prev, messages: [...prev.messages, optimistic] }))
 
     sendOrQueue(JSON.stringify({
       type: 'message',

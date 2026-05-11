@@ -9,11 +9,6 @@ import { useToast } from '../../contexts/ToastContext'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
-import {
-  OpenRouterModelPicker,
-  OpenRouterCreditsBanner,
-  useOpenRouterCatalog,
-} from './OpenRouterModelPicker'
 
 // Types
 interface ProviderInfo {
@@ -25,7 +20,6 @@ interface ProviderInfo {
   llm_model: string | null
   vlm_model: string | null
   has_vlm: boolean
-  supports_catalog?: boolean
 }
 
 interface ApiKeyStatus {
@@ -98,16 +92,6 @@ export function ModelSettings() {
   const [modelSearch, setModelSearch] = useState('')
   const [pullBytes, setPullBytes] = useState<{ completed: number; total: number; percent: number } | null>(null)
   const [pullStatus, setPullStatus] = useState('')
-
-  // OpenRouter catalog — fetched once on first OpenRouter selection,
-  // shared between the LLM and VLM pickers below.
-  const orCatalog = useOpenRouterCatalog(
-    send,
-    onMessage,
-    isConnected,
-    provider === 'openrouter',
-    newBaseUrl || baseUrls['openrouter'] || undefined,
-  )
 
   const fmtBytes = (n: number) => {
     if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(1)} GB`
@@ -221,7 +205,6 @@ export function ModelSettings() {
           setNewVlmModel(prev => {
             const effective = prev || currentVlmModel
             if (!d.models.includes(effective)) {
-              setHasChanges(true)
               return d.models[0]
             }
             return prev
@@ -364,13 +347,10 @@ export function ModelSettings() {
 
   const handleTestConnection = () => {
     setIsTesting(true)
-    // Send the user's actual model so the test exercises it; otherwise a
-    // typo passes the test (auth-only) and only fails at first real call.
     send('model_connection_test', {
       provider,
       apiKey: newApiKey || undefined,
       baseUrl: newBaseUrl || baseUrls[provider],
-      model: newLlmModel || currentLlmModel || undefined,
     })
   }
 
@@ -385,7 +365,6 @@ export function ModelSettings() {
         provider,
         apiKey: newApiKey || undefined,
         baseUrl: newBaseUrl || baseUrls[provider],
-        model: newLlmModel || currentLlmModel || undefined,
       })
     } else {
       setIsSaving(true)
@@ -441,40 +420,28 @@ export function ModelSettings() {
           {/* Model Configuration */}
           {currentProvider && (
             <>
-              {provider === 'openrouter' && currentProvider.supports_catalog ? (
-                <OpenRouterModelPicker
-                  models={orCatalog.models}
-                  loading={orCatalog.loading}
-                  error={orCatalog.error}
-                  onRefresh={orCatalog.refresh}
-                  label="LLM Model"
-                  value={newLlmModel || currentLlmModel || ''}
-                  onChange={(v) => { setNewLlmModel(v); setHasChanges(true) }}
-                />
-              ) : (
-                <div className={styles.formGroup}>
-                  <label>LLM Model</label>
-                  {provider === 'remote' && ollamaModels.length > 0 ? (
-                    <select
-                      value={newLlmModel || currentLlmModel || ''}
-                      onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
-                    >
-                      {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={newLlmModel || currentLlmModel || ''}
-                      onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
-                      placeholder={
-                        provider === 'remote' && ollamaModelsLoading
-                          ? 'Loading models...'
-                          : currentLlmModel || 'Enter LLM model name...'
-                      }
-                    />
-                  )}
-                </div>
-              )}
+              <div className={styles.formGroup}>
+                <label>LLM Model</label>
+                {provider === 'remote' && ollamaModels.length > 0 ? (
+                  <select
+                    value={newLlmModel || currentLlmModel || ''}
+                    onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
+                  >
+                    {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={newLlmModel || currentLlmModel || ''}
+                    onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
+                    placeholder={
+                      provider === 'remote' && ollamaModelsLoading
+                        ? 'Loading models...'
+                        : currentLlmModel || 'Enter LLM model name...'
+                    }
+                  />
+                )}
+              </div>
 
               {/* Download new Ollama model / Install Ollama */}
               {provider === 'remote' && (
@@ -638,18 +605,6 @@ export function ModelSettings() {
               )}
 
               {currentProvider.has_vlm && (
-                provider === 'openrouter' && currentProvider.supports_catalog ? (
-                  <OpenRouterModelPicker
-                    models={orCatalog.models}
-                    loading={orCatalog.loading}
-                    error={orCatalog.error}
-                    onRefresh={orCatalog.refresh}
-                    label="VLM Model"
-                    requireVision
-                    value={newVlmModel || currentVlmModel || ''}
-                    onChange={(v) => { setNewVlmModel(v); setHasChanges(true) }}
-                  />
-                ) : (
                 <div className={styles.formGroup}>
                   <label>VLM Model</label>
                   {(() => {
@@ -681,7 +636,6 @@ export function ModelSettings() {
                     )
                   })()}
                 </div>
-                )
               )}
             </>
           )}
@@ -707,16 +661,6 @@ export function ModelSettings() {
                 placeholder={apiKeys[provider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
               />
             </div>
-          )}
-
-          {/* OpenRouter credits */}
-          {provider === 'openrouter' && currentProvider?.supports_catalog && (
-            <OpenRouterCreditsBanner
-              send={send}
-              onMessage={onMessage}
-              isConnected={isConnected}
-              hasApiKey={!!apiKeys[provider]?.has_key}
-            />
           )}
 
           {/* Base URL */}

@@ -81,7 +81,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         <div className={styles.messageHeader}>
           <span className={styles.sender}>{message.sender}</span>
           <span className={styles.timestamp}>
-            {new Date(message.timestamp * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+            {new Date(message.timestamp * 1000).toLocaleTimeString()}
           </span>
         </div>
         {/* Reply context callout - shown above user message when replying */}

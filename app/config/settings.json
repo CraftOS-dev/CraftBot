@@ -1,5 +1,5 @@
 {
-  "version": "1.3.1",
+  "version": "1.3.0",
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en"
@@ -14,10 +14,10 @@
     "item_word_limit": 150
   },
   "model": {
-    "llm_provider": "anthropic",
-    "vlm_provider": "anthropic",
-    "llm_model": "claude-sonnet-4-5-20250929",
-    "vlm_model": "claude-sonnet-4-5-20250929",
+    "llm_provider": "byteplus",
+    "vlm_provider": "byteplus",
+    "llm_model": "kimi-k2-250905",
+    "vlm_model": "seed-1-6-250915",
     "slow_mode": true,
     "slow_mode_tpm_limit": 25000
   },
@@ -25,16 +25,14 @@
     "openai": "",
     "anthropic": "",
     "google": "",
-    "byteplus": "",
-    "openrouter": ""
+    "byteplus": ""
   },
   "endpoints": {
     "remote_model_url": "",
     "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
     "google_api_base": "",
     "google_api_version": "",
-    "remote": "http://localhost:11434",
-    "openrouter_base_url": ""
+    "remote": "http://localhost:11434"
   },
   "gui": {
     "enabled": true,
@@ -78,7 +76,6 @@
     "openai": false,
     "anthropic": false,
     "google": true,
-    "byteplus": true,
-    "openrouter": false
+    "byteplus": true
   }
 }

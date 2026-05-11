@@ -19,7 +19,6 @@ class ProviderCommand(Command):
         "byteplus": ("BYTEPLUS_API_KEY", "BytePlus"),
         "deepseek": ("DEEPSEEK_API_KEY", "DeepSeek"),
         "grok": ("XAI_API_KEY", "Grok (xAI)"),
-        "openrouter": ("OPENROUTER_API_KEY", "OpenRouter"),
         "remote": (None, "Ollama (Local)"),
     }
 
@@ -49,16 +48,12 @@ Providers:
   gemini     - Google Gemini models
   anthropic  - Anthropic Claude models
   byteplus   - BytePlus Kimi models
-  deepseek   - DeepSeek models
-  grok       - Grok (xAI) models
-  openrouter - OpenRouter (300+ models, one key)
   remote     - Ollama (local models)
 
 Examples:
   /provider
   /provider openai
-  /provider openai sk-xxx
-  /provider openrouter sk-or-v1-xxx"""
+  /provider openai sk-xxx"""
 
     async def execute(
         self,

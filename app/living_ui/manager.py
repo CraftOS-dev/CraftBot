@@ -1210,14 +1210,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         self, cwd: Path, command: str, step_name: str, timeout: int = 1200
     ) -> dict:
         """Run a single pipeline command. Returns {"status": "success"} or {"status": "error", ...}."""
-        # Replace bare `pip`/`python`/`python3` with the current interpreter so
-        # they work on Windows where these names may be absent from PATH.
-        if command.startswith("pip "):
-            command = f"{sys.executable} -m pip {command[4:]}"
-        elif command.startswith("python3 "):
-            command = f"{sys.executable} {command[8:]}"
-        elif command.startswith("python "):
-            command = f"{sys.executable} {command[7:]}"
+        command = self._resolve_python_in_command(command)
 
         logger.info(f"[LIVING_UI:PIPELINE] [{step_name}] Running: {command}")
 
@@ -1265,19 +1258,133 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return False
         return True
 
+    _python_path_cache: Optional[str] = None
+
+    @classmethod
+    def _find_real_python(cls) -> str:
+        """Find a usable system Python interpreter, skipping the Microsoft
+        Store stub alias.
+
+        On Windows, `%LocalAppData%\\Microsoft\\WindowsApps\\python.exe` is
+        an "App Execution Alias" stub that prints "Python was not found;
+        run without arguments to install from the Microsoft Store..." and
+        exits non-zero — even when the user HAS python.org's Python
+        installed elsewhere. The stub is high on PATH so a naive
+        `shutil.which("python")` returns it, leading to silent failures.
+
+        Strategy:
+          1. Walk every entry returned by `shutil.which`-style PATH lookup
+             (using PATHEXT-aware multi-candidate search) for both
+             `python3` and `python`.
+          2. Skip anything in WindowsApps (the Store-stub directory).
+          3. Validate each remaining candidate by running it with
+             `--version` and checking it actually printed "Python".
+          4. Fall back to the well-known python.org install locations.
+        Cached after first hit because shelling out to test takes a few ms.
+        """
+        if cls._python_path_cache:
+            return cls._python_path_cache
+
+        seen = set()
+
+        def _candidates_via_path():
+            # shutil.which returns ONLY the first match. We want to walk
+            # every PATH entry so a Store stub doesn't shadow a real Python.
+            path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+            exts = [""] + os.environ.get("PATHEXT", ".EXE;.BAT;.CMD").split(os.pathsep)
+            for d in path_dirs:
+                if not d:
+                    continue
+                for name in ("python3", "python"):
+                    for ext in exts:
+                        full = os.path.join(d, name + ext)
+                        if os.path.isfile(full):
+                            yield full
+
+        def _candidates_well_known():
+            user = os.path.expanduser("~")
+            for ver in ("313", "312", "311", "310"):
+                yield rf"C:\Python{ver}\python.exe"
+                yield os.path.join(
+                    user, "AppData", "Local", "Programs", "Python",
+                    f"Python{ver}", "python.exe"
+                )
+
+        for path in list(_candidates_via_path()) + list(_candidates_well_known()):
+            key = path.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            # Microsoft Store App Execution Alias stub — never works.
+            if "\\windowsapps\\" in key.replace("/", "\\"):
+                continue
+            if not os.path.isfile(path):
+                continue
+            try:
+                result = subprocess.run(
+                    [path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except Exception:
+                continue
+            output = (result.stdout or "") + (result.stderr or "")
+            if result.returncode == 0 and "Python" in output:
+                cls._python_path_cache = path
+                logger.info(f"[LIVING_UI] Resolved system Python: {path} ({output.strip()})")
+                return path
+        return ""
+
+    @classmethod
+    def _resolve_python_in_command(cls, command: str) -> str:
+        """Replace a leading `pip`/`python`/`python3` token with a real
+        interpreter path.
+
+        In source mode `sys.executable` is the running Python — correct.
+
+        In a PyInstaller-frozen agent (`sys.frozen == True`),
+        `sys.executable` is the agent EXE itself, not a Python interpreter.
+        Substituting it would spawn the entire agent again with junk args,
+        which used to crash (run.py treats `-m pip install ...` as agent
+        CLI flags and falls into print_step → OSError 22). Find a real
+        system Python via `_find_real_python` (which skips the Microsoft
+        Store stub alias). Log loudly if absent so the failure mode is
+        "command not found" rather than "agent recursion crash".
+        """
+        if not (
+            command.startswith("pip ")
+            or command.startswith("python3 ")
+            or command.startswith("python ")
+        ):
+            return command
+
+        py = sys.executable
+        if getattr(sys, "frozen", False):
+            py = cls._find_real_python()
+            if not py:
+                logger.error(
+                    "[LIVING_UI] Project needs python/pip but no real system "
+                    "Python was found. The Microsoft Store stub at "
+                    "%LocalAppData%\\Microsoft\\WindowsApps doesn't count — "
+                    "install Python 3.10+ from python.org. Command was: %s",
+                    command,
+                )
+                py = "python"  # will raise FileNotFoundError at spawn time
+        if command.startswith("pip "):
+            return f'"{py}" -m pip {command[4:]}'
+        if command.startswith("python3 "):
+            return f'"{py}" {command[8:]}'
+        if command.startswith("python "):
+            return f'"{py}" {command[7:]}'
+        return command
+
     def _start_process(
         self, cwd: Path, command: str, log_file: Path, port: int = 0,
         project: "LivingUIProject" = None, extra_env: dict = None,
     ) -> subprocess.Popen:
         """Start a background process with output redirected to a log file."""
-        # Replace bare `pip`/`python`/`python3` with the current interpreter so
-        # they work on Windows where these names may be absent from PATH.
-        if command.startswith("pip "):
-            command = f"{sys.executable} -m pip {command[4:]}"
-        elif command.startswith("python3 "):
-            command = f"{sys.executable} {command[8:]}"
-        elif command.startswith("python "):
-            command = f"{sys.executable} {command[7:]}"
+        command = self._resolve_python_in_command(command)
 
         log_file.parent.mkdir(parents=True, exist_ok=True)
         log_handle = open(log_file, 'a', encoding='utf-8')

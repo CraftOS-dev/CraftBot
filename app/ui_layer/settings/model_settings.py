@@ -75,19 +75,6 @@ PROVIDER_INFO = {
         "settings_key": "grok",
         "requires_api_key": True,
     },
-    "openrouter": {
-        "name": "OpenRouter",
-        "api_key_env": "OPENROUTER_API_KEY",
-        # Intentionally no base_url_env — the OpenRouter endpoint is fixed for
-        # almost everyone, and exposing the field confused users into thinking
-        # they had to fill it in. Power users who need a custom gateway can
-        # still set endpoints.openrouter_base_url in settings.json by hand;
-        # the backend still reads it (see app/config.py get_base_url).
-        "settings_key": "openrouter",
-        "requires_api_key": True,
-        # Frontend opts in to a catalog-aware picker for this provider.
-        "supports_catalog": True,
-    },
     "remote": {
         "name": "Local (Ollama)",
         "base_url_env": "REMOTE_MODEL_URL",
@@ -175,7 +162,6 @@ def get_available_providers() -> Dict[str, Any]:
                 "llm_model": llm_model,
                 "vlm_model": vlm_model,
                 "has_vlm": vlm_model is not None,
-                "supports_catalog": info.get("supports_catalog", False),
             })
 
         return {
@@ -242,9 +228,6 @@ def get_model_settings() -> Dict[str, Any]:
         remote_url = endpoints_settings.get("remote_model_url") or endpoints_settings.get("remote")
         if remote_url:
             base_urls["remote"] = remote_url
-
-        if endpoints_settings.get("openrouter_base_url"):
-            base_urls["openrouter"] = endpoints_settings["openrouter_base_url"]
 
         return {
             "success": True,
@@ -340,8 +323,6 @@ def update_model_settings(
                 settings["endpoints"]["byteplus_base_url"] = base_url
             elif provider_for_url == "remote":
                 settings["endpoints"]["remote_model_url"] = base_url
-            elif provider_for_url == "openrouter":
-                settings["endpoints"]["openrouter_base_url"] = base_url
 
         # Clear remote URL when switching away from remote so stale values don't persist
         if llm_provider and llm_provider != "remote" and old_llm_provider == "remote" and not provider_for_url:
@@ -372,7 +353,6 @@ def test_connection(
     provider: str,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
-    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Test connection to a provider.
 
@@ -380,10 +360,6 @@ def test_connection(
         provider: Provider to test
         api_key: Optional API key to test with (if not provided, uses stored key)
         base_url: Optional base URL for byteplus/remote providers
-        model: Optional model id to verify. When provided the tester does a
-            tiny chat completion against this exact model so a typo in the
-            model id is caught at test time, not at first real call. When
-            omitted, falls back to a known-good test model (auth check only).
 
     Returns:
         Dict with test results
@@ -402,20 +378,17 @@ def test_connection(
                 api_key = api_keys_settings.get(settings_key)
 
         # If no base URL provided, try to get it from settings.json
-        if base_url is None and provider in ["byteplus", "remote", "openrouter"]:
+        if base_url is None and provider in ["byteplus", "remote"]:
             if provider == "byteplus":
                 base_url = endpoints_settings.get("byteplus_base_url")
             elif provider == "remote":
                 base_url = endpoints_settings.get("remote_model_url")
-            elif provider == "openrouter":
-                base_url = endpoints_settings.get("openrouter_base_url")
 
         # Run connection test
         result = test_provider_connection(
             provider=provider,
             api_key=api_key,
             base_url=base_url,
-            model=model,
         )
 
         return result

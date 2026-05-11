@@ -1,14 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Connection tester for validating provider API keys and model ids.
-
-When `model` is provided, each tester attempts a tiny chat-completion (or
-equivalent) against that exact model — so a typo in the model id is caught
-at test time, not at first real call. When `model` is omitted we fall back
-to a known-good default model from connection_test_models.json.
-
-On failure we run the underlying exception through `classify_llm_error` so
-the test result message reads exactly like a real LLM error in the chat.
-"""
+"""Connection tester for validating provider API keys."""
 
 from typing import Dict, Any, Optional
 import httpx
@@ -20,24 +11,22 @@ def test_provider_connection(
     provider: str,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
-    timeout: float = 15.0,
-    model: Optional[str] = None,
+    timeout: float = 10.0,
 ) -> Dict[str, Any]:
-    """Test if a provider's API key (and optionally model id) is valid.
+    """Test if a provider's API key is valid by making a minimal API call.
 
     Args:
-        provider: The LLM provider name.
-        api_key: The API key to test.
-        base_url: Optional base URL override.
-        timeout: Request timeout in seconds.
-        model: When provided, the tester verifies this exact model is
-            reachable. Catches typos in the model id (e.g.
-            "claude-sonnet-4-5-2025092945" vs the real
-            "claude-sonnet-4-5-20250929") that would otherwise pass an
-            auth-only test and only fail at first real call.
+        provider: The LLM provider name (openai, gemini, anthropic, byteplus, remote)
+        api_key: The API key to test. If None, will check if connection is possible.
+        base_url: Optional base URL override (for byteplus/remote providers)
+        timeout: Request timeout in seconds
 
     Returns:
-        Dictionary with success/message/provider/error.
+        Dictionary with:
+        - success: bool indicating if connection succeeded
+        - message: str with success/failure message
+        - provider: str provider name
+        - error: Optional[str] error details if failed
     """
     if provider not in PROVIDER_CONFIG:
         return {
@@ -51,26 +40,23 @@ def test_provider_connection(
 
     try:
         if provider == "openai":
-            return _test_openai(api_key, timeout, model)
+            return _test_openai(api_key, timeout)
         elif provider == "anthropic":
-            return _test_anthropic(api_key, timeout, model)
+            return _test_anthropic(api_key, timeout)
         elif provider == "gemini":
-            return _test_gemini(api_key, timeout, model)
+            return _test_gemini(api_key, timeout)
         elif provider == "byteplus":
             url = base_url or cfg.default_base_url
-            return _test_byteplus(api_key, url, timeout, model)
+            return _test_byteplus(api_key, url, timeout)
         elif provider == "remote":
             url = base_url or cfg.default_base_url
             return _test_remote(url, timeout)
         elif provider == "grok":
             url = cfg.default_base_url
-            return _test_grok(api_key, url, timeout, model)
-        elif provider == "openrouter":
-            url = base_url or cfg.default_base_url
-            return _test_openrouter(api_key, url, timeout, model)
+            return _test_grok(api_key, url, timeout)
         elif provider in ("minimax", "deepseek", "moonshot"):
             url = cfg.default_base_url
-            return _test_openai_compat(provider, api_key, url, timeout, model)
+            return _test_openai_compat(provider, api_key, url, timeout)
         else:
             return {
                 "success": False,
@@ -87,378 +73,346 @@ def test_provider_connection(
         }
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────
-
-
-def _classified_error_result(exc: Exception, provider: str, model: Optional[str]) -> Dict[str, Any]:
-    """Run an exception through the classifier and return a failure result
-    with the rich message — same format the chat sees for real LLM errors."""
-    try:
-        from agent_core.core.impl.llm.errors import classify_llm_error
-        info = classify_llm_error(exc, provider=provider, model=model)
-        return {
-            "success": False,
-            "message": info.message,
-            "provider": provider,
-            "error": info.message,
-        }
-    except Exception:  # pragma: no cover — classifier must never break test
-        return {
-            "success": False,
-            "message": str(exc),
-            "provider": provider,
-            "error": str(exc),
-        }
-
-
-def _resolve_test_model(provider: str, model: Optional[str], fallback: str) -> str:
-    """Use the user's model when provided; otherwise pull the default test
-    model from connection_test_models.json (auth-only validation)."""
-    if model:
-        return model
-    try:
-        from app.config import get_connection_test_model
-        configured = get_connection_test_model(provider)
-        if configured:
-            return configured
-    except Exception:
-        pass
-    return fallback
-
-
-def _success(provider: str, model: Optional[str]) -> Dict[str, Any]:
-    detail = f" with model {model}" if model else ""
-    return {
-        "success": True,
-        "message": f"Successfully connected to {_DISPLAY.get(provider, provider)} API{detail}.",
-        "provider": provider,
-    }
-
-
-_DISPLAY = {
-    "openai": "OpenAI",
-    "anthropic": "Anthropic",
-    "gemini": "Google Gemini",
-    "byteplus": "BytePlus",
-    "deepseek": "DeepSeek",
-    "moonshot": "Moonshot",
-    "minimax": "MiniMax",
-    "grok": "Grok (xAI)",
-    "openrouter": "OpenRouter",
-    "remote": "Ollama",
-}
-
-
-# ─── OpenAI / OpenAI-compat ───────────────────────────────────────────
-
-
-def _openai_compat_chat_test(
-    *,
-    provider: str,
-    api_key: Optional[str],
-    base_url: Optional[str],
-    model: str,
-    timeout: float,
-) -> Dict[str, Any]:
-    """Hit /chat/completions with the user's model. The response tells us:
-        200/400/422 → key + model OK
-        401         → bad key
-        404         → bad model
-        402         → no credits (key valid)
-        429         → rate limited (key valid)
-    For all failure shapes, we surface the classifier's rich message.
-    """
+def _test_openai(api_key: Optional[str], timeout: float) -> Dict[str, Any]:
+    """Test OpenAI API connection."""
     if not api_key:
         return {
             "success": False,
-            "message": f"API key is required for {_DISPLAY.get(provider, provider)}",
-            "provider": provider,
+            "message": "API key is required for OpenAI",
+            "provider": "openai",
             "error": "Missing API key",
         }
-    try:
-        from openai import OpenAI
-        client = OpenAI(
-            api_key=api_key,
-            base_url=base_url or None,
-            timeout=timeout,
-            max_retries=0,
-        )
-        client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=1,
-        )
-        return _success(provider, model)
-    except Exception as exc:
-        # 422 BadRequest with a "messages" issue still means auth+model worked.
-        # Classify, and if it's a BAD_REQUEST not about the model, treat as success.
-        from agent_core.core.impl.llm.errors import classify_llm_error, ErrorCategory
-        try:
-            info = classify_llm_error(exc, provider=provider, model=model)
-            if info.category in (ErrorCategory.AUTH, ErrorCategory.MODEL, ErrorCategory.CREDIT):
-                return {
-                    "success": False,
-                    "message": info.message,
-                    "provider": provider,
-                    "error": info.message,
-                }
-            # RATE_LIMIT, SERVER, BAD_REQUEST, etc. — auth+model are likely fine.
-            return _success(provider, model)
-        except Exception:
-            return _classified_error_result(exc, provider, model)
 
-
-def _test_openai(api_key: Optional[str], timeout: float, model: Optional[str]) -> Dict[str, Any]:
-    if model:
-        return _openai_compat_chat_test(
-            provider="openai", api_key=api_key, base_url=None, model=model, timeout=timeout,
-        )
-    # No model specified → just verify the key with /models list (cheaper).
-    if not api_key:
-        return {"success": False, "message": "API key is required for OpenAI",
-                "provider": "openai", "error": "Missing API key"}
     try:
+        # Use models endpoint - lightweight call to verify API key
         with httpx.Client(timeout=timeout) as client:
             response = client.get(
                 "https://api.openai.com/v1/models",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
+
         if response.status_code == 200:
-            return _success("openai", None)
-        response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "openai", "error": response.text[:300]}
-    except Exception as exc:
-        return _classified_error_result(exc, "openai", None)
+            return {
+                "success": True,
+                "message": "Successfully connected to OpenAI API",
+                "provider": "openai",
+            }
+        elif response.status_code == 401:
+            return {
+                "success": False,
+                "message": "Invalid API key",
+                "provider": "openai",
+                "error": "Authentication failed - check your API key",
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"API returned status {response.status_code}",
+                "provider": "openai",
+                "error": response.text[:200] if response.text else "Unknown error",
+            }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Connection timed out",
+            "provider": "openai",
+            "error": "Request timed out - check your network connection",
+        }
+    except httpx.RequestError as e:
+        return {
+            "success": False,
+            "message": "Network error",
+            "provider": "openai",
+            "error": str(e),
+        }
 
 
-def _test_openai_compat(
-    provider: str, api_key: Optional[str], base_url: str, timeout: float, model: Optional[str],
-) -> Dict[str, Any]:
-    if model:
-        return _openai_compat_chat_test(
-            provider=provider, api_key=api_key, base_url=base_url, model=model, timeout=timeout,
-        )
-    # No model → /models list (auth-only).
-    display = _DISPLAY.get(provider, provider)
+def _test_anthropic(api_key: Optional[str], timeout: float) -> Dict[str, Any]:
+    """Test Anthropic API connection."""
     if not api_key:
-        return {"success": False, "message": f"API key is required for {display}",
-                "provider": provider, "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for Anthropic",
+            "provider": "anthropic",
+            "error": "Missing API key",
+        }
+
     try:
+        # Use a minimal messages request to verify API key
+        # We send an invalid request that will fail fast but verify auth
+        from app.config import get_connection_test_model, get_connection_test_config
+        test_model = get_connection_test_model("anthropic") or "claude-haiku-4-5-20251001"
+        test_config = get_connection_test_config("anthropic")
         with httpx.Client(timeout=timeout) as client:
-            response = client.get(
-                f"{base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
+            response = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": test_model,
+                    "max_tokens": test_config.get("max_tokens", 1),
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
             )
+
+        # 200 means success (actual completion - shouldn't happen with max_tokens=1 but possible)
+        # 400 with specific error also indicates valid auth
         if response.status_code == 200:
-            return _success(provider, None)
-        response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": provider, "error": response.text[:300]}
-    except Exception as exc:
-        return _classified_error_result(exc, provider, None)
+            return {
+                "success": True,
+                "message": "Successfully connected to Anthropic API",
+                "provider": "anthropic",
+            }
+        elif response.status_code == 401:
+            return {
+                "success": False,
+                "message": "Invalid API key",
+                "provider": "anthropic",
+                "error": "Authentication failed - check your API key",
+            }
+        elif response.status_code == 400:
+            # Bad request but auth succeeded
+            return {
+                "success": True,
+                "message": "Successfully connected to Anthropic API",
+                "provider": "anthropic",
+            }
+        elif response.status_code == 529:
+            # Overloaded but auth succeeded
+            return {
+                "success": True,
+                "message": "Connected to Anthropic API (service currently overloaded)",
+                "provider": "anthropic",
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"API returned status {response.status_code}",
+                "provider": "anthropic",
+                "error": response.text[:200] if response.text else "Unknown error",
+            }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Connection timed out",
+            "provider": "anthropic",
+            "error": "Request timed out - check your network connection",
+        }
+    except httpx.RequestError as e:
+        return {
+            "success": False,
+            "message": "Network error",
+            "provider": "anthropic",
+            "error": str(e),
+        }
 
 
-# ─── Anthropic ────────────────────────────────────────────────────────
-
-
-def _test_anthropic(api_key: Optional[str], timeout: float, model: Optional[str]) -> Dict[str, Any]:
+def _test_gemini(api_key: Optional[str], timeout: float) -> Dict[str, Any]:
+    """Test Google Gemini API connection."""
     if not api_key:
-        return {"success": False, "message": "API key is required for Anthropic",
-                "provider": "anthropic", "error": "Missing API key"}
-
-    test_model = _resolve_test_model("anthropic", model, fallback="claude-haiku-4-5-20251001")
+        return {
+            "success": False,
+            "message": "API key is required for Gemini",
+            "provider": "gemini",
+            "error": "Missing API key",
+        }
 
     try:
-        from anthropic import Anthropic
-        client = Anthropic(api_key=api_key, timeout=timeout, max_retries=0)
-        client.messages.create(
-            model=test_model,
-            max_tokens=1,
-            messages=[{"role": "user", "content": "hi"}],
-        )
-        return _success("anthropic", model)
-    except Exception as exc:
-        from agent_core.core.impl.llm.errors import classify_llm_error, ErrorCategory
-        try:
-            info = classify_llm_error(exc, provider="anthropic", model=test_model)
-            # Auth, missing model, or credit issues are real failures.
-            # 400 BadRequest about the prompt itself is fine (auth+model OK).
-            if info.category in (ErrorCategory.AUTH, ErrorCategory.MODEL, ErrorCategory.CREDIT):
-                return {
-                    "success": False,
-                    "message": info.message,
-                    "provider": "anthropic",
-                    "error": info.message,
-                }
-            return _success("anthropic", model)
-        except Exception:
-            return _classified_error_result(exc, "anthropic", model)
-
-
-# ─── Gemini ────────────────────────────────────────────────────────────
-
-
-def _test_gemini(api_key: Optional[str], timeout: float, model: Optional[str]) -> Dict[str, Any]:
-    if not api_key:
-        return {"success": False, "message": "API key is required for Gemini",
-                "provider": "gemini", "error": "Missing API key"}
-    if model:
-        # Verify the specific model via models/{name}.
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}?key={api_key}"
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.get(url)
-            if response.status_code == 200:
-                return _success("gemini", model)
-            response.raise_for_status()
-            return {"success": False, "message": f"API returned status {response.status_code}",
-                    "provider": "gemini", "error": response.text[:300]}
-        except Exception as exc:
-            return _classified_error_result(exc, "gemini", model)
-    # No model → list endpoint (auth-only).
-    try:
+        # Use models list endpoint to verify API key
         with httpx.Client(timeout=timeout) as client:
             response = client.get(
                 f"https://generativelanguage.googleapis.com/v1/models?key={api_key}",
             )
+
         if response.status_code == 200:
-            return _success("gemini", None)
-        response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "gemini", "error": response.text[:300]}
-    except Exception as exc:
-        return _classified_error_result(exc, "gemini", None)
-
-
-# ─── BytePlus ─────────────────────────────────────────────────────────
+            return {
+                "success": True,
+                "message": "Successfully connected to Google Gemini API",
+                "provider": "gemini",
+            }
+        elif response.status_code == 400 or response.status_code == 403:
+            return {
+                "success": False,
+                "message": "Invalid API key",
+                "provider": "gemini",
+                "error": "Authentication failed - check your API key",
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"API returned status {response.status_code}",
+                "provider": "gemini",
+                "error": response.text[:200] if response.text else "Unknown error",
+            }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Connection timed out",
+            "provider": "gemini",
+            "error": "Request timed out - check your network connection",
+        }
+    except httpx.RequestError as e:
+        return {
+            "success": False,
+            "message": "Network error",
+            "provider": "gemini",
+            "error": str(e),
+        }
 
 
 def _test_byteplus(
-    api_key: Optional[str], base_url: Optional[str], timeout: float, model: Optional[str],
+    api_key: Optional[str], base_url: Optional[str], timeout: float
 ) -> Dict[str, Any]:
+    """Test BytePlus API connection."""
     if not api_key:
-        return {"success": False, "message": "API key is required for BytePlus",
-                "provider": "byteplus", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for BytePlus",
+            "provider": "byteplus",
+            "error": "Missing API key",
+        }
+
     url = base_url or "https://ark.ap-southeast.bytepluses.com/api/v3"
-    if model:
-        # Verify via tiny chat completion.
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(
-                    f"{url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "max_tokens": 1,
-                    },
-                )
-            if response.status_code in (200, 400, 422):
-                # 200 = both OK. 400/422 = auth+model OK, request quirk only.
-                return _success("byteplus", model)
-            response.raise_for_status()
-            return {"success": False, "message": f"API returned status {response.status_code}",
-                    "provider": "byteplus", "error": response.text[:300]}
-        except Exception as exc:
-            return _classified_error_result(exc, "byteplus", model)
-    # No model → /models list.
+
     try:
+        # BytePlus uses OpenAI-compatible API, test with models endpoint
         with httpx.Client(timeout=timeout) as client:
             response = client.get(
                 f"{url.rstrip('/')}/models",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
+
         if response.status_code == 200:
-            return _success("byteplus", None)
-        response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "byteplus", "error": response.text[:300]}
-    except Exception as exc:
-        return _classified_error_result(exc, "byteplus", None)
-
-
-# ─── Remote (Ollama) ──────────────────────────────────────────────────
+            return {
+                "success": True,
+                "message": "Successfully connected to BytePlus API",
+                "provider": "byteplus",
+            }
+        elif response.status_code == 401:
+            return {
+                "success": False,
+                "message": "Invalid API key",
+                "provider": "byteplus",
+                "error": "Authentication failed - check your API key",
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"API returned status {response.status_code}",
+                "provider": "byteplus",
+                "error": response.text[:200] if response.text else "Unknown error",
+            }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Connection timed out",
+            "provider": "byteplus",
+            "error": "Request timed out - check your network connection",
+        }
+    except httpx.RequestError as e:
+        return {
+            "success": False,
+            "message": "Network error",
+            "provider": "byteplus",
+            "error": str(e),
+        }
 
 
 def _test_remote(base_url: Optional[str], timeout: float) -> Dict[str, Any]:
-    """No API key required; the UI already validates Ollama models via
-    the /api/tags dropdown, so this stays auth-equivalent."""
+    """Test remote/Ollama connection (no API key required)."""
     url = base_url or "http://localhost:11434"
+
     try:
+        # Ollama uses /api/tags to list models
         with httpx.Client(timeout=timeout) as client:
             response = client.get(f"{url.rstrip('/')}/api/tags")
+
         if response.status_code == 200:
             models = [m["name"] for m in response.json().get("models", [])]
             if models:
                 message = f"Connected! {len(models)} model(s) available: {', '.join(models)}"
             else:
                 message = "Connected to Ollama, but no models downloaded yet. Use '+ Download New Model' to get one."
-            return {"success": True, "message": message, "provider": "remote", "models": models}
-        return {"success": False, "message": f"Ollama returned status {response.status_code}",
-                "provider": "remote", "error": response.text[:200] if response.text else "Unknown error"}
-    except Exception as exc:
-        return _classified_error_result(exc, "remote", None)
+            return {
+                "success": True,
+                "message": message,
+                "provider": "remote",
+                "models": models,
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Ollama returned status {response.status_code}",
+                "provider": "remote",
+                "error": response.text[:200] if response.text else "Unknown error",
+            }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message": "Connection timed out",
+            "provider": "remote",
+            "error": f"Could not connect to Ollama at {url}. Is it running?",
+        }
+    except httpx.RequestError as e:
+        return {
+            "success": False,
+            "message": "Network error",
+            "provider": "remote",
+            "error": f"Could not connect to {url}: {str(e)}",
+        }
 
 
-# ─── OpenRouter ───────────────────────────────────────────────────────
-
-
-def _test_openrouter(
-    api_key: Optional[str], base_url: str, timeout: float, model: Optional[str],
+def _test_openai_compat(
+    provider: str, api_key: Optional[str], base_url: str, timeout: float
 ) -> Dict[str, Any]:
+    """Test an OpenAI-compatible API (MiniMax, DeepSeek, Moonshot)."""
+    names = {"minimax": "MiniMax", "deepseek": "DeepSeek", "moonshot": "Moonshot", "grok": "Grok (xAI)"}
+    display = names.get(provider, provider)
+
     if not api_key:
-        return {"success": False, "message": "API key is required for OpenRouter",
-                "provider": "openrouter", "error": "Missing API key"}
-    if model:
-        # Verify auth + model + credits via tiny chat completion. OR returns
-        # 401 (bad key), 402 (no credits), 404 (bad model slug), or 200/4xx
-        # depending on upstream. Classifier handles them all.
-        return _openai_compat_chat_test(
-            provider="openrouter", api_key=api_key, base_url=base_url, model=model, timeout=timeout,
-        )
-    # No model → /auth/key (auth + balance only).
+        return {
+            "success": False,
+            "message": f"API key is required for {display}",
+            "provider": provider,
+            "error": "Missing API key",
+        }
+
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.get(
-                f"{base_url.rstrip('/')}/auth/key",
+                f"{base_url.rstrip('/')}/models",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
+
         if response.status_code == 200:
-            data = response.json().get("data", {}) or {}
-            limit = data.get("limit")
-            usage = data.get("usage")
-            label = data.get("label") or "OpenRouter key"
-            if limit is None:
-                msg = f"Connected to OpenRouter ({label}) — unlimited credits"
-            else:
-                remaining = max(0.0, float(limit) - float(usage or 0.0))
-                msg = (f"Connected to OpenRouter ({label}) — "
-                       f"${remaining:.2f} of ${float(limit):.2f} remaining")
-            return {"success": True, "message": msg, "provider": "openrouter"}
-        if response.status_code in (401, 403):
-            return {"success": False, "message": "Invalid API key",
-                    "provider": "openrouter",
-                    "error": "Authentication failed - check your OpenRouter API key"}
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "openrouter", "error": response.text[:300]}
-    except Exception as exc:
-        return _classified_error_result(exc, "openrouter", None)
+            return {"success": True, "message": f"Successfully connected to {display} API", "provider": provider}
+        elif response.status_code in (401, 403):
+            return {"success": False, "message": "Invalid API key", "provider": provider, "error": f"Authentication failed (HTTP {response.status_code}) - check your API key"}
+        else:
+            return {"success": False, "message": f"API returned status {response.status_code}", "provider": provider, "error": response.text[:300] if response.text else "Unknown error"}
+    except httpx.TimeoutException:
+        return {"success": False, "message": "Connection timed out", "provider": provider, "error": "Request timed out - check your network connection"}
+    except httpx.RequestError as e:
+        return {"success": False, "message": "Network error", "provider": provider, "error": str(e)}
 
 
-# ─── Grok ─────────────────────────────────────────────────────────────
+def _test_grok(api_key: Optional[str], base_url: str, timeout: float) -> Dict[str, Any]:
+    """Test xAI Grok API connection using a minimal chat completion request.
 
-
-def _test_grok(
-    api_key: Optional[str], base_url: str, timeout: float, model: Optional[str],
-) -> Dict[str, Any]:
+    xAI returns 403 on the /models endpoint even for valid keys, so we use
+    a minimal chat completions call instead.
+    """
     if not api_key:
-        return {"success": False, "message": "API key is required for Grok (xAI)",
-                "provider": "grok", "error": "Missing API key"}
-    test_model = _resolve_test_model("grok", model, fallback="grok-3")
+        return {
+            "success": False,
+            "message": "API key is required for Grok (xAI)",
+            "provider": "grok",
+            "error": "Missing API key",
+        }
+
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.post(
@@ -468,18 +422,22 @@ def _test_grok(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": test_model,
+                    "model": "grok-3",
                     "max_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
                 },
             )
-        if response.status_code == 200:
-            return _success("grok", model)
-        if response.status_code in (400, 422) and model is None:
-            # Hardcoded test model probably hit a tier restriction; auth still OK.
-            return _success("grok", None)
-        response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "grok", "error": response.text[:300]}
-    except Exception as exc:
-        return _classified_error_result(exc, "grok", model)
+
+        if response.status_code in (200, 400, 403, 422):
+            # 200 = success
+            # 400/422 = bad request but auth passed
+            # 403 = model tier restriction but key is valid
+            return {"success": True, "message": "Successfully connected to Grok (xAI) API", "provider": "grok"}
+        elif response.status_code == 401:
+            return {"success": False, "message": "Invalid API key", "provider": "grok", "error": "Authentication failed - check your xAI API key"}
+        else:
+            return {"success": False, "message": f"API returned status {response.status_code}", "provider": "grok", "error": response.text[:300] if response.text else "Unknown error"}
+    except httpx.TimeoutException:
+        return {"success": False, "message": "Connection timed out", "provider": "grok", "error": "Request timed out - check your network connection"}
+    except httpx.RequestError as e:
+        return {"success": False, "message": "Network error", "provider": "grok", "error": str(e)}
