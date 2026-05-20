@@ -52,44 +52,136 @@ git clone https://github.com/<your-github-username>/CraftBot.git
 cd CraftBot
 ```
 
-### Create a Branch
+---
+
+# 📋 Workflow SOPs
+
+Keep it simple. The point is shared rhythm, not bureaucracy.
+
+## 3. 🌿 Branches
+
+- Base off `dev`, never `main` or `staging`.
+- Name: `type/short-description` — kebab-case.
+  - Types: `feat`, `fix`, `chore`, `refactor`, `docs`, `hotfix`
+  - Examples: `feat/discord-role-sync`, `fix/webhook-retry-loop`
+- One branch = one focused change. If it grows past ~400 lines or two days of work, split it.
+- Delete the branch after merge.
+
+Flow: `dev` → `staging` → `main`. Never push directly to `staging` or `main`.
 
 Create a new branch for your work:
 ```shell
-git checkout -b feature/your-feature-name
+git checkout -b feat/your-feature-name
 ```
 
 To help fix a bug:
 ```shell
-git checkout -b bug/bug-name
+git checkout -b fix/bug-name
 ```
 
-Always branch from the `dev` branch.
+## 4. ✅ Commits
 
-## 3. 🎯 Making Changes
+**Format:**
+```
+<type> <issue number if exists eg: #245>: <short summary in imperative mood>
 
-1. **Code Style**: Follow the project's coding standards
-2. **Documentation**: Update relevant documentation
-3. **Tests**: Add tests for new features
-4. **Commits**: Write clear and detail commit messages
+<optional body — why, not what>
+```
 
-## 4. 📤 Submitting Changes
+- Types: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `style`
+- Summary ≤ 72 chars, no period, imperative ("add" not "added").
+- Body explains **why** the change was needed if it's not obvious. The diff shows *what*.
+- Commit often, but each commit should pass lint/build on its own.
 
-1. Install ruff on your system
-2. Run ```ruff format .``` and ``` ruff check ``` and fix the issues
-3. Push your changes:
+**Good:**
+- `fix: prevent duplicate role assignment on rejoin`
+- `feat: add /ban-history slash command`
+
+**Bad:**
+- `update stuff`
+- `WIP`
+- `fixed the thing John mentioned`
+
+Before committing, run the linter:
+```shell
+ruff format .
+ruff check
+```
+Fix any issues, then:
 ```shell
 git add .
-git commit -s -m "Description of your changes"
+git commit -s -m "feat: your descriptive message"
 git push origin your-branch-name
 ```
 
-2. Create a Pull Request:
-   - Go to the [**CraftBot** repository](https://github.com/CraftOS-dev/CraftBot)
-   - Click "Compare & Pull Request" and open a PR against dev branch
-   - Fill in the PR template with details about your changes
+## 5. 🔀 Pull Requests
 
-## 5. 🤝 Community Guidelines
+**Title:** same format as a commit (`feat: …`, `fix: …`). Keep under ~70 chars.
+
+**Description template:**
+```markdown
+## What
+1-3 bullets on what changed.
+
+## Why
+The problem this solves or the goal. Link the issue: Closes #123
+
+## How to test
+Steps to verify locally. Include any env vars, seed data, or commands.
+
+## Screenshots / Logs
+If UI or behavior changed.
+```
+
+**Rules:**
+- Open as **Draft** until it's ready for review.
+- Keep PRs small — under ~400 lines of diff where possible. Big PRs get stale and miss bugs.
+- Self-review your own diff before requesting review. Catch the obvious stuff first.
+- At least 1 approval before merge. No self-merging on shared branches.
+- Squash-merge into `dev` (keeps history clean). Merge-commit into `staging`/`main`.
+- Resolve all conversations before merging.
+- If CI is red, fix it — don't merge around it.
+
+**Open a PR:**
+- Go to the [**CraftBot** repository](https://github.com/CraftOS-dev/CraftBot)
+- Click "Compare & Pull Request" and open a PR against `dev`
+- Fill in the PR template with details about your changes
+
+## 6. 🐛 Issues
+
+**Bug template:**
+```markdown
+**What happened:**
+**What I expected:**
+**Steps to reproduce:**
+1.
+2.
+**Environment:** (browser, OS, server, version/commit)
+**Logs / screenshots:**
+```
+
+**Feature template:**
+```markdown
+**Problem:** What user pain are we solving?
+**Proposal:** What should it do?
+**Out of scope:** What we're *not* doing.
+**Acceptance:** How we know it's done.
+```
+
+**Labels (use at least one):**
+- `bug`, `feature`, `chore`, `docs`
+- Priority: `p0` (drop everything), `p1` (this sprint), `p2` (soon), `p3` (whenever)
+- `blocked`, `needs-info`, `good-first-issue`
+
+**Rules:**
+- Search before opening — avoid duplicates.
+- One problem per issue. Split if it's two things.
+- Assign yourself when you start working on it.
+- Close with the PR (use `Closes #123` in the PR body).
+
+---
+
+## 7. 🤝 Community Guidelines
 
 - Be respectful and inclusive
 - Help others learn and grow
@@ -97,7 +189,7 @@ git push origin your-branch-name
 - Ask questions when unsure
 - Enjoy building agents
 
-## 6. 📫 To Get Help
+## 8. 📫 To Get Help
 
 - Open an [issue](https://github.com/CraftOS-dev/CraftBot)
 - Join our Discord community
