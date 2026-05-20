@@ -221,7 +221,7 @@ def add_comment(
     unpacked_dir: str,
     comment_id: int,
     text: str,
-    author: str = "Claude",
+    author: str = "CraftBot",
     initials: str = "C",
     parent_id: int | None = None,
 ) -> tuple[str, str]:
@@ -297,7 +297,7 @@ if __name__ == "__main__":
     p.add_argument("unpacked_dir", help="Unpacked DOCX directory")
     p.add_argument("comment_id", type=int, help="Comment ID (must be unique)")
     p.add_argument("text", help="Comment text")
-    p.add_argument("--author", default="Claude", help="Author name")
+    p.add_argument("--author", default="CraftBot", help="Author name")
     p.add_argument("--initials", default="C", help="Author initials")
     p.add_argument("--parent", type=int, help="Parent comment ID (for replies)")
     args = p.parse_args()
