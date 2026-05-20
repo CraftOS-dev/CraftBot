@@ -3038,13 +3038,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         Clear the chat conversation log only.
 
-        Drops chat messages from the panel and from chat_storage. The
-        action panel (tasks/actions) is left alone so running tasks are
-        not disrupted. Dashboard usage/task metrics live in a separate
-        database and are not touched.
+        Drops chat messages from the panel and from chat_storage, and
+        also drops the agent's persisted conversation memory so a
+        restart cannot resurrect cleared chat. The action panel
+        (tasks/actions), markdown files in agent_file_system, and the
+        Chroma memory index are left alone.
         """
         try:
             await self._chat.clear()
+            await self._controller.agent.clear_conversation_persistence()
             await self._broadcast({
                 "type": "clear_conversation",
                 "data": {"success": True},
@@ -3058,13 +3060,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_clear_tasks(self) -> None:
         """
         Clear only finished tasks (completed/error/cancelled) and their
-        child actions from the panel. Running/waiting tasks are preserved.
-
-        Dashboard usage/task metrics are persisted in a separate database
-        and are not affected.
+        child actions from the panel, and drop any leftover session_storage
+        rows for those task IDs so a restart cannot resurrect them.
+        Running/waiting tasks are preserved. Dashboard usage/task metrics,
+        markdown files, and the Chroma memory index are left alone.
         """
         try:
+            terminal_statuses = {"completed", "error", "cancelled"}
+            terminal_task_ids = [
+                item.id
+                for item in self._action_panel.get_items()
+                if item.item_type == "task" and item.status in terminal_statuses
+            ]
+
             removed = await self._action_panel.clear_terminal_tasks()
+
+            if terminal_task_ids:
+                self._controller.agent.clear_task_persistence(terminal_task_ids)
+
             await self._broadcast({
                 "type": "clear_tasks",
                 "data": {"success": True, "removed": removed},

@@ -30,7 +30,7 @@ import time
 import uuid
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
 from agent_core import settings_manager, config_watcher
@@ -2505,6 +2505,55 @@ class AgentBase:
 
         except Exception as e:
             logger.error(f"[RESET] Error clearing usage data: {e}")
+
+    async def clear_conversation_persistence(self) -> None:
+        """
+        Drop the agent's in-memory + persisted conversation state so that
+        after a restart it does not "remember" cleared chat. Markdown files
+        in agent_file_system and the Chroma index are left alone.
+
+        Cleared:
+          - event_stream_manager._conversation_history (in-memory list re-
+            injected into routing/task context via _format_recent_conversation)
+          - main event stream (in-memory and session_storage rows)
+          - session_storage.conversation_history table
+        """
+        try:
+            self.event_stream_manager._conversation_history.clear()
+        except Exception as e:
+            logger.warning(f"[CLEAR] Failed to clear in-memory conversation history: {e}")
+
+        try:
+            main_stream = self.event_stream_manager.get_main_stream()
+            main_stream.clear()
+        except Exception as e:
+            logger.warning(f"[CLEAR] Failed to clear in-memory main stream: {e}")
+
+        try:
+            from app.usage.session_storage import get_session_storage, MAIN_STREAM_ID
+            storage = get_session_storage()
+            storage.persist_conversation_history([])
+            storage.remove_event_stream(MAIN_STREAM_ID)
+        except Exception as e:
+            logger.warning(f"[CLEAR] Failed to clear persisted conversation state: {e}")
+
+    def clear_task_persistence(self, task_ids: Iterable[str]) -> None:
+        """
+        Drop session_storage rows for the given task IDs so a restart cannot
+        resurrect their event streams. Used by /clear-tasks after the action
+        panel has removed terminal tasks. Markdown TASK_HISTORY.md and the
+        Chroma index are left alone.
+        """
+        ids = [tid for tid in task_ids if tid]
+        if not ids:
+            return
+        try:
+            from app.usage.session_storage import get_session_storage
+            storage = get_session_storage()
+            for tid in ids:
+                storage.remove_task(tid)
+        except Exception as e:
+            logger.warning(f"[CLEAR] Failed to clear persisted task state: {e}")
 
     async def _reset_agent_file_system(self) -> None:
         """
