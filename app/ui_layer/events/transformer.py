@@ -39,10 +39,16 @@ class EventTransformer:
         "task start", "task_start",
     }
 
-    # Event kinds that should be hidden from chat (reasoning, internal events)
+    # Event kinds that should be hidden from chat (reasoning, internal events).
+    # Matched via substring containment against the lowercased event kind, so
+    # entries here must NOT appear as substrings of any legitimate kind. In
+    # particular, ``plan`` is intentionally absent — it would substring-match
+    # ``platform`` in kinds like ``"agent message to platform: ..."`` and
+    # silently filter every platform-routed chat message. ``planning`` covers
+    # the intended use case without the collision.
     HIDDEN_EVENT_KINDS = {
         "reasoning", "thinking", "thought", "internal",
-        "plan", "planning", "consider", "analysis",
+        "planning", "consider", "analysis",
         "reflection", "debug", "trace", "context",
         "memory", "observation", "reasoning_step",
     }

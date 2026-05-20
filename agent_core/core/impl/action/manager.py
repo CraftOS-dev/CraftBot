@@ -28,6 +28,11 @@ from agent_core.core.protocols.event_stream import EventStreamManagerProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.impl.action.executor import ActionExecutor
+from agent_core.core.impl.action.output_store import ActionOutputStore, make_key
+from agent_core.core.impl.action.ref_resolver import (
+    render_output_for_event_stream,
+    resolve_refs,
+)
 from agent_core.utils.logger import logger
 
 # ============================================================================
@@ -113,6 +118,7 @@ class ActionManager:
         on_action_start: Optional[OnActionStartHook] = None,
         on_action_end: Optional[OnActionEndHook] = None,
         get_parent_id: Optional[GetParentIdHook] = None,
+        action_output_store: Optional[ActionOutputStore] = None,
     ):
         """
         Build an ActionManager that can execute and track actions.
@@ -127,6 +133,11 @@ class ActionManager:
             on_action_start: Optional hook called when action starts.
             on_action_end: Optional hook called when action ends.
             get_parent_id: Optional hook to resolve parent_id from task context.
+            action_output_store: Deterministic per-session archive of action
+                outputs. When supplied, every invocation is persisted, the
+                LLM's ``$ref`` markers in parameters are resolved against it
+                before the handler runs, and big outputs collapse to a shape
+                summary in the event stream.
         """
         self.action_library = action_library
         self.llm_interface = llm_interface
@@ -135,6 +146,7 @@ class ActionManager:
         self.context_engine = context_engine
         self.state_manager = state_manager
         self.executor = ActionExecutor()
+        self.action_output_store = action_output_store
 
         # Track in-flight actions
         self._inflight: Dict[str, Dict] = {}
@@ -227,6 +239,10 @@ class ActionManager:
         logger.debug(f"[INPUT DATA] {input_data}")
         run_id = str(uuid.uuid4())
         started_at = datetime.utcnow().isoformat()
+        # Stable reference key the LLM uses in any future ``$ref`` for this
+        # invocation. Computed up-front so action_start, action_end, and the
+        # archive all stamp the same value, removing the LLM's need to guess.
+        action_key = make_key(action.name, run_id)
 
         # Resolve parent_id using hook if available
         if not parent_id and self._get_parent_id:
@@ -257,11 +273,22 @@ class ActionManager:
         # Log to event stream
         # Only pass session_id when is_running_task=True (task stream exists)
         # When no task exists, use global stream by not passing task_id
-        pretty_input = _to_pretty_json(input_data)
+        #
+        # Strip ``_``-prefixed plumbing keys (e.g. ``_session_id``) from what
+        # we log. They are internal channels used to hand context to the
+        # action sandbox; surfacing them in the event stream would leak
+        # internal state into every downstream action-selection prompt.
+        pretty_input = _to_pretty_json(
+            {k: v for k, v in input_data.items() if not k.startswith("_")}
+        )
         self._log_event_stream(
             is_gui_task=is_gui_task,
             event_type="action_start",
-            event=f"Running action {action.name} with input: {pretty_input}.",
+            event=(
+                f"Running action {action_key} with input: {pretty_input}. "
+                f"(Reference this run later via "
+                f'{{"$ref": "{action_key}", "path": "..."}})'
+            ),
             display_message=f"Running {action.display_name}",
             action_name=action.name,
             # Always pass session_id when present so the event_stream_manager can route
@@ -272,6 +299,20 @@ class ActionManager:
             # returned via STATE.current_task_id — leaking events into unrelated tasks.
             session_id=session_id,
         )
+
+        # Resolve ``$ref`` markers the LLM may have placed in parameters.
+        # The event-stream log above intentionally records the *unresolved*
+        # input so the agent's history shows the compact references that were
+        # actually emitted; only the handler-side ``input_data`` carries the
+        # materialised values.
+        if self.action_output_store and session_id:
+            try:
+                input_data = resolve_refs(input_data, self.action_output_store, session_id)
+            except Exception as exc:
+                logger.warning(
+                    f"[ACTION] Failed to resolve $ref markers for {action.name} "
+                    f"(session_id={session_id}): {exc}"
+                )
 
         logger.debug(f"Starting execution of action {action.name}...")
 
@@ -352,17 +393,46 @@ class ActionManager:
         # 3. Persist final state
         # ────────────────────────────────────────────────────────────────
 
+        # Always-on archive: one file per invocation at a deterministic path.
+        # Big outputs collapse to a shape summary + ``$ref`` instructions in
+        # the event stream; the full payload lives on disk for the LLM to
+        # navigate via ``$ref`` on subsequent steps.
+        archive_record = None
+        archive_path = None
+        if self.action_output_store and session_id:
+            archive_record = self.action_output_store.record(
+                session_id=session_id,
+                action_name=action.name,
+                run_id=run_id,
+                outputs=outputs if isinstance(outputs, dict) else {"value": outputs},
+                started_at=started_at,
+                ended_at=ended_at,
+                status=status,
+            )
+            if archive_record is not None:
+                archive_path = str(
+                    self.action_output_store.record_path(session_id, action.name, run_id)
+                )
+
         logger.info(f"Action {action.name} completed with status: {status}.")
 
         # Log to event stream
         # Only pass session_id when is_running_task=True (task stream exists)
         output_has_error = outputs and outputs.get("status") == "error"
         display_status = "failed" if (status == "error" or output_has_error) else "completed"
-        pretty_output = _to_pretty_json(outputs)
+        pretty_output = render_output_for_event_stream(
+            outputs,
+            file_path=archive_path,
+            record_key=archive_record.key if archive_record else None,
+        )
         self._log_event_stream(
             is_gui_task=is_gui_task,
             event_type="action_end",
-            event=f"Action {action.name} completed with output: {pretty_output}.",
+            event=(
+                f"Action {action_key} completed with output: {pretty_output}. "
+                f"(Reference this output via "
+                f'{{"$ref": "{action_key}", "path": "..."}})'
+            ),
             display_message=f"{action.display_name} → {display_status}",
             action_name=action.name,
             # Always pass session_id when present so the event_stream_manager can route

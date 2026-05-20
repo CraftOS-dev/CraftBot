@@ -8,6 +8,7 @@ chroma_db_memory/
 core/chroma_db_actions/
 **/logs/
 agent_file_system/workspace/
+agent_file_system/action_outputs/
 craftbot/external_tools/
 craftbot/generated_task_document/
 **/__pycache__/

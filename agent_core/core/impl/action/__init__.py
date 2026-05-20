@@ -14,6 +14,10 @@ from agent_core.core.impl.action.executor import (
     set_gui_execute_hook,
 )
 from agent_core.core.impl.action.library import ActionLibrary
+from agent_core.core.impl.action.output_store import (
+    ActionOutputRecord,
+    ActionOutputStore,
+)
 from agent_core.core.impl.action.router import ActionRouter, _is_visible_in_mode
 from agent_core.core.impl.action.manager import (
     ActionManager,
@@ -31,6 +35,9 @@ __all__ = [
     "set_gui_execute_hook",
     # Library
     "ActionLibrary",
+    # Output store
+    "ActionOutputRecord",
+    "ActionOutputStore",
     # Router
     "ActionRouter",
     "_is_visible_in_mode",

@@ -750,6 +750,14 @@ class ActionRouter:
                 parsed = ast.literal_eval(normalized)
             except Exception as eval_error:
                 logger.error(f"Unable to parse action decision: {repr(normalized)}")
+                # Classify truncation-shaped failures so the retry feedback can
+                # tell the LLM what actually went wrong (output cut off, likely
+                # because a large value was inlined) instead of asking for a
+                # "corrected JSON object" that will be truncated the same way.
+                if self._looks_truncated(json_error, normalized):
+                    return None, (
+                        f"truncated: {json_error}; literal_eval error: {eval_error}"
+                    )
                 return None, f"json error: {json_error}; literal_eval error: {eval_error}"
 
         if not isinstance(parsed, dict):
@@ -758,6 +766,37 @@ class ActionRouter:
 
         return parsed, None
 
+    @staticmethod
+    def _looks_truncated(json_error: json.JSONDecodeError, normalized: str) -> bool:
+        """Heuristic: did the LLM's JSON response get cut off mid-output?
+
+        Two error shapes are treated as truncation:
+
+        - ``Unterminated string`` — parsing reached EOF inside a string literal.
+          ``json_error.pos`` points to where the string *opened*, not where it
+          died (which is the end of the input by definition), so the position
+          isn't a useful tail check here. Always classify as truncation.
+
+        - ``Expecting value`` / ``Expecting ',' delimiter`` /
+          ``Expecting property name`` — these can fire mid-payload too, so
+          additionally require that the failure landed at (or essentially at)
+          the very end of the response.
+        """
+        msg = (json_error.msg or "").lower()
+        if "unterminated" in msg:
+            return True
+
+        expecting_msgs = (
+            "expecting value",
+            "expecting ',' delimiter",
+            "expecting property name",
+        )
+        if not any(m in msg for m in expecting_msgs):
+            return False
+
+        tail_window = 4
+        return json_error.pos >= max(0, len(normalized) - tail_window)
+
     def _augment_prompt_with_feedback(
         self,
         base_prompt: str,
@@ -765,6 +804,37 @@ class ActionRouter:
         raw_response: str,
         error_message: str,
     ) -> str:
+        # Truncation needs a different nudge than a malformed JSON shape: the
+        # LLM didn't pick the wrong format, the response itself was cut off by
+        # the output-token cap — almost always because a large value (typically
+        # prior tool output) was inlined into a parameter. Telling it to "fix
+        # the JSON" again would just reproduce the same truncation, burning the
+        # retry budget. Instead, point it at the externalized file pointers
+        # that already exist in the event stream.
+        if isinstance(error_message, str) and error_message.startswith("truncated:"):
+            feedback_block = (
+                f"\n\nPrevious attempt {attempt} was TRUNCATED by the model's "
+                "output-token limit before the JSON could close "
+                f"({error_message}).\n"
+                "This almost always happens when a large value was inlined into "
+                "an action parameter (e.g. prior tool output pasted into the "
+                "`code` field of run_python).\n"
+                "DO NOT re-emit the same large payload. Earlier action outputs "
+                "that exceeded the inline threshold were saved to files — the "
+                "event stream shows their paths in messages of the form "
+                "\"Action X completed. The output is too long therefore is "
+                "saved in <path>...\". Use `stream_read` / `grep_files` to "
+                "read them, or `open(path)` from inside `run_python`. Then "
+                "return ONLY the corrected JSON object with action_name and "
+                "parameters fields.\n\n"
+                "RAW RESPONSE (note the abrupt end):\n"
+                f"{raw_response}\n"
+                "--- End of RAW RESPONSE ---\n"
+                "Respond now with a shorter JSON object that references files "
+                "instead of inlining their contents."
+            )
+            return base_prompt + feedback_block
+
         feedback_block = (
             f"\n\nPrevious attempt {attempt} failed to parse because: {error_message}. "
             "Review your last reply above (shown in the RAW RESPONSE section) and return a corrected response. "

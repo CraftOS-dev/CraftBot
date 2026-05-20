@@ -309,6 +309,51 @@ RULES:
 3. task_update_todos + send_message is a good combination - use them together when updating progress and notifying the user.
 </parallel_actions>
 
+<reference_passing>
+Reference Passing (`$ref`):
+Every action's full output is archived on disk at a stable key
+`{{action_name}}#{{short_run_id}}`. Whenever an `action_end` event in the stream
+shows `[shape only]` instead of the literal output, the full payload is one
+`$ref` away — NEVER reconstruct or paste large prior outputs into a parameter.
+
+Any action parameter may be a reference object instead of a literal value:
+  {{"$ref": "<action_name>#<short_run_id>", "path": "<dotted.path[i]>"}}
+
+The manager resolves the reference (loads the archive file, navigates the
+path) before the action handler runs, so the handler receives the real value
+— a dict, list, string, anything. The reference itself stays small in your
+response, which keeps the per-turn JSON well under any output-token cap.
+
+Examples:
+
+1) Feed a prior tool result into run_python without re-emitting it:
+   {{
+     "action_name": "run_python",
+     "parameters": {{
+       "code": "for c in channels: print(c['name'])",
+       "channels": {{"$ref": "get_discord_channels#a3f1c2",
+                     "path": "result.result.all_channels"}}
+     }}
+   }}
+
+2) Have send-message deliver text built by an earlier run_python call,
+   without that text ever appearing in your JSON response:
+   {{
+     "action_name": "send_message",
+     "parameters": {{
+       "message": {{"$ref": "run_python#7b2e91", "path": "stdout"}}
+     }}
+   }}
+
+Path syntax: dotted keys plus square-bracket indices. `result.items[0].id`.
+Omit `path` (or pass empty) to receive the whole `outputs` object of the
+referenced action.
+
+When in doubt, prefer `$ref` over inlining prior data. The agent never needs
+to "remember" the contents of an output it has already produced — the
+archive holds the canonical copy.
+</reference_passing>
+
 <reasoning_protocol>
 Before selecting an action, you MUST reason through these steps:
 1. Identify the current todo from the [todos] event (marked [>] in_progress or first [ ] pending).
@@ -521,6 +566,33 @@ RULES:
 2. If any selected action is non-parallelizable, it must be the ONLY action in that step.
 3. task_update_todos + send_message is a good combination - use them together when updating progress and notifying the user.
 </parallel_actions>
+
+<reference_passing>
+Reference Passing (`$ref`):
+Every action's full output is archived on disk at a stable key
+`{{action_name}}#{{short_run_id}}`. Whenever an `action_end` event in the
+stream shows `[shape only]` instead of the literal output, the full payload
+is one `$ref` away — NEVER reconstruct or paste large prior outputs into a
+parameter.
+
+Any action parameter may be a reference object instead of a literal value:
+  {{"$ref": "<action_name>#<short_run_id>", "path": "<dotted.path[i]>"}}
+
+The manager resolves the reference before the handler runs.
+
+Example — feed a prior tool result into run_python without inlining it:
+  {{
+    "action_name": "run_python",
+    "parameters": {{
+      "code": "for c in channels: print(c['name'])",
+      "channels": {{"$ref": "get_discord_channels#a3f1c2",
+                    "path": "result.result.all_channels"}}
+    }}
+  }}
+
+Path syntax: dotted keys plus square-bracket indices. Omit `path` to receive
+the whole `outputs` object.
+</reference_passing>
 
 <reasoning_protocol>
 Before selecting an action, quickly reason through:

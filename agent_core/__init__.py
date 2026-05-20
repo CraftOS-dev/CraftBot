@@ -148,6 +148,8 @@ from agent_core.core.hooks import (
 from agent_core.core.impl.action import (
     ActionExecutor,
     ActionLibrary,
+    ActionOutputRecord,
+    ActionOutputStore,
     ActionRouter,
     ActionManager,
     set_gui_execute_hook,
@@ -360,6 +362,8 @@ __all__ = [
     # Implementations
     "ActionExecutor",
     "ActionLibrary",
+    "ActionOutputRecord",
+    "ActionOutputStore",
     "ActionRouter",
     "ActionManager",
     "set_gui_execute_hook",

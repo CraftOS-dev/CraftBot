@@ -32,7 +32,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from agent_core import ActionLibrary, ActionManager, ActionRouter
+from agent_core import ActionLibrary, ActionManager, ActionOutputStore, ActionRouter
 from agent_core import settings_manager, config_watcher
 
 from app.config import (
@@ -226,8 +226,12 @@ class AgentBase:
         self.context_engine = ContextEngine(state_manager=self.state_manager)
         self.context_engine.set_role_info_hook(self._generate_role_info_prompt)
 
+        self.action_output_store = ActionOutputStore(
+            AGENT_FILE_SYSTEM_PATH / "action_outputs"
+        )
         self.action_manager = ActionManager(
-            self.action_library, self.llm, self.db_interface, self.event_stream_manager, self.context_engine, self.state_manager
+            self.action_library, self.llm, self.db_interface, self.event_stream_manager, self.context_engine, self.state_manager,
+            action_output_store=self.action_output_store,
         )
         self.action_router = ActionRouter(self.action_library, self.llm, self.context_engine)
 

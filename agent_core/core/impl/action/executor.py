@@ -413,16 +413,32 @@ except Exception as e:
                 timeout=timeout,
             )
 
-            return {
-                "stdout": proc.stdout.strip(),
-                "stderr": proc.stderr.strip(),
-                "returncode": proc.returncode,
-            }
+            stdout = proc.stdout.strip()
+            stderr = proc.stderr.strip()
+
+            if proc.returncode != 0:
+                err = stderr or f"Action exited with code {proc.returncode}"
+                return {"status": "error", "message": err}
+
+            # The sandbox script prints ``json.dumps(result)`` to stdout, so
+            # the action's logical output is the inner dict — not the raw
+            # subprocess wrapper. Parse it here so downstream consumers
+            # (event stream, ActionOutputStore, $ref navigation) see the
+            # action's real shape (e.g. ``{"status", "stdout", "stderr"}``)
+            # rather than ``{"stdout": <json string>, ...}``. Mirrors the
+            # behaviour of ``_atomic_action_internal_subprocess``.
+            if not stdout:
+                return {"status": "success", "output": ""}
+
+            try:
+                return json.loads(stdout)
+            except json.JSONDecodeError:
+                return {"status": "success", "output": stdout}
 
     except subprocess.TimeoutExpired:
-        return {"stdout": "", "stderr": "Execution timed out", "returncode": -1}
+        return {"status": "error", "message": "Execution timed out"}
     except Exception as e:
-        return {"stdout": "", "stderr": f"Execution failed: {e}", "returncode": -1}
+        return {"status": "error", "message": f"Execution failed: {e}"}
     finally:
         _restore_worker_stdio(saved_stdout, saved_stderr)
 
