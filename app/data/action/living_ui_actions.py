@@ -53,14 +53,20 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         return {"status": "error", "message": "project_id is required"}
 
     if simulated_mode:
-        return {"status": "success", "message": f"Living UI {project_id} is now ready at http://localhost:3100"}
+        return {
+            "status": "success",
+            "message": f"Living UI {project_id} is now ready at http://localhost:3100",
+        }
 
     try:
         from app.living_ui import get_living_ui_manager, broadcast_living_ui_ready
 
         manager = get_living_ui_manager()
         if not manager:
-            return {"status": "error", "message": "Living UI manager not initialized. Browser adapter may not be running."}
+            return {
+                "status": "error",
+                "message": "Living UI manager not initialized. Browser adapter may not be running.",
+            }
 
         # Run the full pipeline: install → test → launch → verify
         result = await manager.launch_and_verify(project_id)
@@ -179,7 +185,14 @@ async def living_ui_restart(input_data: dict) -> dict:
         },
         "phase": {
             "type": "string",
-            "enum": ["initializing", "scaffolding", "coding", "testing", "building", "launching"],
+            "enum": [
+                "initializing",
+                "scaffolding",
+                "coding",
+                "testing",
+                "building",
+                "launching",
+            ],
             "example": "coding",
             "description": "Current development phase.",
         },
@@ -274,15 +287,51 @@ async def living_ui_report_progress(input_data: dict) -> dict:
     ),
     action_sets=["living_ui"],
     input_schema={
-        "name": {"type": "string", "description": "Display name for the project.", "example": "Glance Dashboard"},
-        "description": {"type": "string", "description": "Brief app description.", "example": "Self-hosted dashboard"},
-        "source_path": {"type": "string", "description": "Absolute path to the app source code.", "example": "/path/to/app"},
-        "app_runtime": {"type": "string", "description": "Runtime: node, python, go, rust, docker, static, or unknown.", "example": "go"},
-        "install_command": {"type": "string", "description": "Command to install/build the app (empty if none needed).", "example": "go build -o app ."},
-        "start_command": {"type": "string", "description": "Command to start the app. Use {{PORT}} placeholder for port.", "example": "./app --port {{PORT}}"},
-        "health_strategy": {"type": "string", "description": "Health check: http_get, tcp, or process_alive.", "example": "http_get"},
-        "health_url": {"type": "string", "description": "Health check URL (for http_get). Use {{PORT}} placeholder.", "example": "http://localhost:{{PORT}}/health"},
-        "port_env_var": {"type": "string", "description": "Env var name for port injection (e.g., PORT). Empty if app uses command-line flag.", "example": "PORT"},
+        "name": {
+            "type": "string",
+            "description": "Display name for the project.",
+            "example": "Glance Dashboard",
+        },
+        "description": {
+            "type": "string",
+            "description": "Brief app description.",
+            "example": "Self-hosted dashboard",
+        },
+        "source_path": {
+            "type": "string",
+            "description": "Absolute path to the app source code.",
+            "example": "/path/to/app",
+        },
+        "app_runtime": {
+            "type": "string",
+            "description": "Runtime: node, python, go, rust, docker, static, or unknown.",
+            "example": "go",
+        },
+        "install_command": {
+            "type": "string",
+            "description": "Command to install/build the app (empty if none needed).",
+            "example": "go build -o app .",
+        },
+        "start_command": {
+            "type": "string",
+            "description": "Command to start the app. Use {{PORT}} placeholder for port.",
+            "example": "./app --port {{PORT}}",
+        },
+        "health_strategy": {
+            "type": "string",
+            "description": "Health check: http_get, tcp, or process_alive.",
+            "example": "http_get",
+        },
+        "health_url": {
+            "type": "string",
+            "description": "Health check URL (for http_get). Use {{PORT}} placeholder.",
+            "example": "http://localhost:{{PORT}}/health",
+        },
+        "port_env_var": {
+            "type": "string",
+            "description": "Env var name for port injection (e.g., PORT). Empty if app uses command-line flag.",
+            "example": "PORT",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -293,6 +342,7 @@ async def living_ui_import_external(input_data: dict) -> dict:
     """Import an external app as a Living UI project."""
     try:
         from app.living_ui import get_living_ui_manager
+
         manager = get_living_ui_manager()
         if not manager:
             return {"status": "error", "message": "Living UI manager not available."}
@@ -323,8 +373,16 @@ async def living_ui_import_external(input_data: dict) -> dict:
     ),
     action_sets=["living_ui"],
     input_schema={
-        "zip_path": {"type": "string", "description": "Absolute path to the ZIP file.", "example": "/path/to/project.zip"},
-        "name": {"type": "string", "description": "Display name for the imported project (optional, auto-detected from manifest).", "example": "My App"},
+        "zip_path": {
+            "type": "string",
+            "description": "Absolute path to the ZIP file.",
+            "example": "/path/to/project.zip",
+        },
+        "name": {
+            "type": "string",
+            "description": "Display name for the imported project (optional, auto-detected from manifest).",
+            "example": "My App",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -336,6 +394,7 @@ async def living_ui_import_zip(input_data: dict) -> dict:
     """Import a Living UI project from a ZIP file."""
     try:
         from app.living_ui import get_living_ui_manager
+
         manager = get_living_ui_manager()
         if not manager:
             return {"status": "error", "message": "Living UI manager not available."}
@@ -350,6 +409,7 @@ async def living_ui_import_zip(input_data: dict) -> dict:
 
         # Clean up the ZIP file after successful import
         import os
+
         try:
             os.unlink(zip_path)
         except Exception:
@@ -430,10 +490,16 @@ async def living_ui_import_zip(input_data: dict) -> dict:
     output_schema={
         "status": {"type": "string", "example": "success"},
         "status_code": {"type": "integer", "example": 200},
-        "response_headers": {"type": "object", "example": {"Content-Type": "application/json"}},
+        "response_headers": {
+            "type": "object",
+            "example": {"Content-Type": "application/json"},
+        },
         "body": {"type": "string", "example": '{"ok":true}'},
         "response_json": {"type": "object", "example": {"ok": True}},
-        "final_url": {"type": "string", "example": "http://localhost:3101/api/boards/2/cards"},
+        "final_url": {
+            "type": "string",
+            "example": "http://localhost:3101/api/boards/2/cards",
+        },
         "elapsed_ms": {"type": "number", "example": 123},
         "message": {"type": "string", "example": ""},
     },
@@ -447,7 +513,10 @@ async def living_ui_import_zip(input_data: dict) -> dict:
 )
 def living_ui_http(input_data: dict) -> dict:
     """HTTP request scoped to a registered Living UI project's backend."""
-    import sys, subprocess, importlib, time
+    import sys
+    import subprocess
+    import importlib
+    import time
 
     simulated_mode = input_data.get("simulated_mode", False)
     if simulated_mode:
@@ -472,30 +541,106 @@ def living_ui_http(input_data: dict) -> dict:
     timeout = float(input_data.get("timeout", 30))
 
     if not project_id:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": "project_id is required."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": "project_id is required.",
+        }
     if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": "Unsupported method."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": "Unsupported method.",
+        }
     if not path or not path.startswith("/"):
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": "path must start with '/' (e.g., '/api/items'). Do not include scheme or host."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": "path must start with '/' (e.g., '/api/items'). Do not include scheme or host.",
+        }
     if json_body is not None and data_body is not None:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": "Provide either json or data, not both."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": "Provide either json or data, not both.",
+        }
     if not isinstance(headers, dict) or not isinstance(params, dict):
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": "headers and params must be objects."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": "headers and params must be objects.",
+        }
 
     try:
         from app.living_ui import get_living_ui_manager
     except Exception as e:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": f"Living UI manager unavailable: {e}"}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": f"Living UI manager unavailable: {e}",
+        }
 
     manager = get_living_ui_manager()
     if not manager:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": "Living UI manager not initialized."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": "Living UI manager not initialized.",
+        }
 
-    project = manager.get_project(project_id) if hasattr(manager, "get_project") else manager.projects.get(project_id)
+    project = (
+        manager.get_project(project_id)
+        if hasattr(manager, "get_project")
+        else manager.projects.get(project_id)
+    )
     if not project:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": f"Project '{project_id}' not found."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": f"Project '{project_id}' not found.",
+        }
     if project.status != "running":
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": f"Project '{project_id}' is not running (status: {project.status}). Launch it first."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": f"Project '{project_id}' is not running (status: {project.status}). Launch it first.",
+        }
 
     base_url = project.backend_url if target == "backend" else project.url
     if not base_url:
@@ -504,19 +649,34 @@ def living_ui_http(input_data: dict) -> dict:
         if port:
             base_url = f"http://localhost:{port}"
     if not base_url:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": "", "elapsed_ms": 0, "message": f"Project '{project_id}' has no {target} URL/port."}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": "",
+            "elapsed_ms": 0,
+            "message": f"Project '{project_id}' has no {target} URL/port.",
+        }
 
     url = base_url.rstrip("/") + path
 
     try:
         importlib.import_module("requests")
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "--quiet"])
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "requests", "--quiet"]
+        )
     import requests
 
     headers = {str(k): str(v) for k, v in headers.items()}
     params = {str(k): str(v) for k, v in params.items()}
-    kwargs = {"headers": headers, "params": params, "timeout": timeout, "allow_redirects": True}
+    kwargs = {
+        "headers": headers,
+        "params": params,
+        "timeout": timeout,
+        "allow_redirects": True,
+    }
     if json_body is not None:
         kwargs["json"] = json_body
     elif data_body is not None:
@@ -550,10 +710,19 @@ def living_ui_http(input_data: dict) -> dict:
         if resp.ok and method in {"POST", "PUT", "PATCH", "DELETE"}:
             try:
                 from app.living_ui import dispatch_living_ui_data_changed
+
                 dispatch_living_ui_data_changed(project_id)
             except Exception:
                 pass
 
         return out
     except Exception as e:
-        return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": url, "elapsed_ms": 0, "message": str(e)}
+        return {
+            "status": "error",
+            "status_code": 0,
+            "response_headers": {},
+            "body": "",
+            "final_url": url,
+            "elapsed_ms": 0,
+            "message": str(e),
+        }

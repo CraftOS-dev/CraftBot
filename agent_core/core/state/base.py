@@ -193,6 +193,7 @@ def get_state_or_none() -> Optional["StateProvider"]:
 # Session-specific state access (for multi-task isolation)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def get_session(session_id: str) -> "StateSession":
     """
     Get state for a specific session by ID.
@@ -219,6 +220,7 @@ def get_session(session_id: str) -> "StateSession":
             # ... use session-specific state
     """
     from agent_core.core.state.session import StateSession
+
     return StateSession.get(session_id)
 
 
@@ -248,4 +250,5 @@ def get_session_or_none(session_id: Optional[str]) -> Optional["StateSession"]:
                 event_stream = get_state().event_stream
     """
     from agent_core.core.state.session import StateSession
+
     return StateSession.get_or_none(session_id)

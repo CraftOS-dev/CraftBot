@@ -9,32 +9,32 @@ from agent_core import action
         "frequency": {
             "type": "string",
             "description": "Filter by frequency: 'all', 'hourly', 'daily', 'weekly', 'monthly'. Use 'all' to get all tasks.",
-            "example": "daily"
+            "example": "daily",
         },
         "enabled_only": {
             "type": "boolean",
             "description": "Only return enabled tasks. Default is true.",
-            "example": True
-        }
+            "example": True,
+        },
     },
     output_schema={
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
         "tasks": {
             "type": "array",
-            "description": "List of recurring task objects with id, name, frequency, instruction, enabled, priority, permission_tier, last_run, next_run, run_count"
+            "description": "List of recurring task objects with id, name, frequency, instruction, enabled, priority, permission_tier, last_run, next_run, run_count",
         },
         "planner_outputs": {
             "type": "object",
-            "description": "Current planner outputs (day, week, month)"
+            "description": "Current planner outputs (day, week, month)",
         },
         "total_count": {
             "type": "integer",
-            "description": "Total number of tasks (before filtering)"
-        }
-    }
+            "description": "Total number of tasks (before filtering)",
+        },
+    },
 )
 def recurring_read(input_data: dict) -> dict:
     """Read recurring tasks from PROACTIVE.md."""
@@ -42,10 +42,7 @@ def recurring_read(input_data: dict) -> dict:
 
     manager = get_proactive_manager()
     if manager is None:
-        return {
-            "status": "error",
-            "error": "Proactive manager not initialized"
-        }
+        return {"status": "error", "error": "Proactive manager not initialized"}
 
     try:
         frequency = input_data.get("frequency", "all")
@@ -92,7 +89,7 @@ def recurring_read(input_data: dict) -> dict:
                     {
                         "timestamp": o.timestamp.isoformat(),
                         "result": o.result,
-                        "success": o.success
+                        "success": o.success,
                     }
                     for o in task.outcome_history[-3:]  # Last 3 outcomes
                 ]
@@ -103,11 +100,8 @@ def recurring_read(input_data: dict) -> dict:
             "tasks": task_list,
             "planner_outputs": manager.data.planner_outputs,
             "total_count": total_count,
-            "filtered_count": len(task_list)
+            "filtered_count": len(task_list),
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

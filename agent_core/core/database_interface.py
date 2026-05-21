@@ -57,7 +57,9 @@ class DatabaseInterface:
         # Log action count
         actions = registry_instance.list_all_actions_as_json()
         action_names = [a.get("name") for a in actions if a.get("name")]
-        logger.info(f"Action registry loaded. {len(action_names)} actions available: [{', '.join(sorted(action_names))}]")
+        logger.info(
+            f"Action registry loaded. {len(action_names)} actions available: [{', '.join(sorted(action_names))}]"
+        )
 
     # ------------------------------------------------------------------
     # Action definitions (filesystem + Chroma)
@@ -86,7 +88,9 @@ class DatabaseInterface:
         action_dict["updatedAt"] = datetime.datetime.utcnow().isoformat()
         file_name = self._sanitize_action_filename(action_dict["name"])
         path = self.actions_dir / file_name
-        path.write_text(json.dumps(action_dict, indent=2, default=str), encoding="utf-8")
+        path.write_text(
+            json.dumps(action_dict, indent=2, default=str), encoding="utf-8"
+        )
 
     def list_actions(
         self,
@@ -155,7 +159,9 @@ class DatabaseInterface:
         except Exception:
             existing = {}
         existing[key] = {**existing.get(key, {}), **info}
-        self.agent_info_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+        self.agent_info_path.write_text(
+            json.dumps(existing, indent=2), encoding="utf-8"
+        )
 
     def get_agent_info(self, key: str = "singleton") -> Optional[Dict[str, Any]]:
         """
@@ -176,7 +182,9 @@ class DatabaseInterface:
     # ------------------------------------------------------------------
     # Task documents (filesystem + Chroma)
     # ------------------------------------------------------------------
-    def _extract_task_document_metadata(self, raw_text: str, fallback_name: str) -> tuple[str, str]:
+    def _extract_task_document_metadata(
+        self, raw_text: str, fallback_name: str
+    ) -> tuple[str, str]:
         name: Optional[str] = None
         description: Optional[str] = None
         for line in raw_text.splitlines():
@@ -194,7 +202,9 @@ class DatabaseInterface:
         if not name:
             name = fallback_name
         if not description:
-            first_para = next((blk.strip() for blk in raw_text.split("\n\n") if blk.strip()), "")
+            first_para = next(
+                (blk.strip() for blk in raw_text.split("\n\n") if blk.strip()), ""
+            )
             description = first_para[:400]
         return name, description
 
@@ -207,7 +217,9 @@ class DatabaseInterface:
                 logger.warning(f"[TASKDOC LOAD] Failed to read {path}: {exc}")
                 continue
 
-            name, description = self._extract_task_document_metadata(raw_text, path.stem)
+            name, description = self._extract_task_document_metadata(
+                raw_text, path.stem
+            )
             docs.append(
                 {
                     "task_id": path.stem,

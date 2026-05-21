@@ -12,14 +12,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agent_core.utils.logger import logger
-from agent_core.core.impl.mcp.config import MCPConfig, MCPServerConfig
+from agent_core.core.impl.mcp.config import MCPConfig
 from agent_core.core.impl.mcp.server import MCPServerConnection, MCPTool
 
 
 def _default_config_path() -> Path:
     """Resolve MCP config path relative to the correct base directory."""
     rel = Path("app") / "config" / "mcp_config.json"
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # Prefer CWD (bootstrapped, user-editable) over _MEIPASS (bundled)
         cwd_path = Path.cwd() / rel
         if cwd_path.exists():
@@ -99,6 +99,7 @@ class MCPClient:
         except Exception as e:
             logger.error(f"[MCP] Failed to load MCP config from {config_path}: {e}")
             import traceback
+
             logger.debug(f"[MCP] Traceback: {traceback.format_exc()}")
             self._config = MCPConfig()
             return
@@ -118,22 +119,33 @@ class MCPClient:
             logger.info("No enabled MCP servers to connect")
             return
 
-        logger.info(f"Connecting to {len(enabled_servers)} MCP server(s) in parallel...")
+        logger.info(
+            f"Connecting to {len(enabled_servers)} MCP server(s) in parallel..."
+        )
 
         async def connect_with_logging(server):
             """Connect to a single server with logging."""
             try:
-                logger.info(f"[MCP] Connecting to '{server.name}' ({server.transport}): {server.command} {server.args}")
+                logger.info(
+                    f"[MCP] Connecting to '{server.name}' ({server.transport}): {server.command} {server.args}"
+                )
                 result = await self.connect_server(server.name)
                 if result:
                     tools = self._servers[server.name].tools
-                    logger.info(f"[MCP] Successfully connected to '{server.name}' with {len(tools)} tools")
+                    logger.info(
+                        f"[MCP] Successfully connected to '{server.name}' with {len(tools)} tools"
+                    )
                 else:
-                    logger.warning(f"[MCP] Failed to connect to '{server.name}' - check server configuration")
+                    logger.warning(
+                        f"[MCP] Failed to connect to '{server.name}' - check server configuration"
+                    )
                 return result
             except Exception as e:
                 import traceback
-                logger.error(f"[MCP] Exception connecting to '{server.name}': {type(e).__name__}: {e}")
+
+                logger.error(
+                    f"[MCP] Exception connecting to '{server.name}': {type(e).__name__}: {e}"
+                )
                 logger.debug(f"[MCP] Traceback: {traceback.format_exc()}")
                 return False
 
@@ -255,6 +267,7 @@ class MCPClient:
         if result.get("status") != "error":
             try:
                 from app.ui_layer.metrics.collector import MetricsCollector
+
                 collector = MetricsCollector.get_instance()
                 if collector:
                     collector.record_mcp_tool_call(tool_name, server_name)
@@ -295,7 +308,9 @@ class MCPClient:
 
         for server_name, server in self._servers.items():
             if not server.is_connected:
-                logger.warning(f"[MCP] Server '{server_name}' is not connected, skipping tool registration")
+                logger.warning(
+                    f"[MCP] Server '{server_name}' is not connected, skipping tool registration"
+                )
                 continue
 
             if not server.tools:
@@ -374,7 +389,9 @@ class MCPClient:
         # Reload configuration
         try:
             new_config = MCPConfig.load(config_path)
-            logger.info(f"[MCP] Reloaded config with {len(new_config.mcp_servers)} server(s)")
+            logger.info(
+                f"[MCP] Reloaded config with {len(new_config.mcp_servers)} server(s)"
+            )
         except Exception as e:
             logger.error(f"[MCP] Failed to reload config: {e}")
             result["success"] = False
@@ -391,7 +408,9 @@ class MCPClient:
             try:
                 await self.disconnect_server(server_name)
                 result["disconnected"].append(server_name)
-                logger.info(f"[MCP] Disconnected server '{server_name}' (no longer enabled)")
+                logger.info(
+                    f"[MCP] Disconnected server '{server_name}' (no longer enabled)"
+                )
             except Exception as e:
                 logger.warning(f"[MCP] Error disconnecting '{server_name}': {e}")
 

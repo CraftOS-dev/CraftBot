@@ -33,8 +33,13 @@ os.environ.setdefault("GUI_MODE_ENABLED", "False")
 from agent_core import StateRegistry, ConfigRegistry  # noqa: E402
 from app.state.agent_state import STATE  # noqa: E402
 from app.config import (  # noqa: E402
-    get_project_root, get_llm_provider, get_api_key, get_base_url, get_llm_model,
-    get_vlm_provider, get_vlm_model,
+    get_project_root,
+    get_llm_provider,
+    get_api_key,
+    get_base_url,
+    get_llm_model,
+    get_vlm_provider,
+    get_vlm_model,
 )
 
 StateRegistry.register(lambda: STATE)
@@ -135,12 +140,14 @@ async def run_scenario(
     so the test can pull ``owner_phone`` / ``owner_email`` / etc.
     """
     entry_modes = sum(
-        1 for x in (
+        1
+        for x in (
             user_message,
             incoming_event,
             wait_for_incoming or None,
             expect_no_incoming or None,
-        ) if x is not None
+        )
+        if x is not None
     )
     if entry_modes != 1:
         raise ValueError(
@@ -186,6 +193,7 @@ async def run_scenario(
     agent.event_stream_manager.clear_all()
     try:
         from app.usage.session_storage import get_session_storage
+
         get_session_storage().clear_all()
     except Exception:
         pass
@@ -203,14 +211,18 @@ async def run_scenario(
                     status = client.get_session_status()
                     if asyncio.iscoroutine(status):
                         status = await status
-                    if isinstance(status, dict) and (status.get("ready") or status.get("ok")):
+                    if isinstance(status, dict) and (
+                        status.get("ready") or status.get("ok")
+                    ):
                         bridge_statuses[pid] = status
                         break
                 except Exception:
                     pass
                 await asyncio.sleep(1.0)
             else:
-                pytest.fail(f"integration {pid!r} never became ready in {ready_timeout}s.")
+                pytest.fail(
+                    f"integration {pid!r} never became ready in {ready_timeout}s."
+                )
 
         # Production entry point — chat, synthesized external, or real
         # bridge-driven external (wait for on-message to fire).
@@ -256,12 +268,16 @@ async def run_scenario(
         # short grace window.
         for _ in range(max_iterations):
             deadline = asyncio.get_event_loop().time() + 1.5
-            while not agent.triggers._heap and asyncio.get_event_loop().time() < deadline:
+            while (
+                not agent.triggers._heap and asyncio.get_event_loop().time() < deadline
+            ):
                 await asyncio.sleep(0.1)
             if not agent.triggers._heap:
                 break
             try:
-                trig = await asyncio.wait_for(agent.triggers.get(), timeout=per_iter_timeout)
+                trig = await asyncio.wait_for(
+                    agent.triggers.get(), timeout=per_iter_timeout
+                )
             except asyncio.TimeoutError:
                 break
             await agent.react(trig)

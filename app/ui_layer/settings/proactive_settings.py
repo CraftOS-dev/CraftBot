@@ -6,7 +6,6 @@ that can be used by any interface adapter (Browser, TUI, CLI).
 
 import json
 import shutil
-from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 from app.config import (
@@ -24,6 +23,7 @@ SCHEDULER_CONFIG_PATH = PROJECT_ROOT / "app" / "config" / "scheduler_config.json
 # ─────────────────────────────────────────────────────────────────────
 # Proactive Mode Control
 # ─────────────────────────────────────────────────────────────────────
+
 
 def _load_settings() -> Dict[str, Any]:
     """Load settings from settings.json."""
@@ -66,15 +66,9 @@ def get_proactive_mode() -> Dict[str, Any]:
     """
     try:
         enabled = is_proactive_enabled()
-        return {
-            "success": True,
-            "enabled": enabled
-        }
+        return {"success": True, "enabled": enabled}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to get proactive mode: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to get proactive mode: {str(e)}"}
 
 
 def set_proactive_mode(enabled: bool) -> Dict[str, Any]:
@@ -97,15 +91,13 @@ def set_proactive_mode(enabled: bool) -> Dict[str, Any]:
         else:
             return {"success": False, "error": "Failed to save settings"}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to set proactive mode: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to set proactive mode: {str(e)}"}
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Scheduler Configuration
 # ─────────────────────────────────────────────────────────────────────
+
 
 def get_scheduler_config() -> Dict[str, Any]:
     """Get the current scheduler configuration.
@@ -115,23 +107,14 @@ def get_scheduler_config() -> Dict[str, Any]:
     """
     try:
         if not SCHEDULER_CONFIG_PATH.exists():
-            return {
-                "success": False,
-                "error": "Scheduler config not found"
-            }
+            return {"success": False, "error": "Scheduler config not found"}
 
         with open(SCHEDULER_CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
 
-        return {
-            "success": True,
-            "config": config
-        }
+        return {"success": True, "config": config}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to read scheduler config: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to read scheduler config: {str(e)}"}
 
 
 def update_scheduler_config(updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -147,10 +130,7 @@ def update_scheduler_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         if not SCHEDULER_CONFIG_PATH.exists():
-            return {
-                "success": False,
-                "error": "Scheduler config not found"
-            }
+            return {"success": False, "error": "Scheduler config not found"}
 
         # Read current config
         with open(SCHEDULER_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -177,7 +157,7 @@ def update_scheduler_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to update scheduler config: {str(e)}"
+            "error": f"Failed to update scheduler config: {str(e)}",
         }
 
 
@@ -191,17 +171,13 @@ def toggle_schedule(schedule_id: str, enabled: bool) -> Dict[str, Any]:
     Returns:
         Dict with 'success' and optional 'error' fields
     """
-    return update_scheduler_config({
-        "schedule_updates": {
-            schedule_id: {"enabled": enabled}
-        }
-    })
+    return update_scheduler_config(
+        {"schedule_updates": {schedule_id: {"enabled": enabled}}}
+    )
 
 
 async def toggle_schedule_runtime(
-    scheduler_manager,
-    schedule_id: str,
-    enabled: bool
+    scheduler_manager, schedule_id: str, enabled: bool
 ) -> Dict[str, Any]:
     """Toggle a schedule in both config and runtime.
 
@@ -230,7 +206,7 @@ async def toggle_schedule_runtime(
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Config updated but runtime toggle failed: {str(e)}"
+                "error": f"Config updated but runtime toggle failed: {str(e)}",
             }
 
     return {"success": True}
@@ -239,6 +215,7 @@ async def toggle_schedule_runtime(
 # ─────────────────────────────────────────────────────────────────────
 # Recurring Tasks
 # ─────────────────────────────────────────────────────────────────────
+
 
 def get_recurring_tasks(
     proactive_manager,
@@ -256,15 +233,11 @@ def get_recurring_tasks(
         Dict with 'success', 'tasks' or 'error' fields
     """
     if not proactive_manager:
-        return {
-            "success": False,
-            "error": "Proactive manager not initialized"
-        }
+        return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
         tasks = proactive_manager.get_tasks(
-            frequency=frequency,
-            enabled_only=enabled_only
+            frequency=frequency, enabled_only=enabled_only
         )
 
         # Convert to serializable format
@@ -288,7 +261,7 @@ def get_recurring_tasks(
                 "conditions": [
                     {
                         "type": c.type,
-                        **c.params  # Include all params from the condition
+                        **c.params,  # Include all params from the condition
                     }
                     for c in (task.conditions or [])
                 ],
@@ -297,22 +270,16 @@ def get_recurring_tasks(
                     {
                         "timestamp": o.timestamp.isoformat(),
                         "result": o.result,
-                        "success": o.success
+                        "success": o.success,
                     }
                     for o in (task.outcome_history or [])[-5:]  # Last 5 outcomes
-                ]
+                ],
             }
             tasks_data.append(task_dict)
 
-        return {
-            "success": True,
-            "tasks": tasks_data
-        }
+        return {"success": True, "tasks": tasks_data}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to get recurring tasks: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to get recurring tasks: {str(e)}"}
 
 
 def add_recurring_task(
@@ -326,7 +293,7 @@ def add_recurring_task(
     priority: int = 50,
     permission_tier: int = 0,
     enabled: bool = True,
-    conditions: Optional[List[Dict[str, Any]]] = None
+    conditions: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Add a new recurring task.
 
@@ -347,10 +314,7 @@ def add_recurring_task(
         Dict with 'success', 'task' or 'error' fields
     """
     if not proactive_manager:
-        return {
-            "success": False,
-            "error": "Proactive manager not initialized"
-        }
+        return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
         task = proactive_manager.add_task(
@@ -363,7 +327,7 @@ def add_recurring_task(
             priority=priority,
             permission_tier=permission_tier,
             enabled=enabled,
-            conditions=conditions
+            conditions=conditions,
         )
 
         return {
@@ -373,25 +337,17 @@ def add_recurring_task(
                 "name": task.name,
                 "frequency": task.frequency,
                 "instruction": task.instruction,
-                "enabled": task.enabled
-            }
+                "enabled": task.enabled,
+            },
         }
     except ValueError as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to add recurring task: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to add recurring task: {str(e)}"}
 
 
 def update_recurring_task(
-    proactive_manager,
-    task_id: str,
-    updates: Dict[str, Any]
+    proactive_manager, task_id: str, updates: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Update an existing recurring task.
 
@@ -404,10 +360,7 @@ def update_recurring_task(
         Dict with 'success' or 'error' fields
     """
     if not proactive_manager:
-        return {
-            "success": False,
-            "error": "Proactive manager not initialized"
-        }
+        return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
         task = proactive_manager.update_task(task_id, updates=updates)
@@ -420,19 +373,13 @@ def update_recurring_task(
                     "name": task.name,
                     "frequency": task.frequency,
                     "instruction": task.instruction,
-                    "enabled": task.enabled
-                }
+                    "enabled": task.enabled,
+                },
             }
         else:
-            return {
-                "success": False,
-                "error": f"Task not found: {task_id}"
-            }
+            return {"success": False, "error": f"Task not found: {task_id}"}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to update recurring task: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to update recurring task: {str(e)}"}
 
 
 def remove_recurring_task(proactive_manager, task_id: str) -> Dict[str, Any]:
@@ -446,10 +393,7 @@ def remove_recurring_task(proactive_manager, task_id: str) -> Dict[str, Any]:
         Dict with 'success' or 'error' fields
     """
     if not proactive_manager:
-        return {
-            "success": False,
-            "error": "Proactive manager not initialized"
-        }
+        return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
         removed = proactive_manager.remove_task(task_id)
@@ -457,21 +401,13 @@ def remove_recurring_task(proactive_manager, task_id: str) -> Dict[str, Any]:
         if removed:
             return {"success": True}
         else:
-            return {
-                "success": False,
-                "error": f"Task not found: {task_id}"
-            }
+            return {"success": False, "error": f"Task not found: {task_id}"}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to remove recurring task: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to remove recurring task: {str(e)}"}
 
 
 def toggle_recurring_task(
-    proactive_manager,
-    task_id: str,
-    enabled: bool
+    proactive_manager, task_id: str, enabled: bool
 ) -> Dict[str, Any]:
     """Toggle a recurring task on/off.
 
@@ -497,10 +433,7 @@ def reset_recurring_tasks() -> Dict[str, Any]:
 
     try:
         if not template_path.exists():
-            return {
-                "success": False,
-                "error": "PROACTIVE.md template not found"
-            }
+            return {"success": False, "error": "PROACTIVE.md template not found"}
 
         # Copy template to target
         shutil.copy(template_path, target_path)
@@ -508,15 +441,9 @@ def reset_recurring_tasks() -> Dict[str, Any]:
         # Read restored content
         content = target_path.read_text(encoding="utf-8")
 
-        return {
-            "success": True,
-            "content": content
-        }
+        return {"success": True, "content": content}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to reset recurring tasks: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to reset recurring tasks: {str(e)}"}
 
 
 def reload_proactive_manager(proactive_manager) -> Dict[str, Any]:
@@ -531,10 +458,7 @@ def reload_proactive_manager(proactive_manager) -> Dict[str, Any]:
         Dict with 'success' or 'error' fields
     """
     if not proactive_manager:
-        return {
-            "success": False,
-            "error": "Proactive manager not initialized"
-        }
+        return {"success": False, "error": "Proactive manager not initialized"}
 
     try:
         proactive_manager.load()
@@ -542,5 +466,5 @@ def reload_proactive_manager(proactive_manager) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to reload proactive manager: {str(e)}"
+            "error": f"Failed to reload proactive manager: {str(e)}",
         }

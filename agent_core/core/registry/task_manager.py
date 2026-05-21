@@ -33,6 +33,7 @@ class TaskManagerRegistry(ComponentRegistry["TaskManagerProtocol"]):
     Each project (CraftBot, CraftBot) registers their task
     manager at startup. Shared code uses get() to access the manager.
     """
+
     pass
 
 

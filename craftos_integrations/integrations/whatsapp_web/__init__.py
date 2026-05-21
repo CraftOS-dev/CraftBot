@@ -6,6 +6,7 @@ The QR session helpers (``start_qr_session`` / ``check_qr_session_status``
 UIs (web settings page, etc.) that need to poll instead of awaiting the
 QR scan synchronously.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,6 +47,7 @@ class WhatsAppWebCredential:
 @dataclass
 class WhatsAppWebConfig:
     """Runtime knobs persisted to ``whatsapp_web_config.json``."""
+
     # When True, only forward messages the owner sent to themselves
     # (self-chat). All other incoming messages — DMs from contacts, group
     # chats — are dropped before reaching the agent. Useful when the user
@@ -71,6 +73,7 @@ def _whatsapp_web_config_file() -> str:
 # Handler
 # ════════════════════════════════════════════════════════════════════════
 
+
 @register_handler(WHATSAPP_WEB.name)
 class WhatsAppWebHandler(IntegrationHandler):
     spec = WHATSAPP_WEB
@@ -79,9 +82,13 @@ class WhatsAppWebHandler(IntegrationHandler):
     auth_type = "interactive"
     config_class = WhatsAppWebConfig
     config_fields = [
-        {"key": "self_messages_only", "label": "Self-messages only", "type": "checkbox",
-         "help": "Only forward messages you send to yourself (the WhatsApp self-chat). "
-                 "Drops incoming DMs and group messages before they reach the agent."},
+        {
+            "key": "self_messages_only",
+            "label": "Self-messages only",
+            "type": "checkbox",
+            "help": "Only forward messages you send to yourself (the WhatsApp self-chat). "
+            "Drops incoming DMs and group messages before they reach the agent.",
+        },
     ]
     icon = "whatsapp"
     fields: List = []
@@ -94,7 +101,10 @@ class WhatsAppWebHandler(IntegrationHandler):
         try:
             from ._bridge_client import get_whatsapp_bridge
         except ImportError:
-            return False, "WhatsApp bridge not available. Ensure Node.js >= 18 is installed."
+            return (
+                False,
+                "WhatsApp bridge not available. Ensure Node.js >= 18 is installed.",
+            )
 
         bridge = get_whatsapp_bridge()
         if not bridge.is_running:
@@ -108,9 +118,14 @@ class WhatsAppWebHandler(IntegrationHandler):
         if event_type == "ready":
             owner_phone = bridge.owner_phone or ""
             owner_name = bridge.owner_name or ""
-            save_credential(self.spec.cred_file, WhatsAppWebCredential(
-                session_id="bridge", owner_phone=owner_phone, owner_name=owner_name,
-            ))
+            save_credential(
+                self.spec.cred_file,
+                WhatsAppWebCredential(
+                    session_id="bridge",
+                    owner_phone=owner_phone,
+                    owner_name=owner_name,
+                ),
+            )
             display = owner_phone or owner_name or "connected"
             return True, f"WhatsApp Web connected: +{display}"
 
@@ -119,13 +134,19 @@ class WhatsAppWebHandler(IntegrationHandler):
             if qr_string:
                 try:
                     import qrcode
+
                     qr = qrcode.QRCode(border=1)
                     qr.add_data(qr_string)
                     qr.make(fit=True)
                     matrix = qr.get_matrix()
-                    lines = ["".join("##" if cell else "  " for cell in row) for row in matrix]
+                    lines = [
+                        "".join("##" if cell else "  " for cell in row)
+                        for row in matrix
+                    ]
                     sys.stderr.write("\n" + "\n".join(lines) + "\n\n")
-                    sys.stderr.write("Scan the QR code above with WhatsApp on your phone\n\n")
+                    sys.stderr.write(
+                        "Scan the QR code above with WhatsApp on your phone\n\n"
+                    )
                     sys.stderr.flush()
                 except Exception:
                     pass
@@ -133,6 +154,7 @@ class WhatsAppWebHandler(IntegrationHandler):
             qr_data_url = (event_data or {}).get("qr_data_url")
             if qr_data_url:
                 import base64 as b64
+
                 qr_b64 = qr_data_url
                 if qr_b64.startswith("data:image"):
                     qr_b64 = qr_b64.split(",", 1)[1]
@@ -143,17 +165,28 @@ class WhatsAppWebHandler(IntegrationHandler):
 
             ready = await bridge.wait_for_ready(timeout=120.0)
             if not ready:
-                return False, "Timed out waiting for QR scan. Run /whatsapp_web login again."
+                return (
+                    False,
+                    "Timed out waiting for QR scan. Run /whatsapp_web login again.",
+                )
 
             owner_phone = bridge.owner_phone or ""
             owner_name = bridge.owner_name or ""
-            save_credential(self.spec.cred_file, WhatsAppWebCredential(
-                session_id="bridge", owner_phone=owner_phone, owner_name=owner_name,
-            ))
+            save_credential(
+                self.spec.cred_file,
+                WhatsAppWebCredential(
+                    session_id="bridge",
+                    owner_phone=owner_phone,
+                    owner_name=owner_name,
+                ),
+            )
             display = owner_phone or owner_name or "connected"
             return True, f"WhatsApp Web connected: +{display}"
 
-        return False, "Timed out waiting for WhatsApp bridge. Run /whatsapp_web login again."
+        return (
+            False,
+            "Timed out waiting for WhatsApp bridge. Run /whatsapp_web login again.",
+        )
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
         if not has_credential(self.spec.cred_file):
@@ -161,6 +194,7 @@ class WhatsAppWebHandler(IntegrationHandler):
         remove_credential(self.spec.cred_file)
         try:
             from ._bridge_client import get_whatsapp_bridge
+
             bridge = get_whatsapp_bridge()
             # ``logout()`` (not ``stop()``) — calls wwebjs's ``client.logout()``
             # which invalidates the session server-side and wipes the LocalAuth
@@ -175,11 +209,15 @@ class WhatsAppWebHandler(IntegrationHandler):
                 import shutil
                 from pathlib import Path
                 from ...config import ConfigStore
+
                 shutil.rmtree(
-                    Path(ConfigStore.project_root) / ".credentials" / "whatsapp_wwebjs_auth",
+                    Path(ConfigStore.project_root)
+                    / ".credentials"
+                    / "whatsapp_wwebjs_auth",
                     ignore_errors=True,
                 )
             from ...manager import get_external_comms_manager
+
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -202,6 +240,7 @@ class WhatsAppWebHandler(IntegrationHandler):
 # ════════════════════════════════════════════════════════════════════════
 # Client
 # ════════════════════════════════════════════════════════════════════════
+
 
 @register_client
 class WhatsAppWebClient(BasePlatformClient):
@@ -230,7 +269,9 @@ class WhatsAppWebClient(BasePlatformClient):
         if self._cred is None:
             self._cred = load_credential(self.spec.cred_file, WhatsAppWebCredential)
         if self._cred is None:
-            raise RuntimeError("No WhatsApp Web credentials found. Please log in first.")
+            raise RuntimeError(
+                "No WhatsApp Web credentials found. Please log in first."
+            )
         return self._cred
 
     @property
@@ -240,6 +281,7 @@ class WhatsAppWebClient(BasePlatformClient):
     def _get_bridge(self):
         if self._bridge is None:
             from ._bridge_client import get_whatsapp_bridge
+
             self._bridge = get_whatsapp_bridge()
         return self._bridge
 
@@ -250,7 +292,9 @@ class WhatsAppWebClient(BasePlatformClient):
         if not bridge.is_ready:
             ready = await bridge.wait_for_ready(timeout=120.0)
             if not ready:
-                raise RuntimeError("WhatsApp bridge did not become ready within timeout")
+                raise RuntimeError(
+                    "WhatsApp bridge did not become ready within timeout"
+                )
         self._connected = True
 
     async def disconnect(self) -> None:
@@ -278,13 +322,21 @@ class WhatsAppWebClient(BasePlatformClient):
             self._agent_sent_ids.add(msg_id)
         return {"status": "success" if result.get("success") else "error", **result}
 
-    async def send_media(self, recipient: str, media_path: str,
-                         caption: Optional[str] = None) -> Dict[str, Any]:
+    async def send_media(
+        self, recipient: str, media_path: str, caption: Optional[str] = None
+    ) -> Dict[str, Any]:
         if caption:
-            return await self.send_message(recipient, f"[Media: {media_path}]\n{caption}")
-        return {"status": "error", "error": "Media sending not yet supported via bridge"}
+            return await self.send_message(
+                recipient, f"[Media: {media_path}]\n{caption}"
+            )
+        return {
+            "status": "error",
+            "error": "Media sending not yet supported via bridge",
+        }
 
-    async def get_chat_messages(self, phone_number: str, limit: int = 50) -> Dict[str, Any]:
+    async def get_chat_messages(
+        self, phone_number: str, limit: int = 50
+    ) -> Dict[str, Any]:
         bridge = self._get_bridge()
         if not bridge.is_ready:
             return {"success": False, "error": "Bridge not ready"}
@@ -311,7 +363,10 @@ class WhatsAppWebClient(BasePlatformClient):
             return {"status": "disconnected", "ready": False}
         try:
             result = await bridge.get_status()
-            return {"status": "connected" if result.get("ready") else "waiting", **result}
+            return {
+                "status": "connected" if result.get("ready") else "waiting",
+                **result,
+            }
         except Exception:
             return {"status": "disconnected", "ready": False}
 
@@ -371,7 +426,10 @@ class WhatsAppWebClient(BasePlatformClient):
 
         if bridge.owner_phone or bridge.owner_name:
             cred = self._load()
-            if cred.owner_phone != bridge.owner_phone or cred.owner_name != bridge.owner_name:
+            if (
+                cred.owner_phone != bridge.owner_phone
+                or cred.owner_name != bridge.owner_name
+            ):
                 updated = WhatsAppWebCredential(
                     session_id=cred.session_id,
                     owner_phone=bridge.owner_phone or cred.owner_phone,
@@ -416,7 +474,10 @@ class WhatsAppWebClient(BasePlatformClient):
 
         # Self-chat messages arrive via _handle_sent_message (from_me=True),
         # so when self_messages_only is set we drop everything else here.
-        cfg = load_config(_whatsapp_web_config_file(), WhatsAppWebConfig) or WhatsAppWebConfig()
+        cfg = (
+            load_config(_whatsapp_web_config_file(), WhatsAppWebConfig)
+            or WhatsAppWebConfig()
+        )
         if cfg.self_messages_only:
             return
 
@@ -455,23 +516,30 @@ class WhatsAppWebClient(BasePlatformClient):
             except Exception:
                 ts = datetime.now(tz=timezone.utc)
 
-        await self._message_callback(PlatformMessage(
-            platform=self.PLATFORM_ID,
-            sender_id=sender_id,
-            sender_name=sender_name,
-            text=body,
-            channel_id=chat.get("id", ""),
-            channel_name=chat_name,
-            message_id=msg_id,
-            timestamp=ts,
-            raw={
-                "source": "WhatsApp Web", "integrationType": "whatsapp_web",
-                "is_self_message": False, "is_group": is_group,
-                "contactId": sender_id, "contactName": sender_name,
-                "messageBody": body, "chatId": chat.get("id", ""),
-                "chatName": chat_name, "timestamp": str(timestamp or ""),
-            },
-        ))
+        await self._message_callback(
+            PlatformMessage(
+                platform=self.PLATFORM_ID,
+                sender_id=sender_id,
+                sender_name=sender_name,
+                text=body,
+                channel_id=chat.get("id", ""),
+                channel_name=chat_name,
+                message_id=msg_id,
+                timestamp=ts,
+                raw={
+                    "source": "WhatsApp Web",
+                    "integrationType": "whatsapp_web",
+                    "is_self_message": False,
+                    "is_group": is_group,
+                    "contactId": sender_id,
+                    "contactName": sender_name,
+                    "messageBody": body,
+                    "chatId": chat.get("id", ""),
+                    "chatName": chat_name,
+                    "timestamp": str(timestamp or ""),
+                },
+            )
+        )
 
     async def _handle_sent_message(self, data: Dict[str, Any]) -> None:
         if not self._listening or not self._message_callback:
@@ -503,23 +571,30 @@ class WhatsAppWebClient(BasePlatformClient):
             except Exception:
                 ts = datetime.now(tz=timezone.utc)
 
-        await self._message_callback(PlatformMessage(
-            platform=self.PLATFORM_ID,
-            sender_id=data.get("from", ""),
-            sender_name=chat_name or "Self",
-            text=body,
-            channel_id=chat.get("id", ""),
-            channel_name=chat_name,
-            message_id=msg_id,
-            timestamp=ts,
-            raw={
-                "source": "WhatsApp Web", "integrationType": "whatsapp_web",
-                "is_self_message": True, "is_group": False,
-                "contactId": data.get("from", ""), "contactName": chat_name or "Self",
-                "messageBody": body, "chatId": chat.get("id", ""),
-                "chatName": chat_name, "timestamp": str(timestamp or ""),
-            },
-        ))
+        await self._message_callback(
+            PlatformMessage(
+                platform=self.PLATFORM_ID,
+                sender_id=data.get("from", ""),
+                sender_name=chat_name or "Self",
+                text=body,
+                channel_id=chat.get("id", ""),
+                channel_name=chat_name,
+                message_id=msg_id,
+                timestamp=ts,
+                raw={
+                    "source": "WhatsApp Web",
+                    "integrationType": "whatsapp_web",
+                    "is_self_message": True,
+                    "is_group": False,
+                    "contactId": data.get("from", ""),
+                    "contactName": chat_name or "Self",
+                    "messageBody": body,
+                    "chatId": chat.get("id", ""),
+                    "chatName": chat_name,
+                    "timestamp": str(timestamp or ""),
+                },
+            )
+        )
 
     def _is_mention_for_me(self, text: str) -> bool:
         if "@" not in text:
@@ -553,7 +628,8 @@ async def start_qr_session() -> Dict[str, Any]:
         from ._bridge_client import get_whatsapp_bridge
     except ImportError:
         return {
-            "success": False, "status": "error",
+            "success": False,
+            "status": "error",
             "message": "WhatsApp bridge not available. Ensure Node.js >= 18 is installed.",
         }
 
@@ -566,13 +642,21 @@ async def start_qr_session() -> Dict[str, Any]:
         if event_type == "ready":
             owner_phone = bridge.owner_phone or ""
             owner_name = bridge.owner_name or ""
-            save_credential(WHATSAPP_WEB.cred_file, WhatsAppWebCredential(
-                session_id="bridge", owner_phone=owner_phone, owner_name=owner_name,
-            ))
+            save_credential(
+                WHATSAPP_WEB.cred_file,
+                WhatsAppWebCredential(
+                    session_id="bridge",
+                    owner_phone=owner_phone,
+                    owner_name=owner_name,
+                ),
+            )
             display = owner_phone or owner_name or "connected"
             return {
-                "success": True, "session_id": "bridge", "qr_code": "",
-                "status": "connected", "message": f"WhatsApp already connected: +{display}",
+                "success": True,
+                "session_id": "bridge",
+                "qr_code": "",
+                "status": "connected",
+                "message": f"WhatsApp already connected: +{display}",
             }
 
         if event_type == "qr":
@@ -581,7 +665,10 @@ async def start_qr_session() -> Dict[str, Any]:
                 qr_string = (event_data or {}).get("qr_string", "")
                 if qr_string:
                     try:
-                        import qrcode, io, base64
+                        import qrcode
+                        import io
+                        import base64
+
                         qr = qrcode.QRCode(border=1)
                         qr.add_data(qr_string)
                         qr.make(fit=True)
@@ -594,22 +681,37 @@ async def start_qr_session() -> Dict[str, Any]:
 
             if not qr_data:
                 await bridge.stop()
-                return {"success": False, "status": "error", "message": "Failed to generate QR code."}
+                return {
+                    "success": False,
+                    "status": "error",
+                    "message": "Failed to generate QR code.",
+                }
             if qr_data and not qr_data.startswith("data:"):
                 qr_data = f"data:image/png;base64,{qr_data}"
 
             session_id = "bridge"
             _qr_sessions[session_id] = bridge
             return {
-                "success": True, "session_id": session_id, "qr_code": qr_data,
-                "status": "qr_ready", "message": "Scan the QR code with your WhatsApp mobile app",
+                "success": True,
+                "session_id": session_id,
+                "qr_code": qr_data,
+                "status": "qr_ready",
+                "message": "Scan the QR code with your WhatsApp mobile app",
             }
 
         await bridge.stop()
-        return {"success": False, "status": "error", "message": "Timed out waiting for WhatsApp bridge."}
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Timed out waiting for WhatsApp bridge.",
+        }
     except Exception as e:
         logger.error(f"Failed to start WhatsApp QR session: {e}")
-        return {"success": False, "status": "error", "message": f"Failed to start session: {e}"}
+        return {
+            "success": False,
+            "status": "error",
+            "message": f"Failed to start session: {e}",
+        }
 
 
 async def check_qr_session_status(session_id: str) -> Dict[str, Any]:
@@ -617,22 +719,32 @@ async def check_qr_session_status(session_id: str) -> Dict[str, Any]:
     and starts the platform listener if a manager is running."""
     bridge = _qr_sessions.get(session_id)
     if bridge is None:
-        return {"success": False, "status": "error", "connected": False,
-                "message": "Session not found. Please start a new session."}
+        return {
+            "success": False,
+            "status": "error",
+            "connected": False,
+            "message": "Session not found. Please start a new session.",
+        }
 
     try:
         if bridge.is_ready:
             try:
                 owner_phone = bridge.owner_phone or ""
                 owner_name = bridge.owner_name or ""
-                save_credential(WHATSAPP_WEB.cred_file, WhatsAppWebCredential(
-                    session_id="bridge", owner_phone=owner_phone, owner_name=owner_name,
-                ))
+                save_credential(
+                    WHATSAPP_WEB.cred_file,
+                    WhatsAppWebCredential(
+                        session_id="bridge",
+                        owner_phone=owner_phone,
+                        owner_name=owner_name,
+                    ),
+                )
                 del _qr_sessions[session_id]
 
                 # Best-effort: start the listener if a manager is running.
                 try:
                     from ...manager import get_external_comms_manager
+
                     manager = get_external_comms_manager()
                     if manager:
                         await manager.start_platform(WHATSAPP_WEB.platform_id)
@@ -640,24 +752,44 @@ async def check_qr_session_status(session_id: str) -> Dict[str, Any]:
                     pass
 
                 display = owner_phone or owner_name or "connected"
-                return {"success": True, "status": "connected", "connected": True,
-                        "message": f"WhatsApp connected: +{display}"}
+                return {
+                    "success": True,
+                    "status": "connected",
+                    "connected": True,
+                    "message": f"WhatsApp connected: +{display}",
+                }
             except Exception as e:
                 logger.error(f"Failed to store WhatsApp credential: {e}")
-                return {"success": False, "status": "error", "connected": False,
-                        "message": f"Connected but failed to save: {e}"}
+                return {
+                    "success": False,
+                    "status": "error",
+                    "connected": False,
+                    "message": f"Connected but failed to save: {e}",
+                }
         elif not bridge.is_running:
             if session_id in _qr_sessions:
                 del _qr_sessions[session_id]
-            return {"success": False, "status": "error", "connected": False,
-                    "message": "WhatsApp bridge stopped unexpectedly. Please try again."}
+            return {
+                "success": False,
+                "status": "error",
+                "connected": False,
+                "message": "WhatsApp bridge stopped unexpectedly. Please try again.",
+            }
         else:
-            return {"success": True, "status": "qr_ready", "connected": False,
-                    "message": "Waiting for QR code scan..."}
+            return {
+                "success": True,
+                "status": "qr_ready",
+                "connected": False,
+                "message": "Waiting for QR code scan...",
+            }
     except Exception as e:
         logger.error(f"Failed to check WhatsApp session status: {e}")
-        return {"success": False, "status": "error", "connected": False,
-                "message": f"Status check failed: {e}"}
+        return {
+            "success": False,
+            "status": "error",
+            "connected": False,
+            "message": f"Status check failed: {e}",
+        }
 
 
 def cancel_qr_session(session_id: str) -> Dict[str, Any]:

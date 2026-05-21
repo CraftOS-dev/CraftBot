@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 """Global runtime state for a single-user, single-agent process."""
 
-import json
-import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any, Optional
 from app.state.types import AgentProperties
 from app.task import Task
 from agent_core.core.state.session import StateSession
+
 
 @dataclass
 class AgentState:
@@ -16,7 +15,9 @@ class AgentState:
     current_task: Optional[Task] = None
     event_stream: Optional[str] = None
     gui_mode: bool = False
-    agent_properties: AgentProperties = AgentProperties(current_task_id="", action_count=0)
+    agent_properties: AgentProperties = AgentProperties(
+        current_task_id="", action_count=0
+    )
     # UI event bus reference, set by the interface at boot so module-level
     # hooks (e.g. _report_usage) can emit UI events without holding a
     # controller handle. Typed Any to avoid pulling ui_layer into state.
@@ -65,6 +66,7 @@ class AgentState:
         Retrieves all global agent properties.
         """
         return self.agent_properties.to_dict()
+
 
 # ---- Global runtime state ----
 STATE = AgentState()

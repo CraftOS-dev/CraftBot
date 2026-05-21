@@ -72,7 +72,9 @@ class MCPTransport(ABC):
         pass
 
     @abstractmethod
-    async def send_request(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    async def send_request(
+        self, method: str, params: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """Send a JSON-RPC request and return the response."""
         pass
 
@@ -121,14 +123,16 @@ class StdioTransport(MCPTransport):
             return resolved
 
         # Try common extensions on Windows
-        for ext in ['.cmd', '.bat', '.exe', '']:
+        for ext in [".cmd", ".bat", ".exe", ""]:
             resolved = shutil.which(command + ext)
             if resolved:
                 logger.debug(f"[StdioTransport] Resolved '{command}' to '{resolved}'")
                 return resolved
 
         # Return original command if not found (will likely fail later)
-        logger.warning(f"[StdioTransport] Could not resolve command '{command}' in PATH")
+        logger.warning(
+            f"[StdioTransport] Could not resolve command '{command}' in PATH"
+        )
         return command
 
     async def connect(self) -> bool:
@@ -141,22 +145,30 @@ class StdioTransport(MCPTransport):
             # Resolve command path, especially for Windows
             command = self._resolve_command(self.command)
 
-            logger.info(f"[StdioTransport] Starting subprocess: {command} {' '.join(self.args)}")
+            logger.info(
+                f"[StdioTransport] Starting subprocess: {command} {' '.join(self.args)}"
+            )
 
             # Start the subprocess
             try:
                 if sys.platform == "win32":
                     # On Windows, use shell=True to properly resolve commands like npx
                     # This allows Windows to find npx.cmd in PATH
-                    full_command = f'"{command}" ' + ' '.join(f'"{arg}"' for arg in self.args)
-                    logger.debug(f"[StdioTransport] Windows shell command: {full_command}")
+                    full_command = f'"{command}" ' + " ".join(
+                        f'"{arg}"' for arg in self.args
+                    )
+                    logger.debug(
+                        f"[StdioTransport] Windows shell command: {full_command}"
+                    )
                     self._process = await asyncio.create_subprocess_shell(
                         full_command,
                         stdin=asyncio.subprocess.PIPE,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         env=full_env,
-                        limit=10 * 1024 * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
+                        limit=10
+                        * 1024
+                        * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
                     )
                 else:
                     self._process = await asyncio.create_subprocess_exec(
@@ -166,41 +178,53 @@ class StdioTransport(MCPTransport):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         env=full_env,
-                        limit=10 * 1024 * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
+                        limit=10
+                        * 1024
+                        * 1024,  # 10MB limit for large MCP responses (e.g., screenshots)
                     )
             except FileNotFoundError as e:
-                logger.error(f"[StdioTransport] Command not found: '{command}'. Make sure it is installed and in PATH. Error: {e}")
+                logger.error(
+                    f"[StdioTransport] Command not found: '{command}'. Make sure it is installed and in PATH. Error: {e}"
+                )
                 return False
             except Exception as e:
-                logger.error(f"[StdioTransport] Failed to start subprocess: {type(e).__name__}: {e}")
+                logger.error(
+                    f"[StdioTransport] Failed to start subprocess: {type(e).__name__}: {e}"
+                )
                 return False
 
-            logger.debug(f"[StdioTransport] Subprocess started with PID {self._process.pid}")
+            logger.debug(
+                f"[StdioTransport] Subprocess started with PID {self._process.pid}"
+            )
 
             # Send initialize request
             client_info = get_client_info()
-            init_response = await self.send_request("initialize", {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": client_info
-            })
+            init_response = await self.send_request(
+                "initialize",
+                {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": client_info,
+                },
+            )
 
             if "error" in init_response:
-                error_msg = init_response.get('error', {})
+                error_msg = init_response.get("error", {})
                 if isinstance(error_msg, dict):
-                    error_msg = error_msg.get('message', str(error_msg))
+                    error_msg = error_msg.get("message", str(error_msg))
                 logger.error(f"[StdioTransport] MCP initialize failed: {error_msg}")
 
                 # Try to read stderr for more info
                 if self._process and self._process.stderr:
                     try:
                         stderr_data = await asyncio.wait_for(
-                            self._process.stderr.read(1024),
-                            timeout=1.0
+                            self._process.stderr.read(1024), timeout=1.0
                         )
                         if stderr_data:
-                            logger.error(f"[StdioTransport] Subprocess stderr: {stderr_data.decode()}")
-                    except:
+                            logger.error(
+                                f"[StdioTransport] Subprocess stderr: {stderr_data.decode()}"
+                            )
+                    except Exception:
                         pass
 
                 await self.disconnect()
@@ -209,7 +233,7 @@ class StdioTransport(MCPTransport):
             # Send initialized notification
             await self._send_notification("notifications/initialized", {})
 
-            logger.info(f"[StdioTransport] Connected successfully")
+            logger.info("[StdioTransport] Connected successfully")
             return True
 
         except Exception as e:
@@ -219,12 +243,13 @@ class StdioTransport(MCPTransport):
             if self._process and self._process.stderr:
                 try:
                     stderr_data = await asyncio.wait_for(
-                        self._process.stderr.read(1024),
-                        timeout=1.0
+                        self._process.stderr.read(1024), timeout=1.0
                     )
                     if stderr_data:
-                        logger.error(f"[StdioTransport] Subprocess stderr: {stderr_data.decode()}")
-                except:
+                        logger.error(
+                            f"[StdioTransport] Subprocess stderr: {stderr_data.decode()}"
+                        )
+                except Exception:
                     pass
 
             await self.disconnect()
@@ -243,7 +268,9 @@ class StdioTransport(MCPTransport):
             finally:
                 self._process = None
 
-    async def send_request(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    async def send_request(
+        self, method: str, params: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """Send a JSON-RPC request and wait for response."""
         import json
 
@@ -273,8 +300,7 @@ class StdioTransport(MCPTransport):
                 # (skip notifications which don't have an id)
                 while True:
                     response_line = await asyncio.wait_for(
-                        self._process.stdout.readline(),
-                        timeout=30.0
+                        self._process.stdout.readline(), timeout=30.0
                     )
 
                     if not response_line:
@@ -284,14 +310,23 @@ class StdioTransport(MCPTransport):
                             stderr = ""
                             try:
                                 stderr_data = await asyncio.wait_for(
-                                    self._process.stderr.read(),
-                                    timeout=1.0
+                                    self._process.stderr.read(), timeout=1.0
                                 )
                                 stderr = stderr_data.decode() if stderr_data else ""
-                            except:
+                            except Exception:
                                 pass
-                            return {"error": {"code": -1, "message": f"Process exited with code {self._process.returncode}. Stderr: {stderr}"}}
-                        return {"error": {"code": -1, "message": "No response from server (empty line)"}}
+                            return {
+                                "error": {
+                                    "code": -1,
+                                    "message": f"Process exited with code {self._process.returncode}. Stderr: {stderr}",
+                                }
+                            }
+                        return {
+                            "error": {
+                                "code": -1,
+                                "message": "No response from server (empty line)",
+                            }
+                        }
 
                     response_str = response_line.decode().strip()
                     if not response_str:
@@ -301,8 +336,10 @@ class StdioTransport(MCPTransport):
 
                     try:
                         response = json.loads(response_str)
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"[StdioTransport] Invalid JSON, skipping: {response_str[:100]}")
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            f"[StdioTransport] Invalid JSON, skipping: {response_str[:100]}"
+                        )
                         continue
 
                     # Check if this is a response to our request
@@ -310,24 +347,37 @@ class StdioTransport(MCPTransport):
                         return response
                     elif "id" not in response:
                         # This is a notification, skip it
-                        logger.debug(f"[StdioTransport] Received notification: {response.get('method', 'unknown')}")
+                        logger.debug(
+                            f"[StdioTransport] Received notification: {response.get('method', 'unknown')}"
+                        )
                         continue
                     else:
                         # Response for a different request (shouldn't happen with sequential requests)
-                        logger.warning(f"[StdioTransport] Received response for different request id: {response.get('id')}")
+                        logger.warning(
+                            f"[StdioTransport] Received response for different request id: {response.get('id')}"
+                        )
                         continue
 
             except asyncio.TimeoutError:
                 logger.error(f"[StdioTransport] Request timeout for method '{method}'")
-                return {"error": {"code": -1, "message": f"Request timeout waiting for response to '{method}'"}}
+                return {
+                    "error": {
+                        "code": -1,
+                        "message": f"Request timeout waiting for response to '{method}'",
+                    }
+                }
             except json.JSONDecodeError as e:
                 logger.error(f"[StdioTransport] Invalid JSON response: {e}")
                 return {"error": {"code": -1, "message": f"Invalid JSON response: {e}"}}
             except Exception as e:
-                logger.error(f"[StdioTransport] Error sending request: {type(e).__name__}: {e}")
+                logger.error(
+                    f"[StdioTransport] Error sending request: {type(e).__name__}: {e}"
+                )
                 return {"error": {"code": -1, "message": str(e)}}
 
-    async def _send_notification(self, method: str, params: Optional[Dict] = None) -> None:
+    async def _send_notification(
+        self, method: str, params: Optional[Dict] = None
+    ) -> None:
         """Send a JSON-RPC notification (no response expected)."""
         import json
 
@@ -379,11 +429,14 @@ class SSETransport(MCPTransport):
 
             # Send initialize request
             client_info = get_client_info()
-            init_response = await self.send_request("initialize", {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": client_info
-            })
+            init_response = await self.send_request(
+                "initialize",
+                {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": client_info,
+                },
+            )
 
             if "error" in init_response:
                 logger.error(f"SSE initialize failed: {init_response['error']}")
@@ -435,7 +488,10 @@ class SSETransport(MCPTransport):
                         data = line[6:]
                         try:
                             message = json.loads(data)
-                            if "id" in message and message["id"] in self._pending_requests:
+                            if (
+                                "id" in message
+                                and message["id"] in self._pending_requests
+                            ):
                                 future = self._pending_requests.pop(message["id"])
                                 if not future.done():
                                     future.set_result(message)
@@ -447,9 +503,10 @@ class SSETransport(MCPTransport):
             logger.error(f"SSE listener error: {e}")
             self._connected = False
 
-    async def send_request(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    async def send_request(
+        self, method: str, params: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """Send a JSON-RPC request via POST and wait for SSE response."""
-        import json
 
         if not self._client:
             return {"error": {"code": -1, "message": "Not connected"}}
@@ -516,11 +573,14 @@ class WebSocketTransport(MCPTransport):
 
             # Send initialize request
             client_info = get_client_info()
-            init_response = await self.send_request("initialize", {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": client_info
-            })
+            init_response = await self.send_request(
+                "initialize",
+                {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": client_info,
+                },
+            )
 
             if "error" in init_response:
                 logger.error(f"WebSocket initialize failed: {init_response['error']}")
@@ -535,7 +595,9 @@ class WebSocketTransport(MCPTransport):
             return True
 
         except ImportError:
-            logger.error("websockets not installed. Install with: pip install websockets")
+            logger.error(
+                "websockets not installed. Install with: pip install websockets"
+            )
             return False
         except Exception as e:
             logger.error(f"Failed to connect WebSocket transport: {e}")
@@ -584,7 +646,9 @@ class WebSocketTransport(MCPTransport):
             logger.error(f"WebSocket listener error: {e}")
             self._connected = False
 
-    async def send_request(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    async def send_request(
+        self, method: str, params: Optional[Dict] = None
+    ) -> Dict[str, Any]:
         """Send a JSON-RPC request and wait for response."""
         import json
 
@@ -619,7 +683,9 @@ class WebSocketTransport(MCPTransport):
             self._pending_requests.pop(request_id, None)
             return {"error": {"code": -1, "message": str(e)}}
 
-    async def _send_notification(self, method: str, params: Optional[Dict] = None) -> None:
+    async def _send_notification(
+        self, method: str, params: Optional[Dict] = None
+    ) -> None:
         """Send a JSON-RPC notification (no response expected)."""
         import json
 
@@ -695,12 +761,16 @@ class MCPServerConnection:
 
         try:
             # Create and connect transport
-            logger.debug(f"[MCPServer:{self.config.name}] Creating {self.config.transport} transport...")
+            logger.debug(
+                f"[MCPServer:{self.config.name}] Creating {self.config.transport} transport..."
+            )
             self._transport = self._create_transport()
 
             logger.debug(f"[MCPServer:{self.config.name}] Connecting transport...")
             if not await self._transport.connect():
-                logger.error(f"[MCPServer:{self.config.name}] Transport connection failed")
+                logger.error(
+                    f"[MCPServer:{self.config.name}] Transport connection failed"
+                )
                 self._transport = None
                 return False
 
@@ -722,7 +792,9 @@ class MCPServerConnection:
             return True
 
         except Exception as e:
-            logger.error(f"[MCPServer:{self.config.name}] Failed to connect: {type(e).__name__}: {e}")
+            logger.error(
+                f"[MCPServer:{self.config.name}] Failed to connect: {type(e).__name__}: {e}"
+            )
             await self.disconnect()
             return False
 
@@ -742,25 +814,31 @@ class MCPServerConnection:
     async def _discover_tools(self) -> None:
         """Discover available tools from the server."""
         if not self.is_connected:
-            logger.warning(f"[MCPServer:{self.config.name}] Cannot discover tools - not connected")
+            logger.warning(
+                f"[MCPServer:{self.config.name}] Cannot discover tools - not connected"
+            )
             return
 
         response = await self._transport.send_request("tools/list", {})
 
         if "error" in response:
-            error_info = response.get('error', {})
+            error_info = response.get("error", {})
             if isinstance(error_info, dict):
-                error_msg = error_info.get('message', str(error_info))
+                error_msg = error_info.get("message", str(error_info))
             else:
                 error_msg = str(error_info)
-            logger.warning(f"[MCPServer:{self.config.name}] Failed to list tools: {error_msg}")
+            logger.warning(
+                f"[MCPServer:{self.config.name}] Failed to list tools: {error_msg}"
+            )
             return
 
         result = response.get("result", {})
         tools_data = result.get("tools", [])
 
         if not tools_data:
-            logger.debug(f"[MCPServer:{self.config.name}] Server returned empty tools list. Response: {response}")
+            logger.debug(
+                f"[MCPServer:{self.config.name}] Server returned empty tools list. Response: {response}"
+            )
 
         self._tools = [MCPTool.from_dict(t) for t in tools_data]
 
@@ -781,7 +859,9 @@ class MCPServerConnection:
         await self._discover_tools()
         return self._tools
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def call_tool(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Call a tool on the MCP server.
 
@@ -799,10 +879,13 @@ class MCPServerConnection:
             }
 
         try:
-            response = await self._transport.send_request("tools/call", {
-                "name": tool_name,
-                "arguments": arguments,
-            })
+            response = await self._transport.send_request(
+                "tools/call",
+                {
+                    "name": tool_name,
+                    "arguments": arguments,
+                },
+            )
 
             if "error" in response:
                 return {

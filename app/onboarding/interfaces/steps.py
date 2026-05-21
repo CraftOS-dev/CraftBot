@@ -7,37 +7,42 @@ Steps are UI-agnostic - they define the data and validation logic,
 not the presentation.
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
-import os
 
 
 @dataclass
 class StepOption:
     """An option that can be selected in a step."""
-    value: str          # Internal value (e.g., "openai")
-    label: str          # Display label (e.g., "OpenAI")
+
+    value: str  # Internal value (e.g., "openai")
+    label: str  # Display label (e.g., "OpenAI")
     description: str = ""  # Optional description
     default: bool = False  # Whether this is the default selection
     icon: str = ""  # Lucide icon name (e.g., "Folder", "Search")
-    requires_setup: bool = False  # Whether this option requires additional setup (API key, etc.)
+    requires_setup: bool = (
+        False  # Whether this option requires additional setup (API key, etc.)
+    )
 
 
 @dataclass
 class FormField:
     """A field in a multi-field form step (e.g., User Profile)."""
-    name: str                                                   # Field key (e.g., "user_name")
-    label: str                                                  # Display label
-    field_type: str                                             # "text", "select", "multi_checkbox"
-    options: List["StepOption"] = field(default_factory=list)   # For select/checkbox types
-    default: Any = ""                                           # Default value
-    placeholder: str = ""                                       # Hint text
+
+    name: str  # Field key (e.g., "user_name")
+    label: str  # Display label
+    field_type: str  # "text", "select", "multi_checkbox"
+    options: List["StepOption"] = field(
+        default_factory=list
+    )  # For select/checkbox types
+    default: Any = ""  # Default value
+    placeholder: str = ""  # Hint text
 
 
 @dataclass
 class StepResult:
     """Result of completing an onboarding step."""
+
     success: bool
     data: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
@@ -121,7 +126,7 @@ class ProviderStep:
                 value=provider_id,
                 label=label,
                 description=desc,
-                default=(provider_id == "openai")
+                default=(provider_id == "openai"),
             )
             for provider_id, label, desc in self.PROVIDERS
         ]
@@ -135,6 +140,7 @@ class ProviderStep:
     def get_default(self) -> str:
         # Check settings.json for existing provider
         from app.config import get_llm_provider
+
         current_provider = get_llm_provider().lower()
         if current_provider and current_provider in [p[0] for p in self.PROVIDERS]:
             return current_provider
@@ -225,6 +231,7 @@ class ApiKeyStep:
             return "http://localhost:11434"
         # Check settings.json for existing key
         from app.config import get_api_key
+
         return get_api_key(self.provider)
 
     def get_env_var_name(self) -> Optional[str]:
@@ -275,7 +282,10 @@ class AgentNameStep:
                 return False, "Agent name must be 20 characters or fewer"
             picture = value.get("agent_profile_picture")
             if picture not in (None, ""):
-                if not isinstance(picture, str) or picture.lower() not in self.ALLOWED_PICTURE_EXTS:
+                if (
+                    not isinstance(picture, str)
+                    or picture.lower() not in self.ALLOWED_PICTURE_EXTS
+                ):
                     return False, "Unsupported avatar format"
             return True, None
         return False, "Invalid agent identity submission"
@@ -329,6 +339,7 @@ class UserProfileStep:
         """Fetch user's location from IP. Returns 'City, Country' or '' on failure."""
         try:
             import requests
+
             resp = requests.get("http://ip-api.com/json", timeout=3)
             if resp.status_code == 200:
                 data = resp.json()
@@ -366,12 +377,14 @@ class UserProfileStep:
                 # Only include 2-letter codes (ISO 639-1) to keep list manageable
                 if len(code) == 2 and code not in seen:
                     seen.add(code)
-                    options.append(StepOption(
-                        value=code,
-                        label=display_name,
-                        description=code,
-                        default=(code == os_lang),
-                    ))
+                    options.append(
+                        StepOption(
+                            value=code,
+                            label=display_name,
+                            description=code,
+                            default=(code == os_lang),
+                        )
+                    )
             return options
         except ImportError:
             # Fallback if babel not installed — return a minimal list
@@ -443,7 +456,12 @@ class UserProfileStep:
                 label="Proactive Level",
                 field_type="select",
                 options=[
-                    StepOption(value=val, label=label, description=desc, default=(val == "medium"))
+                    StepOption(
+                        value=val,
+                        label=label,
+                        description=desc,
+                        default=(val == "medium"),
+                    )
                     for val, label, desc in self.PROACTIVITY_OPTIONS
                 ],
                 default="medium",
@@ -475,17 +493,17 @@ class UserProfileStep:
         return []
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
-      """Validate the form data dict. All fields are optional."""
-      if not isinstance(value, dict):
-          return False, "Expected a dictionary of form values"
-      user_name = value.get("user_name")
-      if user_name and len(str(user_name)) > 20:
-          return False, "Name must be 20 characters or fewer"
-      # Validate approval is a list if present
-      approval = value.get("approval")
-      if approval is not None and not isinstance(approval, list):
-          return False, "Approval settings must be a list"
-      return True, None
+        """Validate the form data dict. All fields are optional."""
+        if not isinstance(value, dict):
+            return False, "Expected a dictionary of form values"
+        user_name = value.get("user_name")
+        if user_name and len(str(user_name)) > 20:
+            return False, "Name must be 20 characters or fewer"
+        # Validate approval is a list if present
+        approval = value.get("approval")
+        if approval is not None and not isinstance(approval, list):
+            return False, "Approval settings must be a list"
+        return True, None
 
     def get_default(self) -> Dict[str, Any]:
         """Return defaults for all fields."""
@@ -505,22 +523,23 @@ class MCPStep:
     # Names must match exactly with names in mcp_config.json
     # Format: {name: (icon, requires_setup)}
     RECOMMENDED_SERVERS = {
-        "filesystem": ("Folder", False),           # Local file access - works out of the box
-        "brave-search": ("Search", True),          # Web search - needs BRAVE_API_KEY
-        "github": ("Github", True),                # Git/GitHub - needs GITHUB_PERSONAL_ACCESS_TOKEN
-        "playwright-mcp": ("Globe", False),        # Browser automation - works out of the box
-        "notion-mcp": ("FileText", True),          # Note-taking - needs NOTION_API_KEY
-        "slack-mcp": ("MessageSquare", True),      # Team communication - needs Slack OAuth
-        "gmail-mcp": ("Mail", True),               # Email - needs Google OAuth
-        "google-calendar-mcp": ("Calendar", True), # Calendar - needs Google OAuth
-        "todoist-mcp": ("CheckSquare", True),      # Task management - needs TODOIST_API_KEY
-        "obsidian-mcp": ("Gem", True),             # Knowledge management - needs Obsidian plugin
+        "filesystem": ("Folder", False),  # Local file access - works out of the box
+        "brave-search": ("Search", True),  # Web search - needs BRAVE_API_KEY
+        "github": ("Github", True),  # Git/GitHub - needs GITHUB_PERSONAL_ACCESS_TOKEN
+        "playwright-mcp": ("Globe", False),  # Browser automation - works out of the box
+        "notion-mcp": ("FileText", True),  # Note-taking - needs NOTION_API_KEY
+        "slack-mcp": ("MessageSquare", True),  # Team communication - needs Slack OAuth
+        "gmail-mcp": ("Mail", True),  # Email - needs Google OAuth
+        "google-calendar-mcp": ("Calendar", True),  # Calendar - needs Google OAuth
+        "todoist-mcp": ("CheckSquare", True),  # Task management - needs TODOIST_API_KEY
+        "obsidian-mcp": ("Gem", True),  # Knowledge management - needs Obsidian plugin
     }
 
     def get_options(self) -> List[StepOption]:
         """Get top 10 recommended MCP servers for onboarding."""
         try:
             from app.tui.mcp_settings import list_mcp_servers
+
             servers = list_mcp_servers()
         except Exception:
             # If MCP config is completely broken, show nothing rather than
@@ -541,14 +560,16 @@ class MCPStep:
                 desc = server.get("description", f"MCP server: {server['name']}")
                 if server.get("platform_blocked"):
                     label += " (⚠ Windows-only — requires setup on this OS)"
-                options.append(StepOption(
-                    value=server["name"],
-                    label=label,
-                    description=desc,
-                    default=server.get("enabled", False),
-                    icon=icon,
-                    requires_setup=requires_setup,
-                ))
+                options.append(
+                    StepOption(
+                        value=server["name"],
+                        label=label,
+                        description=desc,
+                        default=server.get("enabled", False),
+                        icon=icon,
+                        requires_setup=requires_setup,
+                    )
+                )
         return options
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
@@ -588,12 +609,12 @@ class SkillsStep:
         """Get top 10 recommended skills for onboarding."""
         try:
             from app.tui.skill_settings import list_skills
+
             skills = list_skills()
 
             # Create a lookup by name (only user-invocable skills)
             skill_lookup = {
-                s["name"]: s for s in skills
-                if s.get("user_invocable", True)
+                s["name"]: s for s in skills if s.get("user_invocable", True)
             }
 
             # Return only recommended skills that exist
@@ -601,13 +622,15 @@ class SkillsStep:
             for name, icon in self.RECOMMENDED_SKILLS.items():
                 if name in skill_lookup:
                     skill = skill_lookup[name]
-                    options.append(StepOption(
-                        value=skill["name"],
-                        label=skill['name'].replace('-', ' ').title(),
-                        description=skill.get("description", ""),
-                        default=skill.get("enabled", False),
-                        icon=icon
-                    ))
+                    options.append(
+                        StepOption(
+                            value=skill["name"],
+                            label=skill["name"].replace("-", " ").title(),
+                            description=skill.get("description", ""),
+                            default=skill.get("enabled", False),
+                            icon=icon,
+                        )
+                    )
             return options
         except ImportError:
             return []

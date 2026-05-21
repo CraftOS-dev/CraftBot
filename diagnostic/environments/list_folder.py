@@ -1,4 +1,5 @@
 """Environment and validation for the "list folder" action."""
+
 from __future__ import annotations
 
 from pathlib import Path

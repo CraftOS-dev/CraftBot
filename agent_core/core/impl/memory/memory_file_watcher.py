@@ -77,7 +77,9 @@ class MemoryFileWatcher:
             return
 
         if not self.watch_path.exists():
-            logger.error(f"[MemoryFileWatcher] Watch path does not exist: {self.watch_path}")
+            logger.error(
+                f"[MemoryFileWatcher] Watch path does not exist: {self.watch_path}"
+            )
             return
 
         self._observer = Observer()
@@ -156,7 +158,9 @@ class MemoryFileWatcher:
             self._debounce_timer = None
 
         # Log what changed
-        logger.info(f"[MemoryFileWatcher] Detected {len(changed_files)} change(s), updating index...")
+        logger.info(
+            f"[MemoryFileWatcher] Detected {len(changed_files)} change(s), updating index..."
+        )
         for change in changed_files:
             logger.debug(f"  - {change}")
 
@@ -205,20 +209,20 @@ class _TargetFileEventHandler(FileSystemEventHandler):
 
     def on_created(self, event: FileSystemEvent) -> None:
         if not event.is_directory and self._is_target_file(event.src_path):
-            self._callback(event.src_path, 'created')
+            self._callback(event.src_path, "created")
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if not event.is_directory and self._is_target_file(event.src_path):
-            self._callback(event.src_path, 'modified')
+            self._callback(event.src_path, "modified")
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         if not event.is_directory and self._is_target_file(event.src_path):
-            self._callback(event.src_path, 'deleted')
+            self._callback(event.src_path, "deleted")
 
     def on_moved(self, event: FileSystemEvent) -> None:
         # Handle both source and destination for moves
         if not event.is_directory:
             if self._is_target_file(event.src_path):
-                self._callback(event.src_path, 'deleted')
+                self._callback(event.src_path, "deleted")
             if self._is_target_file(event.dest_path):
-                self._callback(event.dest_path, 'created')
+                self._callback(event.dest_path, "created")

@@ -5,7 +5,7 @@ Protocol definitions for EventStream and EventStreamManager.
 This module defines protocols for event stream operations.
 """
 
-from typing import Any, List, Optional, Protocol, Tuple, TYPE_CHECKING
+from typing import List, Optional, Protocol, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agent_core import EventRecord

@@ -81,7 +81,8 @@ async def recent_sent_emails(
     # but scoped to Sent + filtered by query.
     def _list_sync():
         return http_request(
-            "GET", f"{GMAIL_API_BASE}/users/me/messages",
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages",
             headers=client._auth_header(),
             params={"q": q, "maxResults": limit},
             expected=(200,),

@@ -1,8 +1,7 @@
 """Main Textual application for the TUI interface."""
+
 from __future__ import annotations
 
-import os
-import time
 from asyncio import QueueEmpty, create_task
 from typing import TYPE_CHECKING
 
@@ -19,7 +18,12 @@ from app.models.types import InterfaceType
 
 from app.tui.styles import TUI_CSS
 from app.tui.settings import save_settings_to_json, get_api_key_for_provider
-from app.tui.widgets import ConversationLog, PasteableInput, VMFootageWidget, TaskSelected
+from app.tui.widgets import (
+    ConversationLog,
+    PasteableInput,
+    VMFootageWidget,
+    TaskSelected,
+)
 from app.tui.mcp_settings import (
     list_mcp_servers,
     remove_mcp_server,
@@ -104,16 +108,17 @@ class CraftApp(App):
             A sanitized ID string.
         """
         import re
+
         # Replace spaces and invalid characters with hyphens
-        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', name)
+        sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
         # Ensure it doesn't start with a number
         if sanitized and sanitized[0].isdigit():
-            sanitized = '_' + sanitized
+            sanitized = "_" + sanitized
         # Remove consecutive hyphens
-        sanitized = re.sub(r'-+', '-', sanitized)
+        sanitized = re.sub(r"-+", "-", sanitized)
         # Remove leading/trailing hyphens
-        sanitized = sanitized.strip('-')
-        return sanitized or 'unknown'
+        sanitized = sanitized.strip("-")
+        return sanitized or "unknown"
 
     _SETTINGS_PROVIDER_TEXTS = [
         "OpenAI",
@@ -161,7 +166,9 @@ class CraftApp(App):
             return MODEL_REGISTRY[provider].get(InterfaceType.LLM, "Unknown")
         return "Unknown"
 
-    def __init__(self, interface: "Union[TUIInterface, TUIAdapter]", provider: str, api_key: str) -> None:
+    def __init__(
+        self, interface: "Union[TUIInterface, TUIAdapter]", provider: str, api_key: str
+    ) -> None:
         super().__init__()
         self._interface = interface
         self._status_message: str = "Idle"
@@ -205,7 +212,10 @@ class CraftApp(App):
             Container(
                 Static(self._header_text(), id="menu-header"),
                 Vertical(
-                    Static("CraftBot V1.2.0. Your Personal AI Assistant that works 24/7 in your machine.", id="provider-hint"),
+                    Static(
+                        "CraftBot V1.2.0. Your Personal AI Assistant that works 24/7 in your machine.",
+                        id="provider-hint",
+                    ),
                     Static(
                         self._get_menu_hint(),
                         id="menu-hint",
@@ -248,7 +258,9 @@ class CraftApp(App):
                     Text(self.status_text, no_wrap=True, overflow="crop"),
                     id="status-bar",
                 ),
-                PasteableInput(placeholder="Type a message and press Enter…", id="chat-input"),
+                PasteableInput(
+                    placeholder="Type a message and press Enter…", id="chat-input"
+                ),
                 id="bottom-region",
             ),
             id="chat-layer",
@@ -270,8 +282,26 @@ class CraftApp(App):
             (s * 2 + b * 2 + s * 5, [(2, 4, orange)]),  # Antenna
             (s * 2 + b * 2 + s * 5, [(2, 4, orange)]),  # Antenna
             (b * icon_w, [(0, icon_w, white)]),  # Face top
-            (b * icon_w, [(0, 3, white), (3, 5, orange), (5, 6, white), (6, 8, orange), (8, icon_w, white)]),  # Eyes
-            (b * icon_w, [(0, 3, white), (3, 5, orange), (5, 6, white), (6, 8, orange), (8, icon_w, white)]),  # Eyes
+            (
+                b * icon_w,
+                [
+                    (0, 3, white),
+                    (3, 5, orange),
+                    (5, 6, white),
+                    (6, 8, orange),
+                    (8, icon_w, white),
+                ],
+            ),  # Eyes
+            (
+                b * icon_w,
+                [
+                    (0, 3, white),
+                    (3, 5, orange),
+                    (5, 6, white),
+                    (6, 8, orange),
+                    (8, icon_w, white),
+                ],
+            ),  # Eyes
             (b * icon_w, [(0, icon_w, white)]),  # Face bottom
         ]
 
@@ -312,7 +342,11 @@ class CraftApp(App):
             # Style logo parts (offset by icon width + gap)
             logo_offset = len(icon_str) + len(gap)
             text.stylize(white, offset + logo_offset, offset + logo_offset + craft_len)
-            text.stylize(orange, offset + logo_offset + craft_len, offset + logo_offset + len(logo_str))
+            text.stylize(
+                orange,
+                offset + logo_offset + craft_len,
+                offset + logo_offset + len(logo_str),
+            )
 
             offset += line_len + 1  # +1 for newline
 
@@ -382,8 +416,11 @@ class CraftApp(App):
                 id="mcp-server-list",
             ),
             Static("Custom MCP Server", id="mcp-add-title"),
-            Static("For custom servers, edit: app/config/mcp_config.json",
-                   id="mcp-add-instruction", classes="settings-instruction"),
+            Static(
+                "For custom servers, edit: app/config/mcp_config.json",
+                id="mcp-add-instruction",
+                classes="settings-instruction",
+            ),
             Static("Or use: /mcp add <name> <json-config>", id="mcp-hint"),
             id="section-mcp",
             classes="-hidden",  # Hidden by default
@@ -397,8 +434,11 @@ class CraftApp(App):
                 id="skills-list",
             ),
             Static("Install Skill", id="skill-install-title"),
-            Static("Enter local path or Git URL (e.g., https://github.com/user/skill-repo)",
-                   id="skill-install-instruction", classes="settings-instruction"),
+            Static(
+                "Enter local path or Git URL (e.g., https://github.com/user/skill-repo)",
+                id="skill-install-instruction",
+                classes="settings-instruction",
+            ),
             PasteableInput(
                 placeholder="Path or Git URL",
                 id="skill-install-input",
@@ -419,7 +459,10 @@ class CraftApp(App):
                 *integration_items,
                 id="integrations-list",
             ),
-            Static("Connect to external services like Slack, Notion, Google, etc.", id="integrations-hint"),
+            Static(
+                "Connect to external services like Slack, Notion, Google, etc.",
+                id="integrations-hint",
+            ),
             id="section-integrations",
             classes="-hidden",  # Hidden by default
         )
@@ -474,12 +517,30 @@ class CraftApp(App):
             ]
 
             if env_vars:
-                row_widgets.append(Button("Configure", id=f"mcp-config-{safe_id}", classes="mcp-config-btn"))
+                row_widgets.append(
+                    Button(
+                        "Configure",
+                        id=f"mcp-config-{safe_id}",
+                        classes="mcp-config-btn",
+                    )
+                )
 
             if server["enabled"]:
-                row_widgets.append(Button("Disable", id=f"mcp-disable-{safe_id}", classes="mcp-toggle-btn -enabled"))
+                row_widgets.append(
+                    Button(
+                        "Disable",
+                        id=f"mcp-disable-{safe_id}",
+                        classes="mcp-toggle-btn -enabled",
+                    )
+                )
             else:
-                row_widgets.append(Button("Enable", id=f"mcp-enable-{safe_id}", classes="mcp-toggle-btn -disabled"))
+                row_widgets.append(
+                    Button(
+                        "Enable",
+                        id=f"mcp-enable-{safe_id}",
+                        classes="mcp-toggle-btn -disabled",
+                    )
+                )
 
             items.append(Horizontal(*row_widgets, classes="mcp-server-row"))
 
@@ -521,20 +582,38 @@ class CraftApp(App):
                 self._skill_id_to_name[safe_id] = name
                 # Truncate name if too long (max 18 chars to leave room for status)
                 display_name = name[:18] + ".." if len(name) > 18 else name
-                desc = skill["description"][:35] + "..." if len(skill["description"]) > 35 else skill["description"]
+                desc = (
+                    skill["description"][:35] + "..."
+                    if len(skill["description"]) > 35
+                    else skill["description"]
+                )
 
                 # Build row with: status+name, description, [View], [Enable/Disable]
                 row_widgets = [
                     Static(f"{status} {display_name}", classes="skill-name"),
                     Static(desc, classes="skill-desc"),
-                    Button("View", id=f"skill-view-{safe_id}", classes="skill-view-btn"),
+                    Button(
+                        "View", id=f"skill-view-{safe_id}", classes="skill-view-btn"
+                    ),
                 ]
 
                 # Add Enable/Disable toggle button
                 if skill["enabled"]:
-                    row_widgets.append(Button("Disable", id=f"skill-disable-{safe_id}", classes="skill-toggle-btn -enabled"))
+                    row_widgets.append(
+                        Button(
+                            "Disable",
+                            id=f"skill-disable-{safe_id}",
+                            classes="skill-toggle-btn -enabled",
+                        )
+                    )
                 else:
-                    row_widgets.append(Button("Enable", id=f"skill-enable-{safe_id}", classes="skill-toggle-btn -disabled"))
+                    row_widgets.append(
+                        Button(
+                            "Enable",
+                            id=f"skill-enable-{safe_id}",
+                            classes="skill-toggle-btn -disabled",
+                        )
+                    )
 
                 items.append(Horizontal(*row_widgets, classes="skill-row"))
 
@@ -554,7 +633,11 @@ class CraftApp(App):
 
     def _handle_mcp_add_button(self) -> None:
         """Handle the MCP Add button press - no longer supported in TUI."""
-        self.notify("Add MCP servers via mcp_config.json or the browser interface", severity="information", timeout=3)
+        self.notify(
+            "Add MCP servers via mcp_config.json or the browser interface",
+            severity="information",
+            timeout=3,
+        )
 
     def _handle_skill_install_button(self) -> None:
         """Handle the Skill Install button press."""
@@ -569,8 +652,12 @@ class CraftApp(App):
             return
 
         # Determine if URL or path
-        if source.startswith(("http://", "https://", "git@", "github.com", "gitlab.com")):
-            self.notify("Installing skill from Git...", severity="information", timeout=2)
+        if source.startswith(
+            ("http://", "https://", "git@", "github.com", "gitlab.com")
+        ):
+            self.notify(
+                "Installing skill from Git...", severity="information", timeout=2
+            )
             success, message = install_skill_from_git(source)
         else:
             success, message = install_skill_from_path(source)
@@ -591,7 +678,9 @@ class CraftApp(App):
         self._integ_id_to_name: dict[str, str] = {}
 
         if not integrations:
-            items.append(Static("No integrations available", classes="integration-empty"))
+            items.append(
+                Static("No integrations available", classes="integration-empty")
+            )
         else:
             for integ in integrations:
                 status = "[+]" if integ["connected"] else "[ ]"
@@ -605,7 +694,11 @@ class CraftApp(App):
                 self._integ_id_to_name[safe_id] = integ_id
 
                 # Truncate description if too long
-                desc = integ["description"][:35] + "..." if len(integ["description"]) > 35 else integ["description"]
+                desc = (
+                    integ["description"][:35] + "..."
+                    if len(integ["description"]) > 35
+                    else integ["description"]
+                )
 
                 if integ["connected"]:
                     # Show view and disconnect buttons for connected integrations
@@ -614,10 +707,21 @@ class CraftApp(App):
 
                     items.append(
                         Horizontal(
-                            Static(f"{status} {display_name} {account_text}", classes="integration-name"),
+                            Static(
+                                f"{status} {display_name} {account_text}",
+                                classes="integration-name",
+                            ),
                             Static(desc, classes="integration-desc"),
-                            Button("View", id=f"integ-view-{safe_id}", classes="integration-view-btn"),
-                            Button("x", id=f"integ-disconnect-{safe_id}", classes="integration-disconnect-btn"),
+                            Button(
+                                "View",
+                                id=f"integ-view-{safe_id}",
+                                classes="integration-view-btn",
+                            ),
+                            Button(
+                                "x",
+                                id=f"integ-disconnect-{safe_id}",
+                                classes="integration-disconnect-btn",
+                            ),
                             classes="integration-row",
                         )
                     )
@@ -625,9 +729,15 @@ class CraftApp(App):
                     # Show connect button for disconnected integrations
                     items.append(
                         Horizontal(
-                            Static(f"{status} {display_name}", classes="integration-name"),
+                            Static(
+                                f"{status} {display_name}", classes="integration-name"
+                            ),
                             Static(desc, classes="integration-desc"),
-                            Button("Connect", id=f"integ-connect-{safe_id}", classes="integration-connect-btn"),
+                            Button(
+                                "Connect",
+                                id=f"integ-connect-{safe_id}",
+                                classes="integration-connect-btn",
+                            ),
                             classes="integration-row",
                         )
                     )
@@ -689,11 +799,15 @@ class CraftApp(App):
         new_api_key = api_key_input.value
 
         # Check if API key is required for the selected provider
-        api_key_required = provider_value not in ("remote",)  # Ollama doesn't need API key
+        api_key_required = provider_value not in (
+            "remote",
+        )  # Ollama doesn't need API key
 
         if api_key_required and not new_api_key:
             # Require API key input - don't fall back to env vars
-            provider_name = self._PROVIDER_API_KEY_NAMES.get(provider_value, provider_value)
+            provider_name = self._PROVIDER_API_KEY_NAMES.get(
+                provider_value, provider_value
+            )
             self.notify(
                 f"API key required for {provider_name}. Please enter an API key or press Cancel.",
                 severity="error",
@@ -713,17 +827,25 @@ class CraftApp(App):
             save_settings_to_json(self._provider, self._api_key)
             self.notify("Settings saved!", severity="information", timeout=2)
         else:
-            self.notify("Settings saved (using existing API key)", severity="information", timeout=2)
+            self.notify(
+                "Settings saved (using existing API key)",
+                severity="information",
+                timeout=2,
+            )
 
         self._close_settings()
 
     def _start_chat(self) -> None:
         # Check if API key is required and configured
-        api_key_required = self._provider not in ("remote",)  # Ollama doesn't need API key
+        api_key_required = self._provider not in (
+            "remote",
+        )  # Ollama doesn't need API key
 
         if api_key_required:
             # Check local setting first, then settings.json/environment
-            effective_api_key = self._api_key or get_api_key_for_provider(self._provider)
+            effective_api_key = self._api_key or get_api_key_for_provider(
+                self._provider
+            )
 
             if not effective_api_key:
                 self.notify(
@@ -738,8 +860,8 @@ class CraftApp(App):
         # 2. Provider has changed from what's currently configured
         current_provider = self._interface._agent.llm.provider
         needs_reinit = (
-            not self._interface._agent.is_llm_initialized or
-            current_provider != self._provider
+            not self._interface._agent.is_llm_initialized
+            or current_provider != self._provider
         )
 
         # Configure provider (updates environment variables)
@@ -749,7 +871,7 @@ class CraftApp(App):
             success = self._interface._agent.reinitialize_llm(self._provider)
             if not success:
                 self.notify(
-                    f"Failed to initialize LLM. Please check your API key in Settings.",
+                    "Failed to initialize LLM. Please check your API key in Settings.",
                     severity="error",
                     timeout=5,
                 )
@@ -896,7 +1018,10 @@ class CraftApp(App):
                 item = action_update.item
                 if self._interface._selected_task_id:
                     # In detail view: refresh if action belongs to selected task
-                    if item.item_type == "action" and item.task_id == self._interface._selected_task_id:
+                    if (
+                        item.item_type == "action"
+                        and item.task_id == self._interface._selected_task_id
+                    ):
                         self._refresh_action_panel()
                 else:
                     # In main view: only show tasks
@@ -908,7 +1033,10 @@ class CraftApp(App):
                 if item and item.id in self._interface._action_items:
                     if self._interface._selected_task_id:
                         # In detail view: refresh if action belongs to selected task
-                        if item.task_id == self._interface._selected_task_id or item.id == self._interface._selected_task_id:
+                        if (
+                            item.task_id == self._interface._selected_task_id
+                            or item.id == self._interface._selected_task_id
+                        ):
                             self._refresh_action_panel()
                     else:
                         # In main view: only update tasks
@@ -955,8 +1083,10 @@ class CraftApp(App):
 
     def _tick_status_marquee(self) -> None:
         status_bar = self.query_one("#status-bar", Static)
-        width = status_bar.size.width or self.size.width or (
-            len(self._STATUS_PREFIX) + len(self._status_message)
+        width = (
+            status_bar.size.width
+            or self.size.width
+            or (len(self._STATUS_PREFIX) + len(self._status_message))
         )
         available = max(0, width - len(self._STATUS_PREFIX))
 
@@ -976,20 +1106,26 @@ class CraftApp(App):
 
     def _tick_loading_animation(self) -> None:
         """Update loading animation frame and refresh action panel."""
-        self._interface._loading_frame_index = (self._interface._loading_frame_index + 1) % len(self.ICON_LOADING_FRAMES)
+        self._interface._loading_frame_index = (
+            self._interface._loading_frame_index + 1
+        ) % len(self.ICON_LOADING_FRAMES)
 
         # Re-render running items visible in current view
         action_log = self.query_one("#action-log", ConversationLog)
 
         if self._interface._selected_task_id:
             # In detail view: update running actions for selected task
-            task_item = self._interface._action_items.get(self._interface._selected_task_id)
+            task_item = self._interface._action_items.get(
+                self._interface._selected_task_id
+            )
             if task_item and task_item.status == "running":
                 # Refresh the whole panel to update the header
                 self._refresh_action_panel()
             else:
                 # Just update running actions
-                actions = self._interface.get_actions_for_task(self._interface._selected_task_id)
+                actions = self._interface.get_actions_for_task(
+                    self._interface._selected_task_id
+                )
                 for action in actions:
                     if action.status == "running":
                         renderable = self._interface.format_action_item(action)
@@ -1010,8 +1146,10 @@ class CraftApp(App):
 
     def _render_status(self) -> None:
         status_bar = self.query_one("#status-bar", Static)
-        width = status_bar.size.width or self.size.width or (
-            len(self._STATUS_PREFIX) + len(self._status_message)
+        width = (
+            status_bar.size.width
+            or self.size.width
+            or (len(self._STATUS_PREFIX) + len(self._status_message))
         )
         available = max(0, width - len(self._STATUS_PREFIX))
         visible = self._visible_status_content(available)
@@ -1098,7 +1236,11 @@ class CraftApp(App):
             label = item.query_one(Label) if item.query(Label) else None
             if label is None:
                 continue
-            text = self._SETTINGS_ACTION_TEXTS[idx] if idx < len(self._SETTINGS_ACTION_TEXTS) else "action"
+            text = (
+                self._SETTINGS_ACTION_TEXTS[idx]
+                if idx < len(self._SETTINGS_ACTION_TEXTS)
+                else "action"
+            )
             prefix = "> " if idx == actions.index else "  "
             label.update(f"{prefix}{text}")
 
@@ -1172,7 +1314,9 @@ class CraftApp(App):
         # Update API key label
         if self.query("#api-key-label"):
             provider_name = self._PROVIDER_API_KEY_NAMES.get(new_provider, new_provider)
-            self.query_one("#api-key-label", Static).update(f"API Key for {provider_name}")
+            self.query_one("#api-key-label", Static).update(
+                f"API Key for {provider_name}"
+            )
 
         # Update model display
         if self.query("#model-display"):
@@ -1230,7 +1374,7 @@ class CraftApp(App):
         # Handle MCP server remove buttons
         if button_id and button_id.startswith("mcp-remove-"):
             safe_id = button_id[11:]  # Remove "mcp-remove-" prefix
-            server_name = getattr(self, '_mcp_id_to_name', {}).get(safe_id, safe_id)
+            server_name = getattr(self, "_mcp_id_to_name", {}).get(safe_id, safe_id)
             success, message = remove_mcp_server(server_name)
             if success:
                 self.notify(message, severity="information", timeout=2)
@@ -1241,13 +1385,13 @@ class CraftApp(App):
         # Handle MCP server config buttons
         if button_id and button_id.startswith("mcp-config-"):
             safe_id = button_id[11:]  # Remove "mcp-config-" prefix
-            server_name = getattr(self, '_mcp_id_to_name', {}).get(safe_id, safe_id)
+            server_name = getattr(self, "_mcp_id_to_name", {}).get(safe_id, safe_id)
             self._open_mcp_env_editor(server_name)
 
         # Handle MCP server enable buttons
         if button_id and button_id.startswith("mcp-enable-"):
             safe_id = button_id[11:]  # Remove "mcp-enable-" prefix
-            server_name = getattr(self, '_mcp_id_to_name', {}).get(safe_id, safe_id)
+            server_name = getattr(self, "_mcp_id_to_name", {}).get(safe_id, safe_id)
             success, message = enable_mcp_server(server_name)
             if success:
                 self.notify(message, severity="information", timeout=2)
@@ -1258,7 +1402,7 @@ class CraftApp(App):
         # Handle MCP server disable buttons
         if button_id and button_id.startswith("mcp-disable-"):
             safe_id = button_id[12:]  # Remove "mcp-disable-" prefix
-            server_name = getattr(self, '_mcp_id_to_name', {}).get(safe_id, safe_id)
+            server_name = getattr(self, "_mcp_id_to_name", {}).get(safe_id, safe_id)
             success, message = disable_mcp_server(server_name)
             if success:
                 self.notify(message, severity="information", timeout=2)
@@ -1279,7 +1423,7 @@ class CraftApp(App):
         # Handle Skill enable buttons
         if button_id and button_id.startswith("skill-enable-"):
             safe_id = button_id[13:]  # Remove "skill-enable-" prefix
-            skill_name = getattr(self, '_skill_id_to_name', {}).get(safe_id, safe_id)
+            skill_name = getattr(self, "_skill_id_to_name", {}).get(safe_id, safe_id)
             success, message = enable_skill(skill_name)
             if success:
                 self.notify(message, severity="information", timeout=2)
@@ -1290,7 +1434,7 @@ class CraftApp(App):
         # Handle Skill disable buttons
         if button_id and button_id.startswith("skill-disable-"):
             safe_id = button_id[14:]  # Remove "skill-disable-" prefix
-            skill_name = getattr(self, '_skill_id_to_name', {}).get(safe_id, safe_id)
+            skill_name = getattr(self, "_skill_id_to_name", {}).get(safe_id, safe_id)
             success, message = disable_skill(skill_name)
             if success:
                 self.notify(message, severity="information", timeout=2)
@@ -1305,7 +1449,7 @@ class CraftApp(App):
         # Handle Skill view buttons
         if button_id and button_id.startswith("skill-view-"):
             safe_id = button_id[11:]  # Remove "skill-view-" prefix
-            skill_name = getattr(self, '_skill_id_to_name', {}).get(safe_id, safe_id)
+            skill_name = getattr(self, "_skill_id_to_name", {}).get(safe_id, safe_id)
             self._open_skill_detail_viewer(skill_name)
 
         # Handle Skill detail buttons
@@ -1319,19 +1463,25 @@ class CraftApp(App):
         # Handle Integration connect buttons
         if button_id and button_id.startswith("integ-connect-"):
             safe_id = button_id[14:]  # Remove "integ-connect-" prefix
-            integration_id = getattr(self, '_integ_id_to_name', {}).get(safe_id, safe_id)
+            integration_id = getattr(self, "_integ_id_to_name", {}).get(
+                safe_id, safe_id
+            )
             self._open_integration_connect_modal(integration_id)
 
         # Handle Integration view buttons
         if button_id and button_id.startswith("integ-view-"):
             safe_id = button_id[11:]  # Remove "integ-view-" prefix
-            integration_id = getattr(self, '_integ_id_to_name', {}).get(safe_id, safe_id)
+            integration_id = getattr(self, "_integ_id_to_name", {}).get(
+                safe_id, safe_id
+            )
             self._open_integration_detail_viewer(integration_id)
 
         # Handle Integration disconnect buttons
         if button_id and button_id.startswith("integ-disconnect-"):
             safe_id = button_id[17:]  # Remove "integ-disconnect-" prefix
-            integration_id = getattr(self, '_integ_id_to_name', {}).get(safe_id, safe_id)
+            integration_id = getattr(self, "_integ_id_to_name", {}).get(
+                safe_id, safe_id
+            )
             self._disconnect_integration(integration_id)
 
         # Handle Integration modal buttons
@@ -1360,7 +1510,9 @@ class CraftApp(App):
             # Format: integ-account-disconnect-{safe_integ_id}-{safe_acc_id}
             safe_key = button_id[25:]  # Remove prefix
             # Look up the original IDs from the mapping
-            original_ids = getattr(self, '_integ_account_id_to_name', {}).get(safe_key, safe_key)
+            original_ids = getattr(self, "_integ_account_id_to_name", {}).get(
+                safe_key, safe_key
+            )
             if "|" in original_ids:
                 integration_id, account_id = original_ids.split("|", 1)
                 self._disconnect_integration_account(integration_id, account_id)
@@ -1422,7 +1574,11 @@ class CraftApp(App):
         env_vars = get_server_env_vars(server_name)
 
         if not env_vars:
-            self.notify(f"No environment variables for '{server_name}'", severity="information", timeout=2)
+            self.notify(
+                f"No environment variables for '{server_name}'",
+                severity="information",
+                timeout=2,
+            )
             return
 
         # Remove any existing env editor overlay
@@ -1479,7 +1635,11 @@ class CraftApp(App):
                 if new_value != env_vars[key]:
                     update_mcp_server_env(server_name, key, new_value)
 
-        self.notify(f"Saved environment variables for '{server_name}'", severity="information", timeout=2)
+        self.notify(
+            f"Saved environment variables for '{server_name}'",
+            severity="information",
+            timeout=2,
+        )
         self._close_mcp_env_editor()
         self._refresh_mcp_server_list()
 
@@ -1513,7 +1673,9 @@ class CraftApp(App):
         # Build status button with colored dot
         is_enabled = skill_info["enabled"]
         status_dot = "●"  # Unicode bullet
-        status_text = f"{status_dot} Enabled" if is_enabled else f"{status_dot} Disabled"
+        status_text = (
+            f"{status_dot} Enabled" if is_enabled else f"{status_dot} Disabled"
+        )
 
         # Build action sets display
         action_sets = ", ".join(skill_info.get("action_sets", [])) or "None"
@@ -1541,8 +1703,12 @@ class CraftApp(App):
                 ),
                 # Action buttons (fixed at bottom)
                 Horizontal(
-                    Button("Copy", id="skill-detail-copy", classes="skill-detail-btn -copy"),
-                    Button("Close", id="skill-detail-close", classes="skill-detail-btn"),
+                    Button(
+                        "Copy", id="skill-detail-copy", classes="skill-detail-btn -copy"
+                    ),
+                    Button(
+                        "Close", id="skill-detail-close", classes="skill-detail-btn"
+                    ),
                     id="skill-detail-actions",
                 ),
                 id="skill-detail-viewer",
@@ -1594,6 +1760,7 @@ class CraftApp(App):
 
         try:
             import pyperclip
+
             pyperclip.copy(self._skill_detail_raw_content)
             self.notify("Copied to clipboard!", severity="information", timeout=2)
         except ImportError:
@@ -1601,20 +1768,45 @@ class CraftApp(App):
             try:
                 import subprocess
                 import sys
+
                 if sys.platform == "win32":
-                    subprocess.run(["clip"], input=self._skill_detail_raw_content.encode("utf-8"), check=True)
-                    self.notify("Copied to clipboard!", severity="information", timeout=2)
+                    subprocess.run(
+                        ["clip"],
+                        input=self._skill_detail_raw_content.encode("utf-8"),
+                        check=True,
+                    )
+                    self.notify(
+                        "Copied to clipboard!", severity="information", timeout=2
+                    )
                 elif sys.platform == "darwin":
-                    subprocess.run(["pbcopy"], input=self._skill_detail_raw_content.encode("utf-8"), check=True)
-                    self.notify("Copied to clipboard!", severity="information", timeout=2)
+                    subprocess.run(
+                        ["pbcopy"],
+                        input=self._skill_detail_raw_content.encode("utf-8"),
+                        check=True,
+                    )
+                    self.notify(
+                        "Copied to clipboard!", severity="information", timeout=2
+                    )
                 else:
                     # Linux - try xclip or xsel
                     try:
-                        subprocess.run(["xclip", "-selection", "clipboard"], input=self._skill_detail_raw_content.encode("utf-8"), check=True)
-                        self.notify("Copied to clipboard!", severity="information", timeout=2)
+                        subprocess.run(
+                            ["xclip", "-selection", "clipboard"],
+                            input=self._skill_detail_raw_content.encode("utf-8"),
+                            check=True,
+                        )
+                        self.notify(
+                            "Copied to clipboard!", severity="information", timeout=2
+                        )
                     except FileNotFoundError:
-                        subprocess.run(["xsel", "--clipboard", "--input"], input=self._skill_detail_raw_content.encode("utf-8"), check=True)
-                        self.notify("Copied to clipboard!", severity="information", timeout=2)
+                        subprocess.run(
+                            ["xsel", "--clipboard", "--input"],
+                            input=self._skill_detail_raw_content.encode("utf-8"),
+                            check=True,
+                        )
+                        self.notify(
+                            "Copied to clipboard!", severity="information", timeout=2
+                        )
             except Exception as e:
                 self.notify(f"Could not copy: {e}", severity="error", timeout=3)
 
@@ -1653,28 +1845,44 @@ class CraftApp(App):
 
         if self._interface._selected_task_id:
             # Detail view: show back button + actions for selected task
-            task_item = self._interface._action_items.get(self._interface._selected_task_id)
+            task_item = self._interface._action_items.get(
+                self._interface._selected_task_id
+            )
             if task_item:
                 # Add back button as first entry
                 back_text = Text("< Back to tasks", style="bold #ff4f18")
                 action_log.append_renderable(back_text, entry_key="action-panel-back")
 
                 # Add task name as header
-                status_icon = self.ICON_COMPLETED if task_item.status == "completed" else (
-                    self.ICON_ERROR if task_item.status == "error" else
-                    self.ICON_LOADING_FRAMES[self._interface._loading_frame_index % len(self.ICON_LOADING_FRAMES)]
+                status_icon = (
+                    self.ICON_COMPLETED
+                    if task_item.status == "completed"
+                    else (
+                        self.ICON_ERROR
+                        if task_item.status == "error"
+                        else self.ICON_LOADING_FRAMES[
+                            self._interface._loading_frame_index
+                            % len(self.ICON_LOADING_FRAMES)
+                        ]
+                    )
                 )
-                header_text = Text(f"[{status_icon}] {task_item.display_name}", style="bold #ffffff")
+                header_text = Text(
+                    f"[{status_icon}] {task_item.display_name}", style="bold #ffffff"
+                )
                 action_log.append_renderable(header_text)
 
                 # Add actions for this task
-                actions = self._interface.get_actions_for_task(self._interface._selected_task_id)
+                actions = self._interface.get_actions_for_task(
+                    self._interface._selected_task_id
+                )
                 for action in sorted(actions, key=lambda a: a.created_at):
                     renderable = self._interface.format_action_item(action)
                     action_log.append_renderable(renderable, entry_key=action.id)
 
                 if not actions:
-                    empty_text = Text("  No actions recorded yet", style="italic #666666")
+                    empty_text = Text(
+                        "  No actions recorded yet", style="italic #666666"
+                    )
                     action_log.append_renderable(empty_text)
         else:
             # Main view: show only tasks
@@ -1695,7 +1903,9 @@ class CraftApp(App):
         """Open a modal to connect an integration."""
         info = get_integration_info(integration_id)
         if not info:
-            self.notify(f"Integration '{integration_id}' not found", severity="error", timeout=2)
+            self.notify(
+                f"Integration '{integration_id}' not found", severity="error", timeout=2
+            )
             return
 
         # Remove any existing modal
@@ -1713,10 +1923,19 @@ class CraftApp(App):
             # OAuth-only: show browser button
             modal_content = Container(
                 Static(f"Connect {info['name']}", id="integ-modal-title"),
-                Static("This will open a browser window for authentication.", classes="integ-modal-desc"),
+                Static(
+                    "This will open a browser window for authentication.",
+                    classes="integ-modal-desc",
+                ),
                 Horizontal(
-                    Button("Open Browser", id="integ-modal-oauth", classes="integ-modal-btn -primary"),
-                    Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
+                    Button(
+                        "Open Browser",
+                        id="integ-modal-oauth",
+                        classes="integ-modal-btn -primary",
+                    ),
+                    Button(
+                        "Cancel", id="integ-modal-cancel", classes="integ-modal-btn"
+                    ),
                     id="integ-modal-actions",
                 ),
                 id="integ-connect-modal",
@@ -1725,10 +1944,19 @@ class CraftApp(App):
             # Interactive (like WhatsApp): show connect button that starts login flow
             modal_content = Container(
                 Static(f"Connect {info['name']}", id="integ-modal-title"),
-                Static("A browser window will open for you to scan the QR code.", classes="integ-modal-desc"),
+                Static(
+                    "A browser window will open for you to scan the QR code.",
+                    classes="integ-modal-desc",
+                ),
                 Horizontal(
-                    Button("Connect", id="integ-modal-interactive-connect", classes="integ-modal-btn -primary"),
-                    Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
+                    Button(
+                        "Connect",
+                        id="integ-modal-interactive-connect",
+                        classes="integ-modal-btn -primary",
+                    ),
+                    Button(
+                        "Cancel", id="integ-modal-cancel", classes="integ-modal-btn"
+                    ),
                     id="integ-modal-actions",
                 ),
                 id="integ-connect-modal",
@@ -1740,14 +1968,20 @@ class CraftApp(App):
             # Section 1: Invite/OAuth our shared bot (most common)
             invite_section = [
                 Horizontal(
-                    Button("Invite Bot" if is_bot_platform else "Use OAuth", id="integ-modal-oauth", classes="integ-modal-btn -primary"),
+                    Button(
+                        "Invite Bot" if is_bot_platform else "Use OAuth",
+                        id="integ-modal-oauth",
+                        classes="integ-modal-btn -primary",
+                    ),
                     id="integ-modal-invite-actions",
                 ),
             ]
 
             # Section 2: Manual bot token entry
             field_inputs = [
-                Static("— or enter your own bot token —", classes="integ-modal-separator"),
+                Static(
+                    "— or enter your own bot token —", classes="integ-modal-separator"
+                ),
             ]
             for field in fields:
                 field_inputs.append(Static(field["label"], classes="integ-field-label"))
@@ -1761,7 +1995,11 @@ class CraftApp(App):
                 )
             field_inputs.append(
                 Horizontal(
-                    Button("Save", id="integ-modal-save", classes="integ-modal-btn -primary"),
+                    Button(
+                        "Save",
+                        id="integ-modal-save",
+                        classes="integ-modal-btn -primary",
+                    ),
                     id="integ-modal-save-actions",
                 )
             )
@@ -1770,7 +2008,9 @@ class CraftApp(App):
                 Static(f"Connect {info['name']}", id="integ-modal-title"),
                 VerticalScroll(*invite_section, *field_inputs, id="integ-modal-fields"),
                 Horizontal(
-                    Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
+                    Button(
+                        "Cancel", id="integ-modal-cancel", classes="integ-modal-btn"
+                    ),
                     id="integ-modal-actions",
                 ),
                 id="integ-connect-modal",
@@ -1791,16 +2031,26 @@ class CraftApp(App):
                 )
             field_inputs.append(
                 Horizontal(
-                    Button("Save", id="integ-modal-save", classes="integ-modal-btn -primary"),
+                    Button(
+                        "Save",
+                        id="integ-modal-save",
+                        classes="integ-modal-btn -primary",
+                    ),
                     id="integ-modal-save-actions",
                 )
             )
 
             # Section 2: Interactive login (QR scan) for user account
             link_section = [
-                Static("— or link your personal account —", classes="integ-modal-separator"),
+                Static(
+                    "— or link your personal account —", classes="integ-modal-separator"
+                ),
                 Horizontal(
-                    Button("Link Account (QR)", id="integ-modal-interactive-connect", classes="integ-modal-btn -primary"),
+                    Button(
+                        "Link Account (QR)",
+                        id="integ-modal-interactive-connect",
+                        classes="integ-modal-btn -primary",
+                    ),
                     id="integ-modal-link-actions",
                 ),
             ]
@@ -1809,7 +2059,9 @@ class CraftApp(App):
                 Static(f"Connect {info['name']}", id="integ-modal-title"),
                 VerticalScroll(*field_inputs, *link_section, id="integ-modal-fields"),
                 Horizontal(
-                    Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
+                    Button(
+                        "Cancel", id="integ-modal-cancel", classes="integ-modal-btn"
+                    ),
                     id="integ-modal-actions",
                 ),
                 id="integ-connect-modal",
@@ -1832,8 +2084,14 @@ class CraftApp(App):
                 Static(f"Connect {info['name']}", id="integ-modal-title"),
                 Vertical(*field_inputs, id="integ-modal-fields"),
                 Horizontal(
-                    Button("Save", id="integ-modal-save", classes="integ-modal-btn -primary"),
-                    Button("Cancel", id="integ-modal-cancel", classes="integ-modal-btn"),
+                    Button(
+                        "Save",
+                        id="integ-modal-save",
+                        classes="integ-modal-btn -primary",
+                    ),
+                    Button(
+                        "Cancel", id="integ-modal-cancel", classes="integ-modal-btn"
+                    ),
                     id="integ-modal-actions",
                 ),
                 id="integ-connect-modal",
@@ -1842,10 +2100,14 @@ class CraftApp(App):
         overlay = Container(modal_content, id="integ-connect-overlay")
         self.mount(overlay)
 
-    async def _save_integration_connect_async(self, integration_id: str, credentials: dict) -> None:
+    async def _save_integration_connect_async(
+        self, integration_id: str, credentials: dict
+    ) -> None:
         """Async helper to save integration credentials."""
         try:
-            success, message = await connect_integration_token(integration_id, credentials)
+            success, message = await connect_integration_token(
+                integration_id, credentials
+            )
             if success:
                 self.notify(message, severity="information", timeout=3)
                 self._close_integration_connect_modal()
@@ -1892,11 +2154,11 @@ class CraftApp(App):
 
         try:
             success, message = await loop.run_in_executor(
-                executor,
-                self._run_oauth_sync,
-                integration_id
+                executor, self._run_oauth_sync, integration_id
             )
-            logger.info(f"[TUI] OAuth connect result: success={success}, message={message[:100]}")
+            logger.info(
+                f"[TUI] OAuth connect result: success={success}, message={message[:100]}"
+            )
 
             if hasattr(self, "_oauth_cancelled") and self._oauth_cancelled:
                 self._oauth_cancelled = False
@@ -1950,7 +2212,9 @@ class CraftApp(App):
     def _start_interactive_connect(self) -> None:
         """Start interactive connection flow (e.g. WhatsApp QR code scan)."""
         if not hasattr(self, "_integ_connect_current_id"):
-            logger.warning("[TUI] _start_interactive_connect: no _integ_connect_current_id")
+            logger.warning(
+                "[TUI] _start_interactive_connect: no _integ_connect_current_id"
+            )
             return
 
         integration_id = self._integ_connect_current_id
@@ -1978,10 +2242,18 @@ class CraftApp(App):
         modal = Container(
             Container(
                 Static(f"Connecting to {name}...", id="oauth-waiting-title"),
-                Static("Scan the QR code that opened (check browser or terminal).", classes="oauth-waiting-desc"),
-                Static("This window will update automatically when done.", classes="oauth-waiting-hint"),
+                Static(
+                    "Scan the QR code that opened (check browser or terminal).",
+                    classes="oauth-waiting-desc",
+                ),
+                Static(
+                    "This window will update automatically when done.",
+                    classes="oauth-waiting-hint",
+                ),
                 Horizontal(
-                    Button("Cancel", id="oauth-waiting-cancel", classes="oauth-waiting-btn"),
+                    Button(
+                        "Cancel", id="oauth-waiting-cancel", classes="oauth-waiting-btn"
+                    ),
                     id="oauth-waiting-actions",
                 ),
                 id="oauth-waiting-modal",
@@ -1995,17 +2267,19 @@ class CraftApp(App):
         import asyncio
         import concurrent.futures
 
-        logger.info(f"[TUI] _start_interactive_connect_async: starting for {integration_id}")
+        logger.info(
+            f"[TUI] _start_interactive_connect_async: starting for {integration_id}"
+        )
         loop = asyncio.get_event_loop()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
         try:
             success, message = await loop.run_in_executor(
-                executor,
-                self._run_interactive_sync,
-                integration_id
+                executor, self._run_interactive_sync, integration_id
             )
-            logger.info(f"[TUI] Interactive connect result: success={success}, message={message[:100]}")
+            logger.info(
+                f"[TUI] Interactive connect result: success={success}, message={message[:100]}"
+            )
 
             if hasattr(self, "_oauth_cancelled") and self._oauth_cancelled:
                 self._oauth_cancelled = False
@@ -2032,7 +2306,9 @@ class CraftApp(App):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(connect_integration_interactive(integration_id))
+            return loop.run_until_complete(
+                connect_integration_interactive(integration_id)
+            )
         finally:
             loop.close()
 
@@ -2048,10 +2324,18 @@ class CraftApp(App):
         modal = Container(
             Container(
                 Static(f"Connecting to {name}...", id="oauth-waiting-title"),
-                Static("Complete the authentication in your browser.", classes="oauth-waiting-desc"),
-                Static("This window will update automatically when done.", classes="oauth-waiting-hint"),
+                Static(
+                    "Complete the authentication in your browser.",
+                    classes="oauth-waiting-desc",
+                ),
+                Static(
+                    "This window will update automatically when done.",
+                    classes="oauth-waiting-hint",
+                ),
                 Horizontal(
-                    Button("Cancel", id="oauth-waiting-cancel", classes="oauth-waiting-btn"),
+                    Button(
+                        "Cancel", id="oauth-waiting-cancel", classes="oauth-waiting-btn"
+                    ),
                     id="oauth-waiting-actions",
                 ),
                 id="oauth-waiting-modal",
@@ -2071,7 +2355,9 @@ class CraftApp(App):
         self._close_oauth_waiting_modal()
         self.notify("OAuth cancelled", severity="information", timeout=2)
 
-    async def _disconnect_integration_async(self, integration_id: str, account_id: str = None) -> None:
+    async def _disconnect_integration_async(
+        self, integration_id: str, account_id: str = None
+    ) -> None:
         """Async helper to disconnect an integration."""
         try:
             success, message = await disconnect_integration(integration_id, account_id)
@@ -2081,7 +2367,9 @@ class CraftApp(App):
                 # Close and reopen detail viewer to update if viewing
                 if account_id and hasattr(self, "_integ_detail_current_id"):
                     self._close_integration_detail_viewer()
-                    self.call_after_refresh(lambda: self._open_integration_detail_viewer(integration_id))
+                    self.call_after_refresh(
+                        lambda: self._open_integration_detail_viewer(integration_id)
+                    )
             else:
                 self.notify(message, severity="error", timeout=3)
         except Exception as e:
@@ -2091,7 +2379,9 @@ class CraftApp(App):
         """Disconnect the first account from an integration."""
         create_task(self._disconnect_integration_async(integration_id))
 
-    def _disconnect_integration_account(self, integration_id: str, account_id: str) -> None:
+    def _disconnect_integration_account(
+        self, integration_id: str, account_id: str
+    ) -> None:
         """Disconnect a specific account from an integration."""
         create_task(self._disconnect_integration_async(integration_id, account_id))
 
@@ -2099,7 +2389,9 @@ class CraftApp(App):
         """Open a modal to view integration details and connected accounts."""
         info = get_integration_info(integration_id)
         if not info:
-            self.notify(f"Integration '{integration_id}' not found", severity="error", timeout=2)
+            self.notify(
+                f"Integration '{integration_id}' not found", severity="error", timeout=2
+            )
             return
 
         # Remove any existing detail overlay
@@ -2124,16 +2416,24 @@ class CraftApp(App):
                 safe_integ_id = self._sanitize_id(integration_id)
                 safe_acc_id = self._sanitize_id(acc_id)
                 # Store mapping for reverse lookup
-                self._integ_account_id_to_name[f"{safe_integ_id}-{safe_acc_id}"] = f"{integration_id}|{acc_id}"
+                self._integ_account_id_to_name[f"{safe_integ_id}-{safe_acc_id}"] = (
+                    f"{integration_id}|{acc_id}"
+                )
                 account_items.append(
                     Horizontal(
                         Static(f"  {display}", classes="integ-account-info"),
-                        Button("x", id=f"integ-account-disconnect-{safe_integ_id}-{safe_acc_id}", classes="integ-account-disconnect-btn"),
+                        Button(
+                            "x",
+                            id=f"integ-account-disconnect-{safe_integ_id}-{safe_acc_id}",
+                            classes="integ-account-disconnect-btn",
+                        ),
                         classes="integ-account-row",
                     )
                 )
         else:
-            account_items.append(Static("  No accounts connected", classes="integ-account-empty"))
+            account_items.append(
+                Static("  No accounts connected", classes="integ-account-empty")
+            )
 
         # Build the detail viewer
         overlay = Container(
@@ -2142,8 +2442,12 @@ class CraftApp(App):
                 Static(info["description"], id="integ-detail-desc"),
                 VerticalScroll(*account_items, id="integ-detail-accounts"),
                 Horizontal(
-                    Button("Reconnect", id="integ-detail-add", classes="integ-detail-btn"),
-                    Button("Close", id="integ-detail-close", classes="integ-detail-btn"),
+                    Button(
+                        "Reconnect", id="integ-detail-add", classes="integ-detail-btn"
+                    ),
+                    Button(
+                        "Close", id="integ-detail-close", classes="integ-detail-btn"
+                    ),
                     id="integ-detail-actions",
                 ),
                 id="integ-detail-viewer",

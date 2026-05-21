@@ -38,6 +38,7 @@ class MemoryRegistry(ComponentRegistry["MemoryManagerProtocol"]):
     Each project (CraftBot, CraftBot) registers their memory
     manager at startup. Shared code uses get() to access the manager.
     """
+
     pass
 
 

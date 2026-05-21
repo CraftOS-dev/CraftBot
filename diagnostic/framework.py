@@ -1,4 +1,5 @@
 """Common utilities for diagnostic action harnesses."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -73,20 +74,52 @@ class ActionExecutor:
             # SECURITY FIX: Use restricted globals instead of full environment
             # Only allow safe built-in functions
             safe_builtins = {
-                'abs': abs, 'all': all, 'any': any, 'ascii': ascii,
-                'bin': bin, 'bool': bool, 'bytes': bytes, 'chr': chr,
-                'dict': dict, 'dir': dir, 'divmod': divmod,
-                'enumerate': enumerate, 'filter': filter, 'float': float,
-                'format': format, 'frozenset': frozenset, 'hash': hash,
-                'hex': hex, 'int': int, 'isinstance': isinstance, 'issubclass': issubclass,
-                'iter': iter, 'len': len, 'list': list, 'map': map,
-                'max': max, 'min': min, 'next': next, 'oct': oct, 'ord': ord,
-                'pow': pow, 'range': range, 'repr': repr, 'reversed': reversed,
-                'round': round, 'set': set, 'slice': slice, 'sorted': sorted,
-                'str': str, 'sum': sum, 'tuple': tuple, 'type': type, 'zip': zip,
-                'json': json,  # Allow JSON for output serialization
+                "abs": abs,
+                "all": all,
+                "any": any,
+                "ascii": ascii,
+                "bin": bin,
+                "bool": bool,
+                "bytes": bytes,
+                "chr": chr,
+                "dict": dict,
+                "dir": dir,
+                "divmod": divmod,
+                "enumerate": enumerate,
+                "filter": filter,
+                "float": float,
+                "format": format,
+                "frozenset": frozenset,
+                "hash": hash,
+                "hex": hex,
+                "int": int,
+                "isinstance": isinstance,
+                "issubclass": issubclass,
+                "iter": iter,
+                "len": len,
+                "list": list,
+                "map": map,
+                "max": max,
+                "min": min,
+                "next": next,
+                "oct": oct,
+                "ord": ord,
+                "pow": pow,
+                "range": range,
+                "repr": repr,
+                "reversed": reversed,
+                "round": round,
+                "set": set,
+                "slice": slice,
+                "sorted": sorted,
+                "str": str,
+                "sum": sum,
+                "tuple": tuple,
+                "type": type,
+                "zip": zip,
+                "json": json,  # Allow JSON for output serialization
             }
-            
+
             # Safely inject input_data (prevent code injection in repr)
             safe_input_data = {}
             for key, value in input_data.items():
@@ -94,7 +127,7 @@ class ActionExecutor:
                     safe_input_data[key] = value
                 else:
                     safe_input_data[key] = json.loads(json.dumps(value, default=str))
-            
+
             exec_globals: Dict[str, Any] = {
                 "__name__": "__main__",
                 "__package__": None,
@@ -104,7 +137,9 @@ class ActionExecutor:
             if extra_globals:
                 # Only add safe globals (functions, not arbitrary objects)
                 for key, val in extra_globals.items():
-                    if callable(val) or isinstance(val, (str, int, float, bool, type(None))):
+                    if callable(val) or isinstance(
+                        val, (str, int, float, bool, type(None))
+                    ):
                         exec_globals[key] = val
 
             sys.stdout = stdout_buffer
@@ -135,15 +170,10 @@ class ActionExecutor:
         except Exception as exc:  # noqa: BLE001 - capture runtime issues
             sys.stdout = old_stdout
             sys.stderr = old_stderr
-            # SECURITY FIX: Don't expose full traceback externally
-            # Log internally for debugging, but return sanitized error
             tb = traceback.format_exc()
             raw_output = stdout_buffer.getvalue().strip()
             stderr_output = stderr_buffer.getvalue().strip()
-            
-            # Sanitize error message to avoid information disclosure
-            sanitized_error = str(exc).split('\n')[0][:100]  # First line, max 100 chars
-            
+
             return ExecutionResult(
                 raw_output=raw_output,
                 stderr=stderr_output,
@@ -173,7 +203,9 @@ class ActionExecutor:
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            json_start_candidates = [idx for idx in (cleaned.find("{"), cleaned.find("[")) if idx != -1]
+            json_start_candidates = [
+                idx for idx in (cleaned.find("{"), cleaned.find("[")) if idx != -1
+            ]
             if not json_start_candidates:
                 raise
 
@@ -192,7 +224,9 @@ class ActionExecutor:
 @dataclasses.dataclass
 class PreparedEnv:
     input_overrides: Mapping[str, Any] = dataclasses.field(default_factory=dict)
-    extra_modules: Mapping[str, types.ModuleType] = dataclasses.field(default_factory=dict)
+    extra_modules: Mapping[str, types.ModuleType] = dataclasses.field(
+        default_factory=dict
+    )
     extra_globals: Mapping[str, Any] = dataclasses.field(default_factory=dict)
     context: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -203,7 +237,9 @@ class ActionTestCase:
     base_input: Mapping[str, Any] = dataclasses.field(default_factory=dict)
     prepare: Optional[Callable[[Path, Mapping[str, Any]], PreparedEnv]] = None
     validator: Optional[
-        Callable[[ExecutionResult, Mapping[str, Any], Mapping[str, Any]], Tuple[str, str]]
+        Callable[
+            [ExecutionResult, Mapping[str, Any], Mapping[str, Any]], Tuple[str, str]
+        ]
     ] = None
     skip_reason: Optional[str] = None
 

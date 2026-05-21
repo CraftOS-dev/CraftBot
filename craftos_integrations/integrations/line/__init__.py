@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """LINE Messaging API integration.
 
 LINE delivers inbound messages via webhooks only - there is no long-poll
@@ -15,6 +15,7 @@ API channel:
     - Channel secret - used to verify webhook signatures (stored for
       future webhook-server use; not required for send-only).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -51,6 +52,7 @@ class LineCredential:
 @dataclass
 class LineConfig:
     """Runtime knobs persisted to ``line_config.json``."""
+
     # When True, every outgoing push/multicast/broadcast is sent with
     # ``notificationDisabled: true`` - recipients receive the message but
     # no push alert. Useful for bulk/automated sends that shouldn't wake
@@ -80,6 +82,7 @@ def _line_config_file() -> str:
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(LINE.name)
 class LineHandler(IntegrationHandler):
     spec = LINE
@@ -95,32 +98,52 @@ class LineHandler(IntegrationHandler):
         "Channel Access Token â†’ Messaging API tab â†’ 'Issue' button under 'Channel access token (long-lived)'",
     ]
     fields = [
-        {"key": "channel_access_token", "label": "Channel Access Token",
-         "placeholder": "Long-lived token from LINE Developers console", "password": True},
-        {"key": "channel_secret", "label": "Channel Secret",
-         "placeholder": "From the same Messaging API channel", "password": True, "optional": True},
+        {
+            "key": "channel_access_token",
+            "label": "Channel Access Token",
+            "placeholder": "Long-lived token from LINE Developers console",
+            "password": True,
+        },
+        {
+            "key": "channel_secret",
+            "label": "Channel Secret",
+            "placeholder": "From the same Messaging API channel",
+            "password": True,
+            "optional": True,
+        },
     ]
 
     config_class = LineConfig
     config_fields = [
-        {"key": "notification_disabled", "label": "Silent delivery", "type": "checkbox",
-         "help": "Send all push/multicast/broadcast messages with notificationDisabled=true. "
-                 "Recipients receive the message but get no push alert."},
-        {"key": "message_prefix", "label": "Message prefix", "type": "text",
-         "placeholder": "[CraftBot] ",
-         "help": "Optional prefix prepended to every outgoing text message. Leave empty for none."},
+        {
+            "key": "notification_disabled",
+            "label": "Silent delivery",
+            "type": "checkbox",
+            "help": "Send all push/multicast/broadcast messages with notificationDisabled=true. "
+            "Recipients receive the message but get no push alert.",
+        },
+        {
+            "key": "message_prefix",
+            "label": "Message prefix",
+            "type": "text",
+            "placeholder": "[CraftBot] ",
+            "help": "Optional prefix prepended to every outgoing text message. Leave empty for none.",
+        },
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         if not args:
-            return False, ("Usage: /line login <channel_access_token> [channel_secret]\n"
-                           "Get from https://developers.line.biz/console/ â†’ "
-                           "Messaging API channel â†’ Channel access token (long-lived).")
+            return False, (
+                "Usage: /line login <channel_access_token> [channel_secret]\n"
+                "Get from https://developers.line.biz/console/ â†’ "
+                "Messaging API channel â†’ Channel access token (long-lived)."
+            )
         token = args[0]
         secret = args[1] if len(args) > 1 else ""
 
         result = http_request(
-            "GET", f"{LINE_API_BASE}/info",
+            "GET",
+            f"{LINE_API_BASE}/info",
             headers={"Authorization": f"Bearer {token}"},
             expected=(200,),
         )
@@ -128,12 +151,15 @@ class LineHandler(IntegrationHandler):
             return False, f"Invalid channel access token: {result['error']}"
         info = result.get("result", {})
 
-        save_credential(self.spec.cred_file, LineCredential(
-            channel_access_token=token,
-            channel_secret=secret,
-            bot_user_id=info.get("userId", ""),
-            bot_display_name=info.get("displayName", ""),
-        ))
+        save_credential(
+            self.spec.cred_file,
+            LineCredential(
+                channel_access_token=token,
+                channel_secret=secret,
+                bot_user_id=info.get("userId", ""),
+                bot_display_name=info.get("displayName", ""),
+            ),
+        )
         label = info.get("displayName") or info.get("userId") or "bot"
         return True, f"LINE connected: {label}"
 
@@ -142,6 +168,7 @@ class LineHandler(IntegrationHandler):
             return False, "No LINE credentials found."
         try:
             from ...manager import get_external_comms_manager
+
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -165,6 +192,7 @@ class LineHandler(IntegrationHandler):
 # Client
 # -----------------------------------------------------------------
 
+
 @register_client
 class LineClient(BasePlatformClient):
     spec = LINE
@@ -186,8 +214,10 @@ class LineClient(BasePlatformClient):
 
     def _headers(self) -> Dict[str, str]:
         cred = self._load()
-        return {"Authorization": f"Bearer {cred.channel_access_token}",
-                "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {cred.channel_access_token}",
+            "Content-Type": "application/json",
+        }
 
     async def connect(self) -> None:
         self._load()
@@ -221,8 +251,11 @@ class LineClient(BasePlatformClient):
         if cfg.notification_disabled:
             payload["notificationDisabled"] = True
         return http_request(
-            "POST", f"{LINE_API_BASE}/message/push",
-            headers=self._headers(), json=payload, expected=(200,),
+            "POST",
+            f"{LINE_API_BASE}/message/push",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def reply_text(self, reply_token: str, text: str) -> Result:
@@ -235,8 +268,11 @@ class LineClient(BasePlatformClient):
         if cfg.notification_disabled:
             payload["notificationDisabled"] = True
         return http_request(
-            "POST", f"{LINE_API_BASE}/message/reply",
-            headers=self._headers(), json=payload, expected=(200,),
+            "POST",
+            f"{LINE_API_BASE}/message/reply",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def multicast_text(self, to: List[str], text: str) -> Result:
@@ -249,8 +285,11 @@ class LineClient(BasePlatformClient):
         if cfg.notification_disabled:
             payload["notificationDisabled"] = True
         return http_request(
-            "POST", f"{LINE_API_BASE}/message/multicast",
-            headers=self._headers(), json=payload, expected=(200,),
+            "POST",
+            f"{LINE_API_BASE}/message/multicast",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def broadcast_text(self, text: str) -> Result:
@@ -262,14 +301,18 @@ class LineClient(BasePlatformClient):
         if cfg.notification_disabled:
             payload["notificationDisabled"] = True
         return http_request(
-            "POST", f"{LINE_API_BASE}/message/broadcast",
-            headers=self._headers(), json=payload, expected=(200,),
+            "POST",
+            f"{LINE_API_BASE}/message/broadcast",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def get_profile(self, user_id: str) -> Result:
         """Fetch a user's display name / picture URL by their LINE user ID."""
         return http_request(
-            "GET", f"{LINE_API_BASE}/profile/{user_id}",
+            "GET",
+            f"{LINE_API_BASE}/profile/{user_id}",
             headers={"Authorization": f"Bearer {self._load().channel_access_token}"},
             expected=(200,),
         )
@@ -277,7 +320,8 @@ class LineClient(BasePlatformClient):
     def get_bot_info(self) -> Result:
         """Fetch the connected bot's own profile (userId, displayName, picture)."""
         return http_request(
-            "GET", f"{LINE_API_BASE}/info",
+            "GET",
+            f"{LINE_API_BASE}/info",
             headers={"Authorization": f"Bearer {self._load().channel_access_token}"},
             expected=(200,),
         )
@@ -285,7 +329,8 @@ class LineClient(BasePlatformClient):
     def get_quota(self) -> Result:
         """Return the bot's monthly push-message quota."""
         return http_request(
-            "GET", f"{LINE_API_BASE}/message/quota",
+            "GET",
+            f"{LINE_API_BASE}/message/quota",
             headers={"Authorization": f"Bearer {self._load().channel_access_token}"},
             expected=(200,),
         )

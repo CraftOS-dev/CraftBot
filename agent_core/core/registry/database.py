@@ -35,6 +35,7 @@ class DatabaseRegistry(ComponentRegistry["DatabaseInterfaceProtocol"]):
     Each project (CraftBot, CraftBot) registers their database
     instance at startup. Shared code uses get() to access the database.
     """
+
     pass
 
 

@@ -13,7 +13,6 @@ from database import get_db
 from models import AppState, Item, UISnapshot, UIScreenshot
 from datetime import datetime
 import logging
-import base64
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,19 +22,23 @@ router = APIRouter()
 # Pydantic Schemas
 # ============================================================================
 
+
 class StateUpdate(BaseModel):
     """Schema for updating app state."""
+
     data: Dict[str, Any]
 
 
 class ActionRequest(BaseModel):
     """Schema for executing an action."""
+
     action: str
     payload: Optional[Dict[str, Any]] = None
 
 
 class ItemCreate(BaseModel):
     """Schema for creating an item."""
+
     title: str
     description: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
@@ -43,6 +46,7 @@ class ItemCreate(BaseModel):
 
 class ItemUpdate(BaseModel):
     """Schema for updating an item."""
+
     title: Optional[str] = None
     description: Optional[str] = None
     completed: Optional[bool] = None
@@ -52,6 +56,7 @@ class ItemUpdate(BaseModel):
 
 class UISnapshotUpdate(BaseModel):
     """Schema for updating UI snapshot."""
+
     htmlStructure: Optional[str] = None
     visibleText: Optional[List[str]] = None
     inputValues: Optional[Dict[str, Any]] = None
@@ -62,6 +67,7 @@ class UISnapshotUpdate(BaseModel):
 
 class UIScreenshotUpdate(BaseModel):
     """Schema for updating UI screenshot."""
+
     imageData: str  # Base64 encoded PNG
     width: Optional[int] = None
     height: Optional[int] = None
@@ -70,6 +76,7 @@ class UIScreenshotUpdate(BaseModel):
 # ============================================================================
 # State Management Routes (Primary API)
 # ============================================================================
+
 
 @router.get("/state")
 def get_state(db: Session = Depends(get_db)) -> Dict[str, Any]:
@@ -144,7 +151,9 @@ def clear_state(db: Session = Depends(get_db)) -> Dict[str, str]:
 
 
 @router.post("/action")
-def execute_action(request: ActionRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def execute_action(
+    request: ActionRequest, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """
     Execute a named action.
 
@@ -206,6 +215,7 @@ def execute_action(request: ActionRequest, db: Session = Depends(get_db)) -> Dic
 # Item CRUD Routes (Example for list-based data)
 # ============================================================================
 
+
 @router.get("/items")
 def list_items(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """Get all items, ordered by their order field."""
@@ -241,7 +251,9 @@ def get_item(item_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 
 @router.put("/items/{item_id}")
-def update_item(item_id: int, data: ItemUpdate, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def update_item(
+    item_id: int, data: ItemUpdate, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """Update an existing item."""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
@@ -281,6 +293,7 @@ def delete_item(item_id: int, db: Session = Depends(get_db)) -> Dict[str, str]:
 # UI Observation Routes (Agent API)
 # ============================================================================
 
+
 @router.get("/ui-snapshot")
 def get_ui_snapshot(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
@@ -308,13 +321,15 @@ def get_ui_snapshot(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "currentView": None,
             "viewport": {},
             "timestamp": None,
-            "status": "no_snapshot"
+            "status": "no_snapshot",
         }
     return snapshot.to_dict()
 
 
 @router.post("/ui-snapshot")
-def update_ui_snapshot(data: UISnapshotUpdate, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def update_ui_snapshot(
+    data: UISnapshotUpdate, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """
     Update the UI snapshot.
 
@@ -372,13 +387,15 @@ def get_ui_screenshot(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "width": None,
             "height": None,
             "timestamp": None,
-            "status": "no_screenshot"
+            "status": "no_screenshot",
         }
     return screenshot.to_dict()
 
 
 @router.post("/ui-screenshot")
-def update_ui_screenshot(data: UIScreenshotUpdate, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def update_ui_screenshot(
+    data: UIScreenshotUpdate, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """
     Update the UI screenshot.
 

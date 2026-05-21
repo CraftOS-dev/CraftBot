@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
@@ -151,7 +151,6 @@ class EventRecord:
             Compact string representation
         """
         t = self.ts.strftime("%H:%M:%S")
-        sev = self.event.severity
         k = self.event.kind
         msg = self.event.message
         suffix = f" x{self.repeat_count}" if self.repeat_count > 1 else ""

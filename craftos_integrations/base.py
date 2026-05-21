@@ -8,6 +8,7 @@ Two abstract lifecycles, intentionally separate:
 Each integration declares one of each, both holding the same IntegrationSpec
 (composition). The two classes do not share a base — they are collaborators.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -19,6 +20,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 # ════════════════════════════════════════════════════════════════════════
 # Runtime side: PlatformMessage + BasePlatformClient
 # ════════════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class PlatformMessage:
@@ -64,7 +66,9 @@ class BasePlatformClient(ABC):
         self._connected = False
 
     @abstractmethod
-    async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]: ...
+    async def send_message(
+        self, recipient: str, text: str, **kwargs
+    ) -> Dict[str, Any]: ...
 
     @property
     def supports_listening(self) -> bool:
@@ -80,6 +84,7 @@ class BasePlatformClient(ABC):
 # ════════════════════════════════════════════════════════════════════════
 # Auth side: IntegrationHandler
 # ════════════════════════════════════════════════════════════════════════
+
 
 class IntegrationHandler(ABC):
     # ----- UI / metadata (override on each handler) -----
@@ -151,13 +156,16 @@ class IntegrationHandler(ABC):
     async def connect_token(self, creds: Dict[str, str]) -> Tuple[bool, str]:
         """Map a {field_key: value} dict to login() args, in field-declaration order."""
         if not self.fields:
-            return False, f"Token-based login not supported for {self.display_name or 'this integration'}"
+            return (
+                False,
+                f"Token-based login not supported for {self.display_name or 'this integration'}",
+            )
         args: List[str] = []
-        for field in self.fields:
-            key = field["key"]
+        for field_def in self.fields:
+            key = field_def["key"]
             value = creds.get(key, "")
-            if not value and not field.get("optional"):
-                label = field.get("label", key)
+            if not value and not field_def.get("optional"):
+                label = field_def.get("label", key)
                 return False, f"{label} is required"
             args.append(value)
         # Drop trailing optional empties so handler.login can use len(args) checks
@@ -176,7 +184,9 @@ class IntegrationHandler(ABC):
             return await self.invite(a)
         return await self.login(a)
 
-    async def connect_interactive(self, args: Optional[List[str]] = None) -> Tuple[bool, str]:
+    async def connect_interactive(
+        self, args: Optional[List[str]] = None
+    ) -> Tuple[bool, str]:
         """Interactive (e.g. QR scan) dispatcher: prefers 'login-qr' subcommand if exposed."""
         a = args or []
         sub = "login-qr" if "login-qr" in self.subcommands else "login"

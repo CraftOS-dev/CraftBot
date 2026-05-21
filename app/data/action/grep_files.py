@@ -4,116 +4,116 @@ _INPUT_SCHEMA = {
     "pattern": {
         "type": "string",
         "example": "def \\w+\\(",
-        "description": "Regex pattern to search for. Supports full regex syntax (e.g., 'def \\w+\\(' to find function definitions, 'TODO:.*' to find TODOs). For literal text search, just use the plain text (special regex chars will need escaping)."
+        "description": "Regex pattern to search for. Supports full regex syntax (e.g., 'def \\w+\\(' to find function definitions, 'TODO:.*' to find TODOs). For literal text search, just use the plain text (special regex chars will need escaping).",
     },
     "path": {
         "type": "string",
         "example": "/workspace/project",
-        "description": "File or directory path to search in. If a directory, searches all files recursively. If a file, searches only that file. Defaults to current working directory if not provided."
+        "description": "File or directory path to search in. If a directory, searches all files recursively. If a file, searches only that file. Defaults to current working directory if not provided.",
     },
     "glob": {
         "type": "string",
         "example": "*.py",
-        "description": "Glob pattern to filter which files to search (e.g., '*.py' for Python files, '*.{js,ts}' for JS/TS files, 'test_*.py' for test files). Only applies when path is a directory."
+        "description": "Glob pattern to filter which files to search (e.g., '*.py' for Python files, '*.{js,ts}' for JS/TS files, 'test_*.py' for test files). Only applies when path is a directory.",
     },
     "file_type": {
         "type": "string",
         "example": "py",
-        "description": "Filter by file extension type (e.g., 'py', 'js', 'json', 'md'). Shorthand alternative to glob — 'py' is equivalent to glob '*.py'. If both glob and file_type are provided, glob takes priority."
+        "description": "Filter by file extension type (e.g., 'py', 'js', 'json', 'md'). Shorthand alternative to glob — 'py' is equivalent to glob '*.py'. If both glob and file_type are provided, glob takes priority.",
     },
     "output_mode": {
         "type": "string",
         "example": "content",
-        "description": "Controls what is returned. 'files_with_matches' (default): returns only file paths that contain matches. 'content': returns matching lines with line numbers and optional context. 'count': returns the number of matches per file."
+        "description": "Controls what is returned. 'files_with_matches' (default): returns only file paths that contain matches. 'content': returns matching lines with line numbers and optional context. 'count': returns the number of matches per file.",
     },
     "case_insensitive": {
         "type": "boolean",
         "example": True,
-        "description": "If true, search is case-insensitive. Default is false (case-sensitive)."
+        "description": "If true, search is case-insensitive. Default is false (case-sensitive).",
     },
     "before_context": {
         "type": "integer",
         "example": 2,
-        "description": "Number of lines to show BEFORE each match. Only applies when output_mode is 'content'. Default is 0."
+        "description": "Number of lines to show BEFORE each match. Only applies when output_mode is 'content'. Default is 0.",
     },
     "after_context": {
         "type": "integer",
         "example": 2,
-        "description": "Number of lines to show AFTER each match. Only applies when output_mode is 'content'. Default is 0."
+        "description": "Number of lines to show AFTER each match. Only applies when output_mode is 'content'. Default is 0.",
     },
     "context": {
         "type": "integer",
         "example": 3,
-        "description": "Number of context lines to show both before AND after each match (shorthand for setting before_context and after_context to the same value). Only applies when output_mode is 'content'. Overridden by explicit before_context/after_context if provided."
+        "description": "Number of context lines to show both before AND after each match (shorthand for setting before_context and after_context to the same value). Only applies when output_mode is 'content'. Overridden by explicit before_context/after_context if provided.",
     },
     "multiline": {
         "type": "boolean",
         "example": False,
-        "description": "If true, enables multiline mode where '.' matches newlines and patterns can span across lines. Default is false."
+        "description": "If true, enables multiline mode where '.' matches newlines and patterns can span across lines. Default is false.",
     },
     "head_limit": {
         "type": "integer",
         "example": 50,
-        "description": "Maximum number of results to return. For 'files_with_matches': max file paths. For 'content': max output lines. For 'count': max file entries. Default is 250. Pass 0 for unlimited results (no truncation). If results are truncated, the applied_limit field in the response tells you it happened — use offset to paginate through the rest."
+        "description": "Maximum number of results to return. For 'files_with_matches': max file paths. For 'content': max output lines. For 'count': max file entries. Default is 250. Pass 0 for unlimited results (no truncation). If results are truncated, the applied_limit field in the response tells you it happened — use offset to paginate through the rest.",
     },
     "offset": {
         "type": "integer",
         "example": 0,
-        "description": "Number of results to skip before returning. Use with head_limit for pagination. Default is 0."
-    }
+        "description": "Number of results to skip before returning. Use with head_limit for pagination. Default is 0.",
+    },
 }
 
 _OUTPUT_SCHEMA = {
     "status": {
         "type": "string",
         "example": "success",
-        "description": "'success' or 'error'."
+        "description": "'success' or 'error'.",
     },
     "message": {
         "type": "string",
         "example": "Found matches in 5 files",
-        "description": "Summary message or error description."
+        "description": "Summary message or error description.",
     },
     "mode": {
         "type": "string",
         "example": "content",
-        "description": "The output mode that was used."
+        "description": "The output mode that was used.",
     },
     "num_files": {
         "type": "integer",
         "example": 5,
-        "description": "Number of files that contained matches."
+        "description": "Number of files that contained matches.",
     },
     "filenames": {
         "type": "array",
         "example": ["/workspace/project/main.py", "/workspace/project/utils.py"],
-        "description": "List of file paths that contained matches."
+        "description": "List of file paths that contained matches.",
     },
     "content": {
         "type": "string",
         "example": "File: /workspace/main.py\n10:def hello():\n11-    pass\n--\n25:def world():\n26-    return 1\n",
-        "description": "Matching lines with line numbers. Match lines use ':' after the line number (e.g., '10:matched line'), context lines use '-' (e.g., '11-context line'). Non-contiguous groups are separated by '--'. For single-file searches, the filepath is shown once at the top to save tokens. For multi-file searches, each file section is prefixed with 'File: path'. Only populated when output_mode is 'content'."
+        "description": "Matching lines with line numbers. Match lines use ':' after the line number (e.g., '10:matched line'), context lines use '-' (e.g., '11-context line'). Non-contiguous groups are separated by '--'. For single-file searches, the filepath is shown once at the top to save tokens. For multi-file searches, each file section is prefixed with 'File: path'. Only populated when output_mode is 'content'.",
     },
     "num_lines": {
         "type": "integer",
         "example": 15,
-        "description": "Number of content lines returned. Only populated when output_mode is 'content'."
+        "description": "Number of content lines returned. Only populated when output_mode is 'content'.",
     },
     "num_matches": {
         "type": "integer",
         "example": 42,
-        "description": "Total number of matches across all files. Only populated when output_mode is 'count'."
+        "description": "Total number of matches across all files. Only populated when output_mode is 'count'.",
     },
     "applied_limit": {
         "type": "integer",
         "example": 250,
-        "description": "The head_limit that was applied, or null if unlimited (head_limit=0). If your results were truncated to this limit, use offset to paginate through the rest."
+        "description": "The head_limit that was applied, or null if unlimited (head_limit=0). If your results were truncated to this limit, use offset to paginate through the rest.",
     },
     "applied_offset": {
         "type": "integer",
         "example": 0,
-        "description": "The offset that was applied."
-    }
+        "description": "The offset that was applied.",
+    },
 }
 
 
@@ -142,8 +142,8 @@ _OUTPUT_SCHEMA = {
         "output_mode": "content",
         "case_insensitive": True,
         "head_limit": 50,
-        "simulated_mode": True
-    }
+        "simulated_mode": True,
+    },
 )
 def grep_files(input_data: dict) -> dict:
     """Searches files for a regex pattern and returns results."""
@@ -155,29 +155,41 @@ def grep_files(input_data: dict) -> dict:
 
     def make_error(message):
         return {
-            'status': 'error',
-            'message': message,
-            'mode': None,
-            'num_files': 0,
-            'filenames': [],
-            'content': None,
-            'num_lines': None,
-            'num_matches': None,
-            'applied_limit': None,
-            'applied_offset': None
+            "status": "error",
+            "message": message,
+            "mode": None,
+            "num_files": 0,
+            "filenames": [],
+            "content": None,
+            "num_lines": None,
+            "num_matches": None,
+            "applied_limit": None,
+            "applied_offset": None,
         }
 
     def collect_files(directory, glob_pat=None, max_files=10000):
         SKIP_DIRS = {
-            '.git', '.svn', '.hg', '__pycache__', 'node_modules',
-            '.venv', 'venv', '.env', '.tox', '.mypy_cache',
-            '.pytest_cache', 'dist', 'build', '.idea', '.vscode'
+            ".git",
+            ".svn",
+            ".hg",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            "venv",
+            ".env",
+            ".tox",
+            ".mypy_cache",
+            ".pytest_cache",
+            "dist",
+            "build",
+            ".idea",
+            ".vscode",
         }
         collected = []
         for root, dirs, files in os.walk(directory):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
             for fname in files:
-                if fname.startswith('.'):
+                if fname.startswith("."):
                     continue
                 if glob_pat and not fnmatch.fnmatch(fname, glob_pat):
                     continue
@@ -186,89 +198,91 @@ def grep_files(input_data: dict) -> dict:
                     return collected
         return collected
 
-    def format_content_lines(fpath, lines, sorted_indices, display_map, single_file, first_file):
+    def format_content_lines(
+        fpath, lines, sorted_indices, display_map, single_file, first_file
+    ):
         result = []
         if single_file:
             if first_file:
-                result.append(f'File: {fpath}')
+                result.append(f"File: {fpath}")
         else:
             if not first_file:
-                result.append('--')
-            result.append(f'File: {fpath}')
+                result.append("--")
+            result.append(f"File: {fpath}")
 
         prev_ln = None
         for ln in sorted_indices:
             if ln >= len(lines):
                 continue
             if prev_ln is not None and ln > prev_ln + 1:
-                result.append('--')
-            separator = ':' if display_map[ln] else '-'
-            result.append(f'{ln + 1}{separator}{lines[ln]}')
+                result.append("--")
+            separator = ":" if display_map[ln] else "-"
+            result.append(f"{ln + 1}{separator}{lines[ln]}")
             prev_ln = ln
         return result
 
     # --- Main logic ---
 
-    simulated_mode = input_data.get('simulated_mode', False)
+    simulated_mode = input_data.get("simulated_mode", False)
 
     if simulated_mode:
         return {
-            'status': 'success',
-            'message': 'Found matches in 2 files',
-            'mode': 'content',
-            'num_files': 2,
-            'filenames': ['/path/to/input.txt', '/path/to/other.txt'],
-            'content': 'File: /path/to/input.txt\n10:Mt. Fuji is visible today\n11-The mountain was clear\n--\nFile: /path/to/other.txt\n5:visibility is low\n',
-            'num_lines': 5,
-            'num_matches': None,
-            'applied_limit': 50,
-            'applied_offset': 0
+            "status": "success",
+            "message": "Found matches in 2 files",
+            "mode": "content",
+            "num_files": 2,
+            "filenames": ["/path/to/input.txt", "/path/to/other.txt"],
+            "content": "File: /path/to/input.txt\n10:Mt. Fuji is visible today\n11-The mountain was clear\n--\nFile: /path/to/other.txt\n5:visibility is low\n",
+            "num_lines": 5,
+            "num_matches": None,
+            "applied_limit": 50,
+            "applied_offset": 0,
         }
 
     # --- Parse and validate inputs ---
-    pattern_str = input_data.get('pattern')
+    pattern_str = input_data.get("pattern")
     if not pattern_str:
-        return make_error('pattern is required.')
+        return make_error("pattern is required.")
 
-    search_path = input_data.get('path') or os.getcwd()
-    output_mode = input_data.get('output_mode', 'files_with_matches')
-    if output_mode not in ('files_with_matches', 'content', 'count'):
-        output_mode = 'files_with_matches'
+    search_path = input_data.get("path") or os.getcwd()
+    output_mode = input_data.get("output_mode", "files_with_matches")
+    if output_mode not in ("files_with_matches", "content", "count"):
+        output_mode = "files_with_matches"
 
-    case_insensitive = bool(input_data.get('case_insensitive', False))
-    multiline_mode = bool(input_data.get('multiline', False))
-    glob_pattern = input_data.get('glob')
-    file_type = input_data.get('file_type')
+    case_insensitive = bool(input_data.get("case_insensitive", False))
+    multiline_mode = bool(input_data.get("multiline", False))
+    glob_pattern = input_data.get("glob")
+    file_type = input_data.get("file_type")
 
     # Context lines (only for content mode)
     try:
-        ctx = int(input_data.get('context', 0))
+        ctx = int(input_data.get("context", 0))
     except (TypeError, ValueError):
         ctx = 0
     try:
-        before_ctx = int(input_data.get('before_context', ctx))
+        before_ctx = int(input_data.get("before_context", ctx))
     except (TypeError, ValueError):
         before_ctx = ctx
     try:
-        after_ctx = int(input_data.get('after_context', ctx))
+        after_ctx = int(input_data.get("after_context", ctx))
     except (TypeError, ValueError):
         after_ctx = ctx
     before_ctx = max(0, before_ctx)
     after_ctx = max(0, after_ctx)
 
     # Pagination
-    raw_limit = input_data.get('head_limit')
+    raw_limit = input_data.get("head_limit")
     try:
         head_limit = int(raw_limit) if raw_limit is not None else 250
     except (TypeError, ValueError):
         head_limit = 250
     try:
-        offset = int(input_data.get('offset', 0))
+        offset = int(input_data.get("offset", 0))
     except (TypeError, ValueError):
         offset = 0
     if head_limit < 0:
         head_limit = 250
-    unlimited = (head_limit == 0)
+    unlimited = head_limit == 0
     if offset < 0:
         offset = 0
 
@@ -282,11 +296,11 @@ def grep_files(input_data: dict) -> dict:
     try:
         regex = re.compile(pattern_str, flags)
     except re.error as e:
-        return make_error(f'Invalid regex pattern: {e}')
+        return make_error(f"Invalid regex pattern: {e}")
 
     # --- Collect files to search ---
     if not os.path.exists(search_path):
-        return make_error(f'Path does not exist: {search_path}')
+        return make_error(f"Path does not exist: {search_path}")
 
     if os.path.isfile(search_path):
         files_to_search = [search_path]
@@ -294,7 +308,7 @@ def grep_files(input_data: dict) -> dict:
         if glob_pattern:
             active_glob = glob_pattern
         elif file_type:
-            active_glob = f'*.{file_type.lstrip(".")}'
+            active_glob = f"*.{file_type.lstrip('.')}"
         else:
             active_glob = None
         files_to_search = collect_files(search_path, active_glob)
@@ -308,7 +322,7 @@ def grep_files(input_data: dict) -> dict:
 
     for fpath in files_to_search:
         try:
-            with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
                 file_content = f.read()
         except (OSError, IOError):
             continue
@@ -316,7 +330,7 @@ def grep_files(input_data: dict) -> dict:
         if not file_content:
             continue
 
-        lines = file_content.split('\n')
+        lines = file_content.split("\n")
 
         if multiline_mode:
             matches = list(regex.finditer(file_content))
@@ -324,8 +338,8 @@ def grep_files(input_data: dict) -> dict:
                 continue
             matched_line_nums = set()
             for m in matches:
-                start_line = file_content[:m.start()].count('\n')
-                end_line = file_content[:m.end()].count('\n')
+                start_line = file_content[: m.start()].count("\n")
+                end_line = file_content[: m.end()].count("\n")
                 for ln in range(start_line, end_line + 1):
                     matched_line_nums.add(ln)
         else:
@@ -341,20 +355,26 @@ def grep_files(input_data: dict) -> dict:
         match_count = len(matched_line_nums)
         total_match_count += match_count
 
-        if output_mode == 'count':
-            count_entries.append(f'{fpath}: {match_count}')
-        elif output_mode == 'content':
+        if output_mode == "count":
+            count_entries.append(f"{fpath}: {match_count}")
+        elif output_mode == "content":
             display_map = {}
             for ln in matched_line_nums:
                 display_map[ln] = True
-                for ctx_ln in range(max(0, ln - before_ctx), min(len(lines), ln + after_ctx + 1)):
+                for ctx_ln in range(
+                    max(0, ln - before_ctx), min(len(lines), ln + after_ctx + 1)
+                ):
                     if ctx_ln not in display_map:
                         display_map[ctx_ln] = False
 
             sorted_indices = sorted(display_map.keys())
             file_lines = format_content_lines(
-                fpath, lines, sorted_indices, display_map, is_single_file,
-                first_file=(len(content_lines) == 0)
+                fpath,
+                lines,
+                sorted_indices,
+                display_map,
+                is_single_file,
+                first_file=(len(content_lines) == 0),
             )
             content_lines.extend(file_lines)
 
@@ -367,52 +387,51 @@ def grep_files(input_data: dict) -> dict:
 
     effective_limit = None if unlimited else head_limit
 
-    if output_mode == 'files_with_matches':
+    if output_mode == "files_with_matches":
         total = len(matched_filenames)
         paginated = paginate(matched_filenames)
         return {
-            'status': 'success',
-            'message': f'Found matches in {total} file(s)',
-            'mode': 'files_with_matches',
-            'num_files': total,
-            'filenames': paginated,
-            'content': None,
-            'num_lines': None,
-            'num_matches': None,
-            'applied_limit': effective_limit,
-            'applied_offset': offset
+            "status": "success",
+            "message": f"Found matches in {total} file(s)",
+            "mode": "files_with_matches",
+            "num_files": total,
+            "filenames": paginated,
+            "content": None,
+            "num_lines": None,
+            "num_matches": None,
+            "applied_limit": effective_limit,
+            "applied_offset": offset,
         }
 
-    elif output_mode == 'content':
-        total_lines = len(content_lines)
+    elif output_mode == "content":
         paginated = paginate(content_lines)
-        content_str = '\n'.join(paginated)
+        content_str = "\n".join(paginated)
         if paginated:
-            content_str += '\n'
+            content_str += "\n"
         return {
-            'status': 'success',
-            'message': f'Found {total_match_count} match(es) in {len(matched_filenames)} file(s)',
-            'mode': 'content',
-            'num_files': len(matched_filenames),
-            'filenames': matched_filenames,
-            'content': content_str,
-            'num_lines': len(paginated),
-            'num_matches': None,
-            'applied_limit': effective_limit,
-            'applied_offset': offset
+            "status": "success",
+            "message": f"Found {total_match_count} match(es) in {len(matched_filenames)} file(s)",
+            "mode": "content",
+            "num_files": len(matched_filenames),
+            "filenames": matched_filenames,
+            "content": content_str,
+            "num_lines": len(paginated),
+            "num_matches": None,
+            "applied_limit": effective_limit,
+            "applied_offset": offset,
         }
 
     else:  # count
         paginated = paginate(count_entries)
         return {
-            'status': 'success',
-            'message': f'Total: {total_match_count} match(es) in {len(matched_filenames)} file(s)',
-            'mode': 'count',
-            'num_files': len(matched_filenames),
-            'filenames': matched_filenames,
-            'content': '\n'.join(paginated) + '\n' if paginated else '',
-            'num_lines': None,
-            'num_matches': total_match_count,
-            'applied_limit': effective_limit,
-            'applied_offset': offset
+            "status": "success",
+            "message": f"Total: {total_match_count} match(es) in {len(matched_filenames)} file(s)",
+            "mode": "count",
+            "num_files": len(matched_filenames),
+            "filenames": matched_filenames,
+            "content": "\n".join(paginated) + "\n" if paginated else "",
+            "num_lines": None,
+            "num_matches": total_match_count,
+            "applied_limit": effective_limit,
+            "applied_offset": offset,
         }

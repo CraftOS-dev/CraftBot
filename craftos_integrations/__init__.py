@@ -25,6 +25,7 @@ craftos_integrations/integrations/ with an ``__init__.py`` (handler +
 client) and an optional ``INTEGRATION.md``. It is auto-loaded at startup.
 See integrations/github/ for the canonical shape.
 """
+
 from __future__ import annotations
 
 # Apply runtime compatibility shim before any submodule that uses asyncio.timeout

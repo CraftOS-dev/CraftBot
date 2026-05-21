@@ -7,12 +7,12 @@ Using the REST interface keeps stderr free from the gRPC warnings the SDK
 emits during import/initialisation (e.g. the ``ALTS creds ignored`` message
 that was polluting the CLI output).
 """
+
 from __future__ import annotations
 
 
 import base64
 import logging
-import os
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
@@ -201,12 +201,14 @@ class GeminiClient:
         parts: List[Dict[str, Any]] = [{"text": text}]
         for img in image_bytes_list:
             mime = "image/jpeg"
-            parts.append({
-                "inlineData": {
-                    "mimeType": mime,
-                    "data": base64.b64encode(img).decode("utf-8"),
+            parts.append(
+                {
+                    "inlineData": {
+                        "mimeType": mime,
+                        "data": base64.b64encode(img).decode("utf-8"),
+                    }
                 }
-            })
+            )
 
         contents = [{"role": "user", "parts": parts}]
 
@@ -244,8 +246,6 @@ class GeminiClient:
             "completion_tokens": completion_tokens,
             "cached_tokens": cached_tokens,
         }
-
-
 
     def embed_text(self, model: str, *, text: str) -> List[float]:
         """Fetch an embedding vector for the supplied text.

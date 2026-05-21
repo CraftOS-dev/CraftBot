@@ -34,11 +34,12 @@ Composition over inheritance: the per-service Client subclasses
 ``GoogleApiClientMixin`` for token plumbing. The Handler holds an
 ``OAuthFlow`` instance from ``make_google_oauth`` (composition).
 """
+
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from .. import (
     IntegrationSpec,
@@ -49,7 +50,7 @@ from .. import (
     save_credential,
 )
 from ..config import ConfigStore
-from ..helpers import Result, request as http_request
+from ..helpers import request as http_request
 from ..logger import get_logger
 
 logger = get_logger(__name__)
@@ -86,19 +87,22 @@ YOUTUBE_SCOPES = (
 CONTACTS_SCOPES = "https://www.googleapis.com/auth/contacts.readonly"
 
 # Union — used by the "connect everything" Workspace integration.
-ALL_GOOGLE_SCOPES = " ".join([
-    GMAIL_SCOPES,
-    CALENDAR_SCOPES,
-    DRIVE_SCOPES,
-    CONTACTS_SCOPES,
-    USERINFO_SCOPES,
-    YOUTUBE_SCOPES,
-])
+ALL_GOOGLE_SCOPES = " ".join(
+    [
+        GMAIL_SCOPES,
+        CALENDAR_SCOPES,
+        DRIVE_SCOPES,
+        CONTACTS_SCOPES,
+        USERINFO_SCOPES,
+        YOUTUBE_SCOPES,
+    ]
+)
 
 
 # ════════════════════════════════════════════════════════════════════════
 # Credential dataclass (shared across all Google services)
 # ════════════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class GoogleCredential:
@@ -108,6 +112,7 @@ class GoogleCredential:
     (``gmail.json``, ``gcal.json``, …). When the workspace meta-integration
     connects, it cascades the same credential into all per-service files.
     """
+
     access_token: str = ""
     refresh_token: str = ""
     token_expiry: float = 0.0
@@ -119,6 +124,7 @@ class GoogleCredential:
 # ════════════════════════════════════════════════════════════════════════
 # OAuthFlow factory — composition for handlers
 # ════════════════════════════════════════════════════════════════════════
+
 
 def make_google_oauth(scopes: str) -> OAuthFlow:
     """Build the per-service ``OAuthFlow``. The userinfo scopes are always
@@ -140,6 +146,7 @@ def make_google_oauth(scopes: str) -> OAuthFlow:
 # Shared login / logout / status helpers — called by per-service handlers
 # ════════════════════════════════════════════════════════════════════════
 
+
 async def run_google_login(
     spec: IntegrationSpec,
     oauth: OAuthFlow,
@@ -153,14 +160,17 @@ async def run_google_login(
         return False, f"{display_name} OAuth failed: {result['error']}"
 
     info = result.get("userinfo", {})
-    save_credential(spec.cred_file, GoogleCredential(
-        access_token=result["access_token"],
-        refresh_token=result.get("refresh_token", ""),
-        token_expiry=time.time() + result.get("expires_in", 3600),
-        client_id=ConfigStore.get_oauth("GOOGLE_CLIENT_ID"),
-        client_secret=ConfigStore.get_oauth("GOOGLE_CLIENT_SECRET"),
-        email=info.get("email", ""),
-    ))
+    save_credential(
+        spec.cred_file,
+        GoogleCredential(
+            access_token=result["access_token"],
+            refresh_token=result.get("refresh_token", ""),
+            token_expiry=time.time() + result.get("expires_in", 3600),
+            client_id=ConfigStore.get_oauth("GOOGLE_CLIENT_ID"),
+            client_secret=ConfigStore.get_oauth("GOOGLE_CLIENT_SECRET"),
+            email=info.get("email", ""),
+        ),
+    )
     return True, f"{display_name} connected as {info.get('email')}"
 
 
@@ -193,6 +203,7 @@ async def run_google_status(
 # Client mixin — shared token plumbing for every per-service Client
 # ════════════════════════════════════════════════════════════════════════
 
+
 class GoogleApiClientMixin:
     """Composition mixin: gives a Client class the shared Google token
     machinery (load credential, refresh on expiry, build auth headers).
@@ -207,6 +218,7 @@ class GoogleApiClientMixin:
     credential file to load. No state is kept on the mixin itself; every
     method reads/writes through ``self._cred`` on the subclass instance.
     """
+
     spec: IntegrationSpec  # subclass provides this
     _cred: Optional[GoogleCredential]  # subclass declares in __init__
 
@@ -234,12 +246,17 @@ class GoogleApiClientMixin:
         cred = self._load()
         if not all([cred.client_id, cred.client_secret, cred.refresh_token]):
             return None
-        result = http_request("POST", GOOGLE_TOKEN_URL, data={
-            "client_id": cred.client_id,
-            "client_secret": cred.client_secret,
-            "refresh_token": cred.refresh_token,
-            "grant_type": "refresh_token",
-        }, expected=(200,))
+        result = http_request(
+            "POST",
+            GOOGLE_TOKEN_URL,
+            data={
+                "client_id": cred.client_id,
+                "client_secret": cred.client_secret,
+                "refresh_token": cred.refresh_token,
+                "grant_type": "refresh_token",
+            },
+            expected=(200,),
+        )
         if "error" in result:
             return None
         data = result["result"]

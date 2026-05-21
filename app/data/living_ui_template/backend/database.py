@@ -6,7 +6,7 @@ Uses synchronous SQLite with SQLAlchemy for simplicity and reliability.
 """
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
 from models import Base
 from pathlib import Path
 import logging
@@ -27,11 +27,13 @@ engine = create_engine(
 # Enable WAL mode for better concurrent read/write performance (multi-user)
 from sqlalchemy import event
 
+
 @event.listens_for(engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
+
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -44,6 +46,7 @@ async def init_db():
 
     # Ensure default app state exists
     from models import AppState
+
     db = SessionLocal()
     try:
         state = db.query(AppState).first()

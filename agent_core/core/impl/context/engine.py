@@ -12,7 +12,6 @@ Hooks allow runtime-specific behavior for conversation context:
 - get_user_info_hook: For current user info (WCA only)
 """
 
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Callable
 
 from tzlocal import get_localzone
@@ -28,7 +27,6 @@ from agent_core.core.prompts import (
     LANGUAGE_INSTRUCTION,
 )
 from agent_core.core.state import get_state, get_session_or_none
-from agent_core.core.task import Task
 
 
 # Import memory mode check (deferred to avoid circular imports)
@@ -36,9 +34,11 @@ def _is_memory_enabled() -> bool:
     """Check if memory mode is enabled. Returns True if unknown."""
     try:
         from app.ui_layer.settings.memory_settings import is_memory_enabled
+
         return is_memory_enabled()
     except ImportError:
         return True  # Default to enabled if settings module not available
+
 
 # Set up logger - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
@@ -170,6 +170,7 @@ class ContextEngine:
             role = self._role_info_func()
             try:
                 from app.onboarding import onboarding_manager
+
                 agent_name = onboarding_manager.state.agent_name or "Agent"
             except ImportError:
                 agent_name = "Agent"
@@ -183,6 +184,7 @@ class ContextEngine:
     def create_system_environmental_context(self) -> str:
         """Create a system message block with environmental context."""
         import platform
+
         try:
             from app.config import AGENT_WORKSPACE_ROOT
         except ImportError:
@@ -204,6 +206,7 @@ class ContextEngine:
         """Create a system message block with agent file system context."""
         try:
             from app.config import AGENT_FILE_SYSTEM_PATH, PROJECT_ROOT
+
             skills_path = PROJECT_ROOT / "skills"
         except ImportError:
             AGENT_FILE_SYSTEM_PATH = "."
@@ -217,6 +220,7 @@ class ContextEngine:
         """Create a system message block with user profile from USER.md."""
         try:
             from app.config import AGENT_FILE_SYSTEM_PATH
+
             user_md_path = AGENT_FILE_SYSTEM_PATH / "USER.md"
 
             if user_md_path.exists():
@@ -232,6 +236,7 @@ class ContextEngine:
         """Create a system message block with agent soul/personality from SOUL.md."""
         try:
             from app.config import AGENT_FILE_SYSTEM_PATH
+
             soul_md_path = AGENT_FILE_SYSTEM_PATH / "SOUL.md"
 
             if soul_md_path.exists():
@@ -328,7 +333,9 @@ class ContextEngine:
             if not event_stream_manager:
                 return ""
 
-            recent_messages = event_stream_manager.get_recent_conversation_messages(limit)
+            recent_messages = event_stream_manager.get_recent_conversation_messages(
+                limit
+            )
             if not recent_messages:
                 return ""
 
@@ -344,7 +351,9 @@ class ContextEngine:
                 lines.append(f"[{event.kind}]: {event.message}")
 
             lines.append("")
-            lines.append("Note: This is historical context. The current task's events are in <event_stream> below.")
+            lines.append(
+                "Note: This is historical context. The current task's events are in <event_stream> below."
+            )
             lines.append("</conversation_history>")
 
             return "\n".join(lines)
@@ -353,7 +362,9 @@ class ContextEngine:
             logger.warning(f"[CONTEXT] Failed to format conversation history: {e}")
             return ""
 
-    def get_event_stream_delta(self, call_type: str, session_id: Optional[str] = None) -> tuple[str, bool]:
+    def get_event_stream_delta(
+        self, call_type: str, session_id: Optional[str] = None
+    ) -> tuple[str, bool]:
         """Get only new events since the last session sync.
 
         Args:
@@ -363,7 +374,6 @@ class ContextEngine:
                         events from other tasks may leak into this task's context.
         """
         try:
-            from app.event_stream import EventStreamManager
             event_stream_manager = self.state_manager.event_stream_manager
 
             # Use session-specific stream if session_id provided
@@ -380,7 +390,9 @@ class ContextEngine:
         except Exception:
             return "", False
 
-    def mark_event_stream_synced(self, call_type: str, session_id: Optional[str] = None) -> None:
+    def mark_event_stream_synced(
+        self, call_type: str, session_id: Optional[str] = None
+    ) -> None:
         """Mark that the event stream has been synced to a session cache.
 
         Args:
@@ -389,7 +401,6 @@ class ContextEngine:
                         CRITICAL for concurrent task execution.
         """
         try:
-            from app.event_stream import EventStreamManager
             event_stream_manager = self.state_manager.event_stream_manager
 
             # Use session-specific stream if session_id provided
@@ -403,7 +414,9 @@ class ContextEngine:
         except Exception:
             pass
 
-    def reset_event_stream_sync(self, call_type: str, session_id: Optional[str] = None) -> None:
+    def reset_event_stream_sync(
+        self, call_type: str, session_id: Optional[str] = None
+    ) -> None:
         """Reset the session sync point for the event stream.
 
         Args:
@@ -412,7 +425,6 @@ class ContextEngine:
                         CRITICAL for concurrent task execution.
         """
         try:
-            from app.event_stream import EventStreamManager
             event_stream_manager = self.state_manager.event_stream_manager
 
             # Use session-specific stream if session_id provided
@@ -441,8 +453,10 @@ class ContextEngine:
         else:
             # CRITICAL: Log warning when falling back to global state
             if session_id:
-                logger.warning(f"[CONTEXT_ENGINE] get_task_state: Session not found for session_id={session_id!r}, "
-                             f"falling back to global STATE. This may cause context leakage!")
+                logger.warning(
+                    f"[CONTEXT_ENGINE] get_task_state: Session not found for session_id={session_id!r}, "
+                    f"falling back to global STATE. This may cause context leakage!"
+                )
             current_task = get_state().current_task
 
         if current_task:
@@ -486,8 +500,10 @@ class ContextEngine:
         else:
             # CRITICAL: Log warning when falling back to global state
             if session_id:
-                logger.warning(f"[CONTEXT_ENGINE] get_skill_instructions: Session not found for session_id={session_id!r}, "
-                             f"falling back to global STATE. This may cause context leakage!")
+                logger.warning(
+                    f"[CONTEXT_ENGINE] get_skill_instructions: Session not found for session_id={session_id!r}, "
+                    f"falling back to global STATE. This may cause context leakage!"
+                )
             current_task = get_state().current_task
 
         if not current_task:
@@ -499,6 +515,7 @@ class ContextEngine:
 
         try:
             from app.skill import skill_manager
+
             instructions = skill_manager.get_skill_instructions(selected_skills)
 
             if not instructions:
@@ -530,8 +547,10 @@ class ContextEngine:
         else:
             # CRITICAL: Log warning when falling back to global state
             if session_id:
-                logger.warning(f"[CONTEXT_ENGINE] get_agent_state: Session not found for session_id={session_id!r}, "
-                             f"falling back to global STATE. This may cause context leakage!")
+                logger.warning(
+                    f"[CONTEXT_ENGINE] get_agent_state: Session not found for session_id={session_id!r}, "
+                    f"falling back to global STATE. This may cause context leakage!"
+                )
             agent_properties = get_state().get_agent_properties()
             gui_mode_status = "GUI mode" if get_state().gui_mode else "CLI mode"
 
@@ -556,7 +575,9 @@ class ContextEngine:
         """Get current user info for user prompts (WCA-specific via hook)."""
         return self._get_user_info()
 
-    def _build_memory_query(self, query: Optional[str], session_id: Optional[str]) -> Optional[str]:
+    def _build_memory_query(
+        self, query: Optional[str], session_id: Optional[str]
+    ) -> Optional[str]:
         """Build a semantic query for memory retrieval.
 
         Combines task instruction with recent conversation messages (both user
@@ -589,7 +610,9 @@ class ContextEngine:
         else:
             return task_instruction
 
-    def _get_recent_conversation_for_memory(self, session_id: Optional[str], limit: int = 5) -> str:
+    def _get_recent_conversation_for_memory(
+        self, session_id: Optional[str], limit: int = 5
+    ) -> str:
         """Get recent conversation messages for memory query context.
 
         Args:
@@ -605,7 +628,9 @@ class ContextEngine:
                 return ""
 
             # Get messages from conversation history (includes both user and agent)
-            recent_messages = event_stream_manager.get_recent_conversation_messages(limit)
+            recent_messages = event_stream_manager.get_recent_conversation_messages(
+                limit
+            )
             if not recent_messages:
                 return ""
 
@@ -625,7 +650,10 @@ class ContextEngine:
             return ""
 
     def get_memory_context(
-        self, query: Optional[str] = None, top_k: int = 5, session_id: Optional[str] = None
+        self,
+        query: Optional[str] = None,
+        top_k: int = 5,
+        session_id: Optional[str] = None,
     ) -> str:
         """Get relevant memories for inclusion in prompts.
 
@@ -649,13 +677,17 @@ class ContextEngine:
             return ""
 
         try:
-            pointers = self._memory_manager.retrieve(memory_query, top_k=top_k, min_relevance=0.3)
+            pointers = self._memory_manager.retrieve(
+                memory_query, top_k=top_k, min_relevance=0.3
+            )
 
             if not pointers:
                 return ""
 
             lines = ["<relevant_memories>"]
-            lines.append("Historical context from previous interactions (verify against current event stream):")
+            lines.append(
+                "Historical context from previous interactions (verify against current event stream):"
+            )
             lines.append("")
 
             for ptr in pointers:
@@ -665,7 +697,9 @@ class ContextEngine:
                 )
 
             lines.append("")
-            lines.append("Note: Memories may be outdated. Trust current event stream over memories if they conflict.")
+            lines.append(
+                "Note: Memories may be outdated. Trust current event stream over memories if they conflict."
+            )
             lines.append("Use memory_search action to retrieve full content if needed.")
             lines.append("</relevant_memories>")
 
@@ -739,7 +773,10 @@ class ContextEngine:
 
         user_sections = [
             ("query", lambda: self.create_user_query(query)),
-            ("expected_output", lambda: self.create_user_expected_output(expected_format)),
+            (
+                "expected_output",
+                lambda: self.create_user_expected_output(expected_format),
+            ),
         ]
 
         user_content_list = []

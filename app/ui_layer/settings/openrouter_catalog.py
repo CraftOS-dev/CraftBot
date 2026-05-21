@@ -12,7 +12,7 @@ want to re-fetch on every settings page open.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -50,7 +50,8 @@ def _normalize_model(raw: Dict[str, Any]) -> Dict[str, Any]:
         "canonical_slug": raw.get("canonical_slug"),
         "name": raw.get("name") or raw.get("id"),
         "description": (raw.get("description") or "")[:500],
-        "context_length": raw.get("context_length") or top_provider.get("context_length"),
+        "context_length": raw.get("context_length")
+        or top_provider.get("context_length"),
         "input_modalities": architecture.get("input_modalities") or [],
         "output_modalities": architecture.get("output_modalities") or [],
         "pricing": {

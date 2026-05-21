@@ -5,14 +5,14 @@ _INPUT_SCHEMA = {
     "query": {
         "type": "string",
         "example": "user preferences for communication",
-        "description": "The semantic search query to find relevant memory."
+        "description": "The semantic search query to find relevant memory.",
     },
     "top_k": {
         "type": "integer",
         "example": 5,
         "description": "Maximum number of results to return. Defaults to 5.",
-        "default": 5
-    }
+        "default": 5,
+    },
 }
 
 # Output schema for memory search
@@ -20,7 +20,7 @@ _OUTPUT_SCHEMA = {
     "status": {
         "type": "string",
         "example": "ok",
-        "description": "Indicates the action completed successfully."
+        "description": "Indicates the action completed successfully.",
     },
     "results": {
         "type": "array",
@@ -32,15 +32,15 @@ _OUTPUT_SCHEMA = {
                 "section_path": "Memory",
                 "title": "User Preference",
                 "summary": "John prefers dark mode interfaces",
-                "relevance_score": 0.85
+                "relevance_score": 0.85,
             }
-        ]
+        ],
     },
     "count": {
         "type": "integer",
         "example": 5,
-        "description": "Number of results returned."
-    }
+        "description": "Number of results returned.",
+    },
 }
 
 
@@ -52,11 +52,7 @@ _OUTPUT_SCHEMA = {
     action_sets=["core"],
     input_schema=_INPUT_SCHEMA,
     output_schema=_OUTPUT_SCHEMA,
-    test_payload={
-        "query": "user preferences",
-        "top_k": 5,
-        "simulated_mode": True
-    }
+    test_payload={"query": "user preferences", "top_k": 5, "simulated_mode": True},
 )
 def memory_search(input_data: dict) -> dict:
     """
@@ -65,45 +61,46 @@ def memory_search(input_data: dict) -> dict:
     This action uses the MemoryManager to perform semantic search across
     the agent's indexed files (MEMORY.md, EVENT_UNPROCESSED.md, etc.).
     """
-    simulated_mode = input_data.get('simulated_mode', False)
+    simulated_mode = input_data.get("simulated_mode", False)
 
     if simulated_mode:
         return {
-            'status': 'ok',
-            'results': [
+            "status": "ok",
+            "results": [
                 {
                     "chunk_id": "MEMORY.md_memory_1",
                     "file_path": "MEMORY.md",
                     "section_path": "Memory",
                     "title": "Test Memory",
                     "summary": "This is a test memory result",
-                    "relevance_score": 0.90
+                    "relevance_score": 0.90,
                 }
             ],
-            'count': 1
+            "count": 1,
         }
 
     try:
         # Check if memory is enabled
         from app.ui_layer.settings.memory_settings import is_memory_enabled
+
         if not is_memory_enabled():
             return {
-                'status': 'ok',
-                'results': [],
-                'count': 0,
-                'message': 'Memory is disabled'
+                "status": "ok",
+                "results": [],
+                "count": 0,
+                "message": "Memory is disabled",
             }
 
-        query = input_data.get('query')
+        query = input_data.get("query")
         if not query:
             return {
-                'status': 'error',
-                'results': [],
-                'count': 0,
-                'error': 'query is required'
+                "status": "error",
+                "results": [],
+                "count": 0,
+                "error": "query is required",
             }
 
-        top_k = input_data.get('top_k', 5)
+        top_k = input_data.get("top_k", 5)
         try:
             top_k = int(top_k)
             if top_k < 1:
@@ -117,24 +114,10 @@ def memory_search(input_data: dict) -> dict:
         # Call the InternalActionInterface method
         results = InternalActionInterface.memory_search(query=query, top_k=top_k)
 
-        return {
-            'status': 'ok',
-            'results': results,
-            'count': len(results)
-        }
+        return {"status": "ok", "results": results, "count": len(results)}
 
     except RuntimeError as e:
         # MemoryManager not initialized
-        return {
-            'status': 'error',
-            'results': [],
-            'count': 0,
-            'error': str(e)
-        }
+        return {"status": "error", "results": [], "count": 0, "error": str(e)}
     except Exception as e:
-        return {
-            'status': 'error',
-            'results': [],
-            'count': 0,
-            'error': str(e)
-        }
+        return {"status": "error", "results": [], "count": 0, "error": str(e)}

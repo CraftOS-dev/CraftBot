@@ -1,5 +1,3 @@
-
-from __future__ import annotations
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.10"
@@ -15,8 +13,9 @@ Usage:
     uv run generate_image.py --prompt "your image description" --filename "output.png" [--resolution 1K|2K|4K] [--api-key KEY]
 """
 
+from __future__ import annotations
+
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -28,7 +27,8 @@ def get_api_key(provided_key: str | None) -> str | None:
     # Try reading from settings.json
     try:
         from app.config import get_api_key as _get_api_key
-        return _get_api_key('gemini')
+
+        return _get_api_key("gemini")
     except ImportError:
         return None
 
@@ -38,28 +38,26 @@ def main():
         description="Generate images using Nano Banana Pro (Gemini 3 Pro Image)"
     )
     parser.add_argument(
-        "--prompt", "-p",
+        "--prompt", "-p", required=True, help="Image description/prompt"
+    )
+    parser.add_argument(
+        "--filename",
+        "-f",
         required=True,
-        help="Image description/prompt"
+        help="Output filename (e.g., sunset-mountains.png)",
     )
     parser.add_argument(
-        "--filename", "-f",
-        required=True,
-        help="Output filename (e.g., sunset-mountains.png)"
+        "--input-image", "-i", help="Optional input image path for editing/modification"
     )
     parser.add_argument(
-        "--input-image", "-i",
-        help="Optional input image path for editing/modification"
-    )
-    parser.add_argument(
-        "--resolution", "-r",
+        "--resolution",
+        "-r",
         choices=["1K", "2K", "4K"],
         default="1K",
-        help="Output resolution: 1K (default), 2K, or 4K"
+        help="Output resolution: 1K (default), 2K, or 4K",
     )
     parser.add_argument(
-        "--api-key", "-k",
-        help="Gemini API key (overrides GEMINI_API_KEY env var)"
+        "--api-key", "-k", help="Gemini API key (overrides GEMINI_API_KEY env var)"
     )
 
     args = parser.parse_args()
@@ -104,7 +102,9 @@ def main():
                     output_resolution = "2K"
                 else:
                     output_resolution = "1K"
-                print(f"Auto-detected resolution: {output_resolution} (from input {width}x{height})")
+                print(
+                    f"Auto-detected resolution: {output_resolution} (from input {width}x{height})"
+                )
         except Exception as e:
             print(f"Error loading input image: {e}", file=sys.stderr)
             sys.exit(1)
@@ -123,10 +123,8 @@ def main():
             contents=contents,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
-                image_config=types.ImageConfig(
-                    image_size=output_resolution
-                )
-            )
+                image_config=types.ImageConfig(image_size=output_resolution),
+            ),
         )
 
         # Process response and convert to PNG
@@ -143,19 +141,20 @@ def main():
                 if isinstance(image_data, str):
                     # If it's a string, it might be base64
                     import base64
+
                     image_data = base64.b64decode(image_data)
 
                 image = PILImage.open(BytesIO(image_data))
 
                 # Ensure RGB mode for PNG (convert RGBA to RGB with white background if needed)
-                if image.mode == 'RGBA':
-                    rgb_image = PILImage.new('RGB', image.size, (255, 255, 255))
+                if image.mode == "RGBA":
+                    rgb_image = PILImage.new("RGB", image.size, (255, 255, 255))
                     rgb_image.paste(image, mask=image.split()[3])
-                    rgb_image.save(str(output_path), 'PNG')
-                elif image.mode == 'RGB':
-                    image.save(str(output_path), 'PNG')
+                    rgb_image.save(str(output_path), "PNG")
+                elif image.mode == "RGB":
+                    image.save(str(output_path), "PNG")
                 else:
-                    image.convert('RGB').save(str(output_path), 'PNG')
+                    image.convert("RGB").save(str(output_path), "PNG")
                 image_saved = True
 
         if image_saved:
