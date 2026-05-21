@@ -17,7 +17,7 @@ import base64
 import os
 import re
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 import requests
 
@@ -134,20 +134,30 @@ class VLMInterface:
         # Read API key and base URL from settings.json if not provided
         if api_key is None or base_url is None:
             from app.config import get_api_key, get_base_url
-            target_api_key = api_key if api_key is not None else get_api_key(target_provider)
-            target_base_url = base_url if base_url is not None else get_base_url(target_provider)
+
+            target_api_key = (
+                api_key if api_key is not None else get_api_key(target_provider)
+            )
+            target_base_url = (
+                base_url if base_url is not None else get_base_url(target_provider)
+            )
         else:
             target_api_key = api_key
             target_base_url = base_url
 
         try:
             from app.config import get_vlm_model as _get_vlm_model  # type: ignore[import]
+
             target_model = _get_vlm_model()
         except Exception:
-            target_model = None  # app context not available (e.g. agent_core standalone)
+            target_model = (
+                None  # app context not available (e.g. agent_core standalone)
+            )
 
         try:
-            logger.info(f"[VLM] Reinitializing with provider: {target_provider}, model: {target_model or 'registry default'}")
+            logger.info(
+                f"[VLM] Reinitializing with provider: {target_provider}, model: {target_model or 'registry default'}"
+            )
             ctx = ModelFactory.create(
                 provider=target_provider,
                 interface=InterfaceType.VLM,
@@ -169,13 +179,17 @@ class VLMInterface:
                 self.api_key = ctx["byteplus"]["api_key"]
                 self.byteplus_base_url = ctx["byteplus"]["base_url"]
 
-            logger.info(f"[VLM] Reinitialized successfully with provider: {self.provider}, model: {self.model}")
+            logger.info(
+                f"[VLM] Reinitialized successfully with provider: {self.provider}, model: {self.model}"
+            )
             return self._initialized
         except EnvironmentError as e:
             logger.warning(f"[VLM] Failed to reinitialize - missing API key: {e}")
             return False
         except Exception as e:
-            logger.error(f"[VLM] Failed to reinitialize - unexpected error: {e}", exc_info=True)
+            logger.error(
+                f"[VLM] Failed to reinitialize - unexpected error: {e}", exc_info=True
+            )
             return False
 
     # ───────────────────────── Public Methods ─────────────────────────
@@ -235,21 +249,35 @@ class VLMInterface:
                 logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
 
             if self.provider == "deepseek":
-                raise RuntimeError("DeepSeek does not support vision/VLM. Use a different provider for image description.")
+                raise RuntimeError(
+                    "DeepSeek does not support vision/VLM. Use a different provider for image description."
+                )
             elif self.provider in ("openai", "minimax", "moonshot", "grok"):
-                response = self._openai_describe_bytes(image_bytes, system_prompt, user_prompt, json_mode=json_mode)
+                response = self._openai_describe_bytes(
+                    image_bytes, system_prompt, user_prompt, json_mode=json_mode
+                )
             elif self.provider == "remote":
-                response = self._ollama_describe_bytes(image_bytes, system_prompt, user_prompt)
+                response = self._ollama_describe_bytes(
+                    image_bytes, system_prompt, user_prompt
+                )
             elif self.provider == "gemini":
-                response = self._gemini_describe_bytes(image_bytes, system_prompt, user_prompt)
+                response = self._gemini_describe_bytes(
+                    image_bytes, system_prompt, user_prompt
+                )
             elif self.provider == "byteplus":
-                response = self._byteplus_describe_bytes(image_bytes, system_prompt, user_prompt)
+                response = self._byteplus_describe_bytes(
+                    image_bytes, system_prompt, user_prompt
+                )
             elif self.provider == "anthropic":
-                response = self._anthropic_describe_bytes(image_bytes, system_prompt, user_prompt)
+                response = self._anthropic_describe_bytes(
+                    image_bytes, system_prompt, user_prompt
+                )
             else:
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
 
-            cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
+            cleaned = re.sub(
+                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
+            )
 
             # Update token count via hook
             tokens_used = response.get("tokens_used", 0)
@@ -300,10 +328,10 @@ class VLMInterface:
         """
         if not os.path.isfile(image_path):
             raise FileNotFoundError(f"Image file not found: {image_path}")
-    
+
         with open(image_path, "rb") as f:
             image_bytes = f.read()
-    
+
         system_prompt = (
             "You are a precise OCR engine. Extract ALL text from this image exactly as it appears. "
             "Preserve line breaks, indentation, and formatting. "
@@ -311,9 +339,9 @@ class VLMInterface:
             "Output only the raw extracted text. If no text is present, output an empty string."
         )
         effective_user = user_prompt or "Extract all text from this image."
-    
+
         logger.info(f"[LLM SEND] OCR request | path={image_path}")
-    
+
         cleaned = self.describe_image_bytes(
             image_bytes,
             system_prompt=system_prompt,
@@ -321,7 +349,7 @@ class VLMInterface:
             log_response=False,  # Logged below
             json_mode=False,
         )
-    
+
         logger.info(f"[LLM RECV OCR] {cleaned[:120]}...")
         return cleaned
 
@@ -342,19 +370,19 @@ class VLMInterface:
                 "opencv-python-headless is required for video analysis. "
                 "Install with: pip install opencv-python-headless"
             )
-    
+
         if not os.path.isfile(video_path):
             raise FileNotFoundError(f"Video file not found: {video_path}")
-    
+
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if total_frames == 0:
             cap.release()
             raise ValueError("Video has 0 frames or could not be read.")
-    
+
         indices = [int(i * total_frames / max_frames) for i in range(max_frames)]
         frame_bytes_list: list[bytes] = []
-    
+
         for idx in indices:
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
             ret, frame = cap.read()
@@ -363,10 +391,10 @@ class VLMInterface:
                 if success:
                     frame_bytes_list.append(buf.tobytes())
         cap.release()
-    
+
         if not frame_bytes_list:
             raise ValueError("Could not extract any frames from the video.")
-    
+
         system_prompt = (
             f"You are analysing a video represented by {len(frame_bytes_list)} evenly-spaced keyframes. "
             "Provide: 1) An overall narrative summary of what is happening, "
@@ -375,25 +403,29 @@ class VLMInterface:
             "4) Notable transitions between frames."
         )
         effective_user = query or "Summarise the content of this video."
-    
+
         # For multi-frame, send frames sequentially (all providers support single-image per call)
         # Gemini 1.5 Pro supports native multi-image; others receive concatenated descriptions
         if self.provider == "gemini" and len(frame_bytes_list) > 1:
-            return self._gemini_describe_video_frames(frame_bytes_list, system_prompt, effective_user)
+            return self._gemini_describe_video_frames(
+                frame_bytes_list, system_prompt, effective_user
+            )
         else:
             # Universal fallback: describe each frame, then synthesise
-            return self._multi_frame_describe_fallback(frame_bytes_list, system_prompt, effective_user)
+            return self._multi_frame_describe_fallback(
+                frame_bytes_list, system_prompt, effective_user
+            )
 
     # ───────────────────── Provider Helpers ─────────────────────
 
     @staticmethod
     def _detect_mime_type(image_bytes: bytes) -> str:
         """Detect image MIME type from the first few bytes of image data."""
-        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
             return "image/png"
-        if image_bytes[:4] == b'GIF8':
+        if image_bytes[:4] == b"GIF8":
             return "image/gif"
-        if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
             return "image/webp"
         return "image/jpeg"
 
@@ -426,7 +458,6 @@ class VLMInterface:
         except Exception as e:
             logger.warning(f"[VLM] Failed to report usage: {e}")
 
-
     def _gemini_describe_video_frames(
         self, frame_bytes_list: list[bytes], sys: str | None, usr: str
     ) -> str:
@@ -452,12 +483,12 @@ class VLMInterface:
         for i, fb in enumerate(frame_bytes_list):
             desc = self.describe_image_bytes(
                 fb,
-                system_prompt=f"Frame {i+1} of {len(frame_bytes_list)}: Describe what you see.",
+                system_prompt=f"Frame {i + 1} of {len(frame_bytes_list)}: Describe what you see.",
                 user_prompt=user_prompt,
                 log_response=False,
             )
-            frame_descriptions.append(f"[Frame {i+1}]: {desc}")
-    
+            frame_descriptions.append(f"[Frame {i + 1}]: {desc}")
+
         synthesis_prompt = (
             "You received descriptions of video keyframes. Write a coherent video summary:\n\n"
             + "\n".join(frame_descriptions)
@@ -470,7 +501,9 @@ class VLMInterface:
         )
         return synthesis
 
-    def _openai_describe_bytes(self, image_bytes: bytes, sys: str | None, usr: str, json_mode: bool = True) -> Dict[str, Any]:
+    def _openai_describe_bytes(
+        self, image_bytes: bytes, sys: str | None, usr: str, json_mode: bool = True
+    ) -> Dict[str, Any]:
         """OpenAI/Grok vision request with automatic prompt caching metrics."""
         img_b64 = base64.b64encode(image_bytes).decode()
         mime_type = self._detect_mime_type(image_bytes)
@@ -482,7 +515,10 @@ class VLMInterface:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": usr},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{img_b64}"},
+                    },
                 ],
             }
         )
@@ -525,15 +561,28 @@ class VLMInterface:
         config = get_cache_config()
         metrics = get_cache_metrics()
         if cached_tokens > 0:
-            logger.info(f"[CACHE] OpenAI VLM cache hit: {cached_tokens}/{token_count_input} tokens from cache")
-            metrics.record_hit("openai", "automatic_vlm", cached_tokens=cached_tokens, total_tokens=token_count_input)
+            logger.info(
+                f"[CACHE] OpenAI VLM cache hit: {cached_tokens}/{token_count_input} tokens from cache"
+            )
+            metrics.record_hit(
+                "openai",
+                "automatic_vlm",
+                cached_tokens=cached_tokens,
+                total_tokens=token_count_input,
+            )
         elif sys and len(sys) >= config.min_cache_tokens:
-            metrics.record_miss("openai", "automatic_vlm", total_tokens=token_count_input)
+            metrics.record_miss(
+                "openai", "automatic_vlm", total_tokens=token_count_input
+            )
 
         # Report usage via hook (use actual provider name, e.g. "grok", "minimax")
         self._report_usage_async(
-            f"vlm_{self.provider}", self.provider, self.model,
-            token_count_input, token_count_output, cached_tokens
+            f"vlm_{self.provider}",
+            self.provider,
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
 
         return {
@@ -542,7 +591,9 @@ class VLMInterface:
             "cached_tokens": cached_tokens,
         }
 
-    def _ollama_describe_bytes(self, image_bytes: bytes, sys: str | None, usr: str) -> Dict[str, Any]:
+    def _ollama_describe_bytes(
+        self, image_bytes: bytes, sys: str | None, usr: str
+    ) -> Dict[str, Any]:
         """Remote Ollama vision request."""
         img_b64 = base64.b64encode(image_bytes).decode()
         payload = {
@@ -563,12 +614,11 @@ class VLMInterface:
         token_count_output = result.get("eval_count", 0)
         total_tokens = token_count_input + token_count_output
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
-    def _gemini_describe_bytes(self, image_bytes: bytes, sys: str | None, usr: str) -> Dict[str, Any]:
+    def _gemini_describe_bytes(
+        self, image_bytes: bytes, sys: str | None, usr: str
+    ) -> Dict[str, Any]:
         """Gemini vision request with implicit caching metrics."""
         if not self._gemini_client:
             raise RuntimeError("Gemini client was not initialised.")
@@ -590,20 +640,35 @@ class VLMInterface:
         metrics = get_cache_metrics()
 
         if cached_tokens > 0:
-            logger.info(f"[CACHE] Gemini VLM implicit cache hit: {cached_tokens}/{token_count_input} tokens from cache")
-            metrics.record_hit("gemini", "implicit_vlm", cached_tokens=cached_tokens, total_tokens=token_count_input)
+            logger.info(
+                f"[CACHE] Gemini VLM implicit cache hit: {cached_tokens}/{token_count_input} tokens from cache"
+            )
+            metrics.record_hit(
+                "gemini",
+                "implicit_vlm",
+                cached_tokens=cached_tokens,
+                total_tokens=token_count_input,
+            )
         elif sys and len(sys) >= config.min_cache_tokens:
-            metrics.record_miss("gemini", "implicit_vlm", total_tokens=token_count_input)
+            metrics.record_miss(
+                "gemini", "implicit_vlm", total_tokens=token_count_input
+            )
 
         # Report usage via hook
         self._report_usage_async(
-            "vlm_gemini", "gemini", self.model,
-            token_count_input, token_count_output, cached_tokens
+            "vlm_gemini",
+            "gemini",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
 
         return result
 
-    def _byteplus_describe_bytes(self, image_bytes: bytes, sys: str | None, usr: str) -> Dict[str, Any]:
+    def _byteplus_describe_bytes(
+        self, image_bytes: bytes, sys: str | None, usr: str
+    ) -> Dict[str, Any]:
         """BytePlus vision request."""
         img_b64 = base64.b64encode(image_bytes).decode()
         mime_type = self._detect_mime_type(image_bytes)
@@ -616,7 +681,10 @@ class VLMInterface:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": usr},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{img_b64}"},
+                    },
                 ],
             }
         )
@@ -646,14 +714,13 @@ class VLMInterface:
             ).strip()
             total_tokens = result.get("usage", {}).get("total_tokens", 0)
 
-            return {
-                "tokens_used": total_tokens or 0,
-                "content": content or ""
-            }
+            return {"tokens_used": total_tokens or 0, "content": content or ""}
 
         return {"tokens_used": 0, "content": ""}
 
-    def _anthropic_describe_bytes(self, image_bytes: bytes, sys: str | None, usr: str) -> Dict[str, Any]:
+    def _anthropic_describe_bytes(
+        self, image_bytes: bytes, sys: str | None, usr: str
+    ) -> Dict[str, Any]:
         """Anthropic vision request with ephemeral caching metrics."""
         if not self._anthropic_client:
             raise RuntimeError("Anthropic client was not initialised.")
@@ -720,18 +787,35 @@ class VLMInterface:
         # Record cache metrics
         metrics = get_cache_metrics()
         if cache_read > 0:
-            logger.info(f"[CACHE] Anthropic VLM cache hit: {cache_read}/{token_count_input} tokens from cache")
-            metrics.record_hit("anthropic", "ephemeral_vlm", cached_tokens=cache_read, total_tokens=token_count_input)
+            logger.info(
+                f"[CACHE] Anthropic VLM cache hit: {cache_read}/{token_count_input} tokens from cache"
+            )
+            metrics.record_hit(
+                "anthropic",
+                "ephemeral_vlm",
+                cached_tokens=cache_read,
+                total_tokens=token_count_input,
+            )
         elif cache_creation > 0:
-            logger.info(f"[CACHE] Anthropic VLM cache created: {cache_creation} tokens cached")
-            metrics.record_miss("anthropic", "ephemeral_vlm", total_tokens=token_count_input)
+            logger.info(
+                f"[CACHE] Anthropic VLM cache created: {cache_creation} tokens cached"
+            )
+            metrics.record_miss(
+                "anthropic", "ephemeral_vlm", total_tokens=token_count_input
+            )
         elif sys and len(sys) >= config.min_cache_tokens:
-            metrics.record_miss("anthropic", "ephemeral_vlm", total_tokens=token_count_input)
+            metrics.record_miss(
+                "anthropic", "ephemeral_vlm", total_tokens=token_count_input
+            )
 
         # Report usage via hook
         self._report_usage_async(
-            "vlm_anthropic", "anthropic", self.model,
-            token_count_input, token_count_output, cached_tokens
+            "vlm_anthropic",
+            "anthropic",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
 
         return {

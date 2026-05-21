@@ -59,30 +59,39 @@ async def record_llm_calls(agent: AgentBase):
 
     async def _spy_gen(system_prompt=None, user_prompt=None, log_response=True):
         resp = await orig_gen(
-            system_prompt=system_prompt, user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             log_response=log_response,
         )
-        agent._test_llm_calls.append({
-            "ts": time.time(),
-            "path": "generate_response_async",
-            "system_prompt": system_prompt or "",
-            "user_prompt": user_prompt or "",
-            "response": str(resp),
-        })
+        agent._test_llm_calls.append(
+            {
+                "ts": time.time(),
+                "path": "generate_response_async",
+                "system_prompt": system_prompt or "",
+                "user_prompt": user_prompt or "",
+                "response": str(resp),
+            }
+        )
         return resp
+
     agent.llm.generate_response_async = _spy_gen
 
     if orig_session_gen is not None:
+
         async def _spy_session(*args, **kwargs):
             resp = await orig_session_gen(*args, **kwargs)
-            agent._test_llm_calls.append({
-                "ts": time.time(),
-                "path": "generate_response_with_session_async",
-                "system_prompt": kwargs.get("system_prompt_for_new_session", "") or "",
-                "user_prompt": kwargs.get("user_prompt", "") or "",
-                "response": str(resp),
-            })
+            agent._test_llm_calls.append(
+                {
+                    "ts": time.time(),
+                    "path": "generate_response_with_session_async",
+                    "system_prompt": kwargs.get("system_prompt_for_new_session", "")
+                    or "",
+                    "user_prompt": kwargs.get("user_prompt", "") or "",
+                    "response": str(resp),
+                }
+            )
             return resp
+
         agent.llm.generate_response_with_session_async = _spy_session
 
     try:
@@ -152,8 +161,7 @@ def assert_action_called(
     print(f"\nagent trace: {log_path}")
     assert expected in called, (
         f"agent never called {expected!r}. Actions called: {called}. "
-        f"trace: {log_path}\n\n"
-        + format_agent_trace(agent)
+        f"trace: {log_path}\n\n" + format_agent_trace(agent)
     )
 
 
@@ -168,7 +176,9 @@ def format_agent_trace(agent: AgentBase, *, limit_per_stream: int = 200) -> str:
 
     Each line:  ``HH:MM:SS  [STREAM]  KIND  SEVERITY  message``
     """
-    streams: list[tuple[str, Any]] = [("main", agent.event_stream_manager.get_main_stream())]
+    streams: list[tuple[str, Any]] = [
+        ("main", agent.event_stream_manager.get_main_stream())
+    ]
     for tid, stream in agent.event_stream_manager._task_streams.items():
         streams.append((f"task:{tid[:8]}", stream))
 
@@ -186,7 +196,9 @@ def format_agent_trace(agent: AgentBase, *, limit_per_stream: int = 200) -> str:
         if len(msg) > 240:
             msg = msg[:237] + "..."
         repeat = f" ×{rec.repeat_count}" if rec.repeat_count > 1 else ""
-        lines.append(f"{ts}  [{label:14}]  {ev.kind:18}  {ev.severity:5}  {msg}{repeat}")
+        lines.append(
+            f"{ts}  [{label:14}]  {ev.kind:18}  {ev.severity:5}  {msg}{repeat}"
+        )
 
     return "\n".join(lines) if lines else "(no events recorded)"
 
@@ -245,10 +257,14 @@ def save_trace_log(
     if llm_calls:
         parts.append("")
         parts.append("=" * 78)
-        parts.append(f"LLM TRANSCRIPT ({len(llm_calls)} call{'s' if len(llm_calls) != 1 else ''})")
+        parts.append(
+            f"LLM TRANSCRIPT ({len(llm_calls)} call{'s' if len(llm_calls) != 1 else ''})"
+        )
         parts.append("=" * 78)
         for i, c in enumerate(llm_calls, 1):
-            ts = datetime.datetime.fromtimestamp(c["ts"], datetime.timezone.utc).strftime("%H:%M:%S")
+            ts = datetime.datetime.fromtimestamp(
+                c["ts"], datetime.timezone.utc
+            ).strftime("%H:%M:%S")
             parts.append("")
             parts.append(f"--- call {i}/{len(llm_calls)} @ {ts}  via {c['path']} ---")
             parts.append("")

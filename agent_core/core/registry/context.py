@@ -33,6 +33,7 @@ class ContextEngineRegistry(ComponentRegistry["ContextEngineProtocol"]):
     Each project (CraftBot, CraftBot) registers their context
     engine at startup. Shared code uses get() to access the engine.
     """
+
     pass
 
 

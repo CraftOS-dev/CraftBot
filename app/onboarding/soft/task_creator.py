@@ -79,7 +79,7 @@ def create_soft_onboarding_task(task_manager: "TaskManager") -> str:
         task_instruction=SOFT_ONBOARDING_TASK_INSTRUCTION,
         mode="simple",
         action_sets=["file_operations", "core"],
-        selected_skills=["user-profile-interview"]
+        selected_skills=["user-profile-interview"],
     )
 
     logger.info(f"[ONBOARDING] Created soft onboarding task: {task_id}")

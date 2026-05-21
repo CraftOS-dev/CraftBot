@@ -25,6 +25,7 @@ Actions that do real pre/post-processing (parsing labels, recording to
 conversation history, building complex payloads) keep their explicit
 form — the helper is only for the boilerplate-heavy 80% case.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,11 +42,13 @@ def record_outgoing_message(platform_name: str, recipient: str, text: str) -> No
     """
     try:
         import app.internal_action_interface as iai
+
         sm = iai.InternalActionInterface.state_manager
         if sm:
             label = f"[Sent via {platform_name} to {recipient}]: {text}"
             sm.event_stream_manager.record_conversation_message(
-                f"agent message to platform: {platform_name}", label,
+                f"agent message to platform: {platform_name}",
+                label,
             )
             sm._append_to_conversation_history("agent", label)
     except Exception:
@@ -56,6 +59,7 @@ def _resolve_handler(integration: str):
     """Resolve a handler by handler-name first, then by client platform_id (e.g. 'google_workspace' -> google handler)."""
     try:
         from craftos_integrations import get_handler, get_registered_handler_names
+
         handler = get_handler(integration)
         if handler is not None:
             return handler, integration
@@ -104,7 +108,10 @@ def _shape_result(
                 "details": raw.get("details"),
             }
     if success_message and isinstance(raw, dict) and raw.get("status") == "error":
-        return {"status": "error", "message": raw.get("message") or raw.get("error", fail_message)}
+        return {
+            "status": "error",
+            "message": raw.get("message") or raw.get("error", fail_message),
+        }
     if success_message:
         return {"status": "success", "message": success_message}
     return {"status": "success", "result": raw}
@@ -124,6 +131,7 @@ async def run_client(
     The named method may be sync or async; coroutines are awaited.
     """
     from craftos_integrations import get_client
+
     client = get_client(integration)
     if client is None:
         return {"status": "error", "message": f"Unknown integration: {integration}"}
@@ -132,7 +140,10 @@ async def run_client(
     try:
         method = getattr(client, method_name, None)
         if method is None:
-            return {"status": "error", "message": f"Method {method_name!r} not found on {integration} client"}
+            return {
+                "status": "error",
+                "message": f"Method {method_name!r} not found on {integration} client",
+            }
         raw = method(**kwargs)
         if asyncio.iscoroutine(raw):
             raw = await raw
@@ -157,6 +168,7 @@ def run_client_sync(
 ) -> Dict[str, Any]:
     """Sync flavor of ``run_client`` for sync actions calling sync methods."""
     from craftos_integrations import get_client
+
     client = get_client(integration)
     if client is None:
         return {"status": "error", "message": f"Unknown integration: {integration}"}
@@ -165,10 +177,16 @@ def run_client_sync(
     try:
         method = getattr(client, method_name, None)
         if method is None:
-            return {"status": "error", "message": f"Method {method_name!r} not found on {integration} client"}
+            return {
+                "status": "error",
+                "message": f"Method {method_name!r} not found on {integration} client",
+            }
         raw = method(**kwargs)
         if asyncio.iscoroutine(raw):
-            return {"status": "error", "message": f"{method_name!r} is async — use run_client (await) instead"}
+            return {
+                "status": "error",
+                "message": f"{method_name!r} is async — use run_client (await) instead",
+            }
         return _shape_result(
             raw,
             unwrap_envelope=unwrap_envelope,
@@ -196,15 +214,21 @@ def get_client_or_error(integration: str):
             ...
     """
     from craftos_integrations import get_client
+
     client = get_client(integration)
     if client is None:
-        return None, {"status": "error", "message": f"Unknown integration: {integration}"}
+        return None, {
+            "status": "error",
+            "message": f"Unknown integration: {integration}",
+        }
     if not client.has_credentials():
         return None, {"status": "error", "message": _no_cred_message(integration)}
     return client, None
 
 
-async def with_client(integration: str, fn: Callable, *args, **kwargs) -> Dict[str, Any]:
+async def with_client(
+    integration: str, fn: Callable, *args, **kwargs
+) -> Dict[str, Any]:
     """Call ``fn(client, *args, **kwargs)`` after credential check.
 
     Use when an action needs to do more than a single method call:

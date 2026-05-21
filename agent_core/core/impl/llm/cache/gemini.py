@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 from .config import get_cache_config
 
@@ -118,9 +118,13 @@ class GeminiCacheManager:
             cache_name = self._cache_registry[cache_key]
             # Check if cache might have expired (TTL is typically 1 hour)
             created_at = self._cache_created_at.get(cache_key, 0)
-            if time.time() - created_at < self._config.prefix_cache_ttl - 60:  # 60s buffer
+            if (
+                time.time() - created_at < self._config.prefix_cache_ttl - 60
+            ):  # 60s buffer
                 try:
-                    logger.debug(f"[GEMINI CACHE] Using existing cache {cache_name} for {cache_key}")
+                    logger.debug(
+                        f"[GEMINI CACHE] Using existing cache {cache_name} for {cache_key}"
+                    )
                     return self._client.generate_text_with_cache(
                         self._model,
                         cache_name=cache_name,
@@ -130,7 +134,9 @@ class GeminiCacheManager:
                         json_mode=True,
                     )
                 except Exception as e:
-                    logger.warning(f"[GEMINI CACHE] Cache {cache_name} failed, recreating: {e}")
+                    logger.warning(
+                        f"[GEMINI CACHE] Cache {cache_name} failed, recreating: {e}"
+                    )
                     # Cache might have expired or been deleted, remove from registry
                     self._cache_registry.pop(cache_key, None)
                     self._cache_created_at.pop(cache_key, None)
@@ -148,7 +154,9 @@ class GeminiCacheManager:
             if cache_name:
                 self._cache_registry[cache_key] = cache_name
                 self._cache_created_at[cache_key] = time.time()
-                logger.info(f"[GEMINI CACHE] Created cache {cache_name} for {cache_key}")
+                logger.info(
+                    f"[GEMINI CACHE] Created cache {cache_name} for {cache_key}"
+                )
 
                 # Now generate using the cache
                 return self._client.generate_text_with_cache(
@@ -160,12 +168,16 @@ class GeminiCacheManager:
                     json_mode=True,
                 )
         except Exception as e:
-            logger.warning(f"[GEMINI CACHE] Failed to create cache for {cache_key}: {e}")
+            logger.warning(
+                f"[GEMINI CACHE] Failed to create cache for {cache_key}: {e}"
+            )
             # Fall back to non-cached generation
             pass
 
         # Fallback: generate without cache
-        logger.debug(f"[GEMINI CACHE] Falling back to non-cached generation for {cache_key}")
+        logger.debug(
+            f"[GEMINI CACHE] Falling back to non-cached generation for {cache_key}"
+        )
         return self._client.generate_text(
             self._model,
             prompt=user_prompt,
@@ -183,13 +195,19 @@ class GeminiCacheManager:
         if cache_name:
             try:
                 self._client.delete_cache(cache_name)
-                logger.info(f"[GEMINI CACHE] Deleted cache {cache_name} for {cache_key}")
+                logger.info(
+                    f"[GEMINI CACHE] Deleted cache {cache_name} for {cache_key}"
+                )
             except Exception as e:
-                logger.warning(f"[GEMINI CACHE] Failed to delete cache {cache_name}: {e}")
+                logger.warning(
+                    f"[GEMINI CACHE] Failed to delete cache {cache_name}: {e}"
+                )
 
     def invalidate_all_caches_for_call_type(self, call_type: str) -> None:
         """Remove all caches for a specific call type."""
-        keys_to_remove = [k for k in self._cache_registry if k.startswith(f"{call_type}:")]
+        keys_to_remove = [
+            k for k in self._cache_registry if k.startswith(f"{call_type}:")
+        ]
         for key in keys_to_remove:
             cache_name = self._cache_registry.pop(key, None)
             self._cache_created_at.pop(key, None)

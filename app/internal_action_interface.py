@@ -20,7 +20,9 @@ from pathlib import Path
 from app.config import AGENT_WORKSPACE_ROOT
 from app.gui.gui_module import GUI_MODE_ACTIONS
 from app.memory import MemoryManager
-import mss, mss.tools, os
+import mss
+import mss.tools
+import os
 
 if TYPE_CHECKING:
     from app.context_engine import ContextEngine
@@ -59,7 +61,7 @@ class InternalActionInterface:
         gui_module: Optional["GUIModule"] = None,
         memory_manager: MemoryManager | None = None,
         scheduler: Optional["SchedulerManager"] = None,
-        ui_adapter: Optional[Any] = None
+        ui_adapter: Optional[Any] = None,
     ):
         """
         Register the shared interfaces that actions depend on.
@@ -81,23 +83,31 @@ class InternalActionInterface:
     @classmethod
     def set_ui_adapter(cls, ui_adapter: Any) -> None:
         """Set the UI adapter reference (can be called after initialization)."""
-        cls.ui_adapter = ui_adapter 
+        cls.ui_adapter = ui_adapter
 
     # ─────────────────────── LLM Access for Actions ───────────────────────
 
     @classmethod
-    async def use_llm(cls, prompt: str, system_message: Optional[str] = None) -> Dict[str, Any]:
+    async def use_llm(
+        cls, prompt: str, system_message: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Generate a response from the configured LLM (async to avoid blocking TUI)."""
         if cls.llm_interface is None:
-            raise RuntimeError("InternalActionInterface not initialized with LLMInterface.")
-        response = await cls.llm_interface.generate_response_async(prompt, system_message)
+            raise RuntimeError(
+                "InternalActionInterface not initialized with LLMInterface."
+            )
+        response = await cls.llm_interface.generate_response_async(
+            prompt, system_message
+        )
         return {"llm_response": response}
 
     @classmethod
     def describe_image(cls, image_path: str, prompt: Optional[str] = None) -> str:
         """Produce a textual description for an image using the VLM."""
         if cls.vlm_interface is None:
-            raise RuntimeError("InternalActionInterface not initialized with VLMInterface.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with VLMInterface."
+            )
         return cls.vlm_interface.describe_image(image_path, user_prompt=prompt)
 
     @classmethod
@@ -107,12 +117,16 @@ class InternalActionInterface:
         Returns a concise status dict + saved file path to avoid TUI flooding.
         """
         if cls.vlm_interface is None:
-            raise RuntimeError("InternalActionInterface not initialized with VLMInterface.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with VLMInterface."
+            )
 
         import os
         from datetime import datetime
 
-        raw_text = cls.vlm_interface.describe_image_ocr(image_path, user_prompt=user_prompt)
+        raw_text = cls.vlm_interface.describe_image_ocr(
+            image_path, user_prompt=user_prompt
+        )
 
         # Persist to workspace to prevent token ballooning in the agent context
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -142,7 +156,9 @@ class InternalActionInterface:
         Persists the summary to workspace to avoid TUI/context flooding.
         """
         if cls.vlm_interface is None:
-            raise RuntimeError("InternalActionInterface not initialized with VLMInterface.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with VLMInterface."
+            )
 
         import os
         from datetime import datetime
@@ -163,7 +179,7 @@ class InternalActionInterface:
             "file_saved": True,
         }
 
-   # ───────────────── Memory Search ─────────────────
+    # ───────────────── Memory Search ─────────────────
 
     @classmethod
     def memory_search(cls, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -178,7 +194,9 @@ class InternalActionInterface:
             List of memory pointers with file_path, section_path, title, summary, and relevance_score
         """
         if cls.memory_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with MemoryManager.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with MemoryManager."
+            )
 
         pointers = cls.memory_manager.retrieve(query=query, top_k=top_k)
 
@@ -201,7 +219,9 @@ class InternalActionInterface:
     def describe_screen(cls) -> Dict[str, str]:
         """Capture the current virtual desktop and describe it with the VLM."""
         if cls.vlm_interface is None:
-            raise RuntimeError("InternalActionInterface not initialised with VLMInterface.")
+            raise RuntimeError(
+                "InternalActionInterface not initialised with VLMInterface."
+            )
 
         temp_dir = Path(AGENT_WORKSPACE_ROOT)
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
@@ -234,6 +254,7 @@ class InternalActionInterface:
             if task and task.source_platform:
                 return task.source_platform
         from app.onboarding.profile_writer import read_preferred_messaging_platform
+
         return read_preferred_messaging_platform()
 
     @staticmethod
@@ -252,8 +273,12 @@ class InternalActionInterface:
             session_id: Optional task/session ID for multi-task isolation.
         """
         if InternalActionInterface.state_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with StateManager.")
-        resolved_platform = InternalActionInterface._resolve_outbound_platform(platform, session_id)
+            raise RuntimeError(
+                "InternalActionInterface not initialized with StateManager."
+            )
+        resolved_platform = InternalActionInterface._resolve_outbound_platform(
+            platform, session_id
+        )
         InternalActionInterface.state_manager.record_agent_message(
             message, session_id=session_id, platform=resolved_platform
         )
@@ -318,17 +343,21 @@ class InternalActionInterface:
         agent_name = onboarding_manager.state.agent_name or "Agent"
 
         # Check if UI adapter supports attachments (browser adapter)
-        if ui_adapter and hasattr(ui_adapter, 'send_message_with_attachments'):
+        if ui_adapter and hasattr(ui_adapter, "send_message_with_attachments"):
             return await ui_adapter.send_message_with_attachments(
                 message, file_paths, sender=agent_name, session_id=session_id
             )
         else:
             # Fallback: send message with attachment notes for non-browser adapters
             if InternalActionInterface.state_manager is None:
-                raise RuntimeError("InternalActionInterface not initialized with StateManager.")
+                raise RuntimeError(
+                    "InternalActionInterface not initialized with StateManager."
+                )
 
             attachment_notes = "\n".join([f"[Attachment: {fp}]" for fp in file_paths])
-            resolved_platform = InternalActionInterface._resolve_outbound_platform(None, session_id)
+            resolved_platform = InternalActionInterface._resolve_outbound_platform(
+                None, session_id
+            )
             InternalActionInterface.state_manager.record_agent_message(
                 f"{message}\n\n{attachment_notes}",
                 session_id=session_id,
@@ -356,7 +385,9 @@ class InternalActionInterface:
             if task._saved_cli_actions:
                 task.compiled_actions = task._saved_cli_actions.copy()
                 task._saved_cli_actions = []  # Clear backup after restoration
-                logger.info(f"[CLI MODE] Restored {len(task.compiled_actions)} CLI actions")
+                logger.info(
+                    f"[CLI MODE] Restored {len(task.compiled_actions)} CLI actions"
+                )
             else:
                 logger.debug("[CLI MODE] No saved CLI actions to restore")
 
@@ -367,7 +398,9 @@ class InternalActionInterface:
         gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
         if not gui_globally_enabled:
             logger.warning("[GUI MODE] Cannot switch - GUI mode is globally disabled")
-            raise RuntimeError("GUI mode is disabled. Restart with --enable-gui to enable.")
+            raise RuntimeError(
+                "GUI mode is disabled. Restart with --enable-gui to enable."
+            )
 
         STATE.update_gui_mode(True)
 
@@ -378,10 +411,14 @@ class InternalActionInterface:
             # Save current CLI actions before switching (only if not already saved)
             if not task._saved_cli_actions:
                 task._saved_cli_actions = task.compiled_actions.copy()
-                logger.info(f"[GUI MODE] Saved {len(task._saved_cli_actions)} CLI actions for restoration")
+                logger.info(
+                    f"[GUI MODE] Saved {len(task._saved_cli_actions)} CLI actions for restoration"
+                )
 
             task.compiled_actions = GUI_MODE_ACTIONS.copy()
-            logger.info(f"[GUI MODE] Set compiled_actions to {len(GUI_MODE_ACTIONS)} hardcoded GUI actions")
+            logger.info(
+                f"[GUI MODE] Set compiled_actions to {len(GUI_MODE_ACTIONS)} hardcoded GUI actions"
+            )
 
     # ───────────────── Task Management ─────────────────
 
@@ -420,7 +457,9 @@ class InternalActionInterface:
             Dictionary with task_id, action_sets, action_count, and selected_skills.
         """
         if cls.task_manager is None or cls.state_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with Task/State managers.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with Task/State managers."
+            )
 
         # NOTE: Do NOT call clear_all() here - it destroys event streams from concurrent tasks.
         # Each task's stream is created when the task starts and cleaned up when the task ends.
@@ -432,21 +471,27 @@ class InternalActionInterface:
             selected_skills = pre_selected_skills
             # Get action sets recommended by pre-selected skills
             from agent_core.core.impl.skill.manager import skill_manager
-            from app.action.action_set import action_set_manager
 
             skill_action_sets = skill_manager.get_skill_action_sets(selected_skills)
             # Also run LLM action set selection for additional sets needed
-            llm_action_sets = await cls._select_action_sets_via_llm(task_name, task_description)
+            llm_action_sets = await cls._select_action_sets_via_llm(
+                task_name, task_description
+            )
             # Merge: skill-recommended + LLM-selected (deduplicated)
             all_action_sets = list(dict.fromkeys(skill_action_sets + llm_action_sets))
             logger.info(f"[TASK] Pre-selected skills (via command): {selected_skills}")
         else:
             # Select skills and action sets in a single LLM call (optimized)
             # Skills are selected first, then action sets with knowledge of skill recommendations
-            selected_skills, all_action_sets = await cls._select_skills_and_action_sets_via_llm(
+            (
+                selected_skills,
+                all_action_sets,
+            ) = await cls._select_skills_and_action_sets_via_llm(
                 task_name, task_description, source_platform=original_platform
             )
-            logger.info(f"[TASK] Auto-selected skills for '{task_name}': {selected_skills}")
+            logger.info(
+                f"[TASK] Auto-selected skills for '{task_name}': {selected_skills}"
+            )
         logger.info(f"[TASK] Final action sets: {all_action_sets}")
 
         # Create task with selected skills and action sets
@@ -455,7 +500,8 @@ class InternalActionInterface:
         # Pass session_id so task_id == session_id for event stream isolation
         # Pass original_query to log user message to the task's event stream
         task_id = cls.task_manager.create_task(
-            task_name, task_description,
+            task_name,
+            task_description,
             mode=task_mode,
             action_sets=all_action_sets,
             selected_skills=selected_skills,
@@ -477,7 +523,9 @@ class InternalActionInterface:
         }
 
     @classmethod
-    async def _select_action_sets_via_llm(cls, task_name: str, task_description: str) -> List[str]:
+    async def _select_action_sets_via_llm(
+        cls, task_name: str, task_description: str
+    ) -> List[str]:
         """
         Make LLM call to automatically select action sets based on task description.
 
@@ -497,7 +545,9 @@ class InternalActionInterface:
 
         # If no LLM interface, fall back to empty list (core-only)
         if cls.llm_interface is None:
-            logger.warning("[TASK] No LLM interface available, using core-only action sets")
+            logger.warning(
+                "[TASK] No LLM interface available, using core-only action sets"
+            )
             return []
 
         try:
@@ -509,7 +559,9 @@ class InternalActionInterface:
             for set_name, set_desc in available_sets.items():
                 actions_in_set = action_set_manager.get_actions_in_set(set_name)
                 logger.info(f"[ACTION_SETS] {set_name}: {set_desc}")
-                logger.info(f"[ACTION_SETS]   Actions ({len(actions_in_set)}): {actions_in_set}")
+                logger.info(
+                    f"[ACTION_SETS]   Actions ({len(actions_in_set)}): {actions_in_set}"
+                )
             logger.info("[ACTION_SETS] ============================================")
 
             # Format sets for prompt (exclude 'core' since it's always included)
@@ -527,7 +579,7 @@ class InternalActionInterface:
             prompt = ACTION_SET_SELECTION_PROMPT.format(
                 task_name=task_name,
                 task_description=task_description,
-                available_sets=sets_text
+                available_sets=sets_text,
             )
 
             # Step 3: Call LLM asynchronously to avoid blocking TUI
@@ -542,18 +594,26 @@ class InternalActionInterface:
             if response.startswith("```"):
                 # Remove markdown code block markers
                 lines = response.split("\n")
-                response = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                response = "\n".join(
+                    lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+                )
 
             selected_sets = json.loads(response)
 
             # Validate that it's a list of strings
             if not isinstance(selected_sets, list):
-                logger.warning(f"[TASK] LLM returned non-list for action sets: {selected_sets}")
+                logger.warning(
+                    f"[TASK] LLM returned non-list for action sets: {selected_sets}"
+                )
                 return []
 
             # Filter to only valid set names
             valid_set_names = set(available_sets.keys())
-            valid_selected = [s for s in selected_sets if isinstance(s, str) and s in valid_set_names and s != "core"]
+            valid_selected = [
+                s
+                for s in selected_sets
+                if isinstance(s, str) and s in valid_set_names and s != "core"
+            ]
 
             # DEBUG: Log selection result
             logger.info(f"[ACTION_SETS] LLM raw response: {selected_sets}")
@@ -564,7 +624,9 @@ class InternalActionInterface:
             for set_name in ["core"] + valid_selected:
                 actions_in_set = action_set_manager.get_actions_in_set(set_name)
                 total_actions.extend(actions_in_set)
-            logger.info(f"[ACTION_SETS] Total actions for task: {len(set(total_actions))} from sets: {['core'] + valid_selected}")
+            logger.info(
+                f"[ACTION_SETS] Total actions for task: {len(set(total_actions))} from sets: {['core'] + valid_selected}"
+            )
 
             return valid_selected
 
@@ -576,7 +638,9 @@ class InternalActionInterface:
             return []
 
     @classmethod
-    async def _select_skills_via_llm(cls, task_name: str, task_description: str) -> List[str]:
+    async def _select_skills_via_llm(
+        cls, task_name: str, task_description: str
+    ) -> List[str]:
         """
         Make LLM call to select relevant skills based on task description.
 
@@ -591,7 +655,9 @@ class InternalActionInterface:
 
         # If no LLM interface, return empty list
         if cls.llm_interface is None:
-            logger.warning("[SKILLS] No LLM interface available, skipping skill selection")
+            logger.warning(
+                "[SKILLS] No LLM interface available, skipping skill selection"
+            )
             return []
 
         try:
@@ -607,15 +673,14 @@ class InternalActionInterface:
 
             # Format skills for prompt
             skills_text = "\n".join(
-                f"- {name}: {desc}"
-                for name, desc in available_skills.items()
+                f"- {name}: {desc}" for name, desc in available_skills.items()
             )
 
             # Build prompt
             prompt = SKILL_SELECTION_PROMPT.format(
                 task_name=task_name,
                 task_description=task_description,
-                available_skills=skills_text
+                available_skills=skills_text,
             )
 
             # Call LLM asynchronously to avoid blocking TUI
@@ -628,18 +693,26 @@ class InternalActionInterface:
             response = response.strip()
             if response.startswith("```"):
                 lines = response.split("\n")
-                response = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                response = "\n".join(
+                    lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+                )
 
             selected_skills = json.loads(response)
 
             # Validate
             if not isinstance(selected_skills, list):
-                logger.warning(f"[SKILLS] LLM returned non-list for skills: {selected_skills}")
+                logger.warning(
+                    f"[SKILLS] LLM returned non-list for skills: {selected_skills}"
+                )
                 return []
 
             # Filter to only valid skill names
             valid_skill_names = set(available_skills.keys())
-            valid_selected = [s for s in selected_skills if isinstance(s, str) and s in valid_skill_names]
+            valid_selected = [
+                s
+                for s in selected_skills
+                if isinstance(s, str) and s in valid_skill_names
+            ]
 
             logger.info(f"[SKILLS] LLM raw response: {selected_skills}")
             logger.info(f"[SKILLS] Valid selected skills: {valid_selected}")
@@ -672,6 +745,7 @@ class InternalActionInterface:
 
         try:
             from app.skill import skill_manager
+
             return skill_manager.get_skill_action_sets(skill_names)
         except ImportError:
             return []
@@ -681,7 +755,10 @@ class InternalActionInterface:
 
     @classmethod
     async def _select_skills_and_action_sets_via_llm(
-        cls, task_name: str, task_description: str, source_platform: Optional[str] = None
+        cls,
+        task_name: str,
+        task_description: str,
+        source_platform: Optional[str] = None,
     ) -> tuple[List[str], List[str]]:
         """
         Select skills and action sets in a single LLM call.
@@ -714,6 +791,7 @@ class InternalActionInterface:
             skill_action_sets_map = {}
             try:
                 from app.skill import skill_manager
+
                 for skill in skill_manager.get_enabled_skills():
                     # Include action set recommendations in skill description
                     desc = skill.description
@@ -730,8 +808,7 @@ class InternalActionInterface:
             # Format skills for prompt (or indicate none available)
             if available_skills:
                 skills_text = "\n".join(
-                    f"- {name}: {desc}"
-                    for name, desc in available_skills.items()
+                    f"- {name}: {desc}" for name, desc in available_skills.items()
                 )
             else:
                 skills_text = "(no skills available)"
@@ -751,7 +828,7 @@ class InternalActionInterface:
                 task_description=task_description,
                 source_platform=source_platform or "CraftBot TUI",
                 available_skills=skills_text,
-                available_sets=sets_text
+                available_sets=sets_text,
             )
 
             # Call LLM asynchronously to avoid blocking TUI
@@ -764,7 +841,9 @@ class InternalActionInterface:
             response = response.strip()
             if response.startswith("```"):
                 lines = response.split("\n")
-                response = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                response = "\n".join(
+                    lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+                )
 
             result = json.loads(response)
 
@@ -773,11 +852,17 @@ class InternalActionInterface:
             if not isinstance(selected_skills, list):
                 selected_skills = []
             valid_skill_names = set(available_skills.keys())
-            valid_skills = [s for s in selected_skills if isinstance(s, str) and s in valid_skill_names]
+            valid_skills = [
+                s
+                for s in selected_skills
+                if isinstance(s, str) and s in valid_skill_names
+            ]
 
             # Enforce limit: only keep the first skill to prevent context overload
             if len(valid_skills) > 1:
-                logger.info(f"[TASK] Multiple skills selected, limiting to first one: {valid_skills[0]}")
+                logger.info(
+                    f"[TASK] Multiple skills selected, limiting to first one: {valid_skills[0]}"
+                )
                 valid_skills = valid_skills[:1]
 
             # Extract and validate action sets
@@ -785,7 +870,11 @@ class InternalActionInterface:
             if not isinstance(selected_sets, list):
                 selected_sets = []
             valid_set_names = set(available_sets.keys())
-            valid_sets = [s for s in selected_sets if isinstance(s, str) and s in valid_set_names and s != "core"]
+            valid_sets = [
+                s
+                for s in selected_sets
+                if isinstance(s, str) and s in valid_set_names and s != "core"
+            ]
 
             # Add action sets recommended by selected skills (ensure they're included)
             for skill_name in valid_skills:
@@ -794,13 +883,18 @@ class InternalActionInterface:
                         if rec_set in valid_set_names and rec_set not in valid_sets:
                             valid_sets.append(rec_set)
 
-            logger.info(f"[TASK] LLM response: skills={selected_skills}, action_sets={selected_sets}")
-            logger.info(f"[TASK] Valid selection: skills={valid_skills}, action_sets={valid_sets}")
+            logger.info(
+                f"[TASK] LLM response: skills={selected_skills}, action_sets={selected_sets}"
+            )
+            logger.info(
+                f"[TASK] Valid selection: skills={valid_skills}, action_sets={valid_sets}"
+            )
 
             # Record skill selection for metrics (skill is "invoked" when selected for prompt)
             if valid_skills:
                 try:
                     from app.ui_layer.metrics.collector import MetricsCollector
+
                     collector = MetricsCollector.get_instance()
                     if collector:
                         for skill_name in valid_skills:
@@ -830,7 +924,9 @@ class InternalActionInterface:
             Status and the updated todo list.
         """
         if cls.task_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with TaskManager.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with TaskManager."
+            )
 
         updated_todos = cls.task_manager.update_todos(todos)
 
@@ -920,7 +1016,9 @@ class InternalActionInterface:
                 cls._end_task_session_cache(effective_task_id)
             return {"status": "ok" if ok else "error"}
         except Exception as e:
-            logger.error(f"[InternalActions] mark_task_completed failed: {e}", exc_info=True)
+            logger.error(
+                f"[InternalActions] mark_task_completed failed: {e}", exc_info=True
+            )
             return {"status": "error", "error": str(e)}
 
     @classmethod
@@ -953,7 +1051,9 @@ class InternalActionInterface:
                 cls._end_task_session_cache(effective_task_id)
             return {"status": "ok" if ok else "error"}
         except Exception as e:
-            logger.error(f"[InternalActions] mark_task_cancel failed: {e}", exc_info=True)
+            logger.error(
+                f"[InternalActions] mark_task_cancel failed: {e}", exc_info=True
+            )
             return {"status": "error", "error": str(e)}
 
     @classmethod
@@ -968,7 +1068,9 @@ class InternalActionInterface:
                 cls._end_task_session_cache(task_id)
             return {"status": "ok" if ok else "error"}
         except Exception as e:
-            logger.error(f"[InternalActions] mark_task_error failed: {e}", exc_info=True)
+            logger.error(
+                f"[InternalActions] mark_task_error failed: {e}", exc_info=True
+            )
             return {"status": "error", "error": str(e)}
 
     @classmethod
@@ -988,7 +1090,9 @@ class InternalActionInterface:
                 cls.llm_interface.end_all_session_caches(task_id)
                 logger.debug(f"[TASK] Ended all session caches for task {task_id}")
             except Exception as e:
-                logger.warning(f"[TASK] Failed to end session caches for task {task_id}: {e}")
+                logger.warning(
+                    f"[TASK] Failed to end session caches for task {task_id}: {e}"
+                )
 
     # ───────────────── Action Set Management ─────────────────
 
@@ -1004,7 +1108,9 @@ class InternalActionInterface:
             Dictionary with success status and updated set information.
         """
         if cls.task_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with TaskManager.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with TaskManager."
+            )
 
         result = cls.task_manager.add_action_sets(sets_to_add)
 
@@ -1025,7 +1131,9 @@ class InternalActionInterface:
             Dictionary with success status and updated set information.
         """
         if cls.task_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with TaskManager.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with TaskManager."
+            )
 
         result = cls.task_manager.remove_action_sets(sets_to_remove)
 
@@ -1051,12 +1159,16 @@ class InternalActionInterface:
         try:
             # End old action selection caches (both CLI and GUI)
             cls.llm_interface.end_session_cache(task_id, LLMCallType.ACTION_SELECTION)
-            cls.llm_interface.end_session_cache(task_id, LLMCallType.GUI_ACTION_SELECTION)
+            cls.llm_interface.end_session_cache(
+                task_id, LLMCallType.GUI_ACTION_SELECTION
+            )
 
             # Reset event stream sync points
             if cls.context_engine:
                 cls.context_engine.reset_event_stream_sync(LLMCallType.ACTION_SELECTION)
-                cls.context_engine.reset_event_stream_sync(LLMCallType.GUI_ACTION_SELECTION)
+                cls.context_engine.reset_event_stream_sync(
+                    LLMCallType.GUI_ACTION_SELECTION
+                )
 
             # Re-create session caches with fresh system prompt so the next
             # action selection call establishes a new session with updated actions
@@ -1065,14 +1177,25 @@ class InternalActionInterface:
                     user_flags={"query": False, "expected_output": False},
                     system_flags={},
                 )
-                for call_type in [LLMCallType.ACTION_SELECTION, LLMCallType.GUI_ACTION_SELECTION]:
-                    cache_id = cls.llm_interface.create_session_cache(task_id, call_type, system_prompt)
+                for call_type in [
+                    LLMCallType.ACTION_SELECTION,
+                    LLMCallType.GUI_ACTION_SELECTION,
+                ]:
+                    cache_id = cls.llm_interface.create_session_cache(
+                        task_id, call_type, system_prompt
+                    )
                     if cache_id:
-                        logger.debug(f"[CACHE] Re-created session cache {cache_id} for {task_id}:{call_type}")
+                        logger.debug(
+                            f"[CACHE] Re-created session cache {cache_id} for {task_id}:{call_type}"
+                        )
 
-            logger.info(f"[CACHE] Invalidated and re-created action selection caches for task {task_id} due to action set change")
+            logger.info(
+                f"[CACHE] Invalidated and re-created action selection caches for task {task_id} due to action set change"
+            )
         except Exception as e:
-            logger.warning(f"[CACHE] Failed to invalidate/re-create caches for task {task_id}: {e}")
+            logger.warning(
+                f"[CACHE] Failed to invalidate/re-create caches for task {task_id}: {e}"
+            )
 
     @classmethod
     def list_action_sets(cls) -> Dict[str, Any]:
@@ -1121,7 +1244,9 @@ class InternalActionInterface:
             Dictionary with success status and skill details.
         """
         if cls.task_manager is None:
-            raise RuntimeError("InternalActionInterface not initialized with TaskManager.")
+            raise RuntimeError(
+                "InternalActionInterface not initialized with TaskManager."
+            )
 
         from agent_core.core.impl.skill.manager import skill_manager
 
@@ -1158,7 +1283,9 @@ class InternalActionInterface:
             # No recommended sets — still need to invalidate for skill change
             cls._invalidate_action_selection_caches()
 
-        logger.info(f"[SKILL] Activated skill '{skill_name}' (replaced: {previous_skills})")
+        logger.info(
+            f"[SKILL] Activated skill '{skill_name}' (replaced: {previous_skills})"
+        )
 
         return {
             "success": True,

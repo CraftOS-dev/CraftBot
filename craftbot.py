@@ -163,6 +163,7 @@ def default_install_location() -> str:
 # use the legacy `craftbot.installed_exe_path()` API without threading the
 # metadata-file path through every call site.
 
+
 def read_install_metadata() -> Optional[dict]:
     return _metadata.read(INSTALL_METADATA_FILE)
 
@@ -394,6 +395,7 @@ def _open_browser_detached(url: str) -> None:
     start` returns immediately even on slow agent boots.
     """
     if IS_FROZEN:
+
         def _poll_and_open() -> None:
             from urllib.request import urlopen
 

@@ -63,6 +63,7 @@ def _get_openrouter_key() -> Optional[str]:
     """Return the stored OpenRouter API key, or None if not configured."""
     try:
         from app.config import get_api_key
+
         return get_api_key("openrouter") or None
     except Exception:
         return None
@@ -81,7 +82,9 @@ def _resolve_ollama_model(requested: str, base_url: str) -> str:
             return requested
         logger.warning(
             "[OLLAMA] Model '%s' not found in Ollama. Available: %s. Using '%s'.",
-            requested, available, available[0],
+            requested,
+            available,
+            available[0],
         )
         return available[0]
     except Exception:

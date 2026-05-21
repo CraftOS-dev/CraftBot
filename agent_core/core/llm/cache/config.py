@@ -26,6 +26,7 @@ class CacheConfig:
         min_cache_tokens: Minimum system prompt length (chars) for caching.
             Rough approximation: 500 chars ≈ 1024 tokens.
     """
+
     prefix_cache_ttl: int = 3600  # 1 hour default
     session_cache_ttl: int = 7200  # 2 hours for long tasks
     min_cache_tokens: int = 500  # ~1024 tokens minimum

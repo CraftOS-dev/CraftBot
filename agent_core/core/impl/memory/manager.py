@@ -40,15 +40,17 @@ class MemoryChunk:
     It stores both the content and metadata needed for retrieval and updates.
     """
 
-    chunk_id: str                      # Unique identifier for this chunk
-    file_path: str                     # Relative path from agent_file_system root
-    section_path: str                  # Hierarchical path of headers (e.g., "## Overview > ### Details")
-    title: str                         # Section title (last header in path)
-    content: str                       # Full content of this chunk
-    summary: str                       # Brief summary for the pointer (first ~150 chars)
-    content_hash: str                  # Hash of content for change detection
-    file_modified_at: str              # File modification timestamp
-    indexed_at: str                    # When this chunk was indexed
+    chunk_id: str  # Unique identifier for this chunk
+    file_path: str  # Relative path from agent_file_system root
+    section_path: (
+        str  # Hierarchical path of headers (e.g., "## Overview > ### Details")
+    )
+    title: str  # Section title (last header in path)
+    content: str  # Full content of this chunk
+    summary: str  # Brief summary for the pointer (first ~150 chars)
+    content_hash: str  # Hash of content for change detection
+    file_modified_at: str  # File modification timestamp
+    indexed_at: str  # When this chunk was indexed
     metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
 
     def to_pointer(self) -> Dict[str, Any]:
@@ -84,7 +86,7 @@ class MemoryPointer:
     section_path: str
     title: str
     summary: str
-    relevance_score: float             # Similarity score from vector search
+    relevance_score: float  # Similarity score from vector search
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __str__(self) -> str:
@@ -98,10 +100,10 @@ class FileIndex:
     """
 
     file_path: str
-    content_hash: str                  # Hash of entire file content
-    modified_at: str                   # File modification timestamp
+    content_hash: str  # Hash of entire file content
+    modified_at: str  # File modification timestamp
     chunk_ids: List[str] = field(default_factory=list)  # IDs of chunks from this file
-    indexed_at: str = ""               # When this file was last indexed
+    indexed_at: str = ""  # When this file was last indexed
 
 
 # ───────────────────────────── Memory Manager ─────────────────────────────
@@ -145,8 +147,8 @@ class MemoryManager:
         self,
         agent_file_system_path: str = "./agent_file_system",
         chroma_path: str = "./chroma_db_memory",
-        chunk_size_limit: int = 1500,    # Max chars per chunk
-        chunk_overlap: int = 100,        # Overlap between chunks when splitting large sections
+        chunk_size_limit: int = 1500,  # Max chars per chunk
+        chunk_overlap: int = 100,  # Overlap between chunks when splitting large sections
     ):
         """
         Initialize the Memory Manager.
@@ -166,20 +168,22 @@ class MemoryManager:
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.COLLECTION_NAME,
-            metadata={"description": "Agent file system memory chunks"}
+            metadata={"description": "Agent file system memory chunks"},
         )
 
         # File index collection (tracks which files are indexed and their hashes)
         self.file_index_collection = self.chroma_client.get_or_create_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates"}
+            metadata={"description": "File index for incremental updates"},
         )
 
         # In-memory cache of file indices
         self._file_index_cache: Dict[str, FileIndex] = {}
         self._load_file_index_cache()
 
-        logger.info(f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, ChromaDB: {chroma_path}")
+        logger.info(
+            f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, ChromaDB: {chroma_path}"
+        )
 
     # ───────────────────────────── Public API ─────────────────────────────
 
@@ -213,7 +217,9 @@ class MemoryManager:
         # Check if collection has any documents
         collection_count = self.collection.count()
         if collection_count == 0:
-            logger.info("Memory collection is empty. Consider running index_all() first.")
+            logger.info(
+                "Memory collection is empty. Consider running index_all() first."
+            )
             return []
 
         # Build where filter if file_filter provided
@@ -263,7 +269,8 @@ class MemoryManager:
                 summary=meta.get("summary", ""),
                 relevance_score=relevance,
                 metadata={
-                    k: v for k, v in meta.items()
+                    k: v
+                    for k, v in meta.items()
                     if k not in ("file_path", "section_path", "title", "summary")
                 },
             )
@@ -272,7 +279,9 @@ class MemoryManager:
         # Sort by relevance (highest first)
         pointers.sort(key=lambda p: p.relevance_score, reverse=True)
 
-        logger.info(f"Retrieved {len(pointers)} memory pointers for query: {query[:50]}...")
+        logger.info(
+            f"Retrieved {len(pointers)} memory pointers for query: {query[:50]}..."
+        )
         return pointers
 
     def retrieve_full_content(self, chunk_id: str) -> Optional[str]:
@@ -322,7 +331,9 @@ class MemoryManager:
 
         # Get current files in agent file system
         current_files = self._get_all_markdown_files()
-        current_file_paths = {str(f.relative_to(self.agent_fs_path)) for f in current_files}
+        current_file_paths = {
+            str(f.relative_to(self.agent_fs_path)) for f in current_files
+        }
         indexed_file_paths = set(self._file_index_cache.keys())
 
         # Find new, modified, and removed files
@@ -474,7 +485,7 @@ class MemoryManager:
                     chunk = MemoryChunk(
                         chunk_id=str(uuid.uuid4()),
                         file_path=file_path,
-                        section_path=f"{section['path']} (part {i+1})",
+                        section_path=f"{section['path']} (part {i + 1})",
                         title=section["title"],
                         content=sub_content,
                         summary=self._create_summary(sub_content),
@@ -520,38 +531,44 @@ class MemoryManager:
         sections: List[Dict[str, Any]] = []
 
         # Regex to match markdown headers
-        header_pattern = re.compile(r'^(#{1,6})\s+(.+?)$', re.MULTILINE)
+        header_pattern = re.compile(r"^(#{1,6})\s+(.+?)$", re.MULTILINE)
 
         # Find all headers with their positions
         headers = []
         for match in header_pattern.finditer(content):
-            headers.append({
-                "level": len(match.group(1)),
-                "title": match.group(2).strip(),
-                "start": match.start(),
-                "end": match.end(),
-            })
+            headers.append(
+                {
+                    "level": len(match.group(1)),
+                    "title": match.group(2).strip(),
+                    "start": match.start(),
+                    "end": match.end(),
+                }
+            )
 
         # If no headers, treat entire content as one section
         if not headers:
-            sections.append({
-                "title": "Document",
-                "level": 0,
-                "path": "Document",
-                "content": content,
-            })
+            sections.append(
+                {
+                    "title": "Document",
+                    "level": 0,
+                    "path": "Document",
+                    "content": content,
+                }
+            )
             return sections
 
         # Add content before first header as a section (if any)
         if headers[0]["start"] > 0:
-            pre_content = content[:headers[0]["start"]].strip()
+            pre_content = content[: headers[0]["start"]].strip()
             if pre_content:
-                sections.append({
-                    "title": "Introduction",
-                    "level": 0,
-                    "path": "Introduction",
-                    "content": pre_content,
-                })
+                sections.append(
+                    {
+                        "title": "Introduction",
+                        "level": 0,
+                        "path": "Introduction",
+                        "content": pre_content,
+                    }
+                )
 
         # Build hierarchical path for each header
         header_stack: List[Dict[str, Any]] = []  # Stack to track parent headers
@@ -559,7 +576,9 @@ class MemoryManager:
         for i, header in enumerate(headers):
             # Get content for this section (until next header or end)
             content_start = header["end"]
-            content_end = headers[i + 1]["start"] if i + 1 < len(headers) else len(content)
+            content_end = (
+                headers[i + 1]["start"] if i + 1 < len(headers) else len(content)
+            )
             section_content = content[content_start:content_end].strip()
 
             # Update header stack for path building
@@ -571,16 +590,20 @@ class MemoryManager:
             # Build path from stack
             path = " > ".join(f"{'#' * h['level']} {h['title']}" for h in header_stack)
 
-            sections.append({
-                "title": header["title"],
-                "level": header["level"],
-                "path": path,
-                "content": section_content,
-            })
+            sections.append(
+                {
+                    "title": header["title"],
+                    "level": header["level"],
+                    "path": path,
+                    "content": section_content,
+                }
+            )
 
         return sections
 
-    def _split_large_section(self, content: str, section_path: str, title: str) -> List[str]:
+    def _split_large_section(
+        self, content: str, section_path: str, title: str
+    ) -> List[str]:
         """
         Split a large section into smaller chunks with overlap.
 
@@ -589,7 +612,7 @@ class MemoryManager:
         chunks: List[str] = []
 
         # Try to split by paragraphs first
-        paragraphs = re.split(r'\n\s*\n', content)
+        paragraphs = re.split(r"\n\s*\n", content)
 
         current_chunk = ""
         for para in paragraphs:
@@ -620,7 +643,7 @@ class MemoryManager:
             for i, chunk in enumerate(chunks):
                 if i > 0:
                     # Add end of previous chunk as prefix
-                    prev_suffix = chunks[i - 1][-self.chunk_overlap:]
+                    prev_suffix = chunks[i - 1][-self.chunk_overlap :]
                     chunk = f"...{prev_suffix}\n\n{chunk}"
                 overlapped_chunks.append(chunk)
             chunks = overlapped_chunks
@@ -630,7 +653,7 @@ class MemoryManager:
     def _split_by_sentences(self, text: str) -> List[str]:
         """Split text by sentences, respecting chunk size limit."""
         # Simple sentence splitting
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = re.split(r"(?<=[.!?])\s+", text)
 
         chunks: List[str] = []
         current = ""
@@ -655,16 +678,16 @@ class MemoryManager:
         Takes the first meaningful text, cleans it up, and truncates.
         """
         # Remove markdown formatting
-        clean = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', content)  # Links
-        clean = re.sub(r'[*_`#]+', '', clean)  # Formatting
-        clean = re.sub(r'\s+', ' ', clean).strip()  # Whitespace
+        clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", content)  # Links
+        clean = re.sub(r"[*_`#]+", "", clean)  # Formatting
+        clean = re.sub(r"\s+", " ", clean).strip()  # Whitespace
 
         # Take first max_length chars, break at word boundary
         if len(clean) <= max_length:
             return clean
 
         truncated = clean[:max_length]
-        last_space = truncated.rfind(' ')
+        last_space = truncated.rfind(" ")
         if last_space > max_length * 0.7:
             truncated = truncated[:last_space]
 
@@ -706,16 +729,18 @@ class MemoryManager:
         for chunk in chunks:
             chunk_ids.append(chunk.chunk_id)
             documents.append(chunk.content)
-            metadatas.append({
-                "file_path": chunk.file_path,
-                "section_path": chunk.section_path,
-                "title": chunk.title,
-                "summary": chunk.summary,
-                "content_hash": chunk.content_hash,
-                "file_modified_at": chunk.file_modified_at,
-                "indexed_at": chunk.indexed_at,
-                **chunk.metadata,
-            })
+            metadatas.append(
+                {
+                    "file_path": chunk.file_path,
+                    "section_path": chunk.section_path,
+                    "title": chunk.title,
+                    "summary": chunk.summary,
+                    "content_hash": chunk.content_hash,
+                    "file_modified_at": chunk.file_modified_at,
+                    "indexed_at": chunk.indexed_at,
+                    **chunk.metadata,
+                }
+            )
 
         try:
             self.collection.add(
@@ -780,11 +805,11 @@ class MemoryManager:
 
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.COLLECTION_NAME,
-            metadata={"description": "Agent file system memory chunks"}
+            metadata={"description": "Agent file system memory chunks"},
         )
         self.file_index_collection = self.chroma_client.get_or_create_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates"}
+            metadata={"description": "File index for incremental updates"},
         )
 
         self._file_index_cache.clear()
@@ -800,8 +825,12 @@ class MemoryManager:
                 return
 
             for i, file_path in enumerate(result["ids"]):
-                meta = result.get("metadatas", [[]])[i] if result.get("metadatas") else {}
-                doc = result.get("documents", [[]])[i] if result.get("documents") else ""
+                meta = (
+                    result.get("metadatas", [[]])[i] if result.get("metadatas") else {}
+                )
+                doc = (
+                    result.get("documents", [[]])[i] if result.get("documents") else ""
+                )
 
                 # chunk_ids stored as comma-separated in document
                 chunk_ids = doc.split(",") if doc else []
@@ -823,11 +852,13 @@ class MemoryManager:
             self.file_index_collection.upsert(
                 ids=[file_index.file_path],
                 documents=[",".join(file_index.chunk_ids)],
-                metadatas=[{
-                    "content_hash": file_index.content_hash,
-                    "modified_at": file_index.modified_at,
-                    "indexed_at": file_index.indexed_at,
-                }],
+                metadatas=[
+                    {
+                        "content_hash": file_index.content_hash,
+                        "modified_at": file_index.modified_at,
+                        "indexed_at": file_index.indexed_at,
+                    }
+                ],
             )
         except Exception as e:
             logger.warning(f"Error saving file index: {e}")
@@ -846,7 +877,9 @@ class MemoryManager:
     def _get_all_markdown_files(self) -> List[Path]:
         """Get the target markdown files in the agent file system."""
         if not self.agent_fs_path.exists():
-            logger.warning(f"Agent file system path does not exist: {self.agent_fs_path}")
+            logger.warning(
+                f"Agent file system path does not exist: {self.agent_fs_path}"
+            )
             return []
 
         files = []
@@ -936,7 +969,6 @@ def create_memory_processing_task(
 
 if __name__ == "__main__":
     # Demo usage
-    import sys
 
     print("Memory Manager Demo")
     print("=" * 50)

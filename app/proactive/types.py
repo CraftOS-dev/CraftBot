@@ -19,15 +19,13 @@ class RecurringCondition:
         type: Condition type (e.g., "market_hours_only", "user_available")
         params: Additional parameters for the condition
     """
+
     type: str
     params: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
-            "type": self.type,
-            **self.params
-        }
+        return {"type": self.type, **self.params}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RecurringCondition":
@@ -45,6 +43,7 @@ class RecurringOutcome:
         result: Description of the outcome
         success: Whether the execution was successful
     """
+
     timestamp: datetime
     result: str
     success: bool = True
@@ -54,7 +53,7 @@ class RecurringOutcome:
         return {
             "timestamp": self.timestamp.isoformat(),
             "result": self.result,
-            "success": self.success
+            "success": self.success,
         }
 
     @classmethod
@@ -69,7 +68,7 @@ class RecurringOutcome:
         return cls(
             timestamp=timestamp,
             result=data.get("result", ""),
-            success=data.get("success", True)
+            success=data.get("success", True),
         )
 
 
@@ -93,6 +92,7 @@ class RecurringTask:
         run_count: Number of times the task has been executed
         outcome_history: Recent execution outcomes (limited to last 5)
     """
+
     id: str
     name: str
     frequency: str  # hourly, daily, weekly, monthly
@@ -155,7 +155,9 @@ class RecurringTask:
             # Daily tasks: check time field if present
             if self.time:
                 task_hour, task_minute = (int(p) for p in self.time.split(":"))
-                target_time = now.replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
+                target_time = now.replace(
+                    hour=task_hour, minute=task_minute, second=0, microsecond=0
+                )
                 if now < target_time:
                     return False  # Too early
                 if now > target_time + self.GRACE_PERIOD:
@@ -164,7 +166,11 @@ class RecurringTask:
 
         if self.frequency == "weekly":
             # Check if already ran this week
-            if self.last_run and self.last_run.isocalendar()[1] == now.isocalendar()[1] and self.last_run.year == now.year:
+            if (
+                self.last_run
+                and self.last_run.isocalendar()[1] == now.isocalendar()[1]
+                and self.last_run.year == now.year
+            ):
                 return False
             # Weekly tasks: check day field
             if self.day:
@@ -174,7 +180,9 @@ class RecurringTask:
             # Check time if present
             if self.time:
                 task_hour, task_minute = (int(p) for p in self.time.split(":"))
-                target_time = now.replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
+                target_time = now.replace(
+                    hour=task_hour, minute=task_minute, second=0, microsecond=0
+                )
                 if now < target_time:
                     return False
                 if now > target_time + self.GRACE_PERIOD:
@@ -183,7 +191,11 @@ class RecurringTask:
 
         if self.frequency == "monthly":
             # Check if already ran this month
-            if self.last_run and self.last_run.month == now.month and self.last_run.year == now.year:
+            if (
+                self.last_run
+                and self.last_run.month == now.month
+                and self.last_run.year == now.year
+            ):
                 return False
             # Monthly tasks: check day field (day of month)
             if self.day:
@@ -196,7 +208,9 @@ class RecurringTask:
             # Check time if present
             if self.time:
                 task_hour, task_minute = (int(p) for p in self.time.split(":"))
-                target_time = now.replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
+                target_time = now.replace(
+                    hour=task_hour, minute=task_minute, second=0, microsecond=0
+                )
                 if now < target_time:
                     return False
                 if now > target_time + self.GRACE_PERIOD:
@@ -236,10 +250,14 @@ class RecurringTask:
             return self._next_heartbeat(now)
 
         if self.frequency == "daily":
-            today_at_time = now.replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
+            today_at_time = now.replace(
+                hour=task_hour, minute=task_minute, second=0, microsecond=0
+            )
             if self.last_run and self.last_run.date() == now.date():
                 # Already ran today — next is tomorrow
-                return self._next_heartbeat(today_at_time + timedelta(days=1) - timedelta(seconds=1))
+                return self._next_heartbeat(
+                    today_at_time + timedelta(days=1) - timedelta(seconds=1)
+                )
             if now < today_at_time:
                 # Time hasn't passed yet — snap target time to heartbeat
                 return self._next_heartbeat(today_at_time - timedelta(seconds=1))
@@ -247,25 +265,43 @@ class RecurringTask:
                 # Within grace period — next heartbeat will pick it up
                 return self._next_heartbeat(now)
             # Missed the window — skip to tomorrow
-            return self._next_heartbeat(today_at_time + timedelta(days=1) - timedelta(seconds=1))
+            return self._next_heartbeat(
+                today_at_time + timedelta(days=1) - timedelta(seconds=1)
+            )
 
         if self.frequency == "weekly":
-            day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            day_names = [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ]
             target_day_name = (self.day or "monday").lower()
-            target_weekday = day_names.index(target_day_name) if target_day_name in day_names else 0
+            target_weekday = (
+                day_names.index(target_day_name) if target_day_name in day_names else 0
+            )
 
             days_ahead = target_weekday - now.weekday()
             if days_ahead < 0:
                 days_ahead += 7
 
             next_date = now + timedelta(days=days_ahead)
-            next_time = next_date.replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
+            next_time = next_date.replace(
+                hour=task_hour, minute=task_minute, second=0, microsecond=0
+            )
 
-            if self.last_run and self.last_run.isocalendar()[1] == now.isocalendar()[1] and self.last_run.year == now.year:
+            if (
+                self.last_run
+                and self.last_run.isocalendar()[1] == now.isocalendar()[1]
+                and self.last_run.year == now.year
+            ):
                 # Already ran this week — next week
-                next_time = (now + timedelta(days=(7 - now.weekday() + target_weekday))).replace(
-                    hour=task_hour, minute=task_minute, second=0, microsecond=0
-                )
+                next_time = (
+                    now + timedelta(days=(7 - now.weekday() + target_weekday))
+                ).replace(hour=task_hour, minute=task_minute, second=0, microsecond=0)
                 if next_time <= now:
                     next_time += timedelta(weeks=1)
                 return self._next_heartbeat(next_time - timedelta(seconds=1))
@@ -288,17 +324,34 @@ class RecurringTask:
 
             max_day = calendar.monthrange(now.year, now.month)[1]
             clamped_day = min(target_day, max_day)
-            this_month_time = now.replace(day=clamped_day, hour=task_hour, minute=task_minute, second=0, microsecond=0)
+            this_month_time = now.replace(
+                day=clamped_day,
+                hour=task_hour,
+                minute=task_minute,
+                second=0,
+                microsecond=0,
+            )
 
-            if self.last_run and self.last_run.month == now.month and self.last_run.year == now.year:
+            if (
+                self.last_run
+                and self.last_run.month == now.month
+                and self.last_run.year == now.year
+            ):
                 # Already ran this month — go to next month
                 if now.month == 12:
                     ny, nm = now.year + 1, 1
                 else:
                     ny, nm = now.year, now.month + 1
                 clamped = min(target_day, calendar.monthrange(ny, nm)[1])
-                target = now.replace(year=ny, month=nm, day=clamped,
-                                     hour=task_hour, minute=task_minute, second=0, microsecond=0)
+                target = now.replace(
+                    year=ny,
+                    month=nm,
+                    day=clamped,
+                    hour=task_hour,
+                    minute=task_minute,
+                    second=0,
+                    microsecond=0,
+                )
                 return self._next_heartbeat(target - timedelta(seconds=1))
 
             if now < this_month_time:
@@ -314,17 +367,20 @@ class RecurringTask:
             else:
                 ny, nm = now.year, now.month + 1
             clamped = min(target_day, calendar.monthrange(ny, nm)[1])
-            target = now.replace(year=ny, month=nm, day=clamped,
-                                 hour=task_hour, minute=task_minute, second=0, microsecond=0)
+            target = now.replace(
+                year=ny,
+                month=nm,
+                day=clamped,
+                hour=task_hour,
+                minute=task_minute,
+                second=0,
+                microsecond=0,
+            )
             return self._next_heartbeat(target - timedelta(seconds=1))
 
         return None
 
-    def add_outcome(
-        self,
-        result: str,
-        success: bool = True
-    ) -> None:
+    def add_outcome(self, result: str, success: bool = True) -> None:
         """Add an execution outcome to history.
 
         Args:
@@ -332,15 +388,13 @@ class RecurringTask:
             success: Whether execution was successful
         """
         outcome = RecurringOutcome(
-            timestamp=datetime.now(),
-            result=result,
-            success=success
+            timestamp=datetime.now(), result=result, success=success
         )
         self.outcome_history.append(outcome)
 
         # Keep only the last N outcomes
         if len(self.outcome_history) > self.MAX_OUTCOME_HISTORY:
-            self.outcome_history = self.outcome_history[-self.MAX_OUTCOME_HISTORY:]
+            self.outcome_history = self.outcome_history[-self.MAX_OUTCOME_HISTORY :]
 
         # Update run metadata
         self.last_run = outcome.timestamp
@@ -439,6 +493,7 @@ class RecurringData:
         planner_outputs: DEPRECATED - planners now update "Goals, Plan, and Status" section
                         via file operations. This field is kept for backward compatibility.
     """
+
     version: str = "1.0"
     last_updated: Optional[datetime] = None
     tasks: List[RecurringTask] = field(default_factory=list)
@@ -513,7 +568,9 @@ class RecurringData:
                 return True
         return False
 
-    def update_task(self, task_id: str, updates: Dict[str, Any]) -> Optional[RecurringTask]:
+    def update_task(
+        self, task_id: str, updates: Dict[str, Any]
+    ) -> Optional[RecurringTask]:
         """Update a task with new values.
 
         Args:

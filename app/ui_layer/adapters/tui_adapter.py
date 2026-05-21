@@ -197,7 +197,10 @@ class TUIActionPanelComponent(ActionPanelProtocol):
             del self._items[item_id]
             self._order = [i for i in self._order if i != item_id]
             await self._adapter.action_updates.put(
-                ActionPanelUpdate("remove", TUIActionItem(id=item_id, display_name="", item_type="", status=""))
+                ActionPanelUpdate(
+                    "remove",
+                    TUIActionItem(id=item_id, display_name="", item_type="", status=""),
+                )
             )
 
     async def update_item_data(
@@ -299,7 +302,8 @@ class TUIActionPanelComponent(ActionPanelProtocol):
     def get_actions_for_task(self, task_id: str) -> List[TUIActionItem]:
         """Get all actions belonging to a specific task."""
         return [
-            item for item in self._items.values()
+            item
+            for item in self._items.values()
             if item.item_type == "action" and item.task_id == task_id
         ]
 
@@ -406,6 +410,7 @@ class TUIAdapter(InterfaceAdapter):
     def _generate_status_message(self) -> str:
         """Generate status message (for CraftApp compatibility)."""
         from app.ui_layer.state.store import _generate_status_message
+
         return _generate_status_message(self._controller.state_store.state)
 
     @property
@@ -435,6 +440,7 @@ class TUIAdapter(InterfaceAdapter):
 
         # Check for onboarding (lazy import to avoid circular dependency)
         from app.ui_layer.onboarding import OnboardingFlowController
+
         onboarding = OnboardingFlowController(self._controller)
         if onboarding.needs_hard_onboarding:
             # Run onboarding before starting Textual app
@@ -442,21 +448,29 @@ class TUIAdapter(InterfaceAdapter):
 
         # Trigger soft onboarding if needed (after hard onboarding check)
         from app.onboarding import onboarding_manager
+
         if onboarding_manager.needs_soft_onboarding:
             import asyncio
+
             agent = self._controller.agent
             if agent:
                 asyncio.create_task(agent.trigger_soft_onboarding())
 
         # Queue initial messages
         from app.config import get_app_version
+
         await self.chat_updates.put(
-            ("System", f"CraftBot v{get_app_version()} ready. Type /help for more info and /exit to quit.", "system")
+            (
+                "System",
+                f"CraftBot v{get_app_version()} ready. Type /help for more info and /exit to quit.",
+                "system",
+            )
         )
         await self.status_updates.put("Agent is idle")
 
         # Set footage callback on agent for GUI mode
         from app.gui.handler import GUIHandler
+
         self._controller.agent._tui_footage_callback = self.push_footage
         if GUIHandler.gui_module:
             GUIHandler.gui_module.set_tui_footage_callback(self.push_footage)
@@ -511,13 +525,12 @@ class TUIAdapter(InterfaceAdapter):
         if not root_logger.handlers:
             root_logger.addHandler(logging.NullHandler())
 
-    async def _run_hard_onboarding(
-        self, onboarding: OnboardingFlowController
-    ) -> None:
+    async def _run_hard_onboarding(self, onboarding: OnboardingFlowController) -> None:
         """Run hard onboarding using Textual screens."""
         # For now, run simple CLI-style onboarding before Textual starts
         try:
             from app.tui.onboarding import run_tui_hard_onboarding
+
             await run_tui_hard_onboarding(onboarding)
         except ImportError:
             # Fall back to simple CLI onboarding
@@ -565,7 +578,11 @@ class TUIAdapter(InterfaceAdapter):
     async def push_footage(self, image_bytes: bytes, container_id: str = "") -> None:
         """Push a new screenshot to the footage display."""
         await self.footage_updates.put(
-            FootageUpdate(image_bytes=image_bytes, timestamp=time.time(), container_id=container_id)
+            FootageUpdate(
+                image_bytes=image_bytes,
+                timestamp=time.time(),
+                container_id=container_id,
+            )
         )
 
     def signal_gui_mode_end(self) -> None:
@@ -588,6 +605,7 @@ class TUIAdapter(InterfaceAdapter):
     def configure_provider(self, provider: str, api_key: str) -> None:
         """Configure provider settings (saves to settings.json and syncs to os.environ)."""
         from app.tui.settings import save_settings_to_json
+
         # save_settings_to_json handles both persistence and os.environ sync
         save_settings_to_json(provider, api_key)
 
@@ -667,7 +685,9 @@ class TUIAdapter(InterfaceAdapter):
         elif item.status == "error":
             status_icon = ICON_ERROR
         else:
-            status_icon = ICON_LOADING_FRAMES[self._loading_frame_index % len(ICON_LOADING_FRAMES)]
+            status_icon = ICON_LOADING_FRAMES[
+                self._loading_frame_index % len(ICON_LOADING_FRAMES)
+            ]
 
         if item.item_type == "task":
             label_text = f"[{status_icon}]"
@@ -712,18 +732,15 @@ class TUIAdapter(InterfaceAdapter):
     def _handle_user_message(self, event: UIEvent) -> None:
         """Handle user message - display in chat."""
         message = event.data.get("message", "")
-        asyncio.create_task(
-            self.chat_updates.put(("You", message, "user"))
-        )
+        asyncio.create_task(self.chat_updates.put(("You", message, "user")))
 
     def _handle_agent_message(self, event: UIEvent) -> None:
         """Handle agent message - display in chat."""
         from app.onboarding import onboarding_manager
+
         agent_name = onboarding_manager.state.agent_name or "Agent"
         message = event.data.get("message", "")
-        asyncio.create_task(
-            self.chat_updates.put((agent_name, message, "agent"))
-        )
+        asyncio.create_task(self.chat_updates.put((agent_name, message, "agent")))
 
     def _handle_system_message(self, event: UIEvent) -> None:
         """Handle system message - check for clear command."""
@@ -732,23 +749,17 @@ class TUIAdapter(InterfaceAdapter):
             asyncio.create_task(self._action_panel.clear())
         else:
             message = event.data.get("message", "")
-            asyncio.create_task(
-                self.chat_updates.put(("System", message, "system"))
-            )
+            asyncio.create_task(self.chat_updates.put(("System", message, "system")))
 
     def _handle_error_message(self, event: UIEvent) -> None:
         """Handle error message - display in chat."""
         message = event.data.get("message", "")
-        asyncio.create_task(
-            self.chat_updates.put(("Error", message, "error"))
-        )
+        asyncio.create_task(self.chat_updates.put(("Error", message, "error")))
 
     def _handle_info_message(self, event: UIEvent) -> None:
         """Handle info message - display in chat."""
         message = event.data.get("message", "")
-        asyncio.create_task(
-            self.chat_updates.put(("Info", message, "info"))
-        )
+        asyncio.create_task(self.chat_updates.put(("Info", message, "info")))
 
     def _handle_task_start(self, event: UIEvent) -> None:
         """Handle task start - add to action panel."""
@@ -761,7 +772,9 @@ class TUIAdapter(InterfaceAdapter):
             self._action_panel._items[task_id].display_name = task_name
             self._action_panel._items[task_id].status = "running"
             asyncio.create_task(
-                self.action_updates.put(ActionPanelUpdate("update", self._action_panel._items[task_id]))
+                self.action_updates.put(
+                    ActionPanelUpdate("update", self._action_panel._items[task_id])
+                )
             )
         else:
             item = TUIActionItem(
@@ -788,7 +801,9 @@ class TUIAdapter(InterfaceAdapter):
         if task_id in self._action_panel._items:
             self._action_panel._items[task_id].status = status
             asyncio.create_task(
-                self.action_updates.put(ActionPanelUpdate("update", self._action_panel._items[task_id]))
+                self.action_updates.put(
+                    ActionPanelUpdate("update", self._action_panel._items[task_id])
+                )
             )
         else:
             # If task not found by ID, find any running task and mark as completed
@@ -837,10 +852,14 @@ class TUIAdapter(InterfaceAdapter):
             )
             self._action_panel._items[task_id] = task_item
             self._action_panel._order.append(task_id)
-            asyncio.create_task(self.action_updates.put(ActionPanelUpdate("add", task_item)))
+            asyncio.create_task(
+                self.action_updates.put(ActionPanelUpdate("add", task_item))
+            )
 
         # Create action item
-        action_id = event.data.get("action_id", f"{task_id or 'main'}:{action_name}:{time.time()}")
+        action_id = event.data.get(
+            "action_id", f"{task_id or 'main'}:{action_name}:{time.time()}"
+        )
         item = TUIActionItem(
             id=action_id,
             display_name=action_name,
@@ -876,7 +895,8 @@ class TUIAdapter(InterfaceAdapter):
         # If still not found, mark the oldest running action as completed
         if not found_item:
             running_actions = [
-                item for item in self._action_panel._items.values()
+                item
+                for item in self._action_panel._items.values()
                 if item.item_type == "action" and item.status == "running"
             ]
             if running_actions:
@@ -885,7 +905,9 @@ class TUIAdapter(InterfaceAdapter):
 
         if found_item:
             found_item.status = status
-            asyncio.create_task(self.action_updates.put(ActionPanelUpdate("update", found_item)))
+            asyncio.create_task(
+                self.action_updates.put(ActionPanelUpdate("update", found_item))
+            )
 
         if not self._has_running_work() and self._agent_state == "working":
             self._agent_state = "idle"
@@ -912,10 +934,13 @@ class TUIAdapter(InterfaceAdapter):
     async def _update_status(self) -> None:
         """Update status message."""
         ICON_LOADING_FRAMES = ["●", "○"]
-        loading_icon = ICON_LOADING_FRAMES[self._loading_frame_index % len(ICON_LOADING_FRAMES)]
+        loading_icon = ICON_LOADING_FRAMES[
+            self._loading_frame_index % len(ICON_LOADING_FRAMES)
+        ]
 
         running_tasks = [
-            item for item in self._action_panel._items.values()
+            item
+            for item in self._action_panel._items.values()
             if item.item_type == "task" and item.status == "running"
         ]
 

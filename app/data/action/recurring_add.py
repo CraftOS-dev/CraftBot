@@ -9,63 +9,57 @@ from agent_core import action
         "name": {
             "type": "string",
             "description": "Human-readable task name (e.g., 'Morning Briefing', 'Weekly Review')",
-            "example": "Morning Briefing"
+            "example": "Morning Briefing",
         },
         "frequency": {
             "type": "string",
             "description": "Execution frequency: 'hourly', 'daily', 'weekly', 'monthly'",
-            "example": "daily"
+            "example": "daily",
         },
         "instruction": {
             "type": "string",
             "description": "What the agent should do when this task fires. Be specific and actionable.",
-            "example": "Check the weather and prepare a morning briefing with today's calendar and priority tasks."
+            "example": "Check the weather and prepare a morning briefing with today's calendar and priority tasks.",
         },
         "time": {
             "type": "string",
             "description": "Time of day for daily/weekly/monthly tasks in HH:MM format (24-hour). Optional for hourly.",
-            "example": "07:00"
+            "example": "07:00",
         },
         "day": {
             "type": "string",
             "description": "Day of week for weekly tasks (e.g., 'sunday', 'monday'). Optional for other frequencies.",
-            "example": "sunday"
+            "example": "sunday",
         },
         "priority": {
             "type": "integer",
             "description": "Task priority (lower = higher priority). Default is 50.",
-            "example": 50
+            "example": 50,
         },
         "permission_tier": {
             "type": "integer",
             "description": "Permission level 0-4. 0=silent, 1=suggest, 2=low-risk, 3=high-risk, 4=prohibited. Default is 1.",
-            "example": 1
+            "example": 1,
         },
         "enabled": {
             "type": "boolean",
             "description": "Whether to enable the task immediately. Default is true.",
-            "example": True
+            "example": True,
         },
         "conditions": {
             "type": "array",
             "description": "Optional list of conditions for task execution. Each condition has a 'type' field.",
-            "example": [{"type": "market_hours_only"}]
-        }
+            "example": [{"type": "market_hours_only"}],
+        },
     },
     output_schema={
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
-        "task_id": {
-            "type": "string",
-            "description": "The ID of the created task"
-        },
-        "message": {
-            "type": "string",
-            "description": "Confirmation message"
-        }
-    }
+        "task_id": {"type": "string", "description": "The ID of the created task"},
+        "message": {"type": "string", "description": "Confirmation message"},
+    },
 )
 def recurring_add(input_data: dict) -> dict:
     """Add a new recurring task."""
@@ -73,10 +67,7 @@ def recurring_add(input_data: dict) -> dict:
 
     manager = get_proactive_manager()
     if manager is None:
-        return {
-            "status": "error",
-            "error": "Proactive manager not initialized"
-        }
+        return {"status": "error", "error": "Proactive manager not initialized"}
 
     try:
         # Validate required fields
@@ -96,15 +87,19 @@ def recurring_add(input_data: dict) -> dict:
         if frequency not in valid_frequencies:
             return {
                 "status": "error",
-                "error": f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}"
+                "error": f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}",
             }
 
         # Validate permission_tier
         permission_tier = input_data.get("permission_tier", 1)
-        if not isinstance(permission_tier, int) or permission_tier < 0 or permission_tier > 3:
+        if (
+            not isinstance(permission_tier, int)
+            or permission_tier < 0
+            or permission_tier > 3
+        ):
             return {
                 "status": "error",
-                "error": "permission_tier must be an integer from 0 to 3"
+                "error": "permission_tier must be an integer from 0 to 3",
             }
 
         # Create the task
@@ -124,16 +119,10 @@ def recurring_add(input_data: dict) -> dict:
             "status": "ok",
             "task_id": task.id,
             "message": f"Recurring task '{name}' created with ID: {task.id}. "
-                      f"It will run {frequency} with permission tier {permission_tier}."
+            f"It will run {frequency} with permission tier {permission_tier}.",
         }
 
     except ValueError as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

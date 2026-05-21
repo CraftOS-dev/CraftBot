@@ -31,7 +31,9 @@ def _load_ddgs():
 
             return DDGS
         except Exception as e:
-            raise RuntimeError("Missing dependency. Install with: pip3 install -U ddgs") from e
+            raise RuntimeError(
+                "Missing dependency. Install with: pip3 install -U ddgs"
+            ) from e
 
 
 def _iter_results(ddgs: Any, kind: str, query: str, **kwargs) -> Iterable[dict]:
@@ -59,7 +61,9 @@ def main(argv: List[str]) -> int:
     )
     p.add_argument("--max", type=int, default=8, dest="max_results")
     p.add_argument("--region", default="kr-kr")
-    p.add_argument("--safesearch", default="moderate", choices=["on", "moderate", "off"])
+    p.add_argument(
+        "--safesearch", default="moderate", choices=["on", "moderate", "off"]
+    )
     p.add_argument("--timelimit", default=None, help="d|w|m|y (optional)")
     p.add_argument(
         "--backend",
@@ -72,7 +76,9 @@ def main(argv: List[str]) -> int:
         help='Proxy URL (http/https/socks5). For Tor Browser: "tb" (socks5://127.0.0.1:9150) if supported by ddgs.',
     )
     p.add_argument("--timeout", type=int, default=10)
-    p.add_argument("--verify", default="true", choices=["true", "false"], help="TLS verify")
+    p.add_argument(
+        "--verify", default="true", choices=["true", "false"], help="TLS verify"
+    )
     p.add_argument(
         "--out",
         choices=["json", "jsonl", "md"],

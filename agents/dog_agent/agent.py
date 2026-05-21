@@ -9,14 +9,11 @@ A dog
 
 from __future__ import annotations
 
-import importlib.util
-from importlib import import_module
 from pathlib import Path
 
 import yaml
 
 from app.agent_base import AgentBase
-from app.logger import logger
 
 
 class DogAgent(AgentBase):
@@ -32,7 +29,7 @@ class DogAgent(AgentBase):
     def __init__(self, cfg: dict, bundle_path: Path):
         self._bundle_path = Path(bundle_path)
         self._cfg = cfg
-        
+
         super().__init__(
             data_dir=cfg.get("data_dir", "app/data"),
             chroma_path=str(self._bundle_path / cfg.get("rag_dir", "rag_docs")),
@@ -55,9 +52,10 @@ class DogAgent(AgentBase):
         # Append interface-specific capabilities (e.g., file attachment in browser mode)
         return base_prompt + self._get_interface_capabilities_prompt()
 
-if __name__ == "__main__":  
+
+if __name__ == "__main__":
     import asyncio
 
-    bundle_dir = Path(__file__).parent  
+    bundle_dir = Path(__file__).parent
     agent = DogAgent.from_bundle(bundle_dir)
     asyncio.run(agent.run())

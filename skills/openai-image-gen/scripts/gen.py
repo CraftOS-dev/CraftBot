@@ -156,12 +156,23 @@ def main(argv: list[str]) -> int:
     p.add_argument("--model", default="gpt-image-1.5")
     p.add_argument("--size", default="1024x1024")
     p.add_argument("--quality", default="high")
-    p.add_argument("--timeout", type=int, default=180, help="per-request timeout (seconds)")
-    p.add_argument("--sleep", type=float, default=0.2, help="pause between requests (seconds)")
+    p.add_argument(
+        "--timeout", type=int, default=180, help="per-request timeout (seconds)"
+    )
+    p.add_argument(
+        "--sleep", type=float, default=0.2, help="pause between requests (seconds)"
+    )
     p.add_argument("--out-dir", default=None)
     p.add_argument("--api-key", default=None)
-    p.add_argument("--prompt", action="append", default=None, help="repeatable; overrides random prompts")
-    p.add_argument("--dry-run", action="store_true", help="print prompts + exit (no API calls)")
+    p.add_argument(
+        "--prompt",
+        action="append",
+        default=None,
+        help="repeatable; overrides random prompts",
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="print prompts + exit (no API calls)"
+    )
     args = p.parse_args(argv)
 
     api_key = args.api_key
@@ -169,11 +180,15 @@ def main(argv: list[str]) -> int:
         # Try reading from settings.json
         try:
             from app.config import get_api_key
-            api_key = get_api_key('openai')
+
+            api_key = get_api_key("openai")
         except ImportError:
             pass
     if not api_key:
-        print("missing API key: provide --api-key or configure in Settings > Model Settings", file=sys.stderr)
+        print(
+            "missing API key: provide --api-key or configure in Settings > Model Settings",
+            file=sys.stderr,
+        )
         return 2
 
     out_dir = args.out_dir or _default_out_dir()
@@ -198,10 +213,14 @@ def main(argv: list[str]) -> int:
             "n": 1,
             "response_format": "b64_json",
         }
-        data = _post_json(url=url, api_key=api_key, payload=payload, timeout_s=args.timeout)
+        data = _post_json(
+            url=url, api_key=api_key, payload=payload, timeout_s=args.timeout
+        )
         b64 = (data.get("data") or [{}])[0].get("b64_json")
         if not b64:
-            raise SystemExit(f"unexpected response: {json.dumps(data, indent=2)[:1200]}")
+            raise SystemExit(
+                f"unexpected response: {json.dumps(data, indent=2)[:1200]}"
+            )
 
         png = base64.b64decode(b64)
         filename = f"{i:02d}-{_slug(prompt)}.png"

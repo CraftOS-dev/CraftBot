@@ -3,14 +3,13 @@
 Textual widgets for the onboarding wizard.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Static, ListView, ListItem, Label, Button, Input
 
-from rich.text import Text
 
 if TYPE_CHECKING:
     from app.tui.onboarding.hard_onboarding import TUIHardOnboarding
@@ -364,7 +363,7 @@ class OnboardingWizardScreen(Screen):
         content.remove_children()
 
         # Check for form step (e.g., UserProfileStep)
-        form_fields = getattr(step, 'get_form_fields', lambda: [])()
+        form_fields = getattr(step, "get_form_fields", lambda: [])()
         options = step.get_options()
 
         if form_fields:
@@ -404,7 +403,9 @@ class OnboardingWizardScreen(Screen):
         nav_list = self.query_one("#nav-actions", ListView)
         nav_list.index = 0
 
-    def _build_option_list(self, container: Container, options: list, default: str) -> None:
+    def _build_option_list(
+        self, container: Container, options: list, default: str
+    ) -> None:
         """Build a single-select option list."""
         items = []
         highlight_idx = 0
@@ -415,17 +416,25 @@ class OnboardingWizardScreen(Screen):
             if opt.description:
                 label_text += f"  ({opt.description})"
 
-            items.append(ListItem(Label(label_text, classes="option-label"), id=f"opt-{step.name}-{opt.value}"))
+            items.append(
+                ListItem(
+                    Label(label_text, classes="option-label"),
+                    id=f"opt-{step.name}-{opt.value}",
+                )
+            )
 
             if opt.value == default:
                 highlight_idx = i
 
-        list_view = ListView(*items, id=f"option-list-{step.name}", classes="option-list")
+        list_view = ListView(
+            *items, id=f"option-list-{step.name}", classes="option-list"
+        )
         container.mount(list_view)
 
         # Highlight default after mount
         def set_highlight():
             list_view.index = highlight_idx
+
         self.call_after_refresh(set_highlight)
 
     def _build_text_input(self, container: Container, default: str) -> None:
@@ -436,10 +445,12 @@ class OnboardingWizardScreen(Screen):
 
         input_widget = Input(
             value=default,
-            placeholder="Enter value..." if not is_password else "Enter API key (Ctrl+V to paste)",
+            placeholder="Enter value..."
+            if not is_password
+            else "Enter API key (Ctrl+V to paste)",
             password=False,  # Show API key for clarity during setup
             id=f"step-input-{step.name}",
-            classes="step-input"
+            classes="step-input",
         )
         container.mount(input_widget)
         self.call_after_refresh(input_widget.focus)
@@ -447,17 +458,23 @@ class OnboardingWizardScreen(Screen):
     def _build_multi_select(self, container: Container, options: list) -> None:
         """Build a multi-select list with toggle buttons."""
         step = self._handler.get_step(self._current_step)
-        scroll = VerticalScroll(id=f"multi-select-list-{step.name}", classes="multi-select-list")
+        scroll = VerticalScroll(
+            id=f"multi-select-list-{step.name}", classes="multi-select-list"
+        )
 
         for opt in options:
             is_selected = opt.value in self._multi_select_values
             toggle_text = "[+]" if is_selected else "[-]"
-            toggle_class = "multi-select-toggle -selected" if is_selected else "multi-select-toggle"
+            toggle_class = (
+                "multi-select-toggle -selected"
+                if is_selected
+                else "multi-select-toggle"
+            )
 
             row = Horizontal(
                 Button(toggle_text, id=f"toggle-{opt.value}", classes=toggle_class),
                 Static(opt.label, classes="multi-select-label"),
-                classes="multi-select-row"
+                classes="multi-select-row",
             )
             scroll.compose_add_child(row)
 
@@ -471,9 +488,7 @@ class OnboardingWizardScreen(Screen):
             field_container = Vertical(classes="form-field")
 
             # Label
-            field_container.compose_add_child(
-                Static(f.label, classes="form-label")
-            )
+            field_container.compose_add_child(Static(f.label, classes="form-label"))
 
             if f.field_type == "text":
                 inp = Input(
@@ -509,20 +524,33 @@ class OnboardingWizardScreen(Screen):
 
                 # Highlight default after mount
                 _idx = highlight_idx
+
                 def _make_highlight(lv=list_view, idx=_idx):
                     def _set():
                         lv.index = idx
+
                     return _set
+
                 self.call_after_refresh(_make_highlight())
 
             elif f.field_type == "multi_checkbox":
-                self._form_checkbox_values[f.name] = list(f.default) if isinstance(f.default, list) else []
+                self._form_checkbox_values[f.name] = (
+                    list(f.default) if isinstance(f.default, list) else []
+                )
                 for opt in f.options:
                     is_checked = opt.value in self._form_checkbox_values[f.name]
                     toggle_text = "[x]" if is_checked else "[ ]"
-                    toggle_cls = "form-checkbox-toggle -checked" if is_checked else "form-checkbox-toggle"
+                    toggle_cls = (
+                        "form-checkbox-toggle -checked"
+                        if is_checked
+                        else "form-checkbox-toggle"
+                    )
                     row = Horizontal(
-                        Button(toggle_text, id=f"fchk-{f.name}-{opt.value}", classes=toggle_cls),
+                        Button(
+                            toggle_text,
+                            id=f"fchk-{f.name}-{opt.value}",
+                            classes=toggle_cls,
+                        ),
                         Static(f" {opt.label}", classes="form-checkbox-label"),
                         classes="form-checkbox-row",
                     )
@@ -540,6 +568,7 @@ class OnboardingWizardScreen(Screen):
                     if widget:
                         widget.first().focus()
                     break
+
         self.call_after_refresh(_focus_first)
 
     def _get_form_value(self) -> Dict[str, Any]:
@@ -558,7 +587,7 @@ class OnboardingWizardScreen(Screen):
                         item_id = lv.highlighted_child.id
                         prefix = f"fopt-{f.name}-"
                         if item_id and item_id.startswith(prefix):
-                            result[f.name] = item_id[len(prefix):]
+                            result[f.name] = item_id[len(prefix) :]
                             continue
                 result[f.name] = f.default
 
@@ -581,7 +610,7 @@ class OnboardingWizardScreen(Screen):
             parts = button_id[5:]  # Remove "fchk-"
             dash_idx = parts.index("-")
             field_name = parts[:dash_idx]
-            value = parts[dash_idx + 1:]
+            value = parts[dash_idx + 1 :]
             self._toggle_form_checkbox(field_name, value, event.button)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -619,7 +648,9 @@ class OnboardingWizardScreen(Screen):
             button.label = "[+]"
             button.add_class("-selected")
 
-    def _toggle_form_checkbox(self, field_name: str, value: str, button: Button) -> None:
+    def _toggle_form_checkbox(
+        self, field_name: str, value: str, button: Button
+    ) -> None:
         """Toggle a form checkbox option."""
         values = self._form_checkbox_values.setdefault(field_name, [])
         if value in values:
@@ -651,7 +682,7 @@ class OnboardingWizardScreen(Screen):
                 item_id = list_view.highlighted_child.id
                 prefix = f"opt-{step.name}-"
                 if item_id and item_id.startswith(prefix):
-                    return item_id[len(prefix):]
+                    return item_id[len(prefix) :]
 
         # Check for text input (IDs are now like "step-input-user_name")
         input_widget = self.query(f"#step-input-{step.name}")
@@ -714,5 +745,5 @@ class OnboardingWizardScreen(Screen):
     def action_focus_nav(self) -> None:
         """Focus the navigation bar (Tab)."""
         nav = self.query_one("#nav-actions")
-        if hasattr(nav, 'focus'):
+        if hasattr(nav, "focus"):
             nav.focus()

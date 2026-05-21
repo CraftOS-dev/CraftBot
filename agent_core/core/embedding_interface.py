@@ -14,7 +14,6 @@ Environment variables:
 
 from __future__ import annotations
 
-import os
 from typing import List, Optional
 
 import requests
@@ -22,12 +21,6 @@ import requests
 from agent_core.core.models.factory import ModelFactory
 from agent_core.core.models.types import InterfaceType
 from agent_core.utils.logger import logger
-
-# Optional imports so the module works even if some SDKs aren't installed
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
 
 from agent_core.core.llm.google_gemini_client import GeminiAPIError, GeminiClient
 

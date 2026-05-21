@@ -31,9 +31,9 @@ class ProactiveParser:
     TASKS_END = "<!-- PROACTIVE_TASKS_END -->"
 
     # Regex patterns
-    FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n---', re.DOTALL)
-    TASK_HEADER_PATTERN = re.compile(r'^###\s*\[(\w+)\]\s*(.+)$', re.MULTILINE)
-    YAML_BLOCK_PATTERN = re.compile(r'```yaml\s*\n(.*?)```', re.DOTALL)
+    FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
+    TASK_HEADER_PATTERN = re.compile(r"^###\s*\[(\w+)\]\s*(.+)$", re.MULTILINE)
+    YAML_BLOCK_PATTERN = re.compile(r"```yaml\s*\n(.*?)```", re.DOTALL)
 
     @classmethod
     def parse(cls, content: str) -> RecurringData:
@@ -53,7 +53,9 @@ class ProactiveParser:
         last_updated = frontmatter.get("last_updated")
         if isinstance(last_updated, str):
             try:
-                data.last_updated = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
+                data.last_updated = datetime.fromisoformat(
+                    last_updated.replace("Z", "+00:00")
+                )
             except ValueError:
                 data.last_updated = None
 
@@ -101,7 +103,7 @@ class ProactiveParser:
         if start_idx == -1 or end_idx == -1:
             return []
 
-        tasks_content = content[start_idx + len(cls.TASKS_START):end_idx]
+        tasks_content = content[start_idx + len(cls.TASKS_START) : end_idx]
 
         # Find all task headers and their YAML blocks
         tasks = []
@@ -113,7 +115,11 @@ class ProactiveParser:
 
             # Find the YAML block after this header
             start = header_match.end()
-            end = header_matches[i + 1].start() if i + 1 < len(header_matches) else len(tasks_content)
+            end = (
+                header_matches[i + 1].start()
+                if i + 1 < len(header_matches)
+                else len(tasks_content)
+            )
             section_content = tasks_content[start:end]
 
             yaml_match = cls.YAML_BLOCK_PATTERN.search(section_content)
@@ -166,7 +172,7 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
         end_idx = result.find(cls.TASKS_END)
         if start_idx != -1 and end_idx != -1:
             result = (
-                result[:start_idx + len(cls.TASKS_START)]
+                result[: start_idx + len(cls.TASKS_START)]
                 + "\n\n"
                 + tasks_content
                 + "\n"
@@ -186,7 +192,9 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
         # Frontmatter
         lines.append("---")
         lines.append(f"version: {data.version}")
-        lines.append(f"last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.now().isoformat()}")
+        lines.append(
+            f"last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.now().isoformat()}"
+        )
         lines.append("---")
         lines.append("")
 
@@ -242,7 +250,12 @@ last_updated: {data.last_updated.isoformat() if data.last_updated else datetime.
 
                 # Create YAML content
                 yaml_data = task.to_dict()
-                yaml_content = yaml.dump(yaml_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+                yaml_content = yaml.dump(
+                    yaml_data,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
                 lines.append(yaml_content.rstrip())
 
                 lines.append("```")
@@ -300,7 +313,10 @@ def validate_yaml_block(yaml_str: str) -> Tuple[bool, Optional[str]]:
         # Validate frequency
         valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
         if data.get("frequency") not in valid_frequencies:
-            return False, f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}"
+            return (
+                False,
+                f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}",
+            )
 
         # Validate permission_tier
         tier = data.get("permission_tier", 0)

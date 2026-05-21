@@ -35,6 +35,7 @@ class LLMInterfaceRegistry(ComponentRegistry["LLMInterfaceProtocol"]):
     Each project (CraftBot, CraftBot) registers their LLM
     interface at startup. Shared code uses get() to access the interface.
     """
+
     pass
 
 

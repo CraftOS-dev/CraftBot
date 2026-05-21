@@ -3,6 +3,7 @@
 
 Used only by the telegram_user handler for the phone-code and QR login flows.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +20,7 @@ try:
         PhoneCodeInvalidError,
         SessionPasswordNeededError,
     )
+
     _TELETHON_AVAILABLE = True
 except ImportError:
     _TELETHON_AVAILABLE = False
@@ -50,22 +52,27 @@ async def start_auth(api_id: int, api_hash: str, phone_number: str) -> Dict[str,
     try:
         async with _client_for_auth(api_id, api_hash) as client:
             result = await client.send_code_request(phone_number)
-            return {"ok": True, "result": {
-                "phone_code_hash": result.phone_code_hash,
-                "phone_number": phone_number,
-                "session_string": client.session.save(),
-                "status": "code_sent",
-            }}
+            return {
+                "ok": True,
+                "result": {
+                    "phone_code_hash": result.phone_code_hash,
+                    "phone_number": phone_number,
+                    "session_string": client.session.save(),
+                    "status": "code_sent",
+                },
+            }
     except FloodWaitError as e:
-        return {"error": f"Too many attempts. Please wait {e.seconds} seconds.",
-                "details": {"flood_wait_seconds": e.seconds}}
+        return {
+            "error": f"Too many attempts. Please wait {e.seconds} seconds.",
+            "details": {"flood_wait_seconds": e.seconds},
+        }
     except Exception as e:
         return _unexpected("Failed to start auth", e)
 
 
-async def qr_login(api_id: int, api_hash: str,
-                   on_qr_url: Optional[Any] = None,
-                   timeout: int = 120) -> Dict[str, Any]:
+async def qr_login(
+    api_id: int, api_hash: str, on_qr_url: Optional[Any] = None, timeout: int = 120
+) -> Dict[str, Any]:
     if not _TELETHON_AVAILABLE:
         return _TELETHON_MISSING
     try:
@@ -77,67 +84,101 @@ async def qr_login(api_id: int, api_hash: str,
                 try:
                     await asyncio.wait_for(qr.wait(timeout), timeout=timeout)
                 except asyncio.TimeoutError:
-                    return {"error": "QR login timed out. Please try again.",
-                            "details": {"status": "timeout"}}
+                    return {
+                        "error": "QR login timed out. Please try again.",
+                        "details": {"status": "timeout"},
+                    }
             except SessionPasswordNeededError:
-                return {"error": "Two-factor authentication is enabled. Please provide your 2FA password.",
-                        "details": {"status": "2fa_required", "session_string": client.session.save()}}
+                return {
+                    "error": "Two-factor authentication is enabled. Please provide your 2FA password.",
+                    "details": {
+                        "status": "2fa_required",
+                        "session_string": client.session.save(),
+                    },
+                }
 
             try:
                 me = await client.get_me()
             except Exception as e:
                 return _unexpected("QR login succeeded but failed to get user info", e)
 
-            return {"ok": True, "result": {
-                "session_string": client.session.save(),
-                "user_id": me.id,
-                "first_name": me.first_name or "",
-                "last_name": me.last_name or "",
-                "username": me.username or "",
-                "phone": me.phone or "",
-                "status": "authenticated",
-            }}
+            return {
+                "ok": True,
+                "result": {
+                    "session_string": client.session.save(),
+                    "user_id": me.id,
+                    "first_name": me.first_name or "",
+                    "last_name": me.last_name or "",
+                    "username": me.username or "",
+                    "phone": me.phone or "",
+                    "status": "authenticated",
+                },
+            }
     except Exception as e:
         return _unexpected("QR login failed", e)
 
 
-async def complete_auth(api_id: int, api_hash: str, phone_number: str,
-                        code: str, phone_code_hash: str,
-                        password: Optional[str] = None,
-                        pending_session_string: Optional[str] = None) -> Dict[str, Any]:
+async def complete_auth(
+    api_id: int,
+    api_hash: str,
+    phone_number: str,
+    code: str,
+    phone_code_hash: str,
+    password: Optional[str] = None,
+    pending_session_string: Optional[str] = None,
+) -> Dict[str, Any]:
     if not _TELETHON_AVAILABLE:
         return _TELETHON_MISSING
     try:
-        async with _client_for_auth(api_id, api_hash, pending_session_string or "") as client:
+        async with _client_for_auth(
+            api_id, api_hash, pending_session_string or ""
+        ) as client:
             try:
-                await client.sign_in(phone=phone_number, code=code, phone_code_hash=phone_code_hash)
+                await client.sign_in(
+                    phone=phone_number, code=code, phone_code_hash=phone_code_hash
+                )
             except SessionPasswordNeededError:
                 if not password:
-                    return {"error": "Two-factor authentication is enabled. Please provide password.",
-                            "details": {"requires_2fa": True, "status": "2fa_required"}}
+                    return {
+                        "error": "Two-factor authentication is enabled. Please provide password.",
+                        "details": {"requires_2fa": True, "status": "2fa_required"},
+                    }
                 try:
                     await client.sign_in(password=password)
                 except PasswordHashInvalidError:
-                    return {"error": "Invalid 2FA password.", "details": {"status": "invalid_password"}}
+                    return {
+                        "error": "Invalid 2FA password.",
+                        "details": {"status": "invalid_password"},
+                    }
 
             me = await client.get_me()
-            return {"ok": True, "result": {
-                "session_string": client.session.save(),
-                "user_id": me.id,
-                "first_name": me.first_name or "",
-                "last_name": me.last_name or "",
-                "username": me.username or "",
-                "phone": me.phone or phone_number,
-                "status": "authenticated",
-            }}
+            return {
+                "ok": True,
+                "result": {
+                    "session_string": client.session.save(),
+                    "user_id": me.id,
+                    "first_name": me.first_name or "",
+                    "last_name": me.last_name or "",
+                    "username": me.username or "",
+                    "phone": me.phone or phone_number,
+                    "status": "authenticated",
+                },
+            }
 
     except PhoneCodeInvalidError:
-        return {"error": "Invalid verification code.", "details": {"status": "invalid_code"}}
+        return {
+            "error": "Invalid verification code.",
+            "details": {"status": "invalid_code"},
+        }
     except PhoneCodeExpiredError:
-        return {"error": "Verification code has expired. Please request a new one.",
-                "details": {"status": "code_expired"}}
+        return {
+            "error": "Verification code has expired. Please request a new one.",
+            "details": {"status": "code_expired"},
+        }
     except FloodWaitError as e:
-        return {"error": f"Too many attempts. Please wait {e.seconds} seconds.",
-                "details": {"flood_wait_seconds": e.seconds}}
+        return {
+            "error": f"Too many attempts. Please wait {e.seconds} seconds.",
+            "details": {"flood_wait_seconds": e.seconds},
+        }
     except Exception as e:
         return _unexpected("Failed to complete auth", e)

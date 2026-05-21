@@ -6,7 +6,6 @@ Provides helper functions for skill management commands in the TUI.
 Similar to mcp_settings.py for MCP server management.
 """
 
-import os
 import re
 import shutil
 import subprocess
@@ -238,7 +237,9 @@ def _parse_skill_name_from_file(skill_md_path: Path) -> Optional[str]:
         if frontmatter_match:
             frontmatter = frontmatter_match.group(1)
             # Find name field
-            name_match = re.search(r"^name:\s*['\"]?([^'\"\n]+)['\"]?", frontmatter, re.MULTILINE)
+            name_match = re.search(
+                r"^name:\s*['\"]?([^'\"\n]+)['\"]?", frontmatter, re.MULTILINE
+            )
             if name_match:
                 return name_match.group(1).strip()
         # Fallback to directory name
@@ -282,7 +283,10 @@ def install_skill_from_path(source_path: str) -> Tuple[bool, str]:
     # Validate skill name
     skill_name = skill_name.lower().replace(" ", "-")
     if not re.match(r"^[a-z0-9][a-z0-9-]*$", skill_name):
-        return False, f"Invalid skill name: {skill_name}. Use lowercase letters, numbers, and hyphens."
+        return (
+            False,
+            f"Invalid skill name: {skill_name}. Use lowercase letters, numbers, and hyphens.",
+        )
 
     # Ensure skills directory exists
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
@@ -328,8 +332,7 @@ def install_skill_from_git(url: str) -> Tuple[bool, str]:
 
     # Handle GitHub tree URLs (https://github.com/user/repo/tree/branch/path)
     github_tree_match = re.match(
-        r"https?://github\.com/([^/]+)/([^/]+)/tree/([^/]+)/(.*)",
-        url
+        r"https?://github\.com/([^/]+)/([^/]+)/tree/([^/]+)/(.*)", url
     )
     if github_tree_match:
         owner, repo, branch, subpath = github_tree_match.groups()
@@ -338,8 +341,7 @@ def install_skill_from_git(url: str) -> Tuple[bool, str]:
 
     # Handle GitLab tree URLs similarly
     gitlab_tree_match = re.match(
-        r"https?://gitlab\.com/([^/]+)/([^/]+)/-/tree/([^/]+)/(.*)",
-        url
+        r"https?://gitlab\.com/([^/]+)/([^/]+)/-/tree/([^/]+)/(.*)", url
     )
     if gitlab_tree_match:
         owner, repo, branch, subpath = gitlab_tree_match.groups()
@@ -380,7 +382,7 @@ def install_skill_from_git(url: str) -> Tuple[bool, str]:
                         break
 
             if not skill_md.exists():
-                return False, f"No SKILL.md found in repository"
+                return False, "No SKILL.md found in repository"
 
             # Install from the found path
             return install_skill_from_path(str(skill_dir))
@@ -465,7 +467,10 @@ def create_skill_scaffold(
 
     # Validate name
     if not re.match(r"^[a-z][a-z0-9-]*$", skill_name):
-        return False, f"Invalid skill name: {skill_name}. Use lowercase letters, numbers, and hyphens. Must start with a letter."
+        return (
+            False,
+            f"Invalid skill name: {skill_name}. Use lowercase letters, numbers, and hyphens. Must start with a letter.",
+        )
 
     # Ensure skills directory exists
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
@@ -485,7 +490,9 @@ def create_skill_scaffold(
         if content:
             skill_md.write_text(content, encoding="utf-8")
         else:
-            skill_md.write_text(get_skill_template(skill_name, description), encoding="utf-8")
+            skill_md.write_text(
+                get_skill_template(skill_name, description), encoding="utf-8"
+            )
 
         logger.info(f"Created skill '{skill_name}' at {target}")
 

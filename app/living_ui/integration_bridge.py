@@ -68,10 +68,12 @@ class IntegrationBridge:
         for platform_id in get_registered_platforms():
             client = get_client(platform_id)
             connected = client.has_credentials() if client else False
-            integrations.append({
-                "id": platform_id,
-                "connected": connected,
-            })
+            integrations.append(
+                {
+                    "id": platform_id,
+                    "connected": connected,
+                }
+            )
 
         return web.json_response({"integrations": integrations})
 
@@ -112,7 +114,9 @@ class IntegrationBridge:
         auth_headers = self._get_auth_headers(integration)
         if auth_headers is None:
             return web.json_response(
-                {"error": f"Integration '{integration}' not connected (no credentials)"},
+                {
+                    "error": f"Integration '{integration}' not connected (no credentials)"
+                },
                 status=424,
             )
 
@@ -164,10 +168,13 @@ class IntegrationBridge:
         system_message = data.get("system_message")
 
         if not prompt:
-            return web.json_response({"error": "Missing required field: prompt"}, status=400)
+            return web.json_response(
+                {"error": "Missing required field: prompt"}, status=400
+            )
 
         try:
             import app.internal_action_interface as iai
+
             result = await iai.InternalActionInterface.use_llm(prompt, system_message)
             llm_response = result.get("llm_response", "")
             if isinstance(llm_response, dict):
@@ -194,15 +201,21 @@ class IntegrationBridge:
         prompt = data.get("prompt", "Describe this image.")
 
         if not image_url:
-            return web.json_response({"error": "Missing required field: image_url"}, status=400)
+            return web.json_response(
+                {"error": "Missing required field: image_url"}, status=400
+            )
 
         try:
             # Download image to temp file
             import tempfile
             import os
+
             response = await self._http_client.get(image_url)
             if response.status_code != 200:
-                return web.json_response({"error": f"Failed to download image: HTTP {response.status_code}"}, status=424)
+                return web.json_response(
+                    {"error": f"Failed to download image: HTTP {response.status_code}"},
+                    status=424,
+                )
 
             # Save to temp file for VLM
             suffix = ".jpg"
@@ -214,7 +227,10 @@ class IntegrationBridge:
 
             try:
                 import app.internal_action_interface as iai
-                description = iai.InternalActionInterface.describe_image(tmp.name, prompt)
+
+                description = iai.InternalActionInterface.describe_image(
+                    tmp.name, prompt
+                )
                 return web.json_response({"description": description})
             finally:
                 os.unlink(tmp.name)
@@ -261,7 +277,9 @@ class IntegrationBridge:
                     headers = headers()
                 return headers
             except Exception as e:
-                logger.warning(f"[INTEGRATION_BRIDGE] Failed to get headers for {platform_id}: {e}")
+                logger.warning(
+                    f"[INTEGRATION_BRIDGE] Failed to get headers for {platform_id}: {e}"
+                )
                 return None
 
         # Discord uses _bot_headers()
@@ -269,8 +287,12 @@ class IntegrationBridge:
             try:
                 return client._bot_headers()
             except Exception as e:
-                logger.warning(f"[INTEGRATION_BRIDGE] Failed to get bot headers for {platform_id}: {e}")
+                logger.warning(
+                    f"[INTEGRATION_BRIDGE] Failed to get bot headers for {platform_id}: {e}"
+                )
                 return None
 
-        logger.warning(f"[INTEGRATION_BRIDGE] No auth header method found for {platform_id}")
+        logger.warning(
+            f"[INTEGRATION_BRIDGE] No auth header method found for {platform_id}"
+        )
         return None

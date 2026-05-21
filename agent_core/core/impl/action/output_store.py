@@ -154,7 +154,7 @@ class ActionOutputStore:
         for entry in session_dir.iterdir():
             if not entry.name.startswith(prefix) or not entry.name.endswith(".json"):
                 continue
-            run_id_part = entry.name[len(prefix):-len(".json")]
+            run_id_part = entry.name[len(prefix) : -len(".json")]
             if make_short_run_id(run_id_part) == short_run_id:
                 match = entry
                 break
@@ -185,7 +185,9 @@ class ActionOutputStore:
 
     def record_path(self, session_id: str, action_name: str, run_id: str) -> Path:
         """Return the on-disk path a record would be (or was) written to."""
-        return self._session_dir(session_id) / self._record_filename(action_name, run_id)
+        return self._session_dir(session_id) / self._record_filename(
+            action_name, run_id
+        )
 
     # ------------------------------------------------------------------
     # Internals

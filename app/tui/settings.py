@@ -1,9 +1,8 @@
 """Settings utilities for the TUI interface."""
+
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from app.logger import logger
@@ -91,6 +90,7 @@ def save_settings_to_json(provider: str, api_key: str) -> bool:
 
         # Reload settings cache so changes take effect
         from app.config import reload_settings
+
         reload_settings()
 
         logger.info(f"[SETTINGS] Saved provider={provider} to settings.json")
@@ -130,6 +130,7 @@ def save_remote_endpoint(url: str) -> bool:
             return False
 
         from app.config import reload_settings
+
         reload_settings()
 
         logger.info(f"[SETTINGS] Saved remote endpoint={url} to settings.json")

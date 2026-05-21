@@ -1,5 +1,6 @@
 from agent_core import action
 
+
 @action(
     name="remove_scheduled_task",
     description="Remove a scheduled task from the scheduler by its ID.",
@@ -8,19 +9,19 @@ from agent_core import action
         "schedule_id": {
             "type": "string",
             "description": "The ID of the schedule to remove",
-            "example": "memory-processing"
+            "example": "memory-processing",
         }
     },
     output_schema={
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
         "removed": {
             "type": "boolean",
-            "description": "True if the schedule was removed, False if not found"
-        }
-    }
+            "description": "True if the schedule was removed, False if not found",
+        },
+    },
 )
 def remove_scheduled_task(input_data: dict) -> dict:
     """Remove a scheduled task."""
@@ -28,10 +29,7 @@ def remove_scheduled_task(input_data: dict) -> dict:
 
     scheduler = iai.InternalActionInterface.scheduler
     if scheduler is None:
-        return {
-            "status": "error",
-            "error": "Scheduler not initialized"
-        }
+        return {"status": "error", "error": "Scheduler not initialized"}
 
     try:
         schedule_id = input_data.get("schedule_id")
@@ -45,17 +43,14 @@ def remove_scheduled_task(input_data: dict) -> dict:
             return {
                 "status": "ok",
                 "removed": True,
-                "message": f"Schedule '{schedule_id}' has been removed"
+                "message": f"Schedule '{schedule_id}' has been removed",
             }
         else:
             return {
                 "status": "ok",
                 "removed": False,
-                "message": f"Schedule '{schedule_id}' not found"
+                "message": f"Schedule '{schedule_id}' not found",
             }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

@@ -7,7 +7,6 @@ All settings are loaded from settings.json and can be reloaded at runtime.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 from threading import Lock
@@ -19,20 +18,14 @@ DEFAULT_SETTINGS_PATH = Path("app/config/settings.json")
 
 # Default settings structure
 DEFAULT_SETTINGS = {
-    "general": {
-        "agent_name": "CraftBot"
-    },
-    "proactive": {
-        "enabled": False
-    },
-    "memory": {
-        "enabled": True
-    },
+    "general": {"agent_name": "CraftBot"},
+    "proactive": {"enabled": False},
+    "memory": {"enabled": True},
     "model": {
         "llm_provider": "gemini",
         "vlm_provider": "gemini",
         "llm_model": None,
-        "vlm_model": None
+        "vlm_model": None,
     },
     "api_keys": {
         "openai": "",
@@ -41,38 +34,29 @@ DEFAULT_SETTINGS = {
         "byteplus": "",
         "minimax": "",
         "deepseek": "",
-        "moonshot": ""
+        "moonshot": "",
     },
     "endpoints": {
         "remote_model_url": "",
         "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
         "google_api_base": "",
-        "google_api_version": ""
+        "google_api_version": "",
     },
     "gui": {
         "enabled": True,
         "use_omniparser": False,
-        "omniparser_url": "http://127.0.0.1:7861"
+        "omniparser_url": "http://127.0.0.1:7861",
     },
-    "cache": {
-        "prefix_ttl": 3600,
-        "session_ttl": 7200,
-        "min_tokens": 500
-    },
+    "cache": {"prefix_ttl": 3600, "session_ttl": 7200, "min_tokens": 500},
     "oauth": {
         "google": {"client_id": "", "client_secret": ""},
         "linkedin": {"client_id": "", "client_secret": ""},
         "slack": {"client_id": "", "client_secret": ""},
         "notion": {"client_id": "", "client_secret": ""},
-        "outlook": {"client_id": ""}
+        "outlook": {"client_id": ""},
     },
-    "web_search": {
-        "google_cse_id": ""
-    },
-    "browser": {
-        "port": 7926,
-        "startup_ui": False
-    }
+    "web_search": {"google_cse_id": ""},
+    "browser": {"port": 7926, "startup_ui": False},
 }
 
 
@@ -113,7 +97,9 @@ class SettingsManager:
         Args:
             settings_path: Path to settings.json. If None, uses default path.
         """
-        self._settings_path = Path(settings_path) if settings_path else DEFAULT_SETTINGS_PATH
+        self._settings_path = (
+            Path(settings_path) if settings_path else DEFAULT_SETTINGS_PATH
+        )
         self._load_settings()
         logger.info(f"[SETTINGS] Initialized from {self._settings_path}")
 
@@ -127,18 +113,26 @@ class SettingsManager:
                     with open(self._settings_path, "r", encoding="utf-8") as f:
                         file_settings = json.load(f)
                     self._deep_merge(self._settings, file_settings)
-                    logger.debug(f"[SETTINGS] Loaded settings from {self._settings_path}")
+                    logger.debug(
+                        f"[SETTINGS] Loaded settings from {self._settings_path}"
+                    )
                 except Exception as e:
-                    logger.warning(f"[SETTINGS] Failed to load settings: {e}, using defaults")
+                    logger.warning(
+                        f"[SETTINGS] Failed to load settings: {e}, using defaults"
+                    )
             else:
                 # Create settings file with defaults if it doesn't exist
                 try:
                     self._settings_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(self._settings_path, "w", encoding="utf-8") as f:
                         json.dump(self._settings, f, indent=2)
-                    logger.info(f"[SETTINGS] Created default settings file at {self._settings_path}")
+                    logger.info(
+                        f"[SETTINGS] Created default settings file at {self._settings_path}"
+                    )
                 except Exception as e:
-                    logger.warning(f"[SETTINGS] Failed to create default settings file: {e}")
+                    logger.warning(
+                        f"[SETTINGS] Failed to create default settings file: {e}"
+                    )
 
     def _deep_copy(self, obj: Any) -> Any:
         """Deep copy a nested dict/list structure."""

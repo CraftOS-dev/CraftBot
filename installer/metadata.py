@@ -8,6 +8,7 @@ and `cmd_start` (to know which agent EXE to spawn). Cleared by Uninstall.
 Pure functions taking the metadata file path as an argument — keeps the
 module decoupled from craftbot.py's path constants.
 """
+
 from __future__ import annotations
 
 import json

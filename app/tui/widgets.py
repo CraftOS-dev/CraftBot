@@ -1,4 +1,5 @@
 """Custom widgets for the TUI interface."""
+
 from __future__ import annotations
 
 import io
@@ -6,7 +7,6 @@ from typing import Optional, Tuple
 
 from textual import events
 from textual.app import ComposeResult
-from textual.containers import Container
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import OptionList, Static
@@ -22,6 +22,7 @@ class TaskSelected(Message):
         self.task_id = task_id
         super().__init__()
 
+
 from rich.console import RenderableType
 from rich.table import Table
 from rich.text import Text
@@ -30,6 +31,7 @@ try:
     from textual_image.widget import Image as TextualImage
     from textual_image.renderable import HalfcellImage
     from PIL import Image as PILImage
+
     HAS_TEXTUAL_IMAGE = True
 except ImportError:
     HAS_TEXTUAL_IMAGE = False
@@ -75,6 +77,7 @@ class ContextMenu(OptionList):
             try:
                 # Try using pyperclip first for better compatibility
                 import pyperclip
+
                 pyperclip.copy(self.text_to_copy)
                 self.app.notify("Text copied!", severity="information", timeout=2)
             except ImportError:
@@ -83,7 +86,9 @@ class ContextMenu(OptionList):
                     self.app.copy_to_clipboard(self.text_to_copy)
                     self.app.notify("Text copied!", severity="information", timeout=2)
                 except Exception as e:
-                    self.app.notify(f"Copy failed: {str(e)}", severity="error", timeout=3)
+                    self.app.notify(
+                        f"Copy failed: {str(e)}", severity="error", timeout=3
+                    )
         self.remove()
 
     def on_blur(self) -> None:
@@ -109,6 +114,7 @@ class PasteableInput(Input):
         """Paste text from clipboard using pyperclip for better compatibility."""
         try:
             import pyperclip
+
             text = pyperclip.paste()
             if text:
                 # Insert text at cursor position
@@ -155,7 +161,9 @@ class ConversationLog(_BaseLog):
     def append_markup(self, markup: str) -> None:
         self.append_text(Text.from_markup(markup))
 
-    def append_renderable(self, renderable: RenderableType, entry_key: Optional[str] = None) -> None:
+    def append_renderable(
+        self, renderable: RenderableType, entry_key: Optional[str] = None
+    ) -> None:
         # Write using expand/shrink so width follows the widget on resize
         index = len(self._history)
         self._history.append(renderable)
@@ -239,7 +247,7 @@ class ConversationLog(_BaseLog):
                     message_column = renderable.columns[1]
                     # Extract text from all cells in the message column
                     text_parts = []
-                    if hasattr(message_column, '_cells'):
+                    if hasattr(message_column, "_cells"):
                         for cell in message_column._cells:
                             if isinstance(cell, Text):
                                 text_parts.append(cell.plain)
@@ -252,16 +260,25 @@ class ConversationLog(_BaseLog):
                     # Fallback if table structure is unexpected
                     from io import StringIO
                     from rich.console import Console
+
                     string_io = StringIO()
-                    console = Console(file=string_io, force_terminal=False, force_jupyter=False, width=200)
+                    console = Console(
+                        file=string_io,
+                        force_terminal=False,
+                        force_jupyter=False,
+                        width=200,
+                    )
                     console.print(renderable)
                     return string_io.getvalue().strip()
             except (AttributeError, IndexError, TypeError):
                 # Fallback: use Rich Console to render to plain text
                 from io import StringIO
                 from rich.console import Console
+
                 string_io = StringIO()
-                console = Console(file=string_io, force_terminal=False, force_jupyter=False, width=200)
+                console = Console(
+                    file=string_io, force_terminal=False, force_jupyter=False, width=200
+                )
                 console.print(renderable)
                 return string_io.getvalue().strip()
         else:
@@ -362,7 +379,9 @@ class VMFootageWidget(Widget):
         self._image_widget: Optional[Widget] = None
 
     def compose(self) -> ComposeResult:
-        yield Static("No VM footage available", id="vm-placeholder", classes="vm-placeholder")
+        yield Static(
+            "No VM footage available", id="vm-placeholder", classes="vm-placeholder"
+        )
 
     def update_footage(self, image_bytes: bytes) -> None:
         """Update the displayed footage from PNG bytes."""
@@ -406,4 +425,10 @@ class VMFootageWidget(Widget):
             img.remove()
 
         if not self.query("#vm-placeholder"):
-            self.mount(Static("No VM footage available", id="vm-placeholder", classes="vm-placeholder"))
+            self.mount(
+                Static(
+                    "No VM footage available",
+                    id="vm-placeholder",
+                    classes="vm-placeholder",
+                )
+            )

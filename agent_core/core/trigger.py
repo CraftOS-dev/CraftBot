@@ -4,6 +4,7 @@ core.trigger
 
 Trigger dataclass - the entry point for all agent reactions.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ class Trigger:
         waiting_for_reply: Whether this trigger is waiting for a user response
             (used by CraftBot for multi-user chat scenarios).
     """
+
     fire_at: float
     priority: int
     next_action_description: str

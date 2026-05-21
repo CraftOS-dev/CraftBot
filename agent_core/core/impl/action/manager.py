@@ -20,9 +20,9 @@ import re
 import uuid
 
 from agent_core.core.action import Action
-from agent_core.core.state import get_state, get_state_or_none
+from agent_core.core.state import get_state_or_none
 from agent_core.decorators import profile, OperationCategory
-from agent_core.core.protocols.action import ActionLibraryProtocol, ActionExecutorProtocol
+from agent_core.core.protocols.action import ActionLibraryProtocol
 from agent_core.core.protocols.database import DatabaseInterfaceProtocol
 from agent_core.core.protocols.event_stream import EventStreamManagerProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol
@@ -48,6 +48,7 @@ from agent_core.utils.logger import logger
 # it up. Safe to remove once nest_asyncio ships a 3.14-compatible release.
 try:
     import sys as _compat_sys
+
     if _compat_sys.version_info >= (3, 11):
         import asyncio.tasks as _compat_asyncio_tasks
 
@@ -75,7 +76,9 @@ try:
         except Exception:
             pass
 except Exception as _compat_exc:
-    logger.warning(f"[compat-shim] failed to install asyncio.wait_for replacement: {_compat_exc!r}")
+    logger.warning(
+        f"[compat-shim] failed to install asyncio.wait_for replacement: {_compat_exc!r}"
+    )
 # ============================================================================
 
 nest_asyncio.apply()
@@ -90,8 +93,12 @@ def _to_pretty_json(value: Any) -> str:
 
 
 # Type aliases for hooks
-OnActionStartHook = Callable[[str, Any, Dict, str, str], Any]  # (run_id, action, inputs, parent_id, started_at) -> awaitable
-OnActionEndHook = Callable[[str, Any, Dict, str, str, str], Any]  # (run_id, action, outputs, status, parent_id, ended_at) -> awaitable
+OnActionStartHook = Callable[
+    [str, Any, Dict, str, str], Any
+]  # (run_id, action, inputs, parent_id, started_at) -> awaitable
+OnActionEndHook = Callable[
+    [str, Any, Dict, str, str, str], Any
+]  # (run_id, action, outputs, status, parent_id, ended_at) -> awaitable
 GetParentIdHook = Callable[[], Optional[str]]  # () -> parent_id or None
 
 
@@ -180,7 +187,9 @@ class ActionManager:
                 return candidate
 
         # Fallback to full UUID hex if somehow all short IDs are taken
-        logger.warning("Could not generate unique 6-char session ID after 100 attempts, using full UUID")
+        logger.warning(
+            "Could not generate unique 6-char session ID after 100 attempts, using full UUID"
+        )
         return uuid.uuid4().hex
 
     # ------------------------------------------------------------------
@@ -221,8 +230,8 @@ class ActionManager:
         # ───────────────────────────────────────────────────────────────
 
         current_platform = platform.system().lower()
-        platform_code = (
-            action.platform_overrides.get(current_platform, {}).get("code", action.code)
+        platform_code = action.platform_overrides.get(current_platform, {}).get(
+            "code", action.code
         )
         action.code = platform_code
 
@@ -251,7 +260,9 @@ class ActionManager:
         # Call on_action_start hook if provided
         if self._on_action_start:
             try:
-                result = self._on_action_start(run_id, action, input_data, parent_id, started_at)
+                result = self._on_action_start(
+                    run_id, action, input_data, parent_id, started_at
+                )
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as exc:
@@ -307,7 +318,9 @@ class ActionManager:
         # materialised values.
         if self.action_output_store and session_id:
             try:
-                input_data = resolve_refs(input_data, self.action_output_store, session_id)
+                input_data = resolve_refs(
+                    input_data, self.action_output_store, session_id
+                )
             except Exception as exc:
                 logger.warning(
                     f"[ACTION] Failed to resolve $ref markers for {action.name} "
@@ -330,10 +343,15 @@ class ActionManager:
                 try:
                     outputs = await self.execute_atomic_action(action, input_data)
                 except Exception as e:
-                    logger.error(f"[ERROR] Failed to execute atomic action {action.name}: {e}", exc_info=True)
+                    logger.error(
+                        f"[ERROR] Failed to execute atomic action {action.name}: {e}",
+                        exc_info=True,
+                    )
                     raise e
 
-                logger.debug(f"[OUTPUT DATA] Completed execute_atomic_action: {outputs}")
+                logger.debug(
+                    f"[OUTPUT DATA] Completed execute_atomic_action: {outputs}"
+                )
 
                 # Observation step
                 if action.observer:
@@ -342,12 +360,12 @@ class ActionManager:
                         status = "error"
                         outputs["observation"] = {
                             "success": False,
-                            "message": obs_result.get("message")
+                            "message": obs_result.get("message"),
                         }
                     else:
                         outputs["observation"] = {
                             "success": True,
-                            "message": obs_result.get("message")
+                            "message": obs_result.get("message"),
                         }
 
             else:
@@ -357,14 +375,19 @@ class ActionManager:
                         action, input_data, run_id
                     )
                 except Exception as e:
-                    logger.error(f"[ERROR] Failed to execute divisible action {action.name}: {e}", exc_info=True)
+                    logger.error(
+                        f"[ERROR] Failed to execute divisible action {action.name}: {e}",
+                        exc_info=True,
+                    )
                     raise e
 
             # Auto-save large base64 strings in action output to temp files
             # This prevents LLMs from truncating binary data when it appears in context
             outputs = self._extract_base64_to_files(outputs, action.name)
 
-            logger.debug(f"[OUTPUT DATA] Final outputs for action {action.name}: {outputs}")
+            logger.debug(
+                f"[OUTPUT DATA] Final outputs for action {action.name}: {outputs}"
+            )
 
             if status != "error":
                 # If the action returned an error dict (either via exception path in
@@ -411,7 +434,9 @@ class ActionManager:
             )
             if archive_record is not None:
                 archive_path = str(
-                    self.action_output_store.record_path(session_id, action.name, run_id)
+                    self.action_output_store.record_path(
+                        session_id, action.name, run_id
+                    )
                 )
 
         logger.info(f"Action {action.name} completed with status: {status}.")
@@ -419,7 +444,9 @@ class ActionManager:
         # Log to event stream
         # Only pass session_id when is_running_task=True (task stream exists)
         output_has_error = outputs and outputs.get("status") == "error"
-        display_status = "failed" if (status == "error" or output_has_error) else "completed"
+        display_status = (
+            "failed" if (status == "error" or output_has_error) else "completed"
+        )
         pretty_output = render_output_for_event_stream(
             outputs,
             file_path=archive_path,
@@ -461,6 +488,7 @@ class ActionManager:
         # Falls back to the global state provider when no session is registered
         # (e.g. transient/conversation-mode actions before any task is created).
         from agent_core.core.state.session import StateSession
+
         session = StateSession.get_or_none(session_id) if session_id else None
         if session is not None:
             session.agent_properties.set_property(
@@ -471,14 +499,15 @@ class ActionManager:
             state = get_state_or_none()
             if state:
                 state.set_agent_property(
-                    "action_count",
-                    state.get_agent_property("action_count", 0) + 1
+                    "action_count", state.get_agent_property("action_count", 0) + 1
                 )
 
         # Call on_action_end hook if provided
         if self._on_action_end:
             try:
-                result = self._on_action_end(run_id, action, outputs, status, parent_id, ended_at)
+                result = self._on_action_end(
+                    run_id, action, outputs, status, parent_id, ended_at
+                )
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as exc:
@@ -491,7 +520,9 @@ class ActionManager:
 
         return outputs
 
-    @profile("action_manager_execute_actions_parallel", OperationCategory.ACTION_EXECUTION)
+    @profile(
+        "action_manager_execute_actions_parallel", OperationCategory.ACTION_EXECUTION
+    )
     async def execute_actions_parallel(
         self,
         actions: List[Tuple[Action, Dict]],
@@ -539,10 +570,14 @@ class ActionManager:
 
         # Log parallel execution start (internal logging only, no display message)
         action_names = [a[0].name for a in actions]
-        logger.info(f"[PARALLEL] Executing {len(actions)} actions in parallel: {action_names}")
+        logger.info(
+            f"[PARALLEL] Executing {len(actions)} actions in parallel: {action_names}"
+        )
 
         # Create coroutines for parallel execution
-        async def execute_single(action: Action, input_data: Dict, action_session_id: str) -> Dict:
+        async def execute_single(
+            action: Action, input_data: Dict, action_session_id: str
+        ) -> Dict:
             return await self.execute_action(
                 action=action,
                 context=context,
@@ -562,7 +597,9 @@ class ActionManager:
             if action.name == "task_start":
                 # Generate unique session_id for each task_start to prevent overwriting
                 action_session_id = self._generate_unique_session_id()
-                logger.info(f"[PARALLEL] Assigning unique session_id {action_session_id} to task_start")
+                logger.info(
+                    f"[PARALLEL] Assigning unique session_id {action_session_id} to task_start"
+                )
             else:
                 action_session_id = session_id
             parallel_tasks.append(execute_single(action, input_data, action_session_id))
@@ -576,17 +613,21 @@ class ActionManager:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"[PARALLEL] Action {actions[i][0].name} failed: {result}")
-                processed.append({
-                    "status": "error",
-                    "error": str(result),
-                    "action_name": actions[i][0].name,
-                })
+                processed.append(
+                    {
+                        "status": "error",
+                        "error": str(result),
+                        "action_name": actions[i][0].name,
+                    }
+                )
             else:
                 processed.append(result)
 
         # Log completion (internal logging only, no display message)
         success_count = sum(1 for r in processed if r.get("status") != "error")
-        logger.info(f"[PARALLEL] Execution complete: {success_count}/{len(actions)} succeeded")
+        logger.info(
+            f"[PARALLEL] Execution complete: {success_count}/{len(actions)} succeeded"
+        )
 
         return processed
 
@@ -615,7 +656,9 @@ class ActionManager:
                        events may go to the wrong task's stream.
         """
         if not self.event_stream_manager:
-            logger.warning(f"No event stream manager to log to for event type: {event_type}")
+            logger.warning(
+                f"No event stream manager to log to for event type: {event_type}"
+            )
             return
 
         if is_gui_task:
@@ -675,8 +718,12 @@ class ActionManager:
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            logger.debug("Raw action output was not pure JSON; attempting to extract payload.")
-            json_start_candidates = [idx for idx in (cleaned.find("{"), cleaned.find("[")) if idx != -1]
+            logger.debug(
+                "Raw action output was not pure JSON; attempting to extract payload."
+            )
+            json_start_candidates = [
+                idx for idx in (cleaned.find("{"), cleaned.find("[")) if idx != -1
+            ]
             if not json_start_candidates:
                 raise
 
@@ -693,7 +740,9 @@ class ActionManager:
             logger.debug("Recovered JSON payload from action output.")
             return parsed
 
-    @profile("action_manager_execute_divisible_action", OperationCategory.ACTION_EXECUTION)
+    @profile(
+        "action_manager_execute_divisible_action", OperationCategory.ACTION_EXECUTION
+    )
     async def execute_divisible_action(self, action, input_data, parent_id) -> Dict:
         results = {}
         for sub in action.sub_actions:
@@ -707,7 +756,9 @@ class ActionManager:
         return results
 
     @profile("action_manager_run_observe_step", OperationCategory.ACTION_EXECUTION)
-    async def run_observe_step(self, action: Action, action_output: Dict) -> Dict[str, Any]:
+    async def run_observe_step(
+        self, action: Action, action_output: Dict
+    ) -> Dict[str, Any]:
         """
         Executes the observation code with retries, to confirm action outcome.
         """
@@ -720,7 +771,10 @@ class ActionManager:
 
         attempt = 0
         start_time = time.time()
-        while attempt < observe.max_retries and (time.time() - start_time) < observe.max_total_time_sec:
+        while (
+            attempt < observe.max_retries
+            and (time.time() - start_time) < observe.max_total_time_sec
+        ):
             stdout_buf = io.StringIO()
             stderr_buf = io.StringIO()
 
@@ -759,7 +813,6 @@ class ActionManager:
         """
         import tempfile
         import base64
-        import os
         import re
 
         if not isinstance(data, dict):
@@ -772,27 +825,30 @@ class ActionManager:
                 return value
 
             # Check for data URL format: data:image/png;base64,iVBOR...
-            match = re.match(r'^data:([\w/+.-]+);base64,(.+)$', value, re.DOTALL)
+            match = re.match(r"^data:([\w/+.-]+);base64,(.+)$", value, re.DOTALL)
             if match:
                 mime_type = match.group(1)
                 b64_data = match.group(2)
                 ext = {
-                    'image/png': '.png',
-                    'image/jpeg': '.jpg',
-                    'image/gif': '.gif',
-                    'image/webp': '.webp',
-                    'application/pdf': '.pdf',
-                }.get(mime_type, '.bin')
+                    "image/png": ".png",
+                    "image/jpeg": ".jpg",
+                    "image/gif": ".gif",
+                    "image/webp": ".webp",
+                    "application/pdf": ".pdf",
+                }.get(mime_type, ".bin")
 
                 try:
                     decoded = base64.b64decode(b64_data)
                     tmp = tempfile.NamedTemporaryFile(
-                        delete=False, suffix=ext,
+                        delete=False,
+                        suffix=ext,
                         prefix=f"{action_name}_{key}_",
                     )
                     tmp.write(decoded)
                     tmp.close()
-                    logger.info(f"[ACTION] Saved base64 {key} ({len(b64_data)} chars) to {tmp.name}")
+                    logger.info(
+                        f"[ACTION] Saved base64 {key} ({len(b64_data)} chars) to {tmp.name}"
+                    )
                     return tmp.name
                 except Exception as e:
                     logger.warning(f"[ACTION] Failed to extract base64 from {key}: {e}")
@@ -805,8 +861,10 @@ class ActionManager:
                 result[k] = ActionManager._extract_base64_to_files(v, action_name)
             elif isinstance(v, list):
                 result[k] = [
-                    ActionManager._extract_base64_to_files(item, action_name) if isinstance(item, dict)
-                    else process_value(k, item) if isinstance(item, str)
+                    ActionManager._extract_base64_to_files(item, action_name)
+                    if isinstance(item, dict)
+                    else process_value(k, item)
+                    if isinstance(item, str)
                     else item
                     for item in v
                 ]

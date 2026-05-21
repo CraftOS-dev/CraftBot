@@ -84,7 +84,9 @@ class TUIHardOnboarding(OnboardingInterface):
     def set_step_data(self, step_name: str, value: Any) -> None:
         """Store data collected from a step."""
         self._collected_data[step_name] = value
-        logger.debug(f"[ONBOARDING] Step {step_name} = {value if step_name != 'api_key' else '***'}")
+        logger.debug(
+            f"[ONBOARDING] Step {step_name} = {value if step_name != 'api_key' else '***'}"
+        )
 
     def get_collected_data(self) -> Dict[str, Any]:
         """Get all collected data."""
@@ -128,12 +130,15 @@ class TUIHardOnboarding(OnboardingInterface):
         profile_data = self._collected_data.get("user_profile", {})
         if profile_data:
             from app.onboarding.profile_writer import write_profile_to_user_md
+
             write_profile_to_user_md(profile_data)
 
         # Mark hard onboarding as complete
         agent_name = self._collected_data.get("agent_name", "Agent")
         user_name = profile_data.get("user_name") if profile_data else None
-        success = onboarding_manager.mark_hard_complete(user_name=user_name, agent_name=agent_name)
+        success = onboarding_manager.mark_hard_complete(
+            user_name=user_name, agent_name=agent_name
+        )
         if success:
             logger.info("[ONBOARDING] Hard onboarding completed successfully")
         else:
@@ -148,6 +153,7 @@ class TUIHardOnboarding(OnboardingInterface):
         # before interface starts (and thus before hard onboarding completes)
         if onboarding_manager.needs_soft_onboarding:
             import asyncio
+
             asyncio.create_task(self._trigger_soft_onboarding_async())
 
     async def _trigger_soft_onboarding_async(self) -> None:
@@ -158,13 +164,17 @@ class TUIHardOnboarding(OnboardingInterface):
         the task and fires a trigger to start it.
         """
         if not self._app._interface or not self._app._interface._agent:
-            logger.warning("[ONBOARDING] Cannot trigger soft onboarding: no agent reference")
+            logger.warning(
+                "[ONBOARDING] Cannot trigger soft onboarding: no agent reference"
+            )
             return
 
         agent = self._app._interface._agent
         task_id = await agent.trigger_soft_onboarding()
         if task_id:
-            logger.info(f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}")
+            logger.info(
+                f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}"
+            )
 
     async def trigger_soft_onboarding(self) -> Optional[str]:
         """
@@ -174,7 +184,9 @@ class TUIHardOnboarding(OnboardingInterface):
             Task ID if created successfully, None otherwise.
         """
         if not self._app._interface or not self._app._interface._agent:
-            logger.warning("[ONBOARDING] Cannot trigger soft onboarding: no agent reference")
+            logger.warning(
+                "[ONBOARDING] Cannot trigger soft onboarding: no agent reference"
+            )
             return None
 
         from app.onboarding.soft.task_creator import create_soft_onboarding_task

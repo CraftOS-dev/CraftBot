@@ -13,6 +13,7 @@ try:
     from loguru import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 from agent_core.core.impl.task import TaskManager as _TaskManager
@@ -52,14 +53,17 @@ def _set_agent_property(name: str, value) -> None:
 # Event Stream Hooks for Per-Task Streams
 # =============================================================================
 
+
 def _make_on_stream_create(event_stream_manager: EventStreamManager):
     """Create hook for event stream creation.
 
     CRITICAL for multi-tasking: Each task needs its own event stream to prevent
     event leakage between concurrent tasks.
     """
+
     def on_stream_create(task_id: str, temp_dir: Path) -> None:
         event_stream_manager.create_stream(task_id, temp_dir)
+
     return on_stream_create
 
 
@@ -67,6 +71,7 @@ def _on_task_persist(task: Task) -> None:
     """Persist task state to SessionStorage for crash recovery."""
     try:
         from app.usage.session_storage import get_session_storage
+
         get_session_storage().persist_task(task)
     except Exception as e:
         logger.warning(f"[TaskManager] Failed to persist task {task.id}: {e}")
@@ -76,6 +81,7 @@ def _on_task_remove_persist(task_id: str) -> None:
     """Remove persisted task and its event stream from SessionStorage."""
     try:
         from app.usage.session_storage import get_session_storage
+
         get_session_storage().remove_task(task_id)
     except Exception as e:
         logger.warning(f"[TaskManager] Failed to remove persisted task {task_id}: {e}")
@@ -83,8 +89,10 @@ def _on_task_remove_persist(task_id: str) -> None:
 
 def _make_on_stream_remove(event_stream_manager: EventStreamManager):
     """Create hook for event stream removal on task completion."""
+
     def on_stream_remove(task_id: str) -> None:
         event_stream_manager.remove_stream(task_id)
+
     return on_stream_remove
 
 

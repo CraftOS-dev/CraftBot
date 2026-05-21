@@ -1393,7 +1393,9 @@ living_ui             living_ui_http, living_ui_restart, ...
 
 per-integration sets (loaded only when the user has the integration connected):
 discord, slack, telegram_bot, telegram_user, whatsapp, twitter,
-notion, linkedin, jira, github, outlook, google_workspace
+notion, linkedin, jira, outlook, google_workspace,
+github_* (issues, pulls, repos, code, releases, reactions, search, users,
+          gists, notifications, workflows — see github_actions.py)
 ```
 
 This list is illustrative, not authoritative. Run `list_action_sets` for the live list. Read [app/action/action_set.py](app/action/action_set.py) for the source.
@@ -3487,7 +3489,7 @@ schedule_task(
   instruction="Fetch the GitHub issue at <url> right now and report the latest comments and status.",
   schedule="immediate",
   mode="simple",
-  action_sets=["github"],
+  action_sets=["github_issues"],
 )
 ```
 

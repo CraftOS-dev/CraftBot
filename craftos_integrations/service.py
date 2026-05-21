@@ -12,6 +12,7 @@ posts, Gmail send, etc.) callers should reach for the typed client directly:
     discord = get_client("discord")
     await discord.join_voice(guild_id, channel_id)
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -42,7 +43,10 @@ def _resolve_handler(integration: str):
 # Common ops
 # ════════════════════════════════════════════════════════════════════════
 
-async def send_message(integration: str, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
+
+async def send_message(
+    integration: str, recipient: str, text: str, **kwargs
+) -> Dict[str, Any]:
     """Send a message via any platform's BasePlatformClient.send_message."""
     autoload_integrations()
     client = get_client(integration)
@@ -82,7 +86,9 @@ def list_all() -> List[str]:
     return get_registered_handler_names()
 
 
-async def disconnect(integration: str, account_id: Optional[str] = None) -> Tuple[bool, str]:
+async def disconnect(
+    integration: str, account_id: Optional[str] = None
+) -> Tuple[bool, str]:
     """Run the integration's logout flow."""
     handler, err = _resolve_handler(integration)
     if err:
@@ -102,6 +108,7 @@ async def status(integration: str) -> Tuple[bool, str]:
 # ════════════════════════════════════════════════════════════════════════
 # Metadata
 # ════════════════════════════════════════════════════════════════════════
+
 
 def get_metadata(integration: str) -> Optional[Dict[str, Any]]:
     """Static UI metadata for an integration (no I/O)."""
@@ -133,6 +140,7 @@ def list_metadata() -> List[Dict[str, Any]]:
 # ════════════════════════════════════════════════════════════════════════
 # Per-integration runtime config (post-connect knobs)
 # ════════════════════════════════════════════════════════════════════════
+
 
 def _config_filename(handler) -> str:
     """Derive the config filename from the handler's spec.
@@ -240,6 +248,7 @@ def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
 # Status parsing
 # ════════════════════════════════════════════════════════════════════════
 
+
 def parse_status_accounts(status_message: str) -> List[Dict[str, str]]:
     """Extract per-account info from a handler.status() message.
 
@@ -253,8 +262,8 @@ def parse_status_accounts(status_message: str) -> List[Dict[str, str]]:
         if line.startswith("- "):
             info = line[2:].strip()
             if "(" in info and info.endswith(")"):
-                name_part = info[:info.rfind("(")].strip()
-                id_part = info[info.rfind("(") + 1:-1].strip()
+                name_part = info[: info.rfind("(")].strip()
+                id_part = info[info.rfind("(") + 1 : -1].strip()
                 accounts.append({"display": name_part, "id": id_part})
             else:
                 accounts.append({"display": info, "id": info})
@@ -296,9 +305,11 @@ async def list_integrations() -> List[Dict[str, Any]]:
 # Connect dispatchers — auto-start the matching listener on success
 # ════════════════════════════════════════════════════════════════════════
 
+
 async def _start_listener_for_handler(handler) -> None:
     """If a manager is running, start the listener for this handler's platform."""
     from .manager import get_external_comms_manager
+
     manager = get_external_comms_manager()
     if manager is None:
         return
@@ -312,8 +323,9 @@ async def _start_listener_for_handler(handler) -> None:
         pass
 
 
-async def connect_token(integration: str, credentials: Dict[str, str], *,
-                        start_listener: bool = True) -> Tuple[bool, str]:
+async def connect_token(
+    integration: str, credentials: Dict[str, str], *, start_listener: bool = True
+) -> Tuple[bool, str]:
     """Token-based connect: dispatch to handler.connect_token() and start listener on success."""
     handler, err = _resolve_handler(integration)
     if err:
@@ -324,7 +336,9 @@ async def connect_token(integration: str, credentials: Dict[str, str], *,
     return success, message
 
 
-async def connect_oauth(integration: str, *, start_listener: bool = True) -> Tuple[bool, str]:
+async def connect_oauth(
+    integration: str, *, start_listener: bool = True
+) -> Tuple[bool, str]:
     """OAuth-based connect: dispatch to handler.connect_oauth() and start listener on success."""
     handler, err = _resolve_handler(integration)
     if err:
@@ -337,7 +351,9 @@ async def connect_oauth(integration: str, *, start_listener: bool = True) -> Tup
     return success, message
 
 
-async def connect_interactive(integration: str, *, start_listener: bool = True) -> Tuple[bool, str]:
+async def connect_interactive(
+    integration: str, *, start_listener: bool = True
+) -> Tuple[bool, str]:
     """Interactive (e.g. QR) connect: dispatch to handler.connect_interactive() and start listener on success."""
     handler, err = _resolve_handler(integration)
     if err:
@@ -354,6 +370,7 @@ async def connect_interactive(integration: str, *, start_listener: bool = True) 
 # Sync wrappers — for sync callers (TUI, etc.) that can't await
 # ════════════════════════════════════════════════════════════════════════
 
+
 def _run_sync(coro):
     """Run an async coroutine from sync code by spinning a fresh event loop.
 
@@ -364,6 +381,7 @@ def _run_sync(coro):
     use the async variant directly (``await list_integrations()`` etc.).
     """
     import asyncio as _asyncio
+
     loop = _asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)

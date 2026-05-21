@@ -179,6 +179,7 @@ def connect_integration(input_data: dict) -> dict:
         from craftos_integrations.integrations.whatsapp_web import (
             start_qr_session as start_whatsapp_qr_session,
         )
+
         INTEGRATION_REGISTRY = integration_registry()
 
         if integration_id not in INTEGRATION_REGISTRY:
@@ -233,7 +234,9 @@ def connect_integration(input_data: dict) -> dict:
             # Validate required fields are present
             missing = []
             for field in required_fields:
-                if field.get("password", False) or not field.get("placeholder", "").startswith("(optional"):
+                if field.get("password", False) or not field.get(
+                    "placeholder", ""
+                ).startswith("(optional"):
                     if not credentials.get(field["key"]):
                         # Check if the field is truly required (non-optional)
                         label = field.get("label", field["key"])
@@ -313,7 +316,9 @@ def connect_integration(input_data: dict) -> dict:
                 if result.get("success") and result.get("status") == "qr_ready":
                     return {
                         "status": "qr_ready",
-                        "message": result.get("message", "Scan the QR code with WhatsApp on your phone."),
+                        "message": result.get(
+                            "message", "Scan the QR code with WhatsApp on your phone."
+                        ),
                         "auth_type": "interactive",
                         "qr_code": result.get("qr_code", ""),
                         "session_id": result.get("session_id", ""),
@@ -321,13 +326,17 @@ def connect_integration(input_data: dict) -> dict:
                 elif result.get("success") and result.get("status") == "connected":
                     return {
                         "status": "success",
-                        "message": result.get("message", "WhatsApp connected successfully!"),
+                        "message": result.get(
+                            "message", "WhatsApp connected successfully!"
+                        ),
                         "auth_type": "interactive",
                     }
                 else:
                     return {
                         "status": "error",
-                        "message": result.get("message", "Failed to start WhatsApp session."),
+                        "message": result.get(
+                            "message", "Failed to start WhatsApp session."
+                        ),
                         "auth_type": "interactive",
                     }
 
@@ -405,7 +414,12 @@ def check_integration_status(input_data: dict) -> dict:
     import asyncio
 
     if input_data.get("simulated_mode"):
-        return {"status": "success", "connected": False, "accounts": [], "message": "Simulated"}
+        return {
+            "status": "success",
+            "connected": False,
+            "accounts": [],
+            "message": "Simulated",
+        }
 
     integration_id = input_data.get("integration_id", "").strip().lower()
     session_id = input_data.get("session_id", "").strip()
@@ -422,7 +436,9 @@ def check_integration_status(input_data: dict) -> dict:
 
             loop = asyncio.new_event_loop()
             try:
-                result = loop.run_until_complete(check_whatsapp_session_status(session_id))
+                result = loop.run_until_complete(
+                    check_whatsapp_session_status(session_id)
+                )
             finally:
                 loop.close()
 
@@ -434,7 +450,9 @@ def check_integration_status(input_data: dict) -> dict:
             }
 
         # Otherwise check general integration status
-        from craftos_integrations import get_integration_info_sync as get_integration_info
+        from craftos_integrations import (
+            get_integration_info_sync as get_integration_info,
+        )
 
         info = get_integration_info(integration_id)
         if not info:
@@ -456,7 +474,12 @@ def check_integration_status(input_data: dict) -> dict:
             ),
         }
     except Exception as e:
-        return {"status": "error", "connected": False, "accounts": [], "message": str(e)}
+        return {
+            "status": "error",
+            "connected": False,
+            "accounts": [],
+            "message": str(e),
+        }
 
 
 @action(

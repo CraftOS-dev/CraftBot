@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Detect AI patterns in text based on Wikipedia's Signs of AI Writing."""
-import argparse, json, re, sys
+
+import argparse
+import json
+import re
+import sys
 from pathlib import Path
 from dataclasses import dataclass, field
 
 SCRIPT_DIR = Path(__file__).parent
 PATTERNS = json.loads((SCRIPT_DIR / "patterns.json").read_text())
+
 
 @dataclass
 class DetectionResult:
@@ -31,6 +36,7 @@ class DetectionResult:
     ai_probability: str = "low"
     word_count: int = 0
 
+
 def find_matches(text: str, patterns: list) -> list:
     matches, lower = [], text.lower()
     for p in patterns:
@@ -38,6 +44,7 @@ def find_matches(text: str, patterns: list) -> list:
         if count > 0:
             matches.append((p, count))
     return sorted(matches, key=lambda x: -x[1])
+
 
 def detect(text: str) -> DetectionResult:
     r = DetectionResult()
@@ -58,20 +65,29 @@ def detect(text: str) -> DetectionResult:
     r.markdown_artifacts = find_matches(text, PATTERNS["markdown_artifacts"])
     r.citation_bugs = find_matches(text, PATTERNS["citation_bugs"])
     r.knowledge_cutoff = find_matches(text, PATTERNS["knowledge_cutoff"])
-    r.curly_quotes = len(re.findall(r'[""'']', text))
+    r.curly_quotes = len(re.findall(r'[""' "]", text))
     r.em_dashes = text.count("—") + text.count(" -- ")
-    
+
     r.total_issues = (
-        sum(c for _, c in r.significance_inflation) + sum(c for _, c in r.notability_emphasis) +
-        sum(c for _, c in r.superficial_analysis) + sum(c for _, c in r.promotional_language) +
-        sum(c for _, c in r.vague_attributions) + sum(c for _, c in r.challenges_formula) +
-        sum(c for _, c in r.ai_vocabulary) + sum(c for _, c in r.copula_avoidance) +
-        sum(c for _, c in r.filler_phrases) + sum(c for _, c in r.chatbot_artifacts) * 3 +
-        sum(c for _, c in r.hedging_phrases) + sum(c for _, c in r.negative_parallelisms) +
-        sum(c for _, c in r.markdown_artifacts) * 2 + sum(c for _, c in r.citation_bugs) * 5 +
-        sum(c for _, c in r.knowledge_cutoff) * 3 + r.curly_quotes + (r.em_dashes if r.em_dashes > 3 else 0)
+        sum(c for _, c in r.significance_inflation)
+        + sum(c for _, c in r.notability_emphasis)
+        + sum(c for _, c in r.superficial_analysis)
+        + sum(c for _, c in r.promotional_language)
+        + sum(c for _, c in r.vague_attributions)
+        + sum(c for _, c in r.challenges_formula)
+        + sum(c for _, c in r.ai_vocabulary)
+        + sum(c for _, c in r.copula_avoidance)
+        + sum(c for _, c in r.filler_phrases)
+        + sum(c for _, c in r.chatbot_artifacts) * 3
+        + sum(c for _, c in r.hedging_phrases)
+        + sum(c for _, c in r.negative_parallelisms)
+        + sum(c for _, c in r.markdown_artifacts) * 2
+        + sum(c for _, c in r.citation_bugs) * 5
+        + sum(c for _, c in r.knowledge_cutoff) * 3
+        + r.curly_quotes
+        + (r.em_dashes if r.em_dashes > 3 else 0)
     )
-    
+
     density = r.total_issues / max(r.word_count, 1) * 100
     if r.citation_bugs or r.knowledge_cutoff or r.chatbot_artifacts:
         r.ai_probability = "very high"
@@ -81,6 +97,7 @@ def detect(text: str) -> DetectionResult:
         r.ai_probability = "medium"
     return r
 
+
 def print_section(title: str, items: list, replacements: dict = None):
     if not items:
         return
@@ -89,18 +106,21 @@ def print_section(title: str, items: list, replacements: dict = None):
         if replacements and phrase in replacements:
             repl = replacements[phrase]
             arrow = f' → "{repl}"' if repl else " → (remove)"
-            print(f"  • \"{phrase}\"{arrow}: {count}x")
+            print(f'  • "{phrase}"{arrow}: {count}x')
         else:
             print(f"  • {phrase}: {count}x")
     print()
 
+
 def print_report(r: DetectionResult):
     icons = {"very high": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"AI DETECTION SCAN - {r.total_issues} issues ({r.word_count} words)")
-    print(f"AI Probability: {icons.get(r.ai_probability, '')} {r.ai_probability.upper()}")
-    print(f"{'='*60}\n")
-    
+    print(
+        f"AI Probability: {icons.get(r.ai_probability, '')} {r.ai_probability.upper()}"
+    )
+    print(f"{'=' * 60}\n")
+
     if r.citation_bugs:
         print("⚠️  CRITICAL: CHATGPT CITATION BUGS")
         print_section("Citation Artifacts", r.citation_bugs)
@@ -113,7 +133,7 @@ def print_report(r: DetectionResult):
     if r.markdown_artifacts:
         print("⚠️  MARKDOWN DETECTED")
         print_section("Markdown", r.markdown_artifacts)
-    
+
     print_section("SIGNIFICANCE INFLATION", r.significance_inflation)
     print_section("PROMOTIONAL LANGUAGE", r.promotional_language)
     print_section("AI VOCABULARY", r.ai_vocabulary)
@@ -125,7 +145,7 @@ def print_report(r: DetectionResult):
     print_section("HEDGING", r.hedging_phrases)
     print_section("NEGATIVE PARALLELISMS", r.negative_parallelisms)
     print_section("NOTABILITY EMPHASIS", r.notability_emphasis)
-    
+
     if r.curly_quotes:
         print(f"CURLY QUOTES: {r.curly_quotes} (ChatGPT signature)\n")
     if r.em_dashes > 3:
@@ -133,28 +153,45 @@ def print_report(r: DetectionResult):
     if r.total_issues == 0:
         print("✓ No AI patterns detected.\n")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Detect AI patterns in text")
     parser.add_argument("input", nargs="?", help="Input file (or stdin)")
     parser.add_argument("--json", "-j", action="store_true", help="JSON output")
-    parser.add_argument("--score-only", "-s", action="store_true", help="Score and probability only")
+    parser.add_argument(
+        "--score-only", "-s", action="store_true", help="Score and probability only"
+    )
     args = parser.parse_args()
-    
+
     text = Path(args.input).read_text() if args.input else sys.stdin.read()
     result = detect(text)
-    
+
     if args.json:
-        print(json.dumps({
-            "total_issues": result.total_issues, "word_count": result.word_count,
-            "ai_probability": result.ai_probability, "significance_inflation": result.significance_inflation,
-            "promotional_language": result.promotional_language, "ai_vocabulary": result.ai_vocabulary,
-            "chatbot_artifacts": result.chatbot_artifacts, "citation_bugs": result.citation_bugs,
-            "filler_phrases": result.filler_phrases, "curly_quotes": result.curly_quotes, "em_dashes": result.em_dashes,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "total_issues": result.total_issues,
+                    "word_count": result.word_count,
+                    "ai_probability": result.ai_probability,
+                    "significance_inflation": result.significance_inflation,
+                    "promotional_language": result.promotional_language,
+                    "ai_vocabulary": result.ai_vocabulary,
+                    "chatbot_artifacts": result.chatbot_artifacts,
+                    "citation_bugs": result.citation_bugs,
+                    "filler_phrases": result.filler_phrases,
+                    "curly_quotes": result.curly_quotes,
+                    "em_dashes": result.em_dashes,
+                },
+                indent=2,
+            )
+        )
     elif args.score_only:
-        print(f"Issues: {result.total_issues} | Words: {result.word_count} | AI: {result.ai_probability}")
+        print(
+            f"Issues: {result.total_issues} | Words: {result.word_count} | AI: {result.ai_probability}"
+        )
     else:
         print_report(result)
+
 
 if __name__ == "__main__":
     main()

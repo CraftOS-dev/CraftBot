@@ -61,9 +61,7 @@ def navigate(value: Any, path: Optional[str]) -> Any:
 
 def _is_ref(value: Any) -> bool:
     return (
-        isinstance(value, dict)
-        and "$ref" in value
-        and isinstance(value["$ref"], str)
+        isinstance(value, dict) and "$ref" in value and isinstance(value["$ref"], str)
     )
 
 
@@ -87,9 +85,7 @@ def _resolve_one(
     try:
         return navigate(record.outputs, path)
     except KeyError as exc:
-        logger.warning(
-            f"[ref_resolver] Path {path!r} failed for $ref={key!r}: {exc}"
-        )
+        logger.warning(f"[ref_resolver] Path {path!r} failed for $ref={key!r}: {exc}")
         return {"$ref_error": str(exc), "$ref": key, "path": path}
 
 
@@ -217,7 +213,7 @@ def render_output_for_event_stream(
     footer_parts = []
     if record_key:
         footer_parts.append(
-            f"Reference: {{\"$ref\": \"{record_key}\", \"path\": \"<dotted.path>\"}}"
+            f'Reference: {{"$ref": "{record_key}", "path": "<dotted.path>"}}'
         )
     if file_path:
         footer_parts.append(f"Full output: {file_path}")
