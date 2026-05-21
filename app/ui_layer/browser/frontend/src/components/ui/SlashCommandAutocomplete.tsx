@@ -1,5 +1,6 @@
 import React, { useEffect, useState, createContext, useContext } from 'react'
 import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
+import { ActivitySquare } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
 
 interface SkillConfig {
@@ -37,11 +38,12 @@ export function SlashCommandAutocomplete({ input }: SlashCommandProps) {
     }, [isConnected, send, onMessage])
 
     console.log(skills)
-    if (input && input[0] === '/') return (
+    if (input && input[0] === '/' && skills.filter(item => item.includes(input.slice(1))).length > 0) return (
         <div>
             <ul className={styles.autocomplete}>
+                <p className={styles.header}><ActivitySquare size={12}></ActivitySquare>Skills</p>
                 {skills.filter(item => item.includes(input.slice(1))).map((item, index) => (
-                    <li key={index}>/{item}</li>
+                    <li key={index} className={styles.item}>/{item}</li>
                 ))}
             </ul>
         </div>

@@ -19,3 +19,5 @@ export type { ConfirmModalProps } from './ConfirmModal'
 
 export { SkillCreatorModal } from './SkillCreatorModal'
 export type { SkillCreatorModalProps, SkillCreatorMode, SkillCreatorSubmit } from './SkillCreatorModal'
+
+export { SlashCommandAutocomplete } from './SlashCommandAutocomplete'

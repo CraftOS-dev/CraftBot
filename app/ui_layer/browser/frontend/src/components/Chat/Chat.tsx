@@ -4,7 +4,7 @@ import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, Che
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
-import { Button, IconButton, StatusIndicator } from '../ui'
+import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
 import styles from './Chat.module.css'
@@ -625,13 +625,13 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
           </button>
         )}
       </div>
-
+      
       {/* Status bar */}
       <div className={styles.statusBar}>
         <StatusIndicator status={status.state} size="sm" variant="dot" />
         <span>{status.message}</span>
       </div>
-
+      
       {/* Input area */}
       <div className={styles.inputArea}>
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
@@ -727,7 +727,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
               ))}
             </div>
           )}
-
+          <SlashCommandAutocomplete input={input}></SlashCommandAutocomplete>
           <textarea
             ref={inputRef}
             className={`${styles.input}${isListening ? ` ${styles.inputListening}` : ''}`}
@@ -741,7 +741,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
             inputMode="text"
           />
         </div>
-
         <Button
           icon={<Send size={16} />}
           onClick={handleSend}

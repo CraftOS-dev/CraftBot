@@ -185,6 +185,7 @@
   min-width: 0;
   border-radius: var(--radius-md);
   transition: outline var(--transition-fast), background var(--transition-fast);
+  position: relative;
 }
 
 .inputWrapperDragOver {
