@@ -16,7 +16,7 @@
  *   Logs go to stderr so they don't interfere with the JSON protocol.
  */
 
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth, MessageMedia, Location, Buttons, List, Poll } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
 const path = require("path");
 const readline = require("readline");
@@ -604,6 +604,439 @@ async function handleCommand(line) {
           try { if (client) await client.destroy(); } catch (_) {}
         }
         process.exit(0);
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // Resolve a number/JID to a canonical chat ID. Helper, not a command.
+      // Used by every command that takes a `to` field.
+      // ─────────────────────────────────────────────────────────────────
+
+      case "send_media": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        let chatId = args.to;
+        if (!chatId.includes("@")) {
+          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
+          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
+          chatId = wid._serialized;
+        }
+        let media;
+        try {
+          media = MessageMedia.fromFilePath(args.file_path);
+        } catch (e) {
+          emitResponse(id, { success: false, error: `Cannot read file: ${e.message}` });
+          return;
+        }
+        const opts = {};
+        if (args.caption) opts.caption = args.caption;
+        if (args.send_as_sticker) opts.sendMediaAsSticker = true;
+        if (args.send_as_voice) opts.sendAudioAsVoice = true;
+        if (args.send_as_document) opts.sendMediaAsDocument = true;
+        if (args.quoted_message_id) opts.quotedMessageId = args.quoted_message_id;
+        const sent = await client.sendMessage(chatId, media, opts);
+        if (sent?.id?._serialized) ownSentIds.add(sent.id._serialized);
+        emitResponse(id, {
+          success: true,
+          message_id: sent?.id?._serialized || null,
+          timestamp: new Date().toISOString(),
+        });
+        break;
+      }
+
+      case "send_location": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        let chatId = args.to;
+        if (!chatId.includes("@")) {
+          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
+          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
+          chatId = wid._serialized;
+        }
+        const loc = new Location(args.latitude, args.longitude, args.description || "");
+        const sent = await client.sendMessage(chatId, loc);
+        emitResponse(id, {
+          success: true,
+          message_id: sent?.id?._serialized || null,
+        });
+        break;
+      }
+
+      case "send_reply": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        let chatId = args.to;
+        if (!chatId.includes("@")) {
+          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
+          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
+          chatId = wid._serialized;
+        }
+        const sent = await client.sendMessage(chatId, args.text, { quotedMessageId: args.quoted_message_id });
+        if (sent?.id?._serialized) ownSentIds.add(sent.id._serialized);
+        emitResponse(id, { success: true, message_id: sent?.id?._serialized || null });
+        break;
+      }
+
+      case "edit_message": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        await msg.edit(args.new_body);
+        emitResponse(id, { success: true, message_id: args.message_id });
+        break;
+      }
+
+      case "delete_message": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        await msg.delete(args.everyone === true);
+        emitResponse(id, { success: true, message_id: args.message_id, deleted_for_everyone: args.everyone === true });
+        break;
+      }
+
+      case "forward_message": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        let chatId = args.to;
+        if (!chatId.includes("@")) {
+          const wid = await client.getNumberId(chatId.replace(/[\s\-\+\(\)]/g, ""));
+          if (!wid) { emitResponse(id, { success: false, error: `Number ${chatId} not on WhatsApp` }); return; }
+          chatId = wid._serialized;
+        }
+        const chat = await client.getChatById(chatId);
+        await msg.forward(chat);
+        emitResponse(id, { success: true, forwarded_to: chatId });
+        break;
+      }
+
+      case "react_message": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        await msg.react(args.emoji || "");  // empty string removes the reaction
+        emitResponse(id, { success: true, message_id: args.message_id, emoji: args.emoji });
+        break;
+      }
+
+      case "star_message": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        if (args.starred === false) await msg.unstar(); else await msg.star();
+        emitResponse(id, { success: true, message_id: args.message_id, starred: args.starred !== false });
+        break;
+      }
+
+      case "download_message_media": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        if (!msg.hasMedia) { emitResponse(id, { success: false, error: "Message has no media" }); return; }
+        const media = await msg.downloadMedia();
+        if (!media) { emitResponse(id, { success: false, error: "Media download failed" }); return; }
+        emitResponse(id, {
+          success: true,
+          mimetype: media.mimetype,
+          filename: media.filename || "",
+          data_b64: media.data,
+        });
+        break;
+      }
+
+      case "get_quoted_message": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const msg = await client.getMessageById(args.message_id);
+        if (!msg) { emitResponse(id, { success: false, error: "Message not found" }); return; }
+        const quoted = await msg.getQuotedMessage();
+        if (!quoted) { emitResponse(id, { success: true, quoted: null }); return; }
+        emitResponse(id, { success: true, quoted: {
+          id: quoted.id._serialized, body: quoted.body || "",
+          from: quoted.from, from_me: quoted.fromMe, timestamp: quoted.timestamp,
+        }});
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // Chat operations
+      // ─────────────────────────────────────────────────────────────────
+
+      case "mark_chat_read": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        await chat.sendSeen();
+        emitResponse(id, { success: true, chat_id: args.chat_id });
+        break;
+      }
+
+      case "mark_chat_unread": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        await chat.markUnread();
+        emitResponse(id, { success: true, chat_id: args.chat_id });
+        break;
+      }
+
+      case "archive_chat": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        if (args.archive === false) await chat.unarchive(); else await chat.archive();
+        emitResponse(id, { success: true, chat_id: args.chat_id, archived: args.archive !== false });
+        break;
+      }
+
+      case "pin_chat": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        if (args.pin === false) await chat.unpin(); else await chat.pin();
+        emitResponse(id, { success: true, chat_id: args.chat_id, pinned: args.pin !== false });
+        break;
+      }
+
+      case "mute_chat": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        if (args.mute === false) {
+          await chat.unmute();
+        } else {
+          // unmute_date is unix seconds (optional, otherwise mute forever)
+          const date = args.unmute_date ? new Date(args.unmute_date * 1000) : null;
+          await chat.mute(date);
+        }
+        emitResponse(id, { success: true, chat_id: args.chat_id, muted: args.mute !== false });
+        break;
+      }
+
+      case "clear_chat_messages": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        await chat.clearMessages();
+        emitResponse(id, { success: true, chat_id: args.chat_id });
+        break;
+      }
+
+      case "delete_chat": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        await chat.delete();
+        emitResponse(id, { success: true, chat_id: args.chat_id });
+        break;
+      }
+
+      case "send_typing_state": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.chat_id);
+        const state = args.state || "typing";  // typing | recording | clear
+        if (state === "recording") await chat.sendStateRecording();
+        else if (state === "clear") await chat.clearState();
+        else await chat.sendStateTyping();
+        emitResponse(id, { success: true, chat_id: args.chat_id, state });
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // Groups
+      // ─────────────────────────────────────────────────────────────────
+
+      case "create_group": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        // Resolve participants: phone numbers → JIDs
+        const participants = [];
+        for (const p of (args.participants || [])) {
+          if (p.includes("@")) {
+            participants.push(p);
+          } else {
+            const wid = await client.getNumberId(p.replace(/[\s\-\+\(\)]/g, ""));
+            if (wid) participants.push(wid._serialized);
+          }
+        }
+        const result = await client.createGroup(args.name, participants);
+        emitResponse(id, {
+          success: true,
+          group_id: result.gid?._serialized || result.gid || null,
+          missing_participants: result.missingParticipants || [],
+        });
+        break;
+      }
+
+      case "group_add_participants": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        const result = await chat.addParticipants(args.participants);
+        emitResponse(id, { success: true, result });
+        break;
+      }
+
+      case "group_remove_participants": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        const result = await chat.removeParticipants(args.participants);
+        emitResponse(id, { success: true, result });
+        break;
+      }
+
+      case "group_promote_participants": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        const result = await chat.promoteParticipants(args.participants);
+        emitResponse(id, { success: true, result });
+        break;
+      }
+
+      case "group_demote_participants": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        const result = await chat.demoteParticipants(args.participants);
+        emitResponse(id, { success: true, result });
+        break;
+      }
+
+      case "group_set_subject": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        await chat.setSubject(args.subject);
+        emitResponse(id, { success: true, group_id: args.group_id, subject: args.subject });
+        break;
+      }
+
+      case "group_set_description": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        await chat.setDescription(args.description);
+        emitResponse(id, { success: true, group_id: args.group_id });
+        break;
+      }
+
+      case "group_get_info": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        emitResponse(id, { success: true, info: {
+          id: chat.id._serialized,
+          name: chat.name,
+          description: chat.description || "",
+          owner: chat.owner?._serialized || "",
+          created_at: chat.createdAt || null,
+          participants: (chat.participants || []).map(p => ({
+            id: p.id._serialized,
+            is_admin: p.isAdmin,
+            is_super_admin: p.isSuperAdmin,
+          })),
+        }});
+        break;
+      }
+
+      case "group_leave": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        await chat.leave();
+        emitResponse(id, { success: true, group_id: args.group_id });
+        break;
+      }
+
+      case "group_invite_code": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        const code = await chat.getInviteCode();
+        emitResponse(id, { success: true, invite_code: code, invite_url: `https://chat.whatsapp.com/${code}` });
+        break;
+      }
+
+      case "group_revoke_invite": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const chat = await client.getChatById(args.group_id);
+        if (!chat.isGroup) { emitResponse(id, { success: false, error: "Not a group" }); return; }
+        const code = await chat.revokeInvite();
+        emitResponse(id, { success: true, new_invite_code: code });
+        break;
+      }
+
+      case "accept_group_invite": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const code = args.invite_code.replace(/^https?:\/\/chat\.whatsapp\.com\//, "");
+        const groupId = await client.acceptInvite(code);
+        emitResponse(id, { success: true, group_id: groupId });
+        break;
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // Contacts
+      // ─────────────────────────────────────────────────────────────────
+
+      case "block_contact": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const contact = await client.getContactById(args.contact_id);
+        if (args.block === false) await contact.unblock(); else await contact.block();
+        emitResponse(id, { success: true, contact_id: args.contact_id, blocked: args.block !== false });
+        break;
+      }
+
+      case "get_profile_pic_url": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        try {
+          const url = await client.getProfilePicUrl(args.contact_id);
+          emitResponse(id, { success: true, url: url || "" });
+        } catch (e) {
+          emitResponse(id, { success: true, url: "" });
+        }
+        break;
+      }
+
+      case "get_contact": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const contact = await client.getContactById(args.contact_id);
+        let about = "";
+        try { about = await contact.getAbout() || ""; } catch (_) {}
+        emitResponse(id, { success: true, contact: {
+          id: contact.id._serialized,
+          name: contact.name || "",
+          pushname: contact.pushname || "",
+          short_name: contact.shortName || "",
+          number: contact.number || "",
+          is_business: contact.isBusiness,
+          is_my_contact: contact.isMyContact,
+          is_blocked: contact.isBlocked,
+          is_user: contact.isUser,
+          is_group: contact.isGroup,
+          about,
+        }});
+        break;
+      }
+
+      case "get_all_contacts": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        // getContacts() can be slow on large accounts; filter to "my contacts" by default.
+        const contacts = await client.getContacts();
+        const filtered = args.my_contacts_only === false
+          ? contacts
+          : contacts.filter(c => c.isMyContact);
+        const result = filtered.slice(0, args.limit || 500).map(c => ({
+          id: c.id._serialized,
+          name: c.name || "",
+          pushname: c.pushname || "",
+          number: c.number || "",
+          is_business: c.isBusiness,
+          is_my_contact: c.isMyContact,
+        }));
+        emitResponse(id, { success: true, contacts: result, count: result.length });
+        break;
+      }
+
+      case "check_number_on_whatsapp": {
+        if (!isReady) { emitResponse(id, { success: false, error: "Client not ready" }); return; }
+        const clean = args.number.replace(/[\s\-\+\(\)]/g, "");
+        const wid = await client.getNumberId(clean);
+        emitResponse(id, {
+          success: true,
+          on_whatsapp: !!wid,
+          jid: wid?._serialized || "",
+        });
         break;
       }
 
