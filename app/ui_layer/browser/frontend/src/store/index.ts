@@ -1,0 +1,45 @@
+import { configureStore } from '@reduxjs/toolkit'
+import connectionReducer from './slices/connectionSlice'
+import messagesReducer from './slices/messagesSlice'
+import tasksReducer from './slices/tasksSlice'
+import dashboardReducer from './slices/dashboardSlice'
+import onboardingReducer from './slices/onboardingSlice'
+import localLlmReducer from './slices/localLlmSlice'
+import livingUiReducer from './slices/livingUiSlice'
+import agentReducer from './slices/agentSlice'
+import workspaceReducer from './slices/workspaceSlice'
+import mcpSettingsReducer from './slices/mcpSettingsSlice'
+import memorySettingsReducer from './slices/memorySettingsSlice'
+import skillsSettingsReducer from './slices/skillsSettingsSlice'
+import proactiveSettingsReducer from './slices/proactiveSettingsSlice'
+import livingUiSettingsReducer from './slices/livingUiSettingsSlice'
+import generalSettingsReducer from './slices/generalSettingsSlice'
+import modelSettingsReducer from './slices/modelSettingsSlice'
+import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
+import { socketMiddleware } from './socket/socketMiddleware'
+
+export const store = configureStore({
+  reducer: {
+    connection: connectionReducer,
+    messages: messagesReducer,
+    tasks: tasksReducer,
+    dashboard: dashboardReducer,
+    onboarding: onboardingReducer,
+    localLlm: localLlmReducer,
+    livingUi: livingUiReducer,
+    agent: agentReducer,
+    workspace: workspaceReducer,
+    mcpSettings: mcpSettingsReducer,
+    memorySettings: memorySettingsReducer,
+    skillsSettings: skillsSettingsReducer,
+    proactiveSettings: proactiveSettingsReducer,
+    livingUiSettings: livingUiSettingsReducer,
+    generalSettings: generalSettingsReducer,
+    modelSettings: modelSettingsReducer,
+    integrationsSettings: integrationsSettingsReducer,
+  },
+  middleware: (getDefault) => getDefault().concat(socketMiddleware),
+})
+
+export type RootState = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch

@@ -14,16 +14,18 @@ import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
-
-// Types
-interface SkillConfig {
-  name: string
-  description: string
-  enabled: boolean
-  user_invocable: boolean
-  action_sets: string[]
-  source: string
-}
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import {
+  setEnabled as setSkillEnabled,
+  removeSkill,
+  type SkillConfig,
+} from '../../store/slices/skillsSettingsSlice'
+import {
+  selectSkills,
+  selectTotalSkills,
+  selectEnabledSkills,
+  selectSkillsHasLoaded,
+} from '../../store/selectors/skillsSettings'
 
 interface SkillInfo extends SkillConfig {
   argument_hint?: string
@@ -35,12 +37,14 @@ export function SkillsSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
 
-  // State
-  const [skills, setSkills] = useState<SkillConfig[]>([])
-  const [totalSkills, setTotalSkills] = useState(0)
-  const [enabledSkills, setEnabledSkills] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
+  // Slice-backed
+  const skills = useAppSelector(selectSkills)
+  const totalSkills = useAppSelector(selectTotalSkills)
+  const enabledSkills = useAppSelector(selectEnabledSkills)
+  const hasLoaded = useAppSelector(selectSkillsHasLoaded)
+  const isLoading = !hasLoaded
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
@@ -73,16 +77,11 @@ export function SkillsSettings() {
     if (!isConnected) return
 
     const cleanups = [
+      // skill_list is handled by skillsSettingsSlice via the registry. We
+      // only listen for the error toast here.
       onMessage('skill_list', (data: unknown) => {
-        const d = data as { success: boolean; skills?: SkillConfig[]; total?: number; enabled?: number; error?: string }
-        setIsLoading(false)
-        if (d.success && d.skills) {
-          setSkills(d.skills)
-          setTotalSkills(d.total ?? d.skills.length)
-          setEnabledSkills(d.enabled ?? d.skills.filter(s => s.enabled).length)
-        } else if (d.error) {
-          showToast('error', d.error)
-        }
+        const d = data as { success: boolean; error?: string }
+        if (!d.success && d.error) showToast('error', d.error)
       }),
       onMessage('skill_enable', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
@@ -161,10 +160,10 @@ export function SkillsSettings() {
       }),
     ]
 
-    send('skill_list')
+    if (!hasLoaded) send('skill_list')
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage])
+  }, [isConnected, send, onMessage, hasLoaded, showToast])
 
   // Handlers
   const handleToggleSkill = (name: string, enabled: boolean) => {
@@ -173,8 +172,7 @@ export function SkillsSettings() {
     } else {
       send('skill_disable', { name })
     }
-    setSkills(prev => prev.map(s => s.name === name ? { ...s, enabled } : s))
-    setEnabledSkills(prev => enabled ? prev + 1 : prev - 1)
+    dispatch(setSkillEnabled({ name, enabled }))
   }
 
   const handleRemoveSkill = (name: string) => {
@@ -185,8 +183,7 @@ export function SkillsSettings() {
       variant: 'danger',
     }, () => {
       send('skill_remove', { name })
-      setSkills(prev => prev.filter(s => s.name !== name))
-      setTotalSkills(prev => prev - 1)
+      dispatch(removeSkill(name))
     })
   }
 

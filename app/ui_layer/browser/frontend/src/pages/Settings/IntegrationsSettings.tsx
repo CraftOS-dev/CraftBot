@@ -17,48 +17,18 @@ import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
-
-// Types
-interface IntegrationField {
-  key: string
-  label: string
-  placeholder: string
-  password: boolean
-}
-
-interface IntegrationAccount {
-  display: string
-  id: string
-}
-
-// Schema for a single config input rendered by the Configure section in
-// the Manage modal. Sourced from the backend handler's ``config_fields``.
-interface ConfigField {
-  key: string
-  label: string
-  type: 'text' | 'textarea' | 'list' | 'checkbox' | 'select' | 'number'
-  placeholder?: string
-  help?: string
-  options?: Array<{ value: string; label: string }>  // required when type==='select'
-}
-
-interface Integration {
-  id: string
-  name: string
-  description: string
-  auth_type: 'oauth' | 'token' | 'both' | 'interactive' | 'token_with_interactive'
-  connected: boolean
-  accounts: IntegrationAccount[]
-  fields: IntegrationField[]
-  icon?: string  // Lucide icon name supplied by the backend handler
-  has_config?: boolean
-  config_fields?: ConfigField[] | null
-  // Inline help shown in a popover when the user clicks the "?" button
-  // in the connect modal. Each entry is one step / one place to look.
-  // Sourced from the handler's ``connect_help`` attribute. Null/empty
-  // hides the "?" button.
-  connect_help?: string[] | null
-}
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import {
+  setDisconnected,
+  type Integration,
+  type ConfigField,
+} from '../../store/slices/integrationsSettingsSlice'
+import {
+  selectIntegrations,
+  selectIntegrationsTotal,
+  selectIntegrationsConnected,
+  selectIntegrationsHasLoaded,
+} from '../../store/selectors/integrationsSettings'
 
 // Integration icon component. Lookup order:
 //   1. Hand-crafted brand SVG keyed by integration id (defined below)
@@ -364,12 +334,14 @@ const ConfigForm = ({
 export function IntegrationsSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
+  const dispatch = useAppDispatch()
 
-  // State
-  const [integrations, setIntegrations] = useState<Integration[]>([])
-  const [totalIntegrations, setTotalIntegrations] = useState(0)
-  const [connectedCount, setConnectedCount] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
+  // Slice-backed: list state cached across remounts.
+  const integrations = useAppSelector(selectIntegrations)
+  const totalIntegrations = useAppSelector(selectIntegrationsTotal)
+  const connectedCount = useAppSelector(selectIntegrationsConnected)
+  const hasLoaded = useAppSelector(selectIntegrationsHasLoaded)
+  const isLoading = !hasLoaded
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
@@ -417,21 +389,20 @@ export function IntegrationsSettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Load data when connected
+  // Subscribe to side-effect messages (toasts, modal close). The integrations
+  // list itself is updated by the slice via the registry.
   useEffect(() => {
     if (!isConnected) return
 
     const cleanups = [
+      // The slice handles populating the list. Here we only handle the
+      // reload-success toast and error reporting.
       onMessage('integration_list', (data: unknown) => {
-        const d = data as { success: boolean; integrations?: Integration[]; total?: number; connected?: number; error?: string }
+        const d = data as { success: boolean; error?: string }
         const wasReloading = isReloadingRef.current
-        setIsLoading(false)
         setIsReloading(false)
         isReloadingRef.current = false
-        if (d.success && d.integrations) {
-          setIntegrations(d.integrations)
-          setTotalIntegrations(d.total ?? d.integrations.length)
-          setConnectedCount(d.connected ?? d.integrations.filter(i => i.connected).length)
+        if (d.success) {
           if (wasReloading) {
             showToast('success', 'Integrations reloaded')
           }
@@ -551,10 +522,13 @@ export function IntegrationsSettings() {
       }),
     ]
 
-    send('integration_list')
+    // Fetch list only on first mount (cached across re-mounts thereafter).
+    if (!hasLoaded) {
+      send('integration_list')
+    }
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage])
+  }, [isConnected, send, onMessage, hasLoaded, showToast])
 
   // Start WhatsApp polling when QR is ready
   useEffect(() => {
@@ -666,10 +640,7 @@ export function IntegrationsSettings() {
     // overwrite this when it arrives. If the disconnect fails,
     // ``integration_disconnect_result`` shows a toast and the next refresh
     // restores the real state.
-    setIntegrations(prev => prev.map(i =>
-      i.id === targetId ? { ...i, connected: false, accounts: [] } : i
-    ))
-    setConnectedCount(prev => Math.max(0, prev - 1))
+    dispatch(setDisconnected(targetId))
     setShowManageModal(false)
     setManagingIntegration(null)
 
