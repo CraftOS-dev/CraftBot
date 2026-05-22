@@ -41,6 +41,7 @@ per-service in the UI. The user pastes the same App ID + Secret into
 each one — slight UX redundancy, paid back in clean independence
 between services.
 """
+
 from __future__ import annotations
 
 import time
@@ -70,7 +71,9 @@ class LarkCredential:
     bot_open_id: str = ""
 
 
-def validate_and_mint_token(app_id: str, app_secret: str) -> Tuple[Optional[str], float, Optional[str]]:
+def validate_and_mint_token(
+    app_id: str, app_secret: str
+) -> Tuple[Optional[str], float, Optional[str]]:
     """Validate App ID + Secret by minting a tenant_access_token.
 
     Returns ``(token, expires_at_unix, error_msg)``. On success, ``error_msg``
@@ -78,7 +81,8 @@ def validate_and_mint_token(app_id: str, app_secret: str) -> Tuple[Optional[str]
     we have to inspect the body — HTTP status alone isn't enough.
     """
     result = http_request(
-        "POST", f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
+        "POST",
+        f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
         json={"app_id": app_id, "app_secret": app_secret},
         expected=(200,),
     )
@@ -86,7 +90,11 @@ def validate_and_mint_token(app_id: str, app_secret: str) -> Tuple[Optional[str]
         return None, 0.0, f"Lark auth request failed: {result['error']}"
     body = result.get("result", {})
     if body.get("code", -1) != 0:
-        return None, 0.0, f"Invalid Lark credentials: {body.get('msg', 'unknown error')}"
+        return (
+            None,
+            0.0,
+            f"Invalid Lark credentials: {body.get('msg', 'unknown error')}",
+        )
     token = body.get("tenant_access_token", "")
     expire = float(body.get("expire", 0))
     return token, time.time() + expire, None
@@ -103,7 +111,8 @@ def ensure_token(cred: LarkCredential, cred_file: str) -> str:
     if cred.tenant_access_token and cred.token_expires_at > now + 60:
         return cred.tenant_access_token
     result = http_request(
-        "POST", f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
+        "POST",
+        f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
         json={"app_id": cred.app_id, "app_secret": cred.app_secret},
         expected=(200,),
     )

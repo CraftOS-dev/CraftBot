@@ -12,7 +12,6 @@ from typing import List, Optional
 from agent_core.core.action import Action
 from agent_core.decorators import profile, OperationCategory
 from agent_core.core.protocols.database import DatabaseInterfaceProtocol
-from agent_core.utils.logger import logger
 
 
 class ActionLibrary:
@@ -71,10 +70,7 @@ class ActionLibrary:
         return [Action.from_dict(doc) for doc in docs]
 
     def get_default_action_names(self) -> set[str]:
-        return {
-            action.name
-            for action in self.retrieve_default_action()
-        }
+        return {action.name for action in self.retrieve_default_action()}
 
     def delete_action(self, action_name: str):
         """Deletes an action from storage."""

@@ -97,7 +97,9 @@ class CommandExecutor:
 
         # Emit result event
         event_type = (
-            UIEventType.COMMAND_EXECUTED if result.success else UIEventType.COMMAND_ERROR
+            UIEventType.COMMAND_EXECUTED
+            if result.success
+            else UIEventType.COMMAND_ERROR
         )
         self._controller.event_bus.emit(
             UIEvent(
@@ -117,7 +119,11 @@ class CommandExecutor:
 
         # If there's a message, emit it as a system message
         if result.message:
-            msg_type = UIEventType.SYSTEM_MESSAGE if result.success else UIEventType.ERROR_MESSAGE
+            msg_type = (
+                UIEventType.SYSTEM_MESSAGE
+                if result.success
+                else UIEventType.ERROR_MESSAGE
+            )
             self._controller.event_bus.emit(
                 UIEvent(
                     type=msg_type,

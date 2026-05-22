@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Google Calendar - granular Google integration.
 
 Connect just Calendar (without granting Gmail/Drive/YouTube scopes) by
@@ -9,6 +9,7 @@ See ``gmail.py`` for the canonical per-service shape - this file is
 structurally identical, differing only in scope, REST surface, and
 listener (Calendar doesn't poll for incoming messages).
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -49,6 +50,7 @@ GCAL = IntegrationSpec(
 # Handler - auth flow only
 # -----------------------------------------------------------------
 
+
 @register_handler(GCAL.name)
 class GoogleCalendarHandler(IntegrationHandler):
     spec = GCAL
@@ -74,6 +76,7 @@ class GoogleCalendarHandler(IntegrationHandler):
 # Client - Calendar REST methods (no listener; Calendar isn't push-based)
 # -----------------------------------------------------------------
 
+
 @register_client
 class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
     spec = GCAL
@@ -88,7 +91,9 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
         self._connected = True
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        return {"error": "Google Calendar does not support send_message - use create_meet_event"}
+        return {
+            "error": "Google Calendar does not support send_message - use create_meet_event"
+        }
 
     @property
     def supports_listening(self) -> bool:
@@ -96,28 +101,42 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
 
     # ----- REST methods -----
 
-    def create_meet_event(self, calendar_id: str = "primary",
-                          event_data: Optional[Dict[str, Any]] = None) -> Result:
+    def create_meet_event(
+        self, calendar_id: str = "primary", event_data: Optional[Dict[str, Any]] = None
+    ) -> Result:
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
-            headers=self._headers(), params={"conferenceDataVersion": 1},
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            headers=self._headers(),
+            params={"conferenceDataVersion": 1},
             json=event_data or {},
         )
 
-    def check_availability(self, calendar_id: str = "primary",
-                           time_min: Optional[str] = None,
-                           time_max: Optional[str] = None) -> Result:
+    def check_availability(
+        self,
+        calendar_id: str = "primary",
+        time_min: Optional[str] = None,
+        time_max: Optional[str] = None,
+    ) -> Result:
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/freeBusy",
+            "POST",
+            f"{CALENDAR_API_BASE}/freeBusy",
             headers=self._headers(),
-            json={"timeMin": time_min, "timeMax": time_max, "items": [{"id": calendar_id}]},
+            json={
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "items": [{"id": calendar_id}],
+            },
             expected=(200,),
         )
 
-    def list_events(self, calendar_id: str = "primary",
-                    time_min: Optional[str] = None,
-                    time_max: Optional[str] = None,
-                    max_results: int = 50) -> Result:
+    def list_events(
+        self,
+        calendar_id: str = "primary",
+        time_min: Optional[str] = None,
+        time_max: Optional[str] = None,
+        max_results: int = 50,
+    ) -> Result:
         params: Dict[str, Any] = {
             "maxResults": max_results,
             "singleEvents": "true",
@@ -128,27 +147,36 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
         if time_max:
             params["timeMax"] = time_max
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
-            headers=self._auth_header(), params=params, expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("items", []),
         )
 
     def get_event(self, event_id: str, calendar_id: str = "primary") -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
     def delete_event(self, event_id: str, calendar_id: str = "primary") -> Result:
         return http_request(
-            "DELETE", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "event_id": event_id},
         )
 
     def list_calendars(self) -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/users/me/calendarList",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/users/me/calendarList",
+            headers=self._auth_header(),
+            expected=(200,),
             transform=lambda d: d.get("items", []),
         )

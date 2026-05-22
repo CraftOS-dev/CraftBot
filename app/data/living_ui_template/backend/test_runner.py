@@ -25,7 +25,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -45,7 +45,10 @@ SKIP_API_PREFIXES = (
 # Auto-payload generation from OpenAPI schemas
 # ============================================================================
 
-def generate_payload_from_schema(schema: Dict[str, Any], definitions: Dict[str, Any]) -> Dict[str, Any]:
+
+def generate_payload_from_schema(
+    schema: Dict[str, Any], definitions: Dict[str, Any]
+) -> Dict[str, Any]:
     """
     Generate a minimal valid payload from an OpenAPI/JSON Schema definition.
 
@@ -135,6 +138,7 @@ def _generate_value(schema: Dict[str, Any], definitions: Dict[str, Any]) -> Any:
 # Internal Tests (pre-server)
 # ============================================================================
 
+
 def run_internal_tests() -> Dict[str, Any]:
     """
     Run pre-server validation tests.
@@ -162,7 +166,14 @@ def run_internal_tests() -> Dict[str, Any]:
         except Exception as e:
             error_msg = f"Failed to import {module_name}: {e}"
             logger.error(f"[IMPORT] {error_msg}")
-            result["errors"].append({"test": "import", "module": module_name, "error": str(e), "traceback": traceback.format_exc()})
+            result["errors"].append(
+                {
+                    "test": "import",
+                    "module": module_name,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
             result["status"] = "fail"
 
     if result["status"] == "fail":
@@ -209,22 +220,29 @@ def run_internal_tests() -> Dict[str, Any]:
                     logger.info(f"[ROUTE] {method.upper()} {path}")
 
         if not any(r["path"].startswith("/api") for r in result["routes"]):
-            result["errors"].append({
-                "test": "route_discovery",
-                "error": "No /api/* routes found — backend has no application routes registered",
-            })
+            result["errors"].append(
+                {
+                    "test": "route_discovery",
+                    "error": "No /api/* routes found — backend has no application routes registered",
+                }
+            )
             result["status"] = "fail"
         else:
             api_count = sum(1 for r in result["routes"] if r["path"].startswith("/api"))
             logger.info(f"[ROUTES] Discovered {api_count} API route(s)")
 
     except Exception as e:
-        result["errors"].append({"test": "route_discovery", "error": str(e), "traceback": traceback.format_exc()})
+        result["errors"].append(
+            {
+                "test": "route_discovery",
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
         result["status"] = "fail"
 
     # Test 3: Model/table verification
     try:
-        from database import engine
         from models import Base
 
         # Verify tables can be created (uses in-memory check, doesn't modify real DB)
@@ -232,18 +250,24 @@ def run_internal_tests() -> Dict[str, Any]:
         logger.info(f"[MODELS] Found {len(table_names)} table(s): {table_names}")
 
         if not table_names:
-            result["errors"].append({"test": "models", "error": "No SQLAlchemy models/tables defined"})
+            result["errors"].append(
+                {"test": "models", "error": "No SQLAlchemy models/tables defined"}
+            )
             result["status"] = "fail"
 
     except Exception as e:
-        result["errors"].append({"test": "models", "error": str(e), "traceback": traceback.format_exc()})
+        result["errors"].append(
+            {"test": "models", "error": str(e), "traceback": traceback.format_exc()}
+        )
         result["status"] = "fail"
 
     # Test 4: System file integrity — verify critical system features weren't removed
     system_checks = _check_system_files()
     for check in system_checks:
         if check["status"] == "fail":
-            result["errors"].append({"test": "system_integrity", "error": check["error"]})
+            result["errors"].append(
+                {"test": "system_integrity", "error": check["error"]}
+            )
             result["status"] = "fail"
             logger.error(f"[SYSTEM] {check['error']}")
         else:
@@ -256,7 +280,11 @@ def run_internal_tests() -> Dict[str, Any]:
 def _check_system_files() -> List[Dict[str, Any]]:
     """Check that critical system features haven't been removed from template files."""
     checks = []
-    backend_dir = Path(__file__).parent.parent / "backend" if (Path(__file__).parent.parent / "backend").exists() else Path(__file__).parent
+    backend_dir = (
+        Path(__file__).parent.parent / "backend"
+        if (Path(__file__).parent.parent / "backend").exists()
+        else Path(__file__).parent
+    )
     project_root = Path(__file__).parent.parent
 
     # Check main.py has /health endpoint
@@ -264,62 +292,76 @@ def _check_system_files() -> List[Dict[str, Any]]:
     if main_py.exists():
         content = main_py.read_text(encoding="utf-8")
         if "/health" not in content:
-            checks.append({
-                "name": "health_endpoint",
-                "status": "fail",
-                "error": "main.py is missing /health endpoint. Add: @app.get('/health') async def health_check(): return {'status': 'healthy'}",
-            })
+            checks.append(
+                {
+                    "name": "health_endpoint",
+                    "status": "fail",
+                    "error": "main.py is missing /health endpoint. Add: @app.get('/health') async def health_check(): return {'status': 'healthy'}",
+                }
+            )
         else:
             checks.append({"name": "health_endpoint", "status": "pass"})
 
         if "/api/logs" not in content:
-            checks.append({
-                "name": "logs_endpoint",
-                "status": "fail",
-                "error": "main.py is missing POST /api/logs endpoint for frontend console capture. Restore it from the template or add: @app.post('/api/logs') that accepts {entries: [{level, message, timestamp}]} and writes to logs/frontend_console.log",
-            })
+            checks.append(
+                {
+                    "name": "logs_endpoint",
+                    "status": "fail",
+                    "error": "main.py is missing POST /api/logs endpoint for frontend console capture. Restore it from the template or add: @app.post('/api/logs') that accepts {entries: [{level, message, timestamp}]} and writes to logs/frontend_console.log",
+                }
+            )
         else:
             checks.append({"name": "logs_endpoint", "status": "pass"})
 
         if "setup_logging" not in content:
-            checks.append({
-                "name": "logging_setup",
-                "status": "fail",
-                "error": "main.py is missing setup_logging() call. Add: from logger import setup_logging, cleanup_old_logs; setup_logging(); cleanup_old_logs(keep=20)",
-            })
+            checks.append(
+                {
+                    "name": "logging_setup",
+                    "status": "fail",
+                    "error": "main.py is missing setup_logging() call. Add: from logger import setup_logging, cleanup_old_logs; setup_logging(); cleanup_old_logs(keep=20)",
+                }
+            )
         else:
             checks.append({"name": "logging_setup", "status": "pass"})
 
         # Health checker is handled by the manager watchdog — no longer required in main.py
         checks.append({"name": "health_checker", "status": "pass"})
     else:
-        checks.append({"name": "main_py", "status": "fail", "error": "main.py not found"})
+        checks.append(
+            {"name": "main_py", "status": "fail", "error": "main.py not found"}
+        )
 
     # Check index.html has console capture script
     index_html = project_root / "index.html"
     if index_html.exists():
         content = index_html.read_text(encoding="utf-8")
         if "ConsoleCapture" not in content and "/api/logs" not in content:
-            checks.append({
-                "name": "console_capture",
-                "status": "fail",
-                "error": "index.html is missing the ConsoleCapture script. Restore it from the template — it should be an inline <script> before the main.tsx module script",
-            })
+            checks.append(
+                {
+                    "name": "console_capture",
+                    "status": "fail",
+                    "error": "index.html is missing the ConsoleCapture script. Restore it from the template — it should be an inline <script> before the main.tsx module script",
+                }
+            )
         else:
             checks.append({"name": "console_capture", "status": "pass"})
     else:
-        checks.append({"name": "index_html", "status": "fail", "error": "index.html not found"})
+        checks.append(
+            {"name": "index_html", "status": "fail", "error": "index.html not found"}
+        )
 
     # Check conftest.py uses correct imports (not package-style)
     conftest = backend_dir / "tests" / "conftest.py"
     if conftest.exists():
         content = conftest.read_text(encoding="utf-8")
         if "from backend." in content or "from backend import" in content:
-            checks.append({
-                "name": "conftest_imports",
-                "status": "fail",
-                "error": "tests/conftest.py has wrong imports. Use 'from models import Base', 'from database import get_db', 'from main import app' — NOT 'from backend.models' or 'from backend.main'. The conftest.py adds the backend dir to sys.path so absolute imports work.",
-            })
+            checks.append(
+                {
+                    "name": "conftest_imports",
+                    "status": "fail",
+                    "error": "tests/conftest.py has wrong imports. Use 'from models import Base', 'from database import get_db', 'from main import app' — NOT 'from backend.models' or 'from backend.main'. The conftest.py adds the backend dir to sys.path so absolute imports work.",
+                }
+            )
         else:
             checks.append({"name": "conftest_imports", "status": "pass"})
 
@@ -329,6 +371,7 @@ def _check_system_files() -> List[Dict[str, Any]]:
 # ============================================================================
 # External Tests (post-server, HTTP smoke tests)
 # ============================================================================
+
 
 def run_external_tests(port: int) -> Dict[str, Any]:
     """
@@ -353,7 +396,12 @@ def run_external_tests(port: int) -> Dict[str, Any]:
     # Load discovered routes from internal test phase
     discovery_file = LOG_DIR / "test_discovery.json"
     if not discovery_file.exists():
-        result["errors"].append({"test": "setup", "error": "test_discovery.json not found — run --internal first"})
+        result["errors"].append(
+            {
+                "test": "setup",
+                "error": "test_discovery.json not found — run --internal first",
+            }
+        )
         result["status"] = "fail"
         _write_result(result, "test_results.json")
         return result
@@ -373,7 +421,8 @@ def run_external_tests(port: int) -> Dict[str, Any]:
 
     # Filter to only /api/* routes, skip framework/template routes
     api_routes = [
-        r for r in routes
+        r
+        for r in routes
         if r["path"].startswith("/api")
         and r["path"] not in SKIP_PATHS
         and not any(r["path"].startswith(prefix) for prefix in SKIP_API_PREFIXES)
@@ -392,24 +441,42 @@ def run_external_tests(port: int) -> Dict[str, Any]:
     auth_routes_exist = any(r["path"].startswith("/api/auth") for r in api_routes)
     if auth_routes_exist:
         try:
-            reg_data = json.dumps({"email": "smoketest@test.com", "username": "smoketest", "password": "testpass123"}).encode()
-            reg_req = urllib.request.Request(f"{base_url}/api/auth/register", data=reg_data, method="POST",
-                                            headers={"Content-Type": "application/json"})
+            reg_data = json.dumps(
+                {
+                    "email": "smoketest@test.com",
+                    "username": "smoketest",
+                    "password": "testpass123",
+                }
+            ).encode()
+            reg_req = urllib.request.Request(
+                f"{base_url}/api/auth/register",
+                data=reg_data,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
             reg_resp = urllib.request.urlopen(reg_req, timeout=10)
             reg_body = json.loads(reg_resp.read().decode())
             auth_token = reg_body.get("token")
-            logger.info(f"[EXTERNAL] Registered smoke test user, token obtained")
+            logger.info("[EXTERNAL] Registered smoke test user, token obtained")
         except Exception as e:
             try:
-                login_data = json.dumps({"email": "smoketest@test.com", "password": "testpass123"}).encode()
-                login_req = urllib.request.Request(f"{base_url}/api/auth/login", data=login_data, method="POST",
-                                                  headers={"Content-Type": "application/json"})
+                login_data = json.dumps(
+                    {"email": "smoketest@test.com", "password": "testpass123"}
+                ).encode()
+                login_req = urllib.request.Request(
+                    f"{base_url}/api/auth/login",
+                    data=login_data,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
                 login_resp = urllib.request.urlopen(login_req, timeout=10)
                 login_body = json.loads(login_resp.read().decode())
                 auth_token = login_body.get("token")
-                logger.info(f"[EXTERNAL] Logged in as smoke test user")
+                logger.info("[EXTERNAL] Logged in as smoke test user")
             except Exception:
-                logger.warning(f"[EXTERNAL] Could not authenticate for smoke tests: {e}")
+                logger.warning(
+                    f"[EXTERNAL] Could not authenticate for smoke tests: {e}"
+                )
         # Skip auth routes from generic testing (they need specific flows)
         api_routes = [r for r in api_routes if not r["path"].startswith("/api/auth")]
 
@@ -429,7 +496,14 @@ def run_external_tests(port: int) -> Dict[str, Any]:
                 ids = created_resources.get(parent_path, [])
             if not ids:
                 logger.info(f"[SKIP] {method} {path} — no test data available")
-                result["tests"].append({"method": method, "path": path, "status": "skipped", "reason": "no test data"})
+                result["tests"].append(
+                    {
+                        "method": method,
+                        "path": path,
+                        "status": "skipped",
+                        "reason": "no test data",
+                    }
+                )
                 continue
             # Substitute the first path param with a created ID
             resolved_path = path
@@ -437,14 +511,18 @@ def run_external_tests(port: int) -> Dict[str, Any]:
                 resolved_path = resolved_path.replace(f"{{{param}}}", str(ids[0]))
             path = resolved_path
 
-        test_result = _test_endpoint(base_url, method, path, route, definitions, auth_token=auth_token)
+        test_result = _test_endpoint(
+            base_url, method, path, route, definitions, auth_token=auth_token
+        )
         result["tests"].append(test_result)
 
         if test_result["status"] == "fail":
-            result["errors"].append({
-                "test": f"{method} {route['path']}",
-                "error": test_result.get("error", "Unknown error"),
-            })
+            result["errors"].append(
+                {
+                    "test": f"{method} {route['path']}",
+                    "error": test_result.get("error", "Unknown error"),
+                }
+            )
             result["status"] = "fail"
             logger.error(f"[FAIL] {method} {path} — {test_result.get('error')}")
         else:
@@ -521,7 +599,10 @@ def _test_endpoint(
             test_result["response_body"] = resp_body
             # FastAPI 422 format: {"detail": [{"loc": [...], "msg": "...", "type": "..."}]}
             if "detail" in resp_body and isinstance(resp_body["detail"], list):
-                details = [f"{'.'.join(str(x) for x in d.get('loc', []))}: {d.get('msg', '')}" for d in resp_body["detail"]]
+                details = [
+                    f"{'.'.join(str(x) for x in d.get('loc', []))}: {d.get('msg', '')}"
+                    for d in resp_body["detail"]
+                ]
                 error_detail = "; ".join(details)
             elif "detail" in resp_body:
                 error_detail = str(resp_body["detail"])
@@ -557,13 +638,17 @@ def _cleanup_test_data(
                 urllib.request.urlopen(req, timeout=5)
                 logger.info(f"[CLEANUP] Deleted {base_path}/{resource_id}")
             except Exception as e:
-                logger.warning(f"[CLEANUP] Failed to delete {base_path}/{resource_id}: {e}")
-                result["tests"].append({
-                    "method": "DELETE",
-                    "path": f"{base_path}/{resource_id}",
-                    "status": "warning",
-                    "error": f"Cleanup failed: {e}",
-                })
+                logger.warning(
+                    f"[CLEANUP] Failed to delete {base_path}/{resource_id}: {e}"
+                )
+                result["tests"].append(
+                    {
+                        "method": "DELETE",
+                        "path": f"{base_path}/{resource_id}",
+                        "status": "warning",
+                        "error": f"Cleanup failed: {e}",
+                    }
+                )
 
 
 # ============================================================================
@@ -587,9 +672,7 @@ _FETCH_PATTERNS = [
 ]
 
 # Extract HTTP method from fetch options: { method: 'POST' } or { method: "GET" }
-_METHOD_PATTERN = re.compile(
-    r"""method\s*:\s*['"](\w+)['"]""", re.MULTILINE
-)
+_METHOD_PATTERN = re.compile(r"""method\s*:\s*['"](\w+)['"]""", re.MULTILINE)
 
 
 def _scan_frontend_api_calls(frontend_dir: Path) -> List[Dict[str, str]]:
@@ -625,19 +708,23 @@ def _scan_frontend_api_calls(frontend_dir: Path) -> List[Dict[str, str]]:
 
                         # Normalize path: replace ${...} template vars with {param}
                         # e.g., /api/items/${id} -> /api/items/{id}
-                        normalized_path = re.sub(r'\$\{[^}]+\}', '{id}', raw_path)
+                        normalized_path = re.sub(r"\$\{[^}]+\}", "{id}", raw_path)
 
                         # Extract method from surrounding context (look ahead ~3 lines)
-                        context = "\n".join(lines[line_num - 1:line_num + 3])
+                        context = "\n".join(lines[line_num - 1 : line_num + 3])
                         method_match = _METHOD_PATTERN.search(context)
-                        method = method_match.group(1).upper() if method_match else "GET"
+                        method = (
+                            method_match.group(1).upper() if method_match else "GET"
+                        )
 
-                        api_calls.append({
-                            "method": method,
-                            "path": normalized_path,
-                            "file": rel,
-                            "line": line_num,
-                        })
+                        api_calls.append(
+                            {
+                                "method": method,
+                                "path": normalized_path,
+                                "file": rel,
+                                "line": line_num,
+                            }
+                        )
 
     return api_calls
 
@@ -647,7 +734,7 @@ def _normalize_route_path(path: str) -> str:
     Normalize a backend route path for comparison.
     e.g., /api/items/{item_id} -> /api/items/{id}
     """
-    return re.sub(r'\{[^}]+\}', '{id}', path)
+    return re.sub(r"\{[^}]+\}", "{id}", path)
 
 
 def run_compatibility_tests() -> Dict[str, Any]:
@@ -679,10 +766,12 @@ def run_compatibility_tests() -> Dict[str, Any]:
     # Load backend routes from discovery
     discovery_file = LOG_DIR / "test_discovery.json"
     if not discovery_file.exists():
-        result["errors"].append({
-            "test": "setup",
-            "error": "test_discovery.json not found — run --internal first",
-        })
+        result["errors"].append(
+            {
+                "test": "setup",
+                "error": "test_discovery.json not found — run --internal first",
+            }
+        )
         result["status"] = "fail"
         _write_result(result, "test_compatibility.json")
         return result
@@ -702,7 +791,9 @@ def run_compatibility_tests() -> Dict[str, Any]:
     result["frontend_calls"] = frontend_calls
 
     if not frontend_calls:
-        logger.info("[COMPAT] No frontend API calls found (this may be OK for new projects)")
+        logger.info(
+            "[COMPAT] No frontend API calls found (this may be OK for new projects)"
+        )
         _write_result(result, "test_compatibility.json")
         return result
 
@@ -723,25 +814,33 @@ def run_compatibility_tests() -> Dict[str, Any]:
             continue
 
         if key not in backend_route_set:
-            result["unmatched_calls"].append({
-                "method": call["method"],
-                "path": call["path"],
-                "file": call["file"],
-                "line": call["line"],
-                "error": f"Frontend calls {call['method']} {call['path']} but no matching backend route exists",
-            })
+            result["unmatched_calls"].append(
+                {
+                    "method": call["method"],
+                    "path": call["path"],
+                    "file": call["file"],
+                    "line": call["line"],
+                    "error": f"Frontend calls {call['method']} {call['path']} but no matching backend route exists",
+                }
+            )
 
     if result["unmatched_calls"]:
         result["status"] = "fail"
         for unmatched in result["unmatched_calls"]:
-            result["errors"].append({
-                "test": "compatibility",
-                "error": unmatched["error"],
-            })
-            logger.error(f"[COMPAT] MISMATCH: {unmatched['method']} {unmatched['path']} "
-                        f"(called from {unmatched['file']}:{unmatched['line']})")
+            result["errors"].append(
+                {
+                    "test": "compatibility",
+                    "error": unmatched["error"],
+                }
+            )
+            logger.error(
+                f"[COMPAT] MISMATCH: {unmatched['method']} {unmatched['path']} "
+                f"(called from {unmatched['file']}:{unmatched['line']})"
+            )
     else:
-        logger.info(f"[COMPAT] All {len(seen)} unique frontend API calls have matching backend routes")
+        logger.info(
+            f"[COMPAT] All {len(seen)} unique frontend API calls have matching backend routes"
+        )
 
     _write_result(result, "test_compatibility.json")
     return result
@@ -750,6 +849,7 @@ def run_compatibility_tests() -> Dict[str, Any]:
 # ============================================================================
 # Auto-Generated Backend Unit Tests
 # ============================================================================
+
 
 def run_unit_tests() -> Dict[str, Any]:
     """
@@ -767,7 +867,7 @@ def run_unit_tests() -> Dict[str, Any]:
     }
 
     try:
-        from sqlalchemy import create_engine, inspect, text
+        from sqlalchemy import create_engine, inspect
         from sqlalchemy.orm import sessionmaker
         from models import Base
     except Exception as e:
@@ -777,7 +877,9 @@ def run_unit_tests() -> Dict[str, Any]:
         return result
 
     # Create temporary in-memory database
-    test_engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    test_engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(bind=test_engine)
     TestSession = sessionmaker(bind=test_engine)
 
@@ -820,7 +922,9 @@ def run_unit_tests() -> Dict[str, Any]:
             result["tests"].append({"test": test_name, "status": "pass"})
             logger.info(f"  [PASS] {test_name} (id={instance_id})")
         except Exception as e:
-            result["tests"].append({"test": test_name, "status": "fail", "error": str(e)})
+            result["tests"].append(
+                {"test": test_name, "status": "fail", "error": str(e)}
+            )
             result["errors"].append({"test": test_name, "error": str(e)})
             result["status"] = "fail"
             logger.error(f"  [FAIL] {test_name}: {e}")
@@ -837,7 +941,9 @@ def run_unit_tests() -> Dict[str, Any]:
             result["tests"].append({"test": test_name, "status": "pass"})
             logger.info(f"  [PASS] {test_name}")
         except Exception as e:
-            result["tests"].append({"test": test_name, "status": "fail", "error": str(e)})
+            result["tests"].append(
+                {"test": test_name, "status": "fail", "error": str(e)}
+            )
             result["errors"].append({"test": test_name, "error": str(e)})
             result["status"] = "fail"
             logger.error(f"  [FAIL] {test_name}: {e}")
@@ -850,7 +956,10 @@ def run_unit_tests() -> Dict[str, Any]:
             # Find a string column to update
             updated = False
             for col in columns:
-                if str(col["type"]).startswith(("VARCHAR", "TEXT", "String")) and col["name"] != "id":
+                if (
+                    str(col["type"]).startswith(("VARCHAR", "TEXT", "String"))
+                    and col["name"] != "id"
+                ):
                     setattr(fetched, col["name"], "updated_test")
                     updated = True
                     break
@@ -862,7 +971,9 @@ def run_unit_tests() -> Dict[str, Any]:
             result["tests"].append({"test": test_name, "status": "pass"})
             logger.info(f"  [PASS] {test_name}")
         except Exception as e:
-            result["tests"].append({"test": test_name, "status": "fail", "error": str(e)})
+            result["tests"].append(
+                {"test": test_name, "status": "fail", "error": str(e)}
+            )
             result["errors"].append({"test": test_name, "error": str(e)})
             result["status"] = "fail"
             logger.error(f"  [FAIL] {test_name}: {e}")
@@ -876,13 +987,17 @@ def run_unit_tests() -> Dict[str, Any]:
                 session.delete(fetched)
                 session.commit()
                 remaining = session.query(model_cls).count()
-                assert remaining == 0, f"Record still exists after delete ({remaining} remaining)"
+                assert remaining == 0, (
+                    f"Record still exists after delete ({remaining} remaining)"
+                )
             session.close()
 
             result["tests"].append({"test": test_name, "status": "pass"})
             logger.info(f"  [PASS] {test_name}")
         except Exception as e:
-            result["tests"].append({"test": test_name, "status": "fail", "error": str(e)})
+            result["tests"].append(
+                {"test": test_name, "status": "fail", "error": str(e)}
+            )
             result["errors"].append({"test": test_name, "error": str(e)})
             result["status"] = "fail"
             logger.error(f"  [FAIL] {test_name}: {e}")
@@ -934,6 +1049,7 @@ def _generate_model_test_data(columns: List[Dict[str, Any]]) -> Dict[str, Any]:
 # Utilities
 # ============================================================================
 
+
 def _write_result(result: Dict[str, Any], filename: str) -> None:
     """Write test results to a JSON file in the logs directory."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -946,13 +1062,26 @@ def _write_result(result: Dict[str, Any], filename: str) -> None:
 # CLI Entry Point
 # ============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Living UI Backend Test Runner")
-    parser.add_argument("--internal", action="store_true", help="Run internal pre-server tests")
-    parser.add_argument("--unit", action="store_true", help="Run auto-generated CRUD unit tests")
-    parser.add_argument("--compatibility", action="store_true", help="Run frontend-backend compatibility check")
-    parser.add_argument("--external", action="store_true", help="Run external HTTP smoke tests")
-    parser.add_argument("--port", type=int, default=3101, help="Backend port for external tests")
+    parser.add_argument(
+        "--internal", action="store_true", help="Run internal pre-server tests"
+    )
+    parser.add_argument(
+        "--unit", action="store_true", help="Run auto-generated CRUD unit tests"
+    )
+    parser.add_argument(
+        "--compatibility",
+        action="store_true",
+        help="Run frontend-backend compatibility check",
+    )
+    parser.add_argument(
+        "--external", action="store_true", help="Run external HTTP smoke tests"
+    )
+    parser.add_argument(
+        "--port", type=int, default=3101, help="Backend port for external tests"
+    )
     args = parser.parse_args()
 
     # Setup basic logging to stderr
@@ -990,7 +1119,7 @@ def main():
     # Print summary
     total_errors = len(result.get("errors", []))
     if result["status"] == "pass":
-        logger.info(f"ALL TESTS PASSED")
+        logger.info("ALL TESTS PASSED")
         # Also print to stdout for subprocess capture
         print(json.dumps({"status": "pass", "errors": 0}))
         sys.exit(0)

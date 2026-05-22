@@ -26,6 +26,7 @@ def _set_token_count(count: int) -> None:
 async def _report_usage(event: UsageEventData) -> None:
     """Report usage to local storage via UsageReporter."""
     from app.usage import get_usage_reporter
+
     await get_usage_reporter().report(event)
 
 
@@ -71,15 +72,22 @@ class VLMInterface(_VLMInterface):
         See LLMInterface._report_usage_async for the race-condition rationale.
         """
         from app.usage.task_attribution import attribute_usage_to_current_task
-        attribute_usage_to_current_task(UsageEventData(
-            service_type=service_type,
-            provider=provider,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cached_tokens=cached_tokens,
-        ))
+
+        attribute_usage_to_current_task(
+            UsageEventData(
+                service_type=service_type,
+                provider=provider,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+            )
+        )
         super()._report_usage_async(
-            service_type, provider, model,
-            input_tokens, output_tokens, cached_tokens,
+            service_type,
+            provider,
+            model,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
         )

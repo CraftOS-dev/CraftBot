@@ -114,6 +114,7 @@ class UIController:
         # without needing a controller handle.
         try:
             from app.state.agent_state import STATE
+
             STATE.event_bus = self._event_bus
         except Exception:
             pass
@@ -624,7 +625,7 @@ class UIController:
                 f"[SKILLS] Registered {len(skill_manager.get_enabled_skills())} "
                 f"skill commands"
             )
-        except Exception as e:
+        except Exception:
             # Skill system may not be initialized yet at startup
             pass
 

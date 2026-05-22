@@ -21,12 +21,13 @@ class ScheduleExpression:
     - "cron": Fire based on cron expression
     - "once": Fire once at a specific time (one-time scheduled task)
     """
+
     schedule_type: str  # "daily", "weekly", "interval", "cron", "once"
     raw_expression: str  # Original string (e.g., "every day at 7am")
 
     # For time-based schedules (daily, weekly)
     hour: Optional[int] = None  # 0-23
-    minute: Optional[int] = 0   # 0-59
+    minute: Optional[int] = 0  # 0-59
 
     # For weekly schedules
     weekday: Optional[int] = None  # 0=Monday, 6=Sunday
@@ -44,7 +45,9 @@ class ScheduleExpression:
         """Validate schedule expression."""
         valid_types = {"daily", "weekly", "interval", "cron", "once"}
         if self.schedule_type not in valid_types:
-            raise ValueError(f"Invalid schedule_type: {self.schedule_type}. Must be one of {valid_types}")
+            raise ValueError(
+                f"Invalid schedule_type: {self.schedule_type}. Must be one of {valid_types}"
+            )
 
         if self.schedule_type in ("daily", "weekly"):
             if self.hour is None:
@@ -63,7 +66,9 @@ class ScheduleExpression:
 
         if self.schedule_type == "interval":
             if self.interval_seconds is None or self.interval_seconds <= 0:
-                raise ValueError(f"interval_seconds must be positive, got {self.interval_seconds}")
+                raise ValueError(
+                    f"interval_seconds must be positive, got {self.interval_seconds}"
+                )
 
         if self.schedule_type == "cron" and not self.cron_expression:
             raise ValueError("cron_expression is required for cron schedules")
@@ -108,24 +113,27 @@ class ScheduledTask:
     Contains both configuration (what to run and when) and runtime state
     (last run time, next scheduled time).
     """
-    id: str                  # Unique identifier
-    name: str                # Human-readable name
-    instruction: str         # What the agent should do (task instruction)
+
+    id: str  # Unique identifier
+    name: str  # Human-readable name
+    instruction: str  # What the agent should do (task instruction)
     schedule: ScheduleExpression  # When to run
 
     # Configuration
     enabled: bool = True
-    priority: int = 50       # Trigger priority (lower = higher priority)
-    mode: str = "simple"     # Task mode: "simple" or "complex"
-    recurring: bool = True   # True for recurring tasks, False for one-time immediate tasks
+    priority: int = 50  # Trigger priority (lower = higher priority)
+    mode: str = "simple"  # Task mode: "simple" or "complex"
+    recurring: bool = (
+        True  # True for recurring tasks, False for one-time immediate tasks
+    )
     action_sets: List[str] = field(default_factory=list)
     skills: List[str] = field(default_factory=list)
     payload: Dict[str, Any] = field(default_factory=dict)  # Extra trigger payload
 
     # Runtime state (not persisted to config)
-    last_run: Optional[float] = None   # Unix timestamp of last run
-    next_run: Optional[float] = None   # Unix timestamp of next scheduled run
-    run_count: int = 0                 # Number of times this schedule has fired
+    last_run: Optional[float] = None  # Unix timestamp of last run
+    next_run: Optional[float] = None  # Unix timestamp of next scheduled run
+    run_count: int = 0  # Number of times this schedule has fired
 
     def __post_init__(self):
         """Validate scheduled task."""
@@ -165,7 +173,9 @@ class ScheduledTask:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], parsed_schedule: ScheduleExpression) -> "ScheduledTask":
+    def from_dict(
+        cls, data: Dict[str, Any], parsed_schedule: ScheduleExpression
+    ) -> "ScheduledTask":
         """
         Create from dictionary.
 
@@ -198,6 +208,7 @@ class SchedulerConfig:
 
     Loaded from scheduler_config.json.
     """
+
     enabled: bool = True
     schedules: List[ScheduledTask] = field(default_factory=list)
 

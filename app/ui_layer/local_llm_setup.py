@@ -19,49 +19,189 @@ OLLAMA_DEFAULT_URL = "http://localhost:11434"
 
 SUGGESTED_MODELS = [
     # ── Llama ──────────────────────────────────────────────────────────────
-    {"name": "llama3.2:1b",        "label": "Llama 3.2 1B",       "size": "~1 GB",   "recommended": False},
-    {"name": "llama3.2:3b",        "label": "Llama 3.2 3B",       "size": "~2 GB",   "recommended": True},
-    {"name": "llama3.1:8b",        "label": "Llama 3.1 8B",       "size": "~5 GB",   "recommended": False},
+    {
+        "name": "llama3.2:1b",
+        "label": "Llama 3.2 1B",
+        "size": "~1 GB",
+        "recommended": False,
+    },
+    {
+        "name": "llama3.2:3b",
+        "label": "Llama 3.2 3B",
+        "size": "~2 GB",
+        "recommended": True,
+    },
+    {
+        "name": "llama3.1:8b",
+        "label": "Llama 3.1 8B",
+        "size": "~5 GB",
+        "recommended": False,
+    },
     # ── Phi ────────────────────────────────────────────────────────────────
-    {"name": "phi4-mini",          "label": "Phi-4 Mini",         "size": "~2.5 GB", "recommended": False},
-    {"name": "phi4",               "label": "Phi-4",              "size": "~9 GB",   "recommended": False},
+    {
+        "name": "phi4-mini",
+        "label": "Phi-4 Mini",
+        "size": "~2.5 GB",
+        "recommended": False,
+    },
+    {"name": "phi4", "label": "Phi-4", "size": "~9 GB", "recommended": False},
     # ── Gemma ──────────────────────────────────────────────────────────────
-    {"name": "gemma3:1b",          "label": "Gemma 3 1B",         "size": "~1 GB",   "recommended": False},
-    {"name": "gemma3:4b",          "label": "Gemma 3 4B",         "size": "~3 GB",   "recommended": False},
-    {"name": "gemma3:12b",         "label": "Gemma 3 12B",        "size": "~8 GB",   "recommended": False},
-    {"name": "gemma3:27b",         "label": "Gemma 3 27B",        "size": "~17 GB",  "recommended": False},
+    {"name": "gemma3:1b", "label": "Gemma 3 1B", "size": "~1 GB", "recommended": False},
+    {"name": "gemma3:4b", "label": "Gemma 3 4B", "size": "~3 GB", "recommended": False},
+    {
+        "name": "gemma3:12b",
+        "label": "Gemma 3 12B",
+        "size": "~8 GB",
+        "recommended": False,
+    },
+    {
+        "name": "gemma3:27b",
+        "label": "Gemma 3 27B",
+        "size": "~17 GB",
+        "recommended": False,
+    },
     # ── Qwen ───────────────────────────────────────────────────────────────
-    {"name": "qwen3:0.6b",         "label": "Qwen 3 0.6B",        "size": "~0.5 GB", "recommended": False},
-    {"name": "qwen3:1.7b",         "label": "Qwen 3 1.7B",        "size": "~1 GB",   "recommended": False},
-    {"name": "qwen3:4b",           "label": "Qwen 3 4B",          "size": "~3 GB",   "recommended": False},
-    {"name": "qwen3:8b",           "label": "Qwen 3 8B",          "size": "~5 GB",   "recommended": False},
-    {"name": "qwen3:14b",          "label": "Qwen 3 14B",         "size": "~9 GB",   "recommended": False},
-    {"name": "qwen3:30b",          "label": "Qwen 3 30B",         "size": "~18 GB",  "recommended": False},
-    {"name": "qwen3-coder:4b",     "label": "Qwen 3 Coder 4B",    "size": "~3 GB",   "recommended": False},
-    {"name": "qwen3-coder:8b",     "label": "Qwen 3 Coder 8B",    "size": "~5 GB",   "recommended": False},
+    {
+        "name": "qwen3:0.6b",
+        "label": "Qwen 3 0.6B",
+        "size": "~0.5 GB",
+        "recommended": False,
+    },
+    {
+        "name": "qwen3:1.7b",
+        "label": "Qwen 3 1.7B",
+        "size": "~1 GB",
+        "recommended": False,
+    },
+    {"name": "qwen3:4b", "label": "Qwen 3 4B", "size": "~3 GB", "recommended": False},
+    {"name": "qwen3:8b", "label": "Qwen 3 8B", "size": "~5 GB", "recommended": False},
+    {"name": "qwen3:14b", "label": "Qwen 3 14B", "size": "~9 GB", "recommended": False},
+    {
+        "name": "qwen3:30b",
+        "label": "Qwen 3 30B",
+        "size": "~18 GB",
+        "recommended": False,
+    },
+    {
+        "name": "qwen3-coder:4b",
+        "label": "Qwen 3 Coder 4B",
+        "size": "~3 GB",
+        "recommended": False,
+    },
+    {
+        "name": "qwen3-coder:8b",
+        "label": "Qwen 3 Coder 8B",
+        "size": "~5 GB",
+        "recommended": False,
+    },
     # ── Mistral ────────────────────────────────────────────────────────────
-    {"name": "mistral:7b",         "label": "Mistral 7B",         "size": "~4 GB",   "recommended": False},
-    {"name": "mistral-nemo",       "label": "Mistral Nemo 12B",   "size": "~7 GB",   "recommended": False},
+    {
+        "name": "mistral:7b",
+        "label": "Mistral 7B",
+        "size": "~4 GB",
+        "recommended": False,
+    },
+    {
+        "name": "mistral-nemo",
+        "label": "Mistral Nemo 12B",
+        "size": "~7 GB",
+        "recommended": False,
+    },
     # ── DeepSeek ───────────────────────────────────────────────────────────
-    {"name": "deepseek-r1:1.5b",   "label": "DeepSeek R1 1.5B",   "size": "~1 GB",   "recommended": False},
-    {"name": "deepseek-r1:7b",     "label": "DeepSeek R1 7B",     "size": "~4 GB",   "recommended": False},
-    {"name": "deepseek-r1:8b",     "label": "DeepSeek R1 8B",     "size": "~5 GB",   "recommended": False},
-    {"name": "deepseek-r1:14b",    "label": "DeepSeek R1 14B",    "size": "~9 GB",   "recommended": False},
-    {"name": "deepseek-r1:32b",    "label": "DeepSeek R1 32B",    "size": "~20 GB",  "recommended": False},
+    {
+        "name": "deepseek-r1:1.5b",
+        "label": "DeepSeek R1 1.5B",
+        "size": "~1 GB",
+        "recommended": False,
+    },
+    {
+        "name": "deepseek-r1:7b",
+        "label": "DeepSeek R1 7B",
+        "size": "~4 GB",
+        "recommended": False,
+    },
+    {
+        "name": "deepseek-r1:8b",
+        "label": "DeepSeek R1 8B",
+        "size": "~5 GB",
+        "recommended": False,
+    },
+    {
+        "name": "deepseek-r1:14b",
+        "label": "DeepSeek R1 14B",
+        "size": "~9 GB",
+        "recommended": False,
+    },
+    {
+        "name": "deepseek-r1:32b",
+        "label": "DeepSeek R1 32B",
+        "size": "~20 GB",
+        "recommended": False,
+    },
     # ── Code models ────────────────────────────────────────────────────────
-    {"name": "codellama:7b",       "label": "Code Llama 7B",      "size": "~4 GB",   "recommended": False},
-    {"name": "codellama:13b",      "label": "Code Llama 13B",     "size": "~8 GB",   "recommended": False},
-    {"name": "starcoder2:3b",      "label": "StarCoder2 3B",      "size": "~2 GB",   "recommended": False},
-    {"name": "starcoder2:7b",      "label": "StarCoder2 7B",      "size": "~4 GB",   "recommended": False},
+    {
+        "name": "codellama:7b",
+        "label": "Code Llama 7B",
+        "size": "~4 GB",
+        "recommended": False,
+    },
+    {
+        "name": "codellama:13b",
+        "label": "Code Llama 13B",
+        "size": "~8 GB",
+        "recommended": False,
+    },
+    {
+        "name": "starcoder2:3b",
+        "label": "StarCoder2 3B",
+        "size": "~2 GB",
+        "recommended": False,
+    },
+    {
+        "name": "starcoder2:7b",
+        "label": "StarCoder2 7B",
+        "size": "~4 GB",
+        "recommended": False,
+    },
     # ── Multimodal ─────────────────────────────────────────────────────────
-    {"name": "llava:7b",           "label": "LLaVA 7B (vision)",  "size": "~4 GB",   "recommended": False},
-    {"name": "llava:13b",          "label": "LLaVA 13B (vision)", "size": "~8 GB",   "recommended": False},
+    {
+        "name": "llava:7b",
+        "label": "LLaVA 7B (vision)",
+        "size": "~4 GB",
+        "recommended": False,
+    },
+    {
+        "name": "llava:13b",
+        "label": "LLaVA 13B (vision)",
+        "size": "~8 GB",
+        "recommended": False,
+    },
     # ── Other ──────────────────────────────────────────────────────────────
-    {"name": "orca-mini:3b",       "label": "Orca Mini 3B",       "size": "~2 GB",   "recommended": False},
-    {"name": "vicuna:7b",          "label": "Vicuna 7B",          "size": "~4 GB",   "recommended": False},
-    {"name": "openchat:7b",        "label": "OpenChat 7B",        "size": "~4 GB",   "recommended": False},
-    {"name": "neural-chat:7b",     "label": "Neural Chat 7B",     "size": "~4 GB",   "recommended": False},
-    {"name": "dolphin-phi:2.7b",   "label": "Dolphin Phi 2.7B",   "size": "~2 GB",   "recommended": False},
+    {
+        "name": "orca-mini:3b",
+        "label": "Orca Mini 3B",
+        "size": "~2 GB",
+        "recommended": False,
+    },
+    {"name": "vicuna:7b", "label": "Vicuna 7B", "size": "~4 GB", "recommended": False},
+    {
+        "name": "openchat:7b",
+        "label": "OpenChat 7B",
+        "size": "~4 GB",
+        "recommended": False,
+    },
+    {
+        "name": "neural-chat:7b",
+        "label": "Neural Chat 7B",
+        "size": "~4 GB",
+        "recommended": False,
+    },
+    {
+        "name": "dolphin-phi:2.7b",
+        "label": "Dolphin Phi 2.7B",
+        "size": "~2 GB",
+        "recommended": False,
+    },
 ]
 
 
@@ -130,13 +270,19 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
             await progress_callback("Checking for winget...")
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "winget", "install", "--id", "Ollama.Ollama",
-                    "--accept-package-agreements", "--accept-source-agreements",
+                    "winget",
+                    "install",
+                    "--id",
+                    "Ollama.Ollama",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
                     "--silent",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await progress_callback("Installing Ollama via winget (this may take a minute)...")
+                await progress_callback(
+                    "Installing Ollama via winget (this may take a minute)..."
+                )
 
                 # Stream winget output line-by-line so the UI doesn't appear frozen.
                 # winget writes useful lines like "Downloading …", "Verifying …",
@@ -165,23 +311,30 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
                     )
                     await progress_callback("Ollama installed successfully!")
                     return {"success": True, "message": "Ollama installed via winget"}
-                await progress_callback("winget install failed, switching to direct download...")
+                await progress_callback(
+                    "winget install failed, switching to direct download..."
+                )
             except FileNotFoundError:
-                await progress_callback("winget not found — downloading installer directly...")
+                await progress_callback(
+                    "winget not found — downloading installer directly..."
+                )
 
             # Direct download fallback
             import os
+
             tmp = os.environ.get("TEMP", os.getcwd())
             installer_path = os.path.join(tmp, "OllamaSetup.exe")
             installer_url = "https://ollama.com/download/OllamaSetup.exe"
 
             await progress_callback("Downloading Ollama installer from ollama.com...")
             dl_proc = await asyncio.create_subprocess_exec(
-                "powershell", "-Command",
+                "powershell",
+                "-Command",
                 f"Invoke-WebRequest -Uri '{installer_url}' -OutFile '{installer_path}' -UseBasicParsing",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+
             # Stream PowerShell output so download progress is visible
             async def _stream_ps(stream: asyncio.StreamReader) -> None:
                 while True:
@@ -202,7 +355,8 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
 
             await progress_callback("Running installer silently...")
             run_proc = await asyncio.create_subprocess_exec(
-                installer_path, "/S",
+                installer_path,
+                "/S",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -214,12 +368,17 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
                 )
                 await progress_callback("Ollama installed successfully!")
                 return {"success": True, "message": "Ollama installed"}
-            return {"success": False, "error": "Installer ran but Ollama was not detected"}
+            return {
+                "success": False,
+                "error": "Installer ran but Ollama was not detected",
+            }
 
         elif system in ("Darwin", "Linux"):
             await progress_callback("Downloading Ollama install script...")
             proc = await asyncio.create_subprocess_exec(
-                "sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh",
+                "sh",
+                "-c",
+                "curl -fsSL https://ollama.com/install.sh | sh",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -237,7 +396,10 @@ async def install_ollama(progress_callback: Callable) -> Dict[str, Any]:
                 await progress_callback("Ollama installed successfully!")
                 return {"success": True}
             else:
-                return {"success": False, "error": "Install script exited with an error"}
+                return {
+                    "success": False,
+                    "error": "Install script exited with an error",
+                }
 
         else:
             return {"success": False, "error": f"Unsupported platform: {system}"}
@@ -265,15 +427,23 @@ async def start_ollama() -> Dict[str, Any]:
             if check_port_open("localhost", 11434):
                 return {"success": True, "message": "Ollama started successfully"}
 
-        return {"success": False, "error": "Ollama started but not responding on port 11434"}
+        return {
+            "success": False,
+            "error": "Ollama started but not responding on port 11434",
+        }
 
     except FileNotFoundError:
-        return {"success": False, "error": "Ollama executable not found — is it installed?"}
+        return {
+            "success": False,
+            "error": "Ollama executable not found — is it installed?",
+        }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
 
-async def pull_ollama_model(model: str, progress_callback: Callable, base_url: str | None = None) -> Dict[str, Any]:
+async def pull_ollama_model(
+    model: str, progress_callback: Callable, base_url: str | None = None
+) -> Dict[str, Any]:
     """Pull an Ollama model via REST API, streaming structured progress via callback.
 
     Uses a background thread so the asyncio event loop stays unblocked and no
@@ -338,12 +508,14 @@ async def pull_ollama_model(model: str, progress_callback: Callable, base_url: s
             total = obj.get("total", 0) or 0
             completed = obj.get("completed", 0) or 0
             percent = int(completed / total * 100) if total > 0 else 0
-            await progress_callback({
-                "message": status,
-                "total": total,
-                "completed": completed,
-                "percent": percent,
-            })
+            await progress_callback(
+                {
+                    "message": status,
+                    "total": total,
+                    "completed": completed,
+                    "percent": percent,
+                }
+            )
             if status == "success":
                 break
 

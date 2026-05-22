@@ -38,7 +38,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     user_id = int(payload.get("sub", 0))
-    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
@@ -82,24 +82,44 @@ def require_membership(resource_type: str):
             or request.path_params.get("id")
         )
         if not resource_id:
-            raise HTTPException(status_code=400, detail=f"Missing {resource_type}_id in path")
+            raise HTTPException(
+                status_code=400, detail=f"Missing {resource_type}_id in path"
+            )
 
         # Global admins bypass membership check
         if user.role == "admin":
-            membership = db.query(Membership).filter_by(
-                user_id=user.id, resource_type=resource_type, resource_id=int(resource_id)
-            ).first()
+            membership = (
+                db.query(Membership)
+                .filter_by(
+                    user_id=user.id,
+                    resource_type=resource_type,
+                    resource_id=int(resource_id),
+                )
+                .first()
+            )
             if membership:
                 return membership
             # Admin without membership — create a synthetic one for compatibility
-            return Membership(user_id=user.id, resource_type=resource_type,
-                              resource_id=int(resource_id), role="admin")
+            return Membership(
+                user_id=user.id,
+                resource_type=resource_type,
+                resource_id=int(resource_id),
+                role="admin",
+            )
 
-        membership = db.query(Membership).filter_by(
-            user_id=user.id, resource_type=resource_type, resource_id=int(resource_id)
-        ).first()
+        membership = (
+            db.query(Membership)
+            .filter_by(
+                user_id=user.id,
+                resource_type=resource_type,
+                resource_id=int(resource_id),
+            )
+            .first()
+        )
         if not membership:
-            raise HTTPException(status_code=403, detail=f"Not a member of this {resource_type}")
+            raise HTTPException(
+                status_code=403, detail=f"Not a member of this {resource_type}"
+            )
         return membership
 
     return dependency

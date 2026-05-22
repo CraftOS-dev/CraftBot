@@ -87,6 +87,7 @@ class SkillManager:
             Number of skills loaded.
         """
         import asyncio
+
         asyncio.get_event_loop().run_until_complete(self._discover_skills())
         return len(self._skills)
 
@@ -170,8 +171,7 @@ class SkillManager:
     def get_user_invocable_skills(self) -> List[Skill]:
         """Get skills that users can invoke via /<name>."""
         return [
-            s for s in self._skills.values()
-            if s.enabled and s.metadata.user_invocable
+            s for s in self._skills.values() if s.enabled and s.metadata.user_invocable
         ]
 
     # ─────────────────────── Selection Helpers ───────────────────────
@@ -183,10 +183,7 @@ class SkillManager:
         Returns:
             Dictionary mapping skill name to description.
         """
-        return {
-            skill.name: skill.description
-            for skill in self.get_enabled_skills()
-        }
+        return {skill.name: skill.description for skill in self.get_enabled_skills()}
 
     # Maximum tokens for skill instructions (approximate: ~4 chars per token)
     # This prevents skill instructions from overwhelming the context.
@@ -196,7 +193,9 @@ class SkillManager:
     # including the workflow ones (memory-processor, craftbot-skill-*).
     MAX_SKILL_INSTRUCTIONS_TOKENS = 16000
 
-    def get_skill_instructions(self, skill_names: List[str], max_tokens: Optional[int] = None) -> str:
+    def get_skill_instructions(
+        self, skill_names: List[str], max_tokens: Optional[int] = None
+    ) -> str:
         """
         Get combined instructions for selected skills with token limit.
 
@@ -225,15 +224,22 @@ class SkillManager:
                 # Check if adding this skill would exceed the limit
                 if total_chars + len(skill_text) > max_chars:
                     # Truncate the skill instructions
-                    remaining_chars = max_chars - total_chars - 50  # Leave room for truncation message
+                    remaining_chars = (
+                        max_chars - total_chars - 50
+                    )  # Leave room for truncation message
                     if remaining_chars > 100:  # Only add if we have meaningful space
                         truncated_text = skill_text[:remaining_chars]
                         # Find last complete sentence or paragraph
-                        last_newline = truncated_text.rfind('\n\n')
+                        last_newline = truncated_text.rfind("\n\n")
                         if last_newline > remaining_chars // 2:
                             truncated_text = truncated_text[:last_newline]
-                        instructions_parts.append(truncated_text + "\n\n[... instructions truncated due to length limit]")
-                        logger.info(f"[SKILLS] Truncated instructions for skill '{name}' to fit token limit")
+                        instructions_parts.append(
+                            truncated_text
+                            + "\n\n[... instructions truncated due to length limit]"
+                        )
+                        logger.info(
+                            f"[SKILLS] Truncated instructions for skill '{name}' to fit token limit"
+                        )
                     break
                 else:
                     instructions_parts.append(skill_text)
@@ -280,7 +286,10 @@ class SkillManager:
             if self._config:
                 if name in self._config.disabled_skills:
                     self._config.disabled_skills.remove(name)
-                if self._config.enabled_skills and name not in self._config.enabled_skills:
+                if (
+                    self._config.enabled_skills
+                    and name not in self._config.enabled_skills
+                ):
                     self._config.enabled_skills.append(name)
                 self._save_config()
 
@@ -347,7 +356,10 @@ class SkillManager:
                 }
                 for skill in all_skills
             },
-            "search_dirs": [str(d) for d in (self._config.get_search_directories() if self._config else [])],
+            "search_dirs": [
+                str(d)
+                for d in (self._config.get_search_directories() if self._config else [])
+            ],
         }
 
 

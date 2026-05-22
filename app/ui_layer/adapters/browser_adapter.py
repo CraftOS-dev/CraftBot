@@ -103,7 +103,6 @@ from app.ui_layer.onboarding import OnboardingFlowController
 from app.ui_layer.metrics import MetricsCollector
 from app.living_ui import (
     LivingUIManager,
-    LivingUIProject,
     set_living_ui_manager,
     register_broadcast_callbacks,
     make_todo_broadcast_hook,
@@ -192,7 +191,8 @@ class BrowserChatComponent(ChatComponentProtocol):
     def _init_storage(self) -> None:
         """Initialize storage and load persisted messages."""
         try:
-            from app.usage.chat_storage import get_chat_storage, StoredChatMessage
+            from app.usage.chat_storage import get_chat_storage
+
             self._storage = get_chat_storage()
 
             # Load recent messages from storage (initial page)
@@ -213,6 +213,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                 options = None
                 if stored.options:
                     from app.ui_layer.components.types import ChatMessageOption
+
                     options = [
                         ChatMessageOption(
                             label=o.get("label", ""),
@@ -221,17 +222,19 @@ class BrowserChatComponent(ChatComponentProtocol):
                         )
                         for o in stored.options
                     ]
-                self._messages.append(ChatMessage(
-                    sender=stored.sender,
-                    content=stored.content,
-                    style=stored.style,
-                    timestamp=stored.timestamp,
-                    message_id=stored.message_id,
-                    attachments=attachments,
-                    task_session_id=stored.task_session_id,
-                    options=options,
-                    option_selected=stored.option_selected,
-                ))
+                self._messages.append(
+                    ChatMessage(
+                        sender=stored.sender,
+                        content=stored.content,
+                        style=stored.style,
+                        timestamp=stored.timestamp,
+                        message_id=stored.message_id,
+                        attachments=attachments,
+                        task_session_id=stored.task_session_id,
+                        options=options,
+                        option_selected=stored.option_selected,
+                    )
+                )
         except Exception:
             # Storage may not be available, continue without persistence
             pass
@@ -244,6 +247,7 @@ class BrowserChatComponent(ChatComponentProtocol):
         if self._storage:
             try:
                 from app.usage.chat_storage import StoredChatMessage
+
                 attachments_data = None
                 if message.attachments:
                     attachments_data = [
@@ -263,7 +267,8 @@ class BrowserChatComponent(ChatComponentProtocol):
                         for o in message.options
                     ]
                 stored = StoredChatMessage(
-                    message_id=message.message_id or f"{message.sender}:{message.timestamp}",
+                    message_id=message.message_id
+                    or f"{message.sender}:{message.timestamp}",
                     sender=message.sender,
                     content=message.content,
                     style=message.style,
@@ -315,10 +320,12 @@ class BrowserChatComponent(ChatComponentProtocol):
         if message.option_selected:
             message_data["optionSelected"] = message.option_selected
 
-        await self._adapter._broadcast({
-            "type": "chat_message",
-            "data": message_data,
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "chat_message",
+                "data": message_data,
+            }
+        )
 
     async def clear(self) -> None:
         """Clear messages and notify clients."""
@@ -331,9 +338,11 @@ class BrowserChatComponent(ChatComponentProtocol):
             except Exception:
                 pass
 
-        await self._adapter._broadcast({
-            "type": "chat_clear",
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "chat_clear",
+            }
+        )
 
     def scroll_to_bottom(self) -> None:
         """No-op - handled by frontend."""
@@ -343,7 +352,9 @@ class BrowserChatComponent(ChatComponentProtocol):
         """Get all loaded messages."""
         return self._messages.copy()
 
-    def get_messages_before(self, before_timestamp: float, limit: int = 50) -> List[ChatMessage]:
+    def get_messages_before(
+        self, before_timestamp: float, limit: int = 50
+    ) -> List[ChatMessage]:
         """Get older messages from storage before a given timestamp."""
         if not self._storage:
             return []
@@ -366,6 +377,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                 options = None
                 if s.options:
                     from app.ui_layer.components.types import ChatMessageOption
+
                     options = [
                         ChatMessageOption(
                             label=o.get("label", ""),
@@ -374,16 +386,18 @@ class BrowserChatComponent(ChatComponentProtocol):
                         )
                         for o in s.options
                     ]
-                messages.append(ChatMessage(
-                    sender=s.sender,
-                    content=s.content,
-                    style=s.style,
-                    timestamp=s.timestamp,
-                    message_id=s.message_id,
-                    attachments=attachments,
-                    options=options,
-                    option_selected=s.option_selected,
-                ))
+                messages.append(
+                    ChatMessage(
+                        sender=s.sender,
+                        content=s.content,
+                        style=s.style,
+                        timestamp=s.timestamp,
+                        message_id=s.message_id,
+                        attachments=attachments,
+                        options=options,
+                        option_selected=s.option_selected,
+                    )
+                )
             return messages
         except Exception:
             return []
@@ -410,35 +424,38 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     def _init_storage(self) -> None:
         """Initialize storage and load persisted actions."""
         try:
-            from app.usage.action_storage import get_action_storage, StoredActionItem
+            from app.usage.action_storage import get_action_storage
+
             self._storage = get_action_storage()
 
             # Mark stale running items as cancelled, but exclude restored tasks
             restored_ids = getattr(
-                self._adapter._controller.agent, '_restored_task_ids', set()
+                self._adapter._controller.agent, "_restored_task_ids", set()
             )
             self._storage.mark_running_as_cancelled(exclude=restored_ids)
 
             # Load recent tasks (and their child actions) from storage
             stored_items = self._storage.get_recent_tasks_with_actions(task_limit=15)
             for stored in stored_items:
-                self._items.append(ActionItem(
-                    id=stored.id,
-                    name=stored.name,
-                    status=stored.status,
-                    item_type=stored.item_type,
-                    parent_id=stored.parent_id,
-                    created_at=stored.created_at,
-                    completed_at=stored.completed_at,
-                    input_data=stored.input_data,
-                    output_data=stored.output_data,
-                    error_message=stored.error_message,
-                    selected_skills=list(stored.selected_skills or []),
-                    workflow_id=stored.workflow_id,
-                    input_tokens=stored.input_tokens,
-                    output_tokens=stored.output_tokens,
-                    cache_tokens=stored.cache_tokens,
-                ))
+                self._items.append(
+                    ActionItem(
+                        id=stored.id,
+                        name=stored.name,
+                        status=stored.status,
+                        item_type=stored.item_type,
+                        parent_id=stored.parent_id,
+                        created_at=stored.created_at,
+                        completed_at=stored.completed_at,
+                        input_data=stored.input_data,
+                        output_data=stored.output_data,
+                        error_message=stored.error_message,
+                        selected_skills=list(stored.selected_skills or []),
+                        workflow_id=stored.workflow_id,
+                        input_tokens=stored.input_tokens,
+                        output_tokens=stored.output_tokens,
+                        cache_tokens=stored.cache_tokens,
+                    )
+                )
         except Exception:
             # Storage may not be available, continue without persistence
             pass
@@ -448,6 +465,7 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         if self._storage:
             try:
                 from app.usage.action_storage import StoredActionItem
+
                 stored = StoredActionItem(
                     id=item.id,
                     name=item.name,
@@ -484,26 +502,28 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         # Persist to storage
         self._persist_item(item)
 
-        await self._adapter._broadcast({
-            "type": "action_add",
-            "data": {
-                "id": item.id,
-                "name": item.name,
-                "status": item.status,
-                "itemType": item.item_type,
-                "parentId": item.parent_id,
-                "createdAt": int(item.created_at * 1000),
-                "duration": item.duration,
-                "input": item.input_data,
-                "output": item.output_data,
-                "error": item.error_message,
-                "selectedSkills": list(item.selected_skills or []),
-                "workflowId": item.workflow_id,
-                "inputTokens": item.input_tokens,
-                "outputTokens": item.output_tokens,
-                "cacheTokens": item.cache_tokens,
-            },
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "action_add",
+                "data": {
+                    "id": item.id,
+                    "name": item.name,
+                    "status": item.status,
+                    "itemType": item.item_type,
+                    "parentId": item.parent_id,
+                    "createdAt": int(item.created_at * 1000),
+                    "duration": item.duration,
+                    "input": item.input_data,
+                    "output": item.output_data,
+                    "error": item.error_message,
+                    "selectedSkills": list(item.selected_skills or []),
+                    "workflowId": item.workflow_id,
+                    "inputTokens": item.input_tokens,
+                    "outputTokens": item.output_tokens,
+                    "cacheTokens": item.cache_tokens,
+                },
+            }
+        )
 
     async def update_item(self, item_id: str, status: str) -> None:
         """Update item status by ID and broadcast."""
@@ -512,7 +532,10 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             if item.id == item_id:
                 item.status = status
                 # Record completion time for completed/error/cancelled status
-                if status in ("completed", "error", "cancelled") and item.completed_at is None:
+                if (
+                    status in ("completed", "error", "cancelled")
+                    and item.completed_at is None
+                ):
                     item.completed_at = time.time()
                 matched_item = item
                 break
@@ -521,16 +544,18 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             # Persist update to storage
             self._persist_item(matched_item)
 
-            await self._adapter._broadcast({
-                "type": "action_update",
-                "data": {
-                    "id": item_id,
-                    "status": status,
-                    "duration": matched_item.duration,
-                    "output": matched_item.output_data,
-                    "error": matched_item.error_message,
-                },
-            })
+            await self._adapter._broadcast(
+                {
+                    "type": "action_update",
+                    "data": {
+                        "id": item_id,
+                        "status": status,
+                        "duration": matched_item.duration,
+                        "output": matched_item.output_data,
+                        "error": matched_item.error_message,
+                    },
+                }
+            )
 
     async def update_item_by_name(
         self,
@@ -577,7 +602,10 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         if matched_item:
             matched_item.status = status
             # Record completion time for completed/error/cancelled status
-            if status in ("completed", "error", "cancelled") and matched_item.completed_at is None:
+            if (
+                status in ("completed", "error", "cancelled")
+                and matched_item.completed_at is None
+            ):
                 matched_item.completed_at = time.time()
             # Set output and error data
             if output is not None:
@@ -588,16 +616,18 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             # Persist update to storage
             self._persist_item(matched_item)
 
-            await self._adapter._broadcast({
-                "type": "action_update",
-                "data": {
-                    "id": matched_item.id,
-                    "status": status,
-                    "duration": matched_item.duration,
-                    "output": matched_item.output_data,
-                    "error": matched_item.error_message,
-                },
-            })
+            await self._adapter._broadcast(
+                {
+                    "type": "action_update",
+                    "data": {
+                        "id": matched_item.id,
+                        "status": status,
+                        "duration": matched_item.duration,
+                        "output": matched_item.output_data,
+                        "error": matched_item.error_message,
+                    },
+                }
+            )
 
     async def update_item_tokens(
         self,
@@ -622,15 +652,17 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             # Persist update to storage so totals survive a refresh/restart
             self._persist_item(matched_item)
 
-            await self._adapter._broadcast({
-                "type": "task_token_update",
-                "data": {
-                    "id": item_id,
-                    "inputTokens": input_tokens,
-                    "outputTokens": output_tokens,
-                    "cacheTokens": cache_tokens,
-                },
-            })
+            await self._adapter._broadcast(
+                {
+                    "type": "task_token_update",
+                    "data": {
+                        "id": item_id,
+                        "inputTokens": input_tokens,
+                        "outputTokens": output_tokens,
+                        "cacheTokens": cache_tokens,
+                    },
+                }
+            )
             logger.debug(
                 f"[TOKEN_UI] broadcast task_token_update id={item_id} "
                 f"in={input_tokens} out={output_tokens} cache={cache_tokens}"
@@ -663,16 +695,18 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             # Persist update to storage
             self._persist_item(matched_item)
 
-            await self._adapter._broadcast({
-                "type": "action_update",
-                "data": {
-                    "id": item_id,
-                    "status": matched_item.status,
-                    "duration": matched_item.duration,
-                    "output": matched_item.output_data,
-                    "error": matched_item.error_message,
-                },
-            })
+            await self._adapter._broadcast(
+                {
+                    "type": "action_update",
+                    "data": {
+                        "id": item_id,
+                        "status": matched_item.status,
+                        "duration": matched_item.duration,
+                        "output": matched_item.output_data,
+                        "error": matched_item.error_message,
+                    },
+                }
+            )
 
     async def remove_item(self, item_id: str) -> None:
         """Remove item and broadcast."""
@@ -685,10 +719,12 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             except Exception:
                 pass
 
-        await self._adapter._broadcast({
-            "type": "action_remove",
-            "data": {"id": item_id},
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "action_remove",
+                "data": {"id": item_id},
+            }
+        )
 
     async def clear(self) -> None:
         """Clear all items and broadcast."""
@@ -701,9 +737,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             except Exception:
                 pass
 
-        await self._adapter._broadcast({
-            "type": "action_clear",
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "action_clear",
+            }
+        )
 
     async def clear_terminal_tasks(self) -> int:
         """
@@ -734,7 +772,8 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._items = [
             item
             for item in self._items
-            if item.id not in terminal_task_ids and item.parent_id not in terminal_task_ids
+            if item.id not in terminal_task_ids
+            and item.parent_id not in terminal_task_ids
         ]
 
         # Mirror in storage so a refresh doesn't bring them back. We let
@@ -749,10 +788,12 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         # Tell each connected client to drop the removed items individually,
         # so any other (running) tasks they're watching stay in place.
         for item_id in removed_ids:
-            await self._adapter._broadcast({
-                "type": "action_remove",
-                "data": {"id": item_id},
-            })
+            await self._adapter._broadcast(
+                {
+                    "type": "action_remove",
+                    "data": {"id": item_id},
+                }
+            )
 
         return len(terminal_task_ids)
 
@@ -764,12 +805,16 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         """Get all loaded items."""
         return self._items.copy()
 
-    def get_tasks_before(self, before_timestamp: float, task_limit: int = 15) -> List[ActionItem]:
+    def get_tasks_before(
+        self, before_timestamp: float, task_limit: int = 15
+    ) -> List[ActionItem]:
         """Get older tasks (and their child actions) from storage."""
         if not self._storage:
             return []
         try:
-            stored = self._storage.get_tasks_before(before_timestamp, task_limit=task_limit)
+            stored = self._storage.get_tasks_before(
+                before_timestamp, task_limit=task_limit
+            )
             return [
                 ActionItem(
                     id=s.id,
@@ -791,11 +836,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     def get_task_count(self) -> int:
         """Get total task count (not actions) from storage."""
         if not self._storage:
-            return len([i for i in self._items if i.item_type == 'task'])
+            return len([i for i in self._items if i.item_type == "task"])
         try:
             return self._storage.get_task_count()
         except Exception:
-            return len([i for i in self._items if i.item_type == 'task'])
+            return len([i for i in self._items if i.item_type == "task"])
 
 
 class BrowserStatusBarComponent(StatusBarProtocol):
@@ -809,24 +854,28 @@ class BrowserStatusBarComponent(StatusBarProtocol):
     async def set_status(self, message: str) -> None:
         """Set status and broadcast."""
         self._status = message
-        await self._adapter._broadcast({
-            "type": "status_update",
-            "data": {
-                "message": message,
-                "loading": self._loading,
-            },
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "status_update",
+                "data": {
+                    "message": message,
+                    "loading": self._loading,
+                },
+            }
+        )
 
     async def set_loading(self, loading: bool) -> None:
         """Set loading state and broadcast."""
         self._loading = loading
-        await self._adapter._broadcast({
-            "type": "status_update",
-            "data": {
-                "message": self._status,
-                "loading": loading,
-            },
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "status_update",
+                "data": {
+                    "message": self._status,
+                    "loading": loading,
+                },
+            }
+        )
 
     def get_status(self) -> str:
         """Get current status."""
@@ -845,26 +894,34 @@ class BrowserFootageComponent(FootageComponentProtocol):
         import base64
 
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        await self._adapter._broadcast({
-            "type": "footage_update",
-            "data": {
-                "image": f"data:image/png;base64,{b64}",
-            },
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "footage_update",
+                "data": {
+                    "image": f"data:image/png;base64,{b64}",
+                },
+            }
+        )
 
     async def clear(self) -> None:
         """Clear footage."""
-        await self._adapter._broadcast({
-            "type": "footage_clear",
-        })
+        await self._adapter._broadcast(
+            {
+                "type": "footage_clear",
+            }
+        )
 
     def set_visible(self, visible: bool) -> None:
         """Set visibility."""
         self._visible = visible
-        asyncio.create_task(self._adapter._broadcast({
-            "type": "footage_visibility",
-            "data": {"visible": visible},
-        }))
+        asyncio.create_task(
+            self._adapter._broadcast(
+                {
+                    "type": "footage_visibility",
+                    "data": {"visible": visible},
+                }
+            )
+        )
 
 
 class BrowserAdapter(InterfaceAdapter):
@@ -904,10 +961,11 @@ class BrowserAdapter(InterfaceAdapter):
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
 
         # Living UI manager
-        template_path = Path(__file__).parent.parent.parent / "data" / "living_ui_template"
+        template_path = (
+            Path(__file__).parent.parent.parent / "data" / "living_ui_template"
+        )
         self._living_ui_manager = LivingUIManager(
-            workspace_root=AGENT_WORKSPACE_ROOT,
-            template_path=template_path
+            workspace_root=AGENT_WORKSPACE_ROOT, template_path=template_path
         )
         # Bind task_manager and trigger_queue for task creation
         agent = self._controller.agent
@@ -993,7 +1051,7 @@ class BrowserAdapter(InterfaceAdapter):
             self._adapter_id,
             target_session_id=target_session_id,
             client_id=client_id,
-            living_ui_id=living_ui_id
+            living_ui_id=living_ui_id,
         )
 
     def _handle_task_start(self, event: UIEvent) -> None:
@@ -1070,15 +1128,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_get("/ws", self._websocket_handler)
         self._app.router.add_get("/api/state", self._state_handler)
         self._app.router.add_get("/api/theme.css", self._theme_css_handler)
-        self._app.router.add_get("/api/workspace/{path:.*}", self._workspace_file_handler)
-        self._app.router.add_get("/api/agent-profile-picture", self._agent_profile_picture_handler)
+        self._app.router.add_get(
+            "/api/workspace/{path:.*}", self._workspace_file_handler
+        )
+        self._app.router.add_get(
+            "/api/agent-profile-picture", self._agent_profile_picture_handler
+        )
 
         # Living UI export/import routes
-        self._app.router.add_get("/api/living-ui/{project_id}/export", self._living_ui_export_handler)
-        self._app.router.add_post("/api/living-ui/import", self._living_ui_import_handler)
+        self._app.router.add_get(
+            "/api/living-ui/{project_id}/export", self._living_ui_export_handler
+        )
+        self._app.router.add_post(
+            "/api/living-ui/import", self._living_ui_import_handler
+        )
 
         # Integration bridge routes (Living UI → external APIs)
         from app.living_ui.integration_bridge import IntegrationBridge
+
         self._integration_bridge = IntegrationBridge(self._living_ui_manager)
         self._integration_bridge.register_routes(self._app)
 
@@ -1123,8 +1190,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         # Only print URL info if not using browser startup UI (run.py handles it)
         import os
+
         if os.getenv("BROWSER_STARTUP_UI", "0") != "1":
-            print(f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}")
+            print(
+                f"\nCraftBot Browser Interface running at http://{self._host}:{self._port}"
+            )
             print("Open this URL in your browser to interact with CraftBot.\n")
 
         # Emit ready event
@@ -1153,7 +1223,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._living_ui_manager.stop_all_projects()
 
         # Close integration bridge HTTP client
-        if hasattr(self, '_integration_bridge'):
+        if hasattr(self, "_integration_bridge"):
             await self._integration_bridge.cleanup()
 
         # Cancel metrics broadcasting task
@@ -1174,7 +1244,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._runner.cleanup()
             self._runner = None
 
-    async def _websocket_handler(self, request: "web.Request") -> "web.WebSocketResponse":
+    async def _websocket_handler(
+        self, request: "web.Request"
+    ) -> "web.WebSocketResponse":
         """Handle WebSocket connections."""
         from aiohttp import web, WSMsgType
         import asyncio
@@ -1183,7 +1255,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             max_msg_size=100 * 1024 * 1024,
             heartbeat=30.0,  # Send ping every 30s to keep connection alive
         )
-        
+
         try:
             await ws.prepare(request)
         except ClientConnectionResetError:
@@ -1194,14 +1266,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return ws
         except Exception as e:
             import traceback as _tb
+
             self._ws_prepare_failures += 1
             try:
-                peer = request.transport.get_extra_info("peername") if request.transport else None
+                peer = (
+                    request.transport.get_extra_info("peername")
+                    if request.transport
+                    else None
+                )
             except Exception:
                 peer = None
             user_agent = request.headers.get("User-Agent", "")
             attempt_id = request.query.get("attempt", "")
-            uptime_s = (time.monotonic() - self._started_at) if self._started_at else -1.0
+            uptime_s = (
+                (time.monotonic() - self._started_at) if self._started_at else -1.0
+            )
             print(
                 "[BROWSER ADAPTER] Failed to prepare WebSocket: "
                 f"err={type(e).__name__}: {e} | peer={peer} | attempt_id={attempt_id} "
@@ -1210,7 +1289,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 f"{_tb.format_exc()}"
             )
             return ws
-        
+
         is_first_client = len(self._ws_clients) == 0
         self._ws_clients.add(ws)
 
@@ -1218,28 +1297,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # is ready to receive the task creation event.
         if is_first_client:
             from app.onboarding import onboarding_manager
+
             if onboarding_manager.needs_soft_onboarding:
                 agent = self._controller.agent
                 if agent:
                     import asyncio
+
                     asyncio.create_task(agent.trigger_soft_onboarding())
 
         # Send initial state
         try:
             initial_state = self._get_initial_state()
-            await ws.send_json({
-                "type": "init",
-                "data": initial_state,
-            })
-            await ws.send_json({
-                "type": "skill_meta",
-                "data": self._get_skill_meta(),
-            })
-        except (ConnectionResetError, ClientConnectionResetError, RuntimeError) as e:
+            await ws.send_json(
+                {
+                    "type": "init",
+                    "data": initial_state,
+                }
+            )
+            await ws.send_json(
+                {
+                    "type": "skill_meta",
+                    "data": self._get_skill_meta(),
+                }
+            )
+        except (ConnectionResetError, ClientConnectionResetError, RuntimeError):
             # Gracefully handle connection closing
             self._ws_clients.discard(ws)
             return ws
-        except Exception as e:
+        except Exception:
             self._ws_clients.discard(ws)
             return ws
 
@@ -1257,22 +1342,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 except json.JSONDecodeError as e:
                     # Continue on JSON errors, don't close connection
                     import traceback
+
                     error_detail = f"JSON decode error: {e}"
                     print(f"[BROWSER ADAPTER] {error_detail}")
                     await self._broadcast_error_to_chat(error_detail)
                 except Exception as e:
                     # Continue on message errors, don't close connection
                     import traceback
+
                     error_detail = f"WebSocket message error: {type(e).__name__}: {e}\n{traceback.format_exc()}"
                     print(f"[BROWSER ADAPTER] {error_detail}")
                     await self._broadcast_error_to_chat(error_detail)
         except asyncio.CancelledError:
             print("[BROWSER ADAPTER] WebSocket cancelled")
         except (ClientConnectionResetError, ConnectionResetError) as e:
-            print(f"[BROWSER ADAPTER] WebSocket connection reset: {type(e).__name__}: {e}")
+            print(
+                f"[BROWSER ADAPTER] WebSocket connection reset: {type(e).__name__}: {e}"
+            )
         except Exception as e:
             import traceback
-            print(f"[BROWSER ADAPTER] WebSocket loop error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+            print(
+                f"[BROWSER ADAPTER] WebSocket loop error: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+            )
         finally:
             self._ws_clients.discard(ws)
             self._metrics_subscribers.discard(ws)
@@ -1287,11 +1379,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # User sent a message (may include attachments and/or reply context)
             content = data.get("content", "")
             attachments = data.get("attachments", [])
-            reply_context = data.get("replyContext")  # {sessionId?: str, originalMessage: str}
-            living_ui_id = data.get("livingUIId")  # Set when user is on a Living UI page
+            reply_context = data.get(
+                "replyContext"
+            )  # {sessionId?: str, originalMessage: str}
+            living_ui_id = data.get(
+                "livingUIId"
+            )  # Set when user is on a Living UI page
             client_id = data.get("clientId")
             if living_ui_id:
-                logger.info(f"[BROWSER ADAPTER] Message from Living UI page: {living_ui_id}")
+                logger.info(
+                    f"[BROWSER ADAPTER] Message from Living UI page: {living_ui_id}"
+                )
 
             # Dispatch chat submission as a background task so the WS message loop
             # can immediately read the next frame. Otherwise rapid-fire sends are
@@ -1334,7 +1432,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             offset = data.get("offset", 0)
             limit = data.get("limit", 50)
             search = data.get("search", "")
-            await self._handle_file_list(directory, offset=offset, limit=limit, search=search)
+            await self._handle_file_list(
+                directory, offset=offset, limit=limit, search=search
+            )
 
         elif msg_type == "file_read":
             file_path = data.get("path", "")
@@ -1684,7 +1784,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             project_id = data.get("projectId", "")
             setting = data.get("setting", "")
             value = data.get("value")
-            await self._handle_living_ui_project_setting_update(project_id, setting, value)
+            await self._handle_living_ui_project_setting_update(
+                project_id, setting, value
+            )
 
         elif msg_type == "living_ui_marketplace_list":
             await self._handle_marketplace_list()
@@ -1695,7 +1797,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             app_description = data.get("appDescription", "")
             custom_fields = data.get("customFields", {})
             # Run as background task so the WS loop stays unblocked for concurrent installs
-            asyncio.create_task(self._handle_marketplace_install(app_id, app_name, app_description, custom_fields))
+            asyncio.create_task(
+                self._handle_marketplace_install(
+                    app_id, app_name, app_description, custom_fields
+                )
+            )
 
         elif msg_type == "living_ui_import":
             source = data.get("source", "")
@@ -1804,42 +1910,50 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         try:
             update_available, current, latest = await check_for_update()
-            await self._broadcast({
-                "type": "update_check_result",
-                "data": {
-                    "updateAvailable": update_available,
-                    "currentVersion": current,
-                    "latestVersion": latest,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "update_check_result",
+                    "data": {
+                        "updateAvailable": update_available,
+                        "currentVersion": current,
+                        "latestVersion": latest,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "update_check_result",
-                "data": {
-                    "updateAvailable": False,
-                    "currentVersion": "",
-                    "latestVersion": "",
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "update_check_result",
+                    "data": {
+                        "updateAvailable": False,
+                        "currentVersion": "",
+                        "latestVersion": "",
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_do_update(self) -> None:
         """Perform CraftBot update and restart."""
         from app.updater import perform_update
 
         async def progress(msg: str) -> None:
-            await self._broadcast({
-                "type": "update_progress",
-                "data": {"message": msg},
-            })
+            await self._broadcast(
+                {
+                    "type": "update_progress",
+                    "data": {"message": msg},
+                }
+            )
 
         try:
             await perform_update(progress_callback=progress)
         except Exception as e:
-            await self._broadcast({
-                "type": "update_progress",
-                "data": {"message": f"Update failed: {e}"},
-            })
+            await self._broadcast(
+                {
+                    "type": "update_progress",
+                    "data": {"message": f"Update failed: {e}"},
+                }
+            )
 
     async def _handle_dashboard_metrics_filter(self, period: str) -> None:
         """Handle filtered metrics request for specific time period."""
@@ -1854,18 +1968,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             filtered_metrics = self._metrics_collector.get_filtered_metrics(period_enum)
 
-            await self._broadcast({
-                "type": "dashboard_filtered_metrics",
-                "data": filtered_metrics.to_dict(),
-            })
+            await self._broadcast(
+                {
+                    "type": "dashboard_filtered_metrics",
+                    "data": filtered_metrics.to_dict(),
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "dashboard_filtered_metrics",
-                "data": {
-                    "error": str(e),
-                    "period": period,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "dashboard_filtered_metrics",
+                    "data": {
+                        "error": str(e),
+                        "period": period,
+                    },
+                }
+            )
 
     # -------------------------------------------------------------------------
     # Onboarding Handlers
@@ -1883,209 +2001,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             controller = self._get_onboarding_controller()
 
             if not controller.needs_hard_onboarding:
-                await self._broadcast({
-                    "type": "onboarding_step",
-                    "data": {
-                        "success": True,
-                        "completed": True,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "onboarding_step",
+                        "data": {
+                            "success": True,
+                            "completed": True,
+                        },
+                    }
+                )
                 return
 
             step = controller.get_current_step()
             options = controller.get_step_options()
 
-            await self._broadcast({
-                "type": "onboarding_step",
-                "data": {
-                    "success": True,
-                    "completed": False,
-                    "step": {
-                        "name": step.name,
-                        "title": step.title,
-                        "description": step.description,
-                        "required": step.required,
-                        "index": controller.current_step_index,
-                        "total": controller.total_steps,
-                        "options": [
-                            {
-                                "value": opt.value,
-                                "label": opt.label,
-                                "description": opt.description,
-                                "default": opt.default,
-                                "icon": opt.icon,
-                                "requires_setup": opt.requires_setup,
-                            }
-                            for opt in options
-                        ],
-                        "default": controller.get_step_default(),
-                        "provider": getattr(step, "provider", None),
-                        "form_fields": self._get_step_form_fields(step),
-                    },
-                },
-            })
-        except Exception as e:
-            logger.error(f"[ONBOARDING] Error getting step: {e}")
-            await self._broadcast({
-                "type": "onboarding_step",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
-
-    @staticmethod
-    def _get_step_form_fields(step) -> Optional[list]:
-        """Extract form field definitions from a step, if it supports them."""
-        form_fields = getattr(step, 'get_form_fields', lambda: [])()
-        if not form_fields:
-            return None
-        return [
-            {
-                "name": f.name,
-                "label": f.label,
-                "field_type": f.field_type,
-                "options": [
-                    {"value": o.value, "label": o.label, "description": o.description, "default": o.default}
-                    for o in f.options
-                ],
-                "default": f.default,
-                "placeholder": f.placeholder,
-            }
-            for f in form_fields
-        ]
-
-    async def _handle_onboarding_step_submit(self, value: Any) -> None:
-        """Submit a value for the current onboarding step."""
-        try:
-            controller = self._get_onboarding_controller()
-
-            # Validate the value
-            is_valid, error = controller.validate_step_value(value)
-
-            if not is_valid:
-                await self._broadcast({
-                    "type": "onboarding_submit",
-                    "data": {
-                        "success": False,
-                        "error": error or "Invalid value",
-                        "index": controller.current_step_index,
-                    },
-                })
-                return
-
-            # For API key step, test the connection before proceeding
-            step = controller.get_current_step()
-            if step.name == "api_key":
-                provider = controller.get_collected_data().get("provider", "openai")
-                if provider == "remote":
-                    # Test Ollama connection with the submitted URL
-                    ollama_url = (value or "http://localhost:11434").strip()
-                    from app.ui_layer.local_llm_setup import test_ollama_connection_sync
-                    test_result = test_ollama_connection_sync(ollama_url)
-                    if not test_result.get("success"):
-                        err = test_result.get("error", "Cannot reach Ollama")
-                        await self._broadcast({
-                            "type": "onboarding_submit",
-                            "data": {
-                                "success": False,
-                                "error": f"Ollama connection failed: {err}",
-                                "index": controller.current_step_index,
-                            },
-                        })
-                        return
-                    # Normalise the value to the URL that actually worked
-                    value = ollama_url
-                elif value:
-                    from app.models import MODEL_REGISTRY, InterfaceType
-                    from app.onboarding.interfaces.steps import ApiKeyStep
-                    # For proxied providers, value is a dict {api_key, via, or_model?}.
-                    # via='direct' → test the provider's own endpoint.
-                    # via='openrouter' → test via OpenRouter proxy.
-                    if provider in ApiKeyStep.OPENROUTER_PROXIED:
-                        if isinstance(value, dict):
-                            actual_key = value.get("api_key", "")
-                            via = value.get("via", "openrouter")
-                            or_model = value.get("or_model", "")
-                        else:
-                            actual_key = value
-                            via = "direct"
-                            or_model = ""
-
-                        if via == "openrouter":
-                            if not or_model:
-                                from agent_core.core.models.factory import _OR_MODEL_MAP, _to_openrouter_slug
-                                native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM, "")
-                                or_model = _OR_MODEL_MAP.get(provider, {}).get(native_model) or _to_openrouter_slug(provider, native_model)
-                            test_result = test_connection(
-                                provider="openrouter",
-                                api_key=actual_key,
-                                model=or_model,
-                            )
-                        else:
-                            # Direct API test
-                            native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM)
-                            test_result = test_connection(
-                                provider=provider,
-                                api_key=actual_key,
-                                model=native_model,
-                            )
-                        # Store via + resolved or_model so _complete() knows how to save
-                        value = {"api_key": actual_key, "via": via, "or_model": or_model}
-                    else:
-                        actual_key = value if isinstance(value, str) else value.get("api_key", "")
-                        default_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM)
-                        test_result = test_connection(
-                            provider=provider,
-                            api_key=actual_key,
-                            model=default_model,
-                        )
-                    if not test_result.get("success"):
-                        error_msg = test_result.get("error") or test_result.get("message") or "Connection test failed"
-                        await self._broadcast({
-                            "type": "onboarding_submit",
-                            "data": {
-                                "success": False,
-                                "error": error_msg,
-                                "index": controller.current_step_index,
-                            },
-                        })
-                        return
-
-            # Submit the value
-            controller.submit_step_value(value)
-
-            # Move to next step
-            has_more = controller.next_step()
-
-            if not has_more:
-                # Onboarding complete - controller._complete() already called
-                from app.onboarding import onboarding_manager
-
-                from app.ui_layer.settings.general_settings import get_agent_profile_picture_info
-                picture_info = get_agent_profile_picture_info()
-                await self._broadcast({
-                    "type": "onboarding_complete",
+            await self._broadcast(
+                {
+                    "type": "onboarding_step",
                     "data": {
                         "success": True,
-                        "agentName": onboarding_manager.state.agent_name or "Agent",
-                        "agentProfilePictureUrl": picture_info["url"],
-                        "agentProfilePictureHasCustom": picture_info["has_custom"],
-                    },
-                })
-                # Clear cached controller for fresh state
-                if hasattr(self, "_onboarding_controller"):
-                    delattr(self, "_onboarding_controller")
-            else:
-                # Send next step info
-                step = controller.get_current_step()
-                options = controller.get_step_options()
-
-                await self._broadcast({
-                    "type": "onboarding_submit",
-                    "data": {
-                        "success": True,
-                        "nextStep": {
+                        "completed": False,
+                        "step": {
                             "name": step.name,
                             "title": step.title,
                             "description": step.description,
@@ -2108,16 +2044,250 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "form_fields": self._get_step_form_fields(step),
                         },
                     },
-                })
+                }
+            )
+        except Exception as e:
+            logger.error(f"[ONBOARDING] Error getting step: {e}")
+            await self._broadcast(
+                {
+                    "type": "onboarding_step",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    @staticmethod
+    def _get_step_form_fields(step) -> Optional[list]:
+        """Extract form field definitions from a step, if it supports them."""
+        form_fields = getattr(step, "get_form_fields", lambda: [])()
+        if not form_fields:
+            return None
+        return [
+            {
+                "name": f.name,
+                "label": f.label,
+                "field_type": f.field_type,
+                "options": [
+                    {
+                        "value": o.value,
+                        "label": o.label,
+                        "description": o.description,
+                        "default": o.default,
+                    }
+                    for o in f.options
+                ],
+                "default": f.default,
+                "placeholder": f.placeholder,
+            }
+            for f in form_fields
+        ]
+
+    async def _handle_onboarding_step_submit(self, value: Any) -> None:
+        """Submit a value for the current onboarding step."""
+        try:
+            controller = self._get_onboarding_controller()
+
+            # Validate the value
+            is_valid, error = controller.validate_step_value(value)
+
+            if not is_valid:
+                await self._broadcast(
+                    {
+                        "type": "onboarding_submit",
+                        "data": {
+                            "success": False,
+                            "error": error or "Invalid value",
+                            "index": controller.current_step_index,
+                        },
+                    }
+                )
+                return
+
+            # For API key step, test the connection before proceeding
+            step = controller.get_current_step()
+            if step.name == "api_key":
+                provider = controller.get_collected_data().get("provider", "openai")
+                if provider == "remote":
+                    # Test Ollama connection with the submitted URL
+                    ollama_url = (value or "http://localhost:11434").strip()
+                    from app.ui_layer.local_llm_setup import test_ollama_connection_sync
+
+                    test_result = test_ollama_connection_sync(ollama_url)
+                    if not test_result.get("success"):
+                        err = test_result.get("error", "Cannot reach Ollama")
+                        await self._broadcast(
+                            {
+                                "type": "onboarding_submit",
+                                "data": {
+                                    "success": False,
+                                    "error": f"Ollama connection failed: {err}",
+                                    "index": controller.current_step_index,
+                                },
+                            }
+                        )
+                        return
+                    # Normalise the value to the URL that actually worked
+                    value = ollama_url
+                elif value:
+                    from app.models import MODEL_REGISTRY, InterfaceType
+                    from app.onboarding.interfaces.steps import ApiKeyStep
+
+                    # For proxied providers, value is a dict {api_key, via, or_model?}.
+                    # via='direct' → test the provider's own endpoint.
+                    # via='openrouter' → test via OpenRouter proxy.
+                    if provider in ApiKeyStep.OPENROUTER_PROXIED:
+                        if isinstance(value, dict):
+                            actual_key = value.get("api_key", "")
+                            via = value.get("via", "openrouter")
+                            or_model = value.get("or_model", "")
+                        else:
+                            actual_key = value
+                            via = "direct"
+                            or_model = ""
+
+                        if via == "openrouter":
+                            if not or_model:
+                                from agent_core.core.models.factory import (
+                                    _OR_MODEL_MAP,
+                                    _to_openrouter_slug,
+                                )
+
+                                native_model = MODEL_REGISTRY.get(provider, {}).get(
+                                    InterfaceType.LLM, ""
+                                )
+                                or_model = _OR_MODEL_MAP.get(provider, {}).get(
+                                    native_model
+                                ) or _to_openrouter_slug(provider, native_model)
+                            test_result = test_connection(
+                                provider="openrouter",
+                                api_key=actual_key,
+                                model=or_model,
+                            )
+                        else:
+                            # Direct API test
+                            native_model = MODEL_REGISTRY.get(provider, {}).get(
+                                InterfaceType.LLM
+                            )
+                            test_result = test_connection(
+                                provider=provider,
+                                api_key=actual_key,
+                                model=native_model,
+                            )
+                        # Store via + resolved or_model so _complete() knows how to save
+                        value = {
+                            "api_key": actual_key,
+                            "via": via,
+                            "or_model": or_model,
+                        }
+                    else:
+                        actual_key = (
+                            value
+                            if isinstance(value, str)
+                            else value.get("api_key", "")
+                        )
+                        default_model = MODEL_REGISTRY.get(provider, {}).get(
+                            InterfaceType.LLM
+                        )
+                        test_result = test_connection(
+                            provider=provider,
+                            api_key=actual_key,
+                            model=default_model,
+                        )
+                    if not test_result.get("success"):
+                        error_msg = (
+                            test_result.get("error")
+                            or test_result.get("message")
+                            or "Connection test failed"
+                        )
+                        await self._broadcast(
+                            {
+                                "type": "onboarding_submit",
+                                "data": {
+                                    "success": False,
+                                    "error": error_msg,
+                                    "index": controller.current_step_index,
+                                },
+                            }
+                        )
+                        return
+
+            # Submit the value
+            controller.submit_step_value(value)
+
+            # Move to next step
+            has_more = controller.next_step()
+
+            if not has_more:
+                # Onboarding complete - controller._complete() already called
+                from app.onboarding import onboarding_manager
+
+                from app.ui_layer.settings.general_settings import (
+                    get_agent_profile_picture_info,
+                )
+
+                picture_info = get_agent_profile_picture_info()
+                await self._broadcast(
+                    {
+                        "type": "onboarding_complete",
+                        "data": {
+                            "success": True,
+                            "agentName": onboarding_manager.state.agent_name or "Agent",
+                            "agentProfilePictureUrl": picture_info["url"],
+                            "agentProfilePictureHasCustom": picture_info["has_custom"],
+                        },
+                    }
+                )
+                # Clear cached controller for fresh state
+                if hasattr(self, "_onboarding_controller"):
+                    delattr(self, "_onboarding_controller")
+            else:
+                # Send next step info
+                step = controller.get_current_step()
+                options = controller.get_step_options()
+
+                await self._broadcast(
+                    {
+                        "type": "onboarding_submit",
+                        "data": {
+                            "success": True,
+                            "nextStep": {
+                                "name": step.name,
+                                "title": step.title,
+                                "description": step.description,
+                                "required": step.required,
+                                "index": controller.current_step_index,
+                                "total": controller.total_steps,
+                                "options": [
+                                    {
+                                        "value": opt.value,
+                                        "label": opt.label,
+                                        "description": opt.description,
+                                        "default": opt.default,
+                                        "icon": opt.icon,
+                                        "requires_setup": opt.requires_setup,
+                                    }
+                                    for opt in options
+                                ],
+                                "default": controller.get_step_default(),
+                                "provider": getattr(step, "provider", None),
+                                "form_fields": self._get_step_form_fields(step),
+                            },
+                        },
+                    }
+                )
         except Exception as e:
             logger.error(f"[ONBOARDING] Error submitting step: {e}")
-            await self._broadcast({
-                "type": "onboarding_submit",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "onboarding_submit",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_onboarding_skip(self) -> None:
         """Skip the current optional onboarding step."""
@@ -2127,13 +2297,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Check if step is required before trying to skip
             step = controller.get_current_step()
             if step.required:
-                await self._broadcast({
-                    "type": "onboarding_skip",
-                    "data": {
-                        "success": False,
-                        "error": "This step is required and cannot be skipped",
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "onboarding_skip",
+                        "data": {
+                            "success": False,
+                            "error": "This step is required and cannot be skipped",
+                        },
+                    }
+                )
                 return
 
             # Skip the step (advances to next or completes)
@@ -2143,17 +2315,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if controller.is_complete:
                 from app.onboarding import onboarding_manager
 
-                from app.ui_layer.settings.general_settings import get_agent_profile_picture_info
+                from app.ui_layer.settings.general_settings import (
+                    get_agent_profile_picture_info,
+                )
+
                 picture_info = get_agent_profile_picture_info()
-                await self._broadcast({
-                    "type": "onboarding_complete",
-                    "data": {
-                        "success": True,
-                        "agentName": onboarding_manager.state.agent_name or "Agent",
-                        "agentProfilePictureUrl": picture_info["url"],
-                        "agentProfilePictureHasCustom": picture_info["has_custom"],
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "onboarding_complete",
+                        "data": {
+                            "success": True,
+                            "agentName": onboarding_manager.state.agent_name or "Agent",
+                            "agentProfilePictureUrl": picture_info["url"],
+                            "agentProfilePictureHasCustom": picture_info["has_custom"],
+                        },
+                    }
+                )
                 if hasattr(self, "_onboarding_controller"):
                     delattr(self, "_onboarding_controller")
             else:
@@ -2161,11 +2338,74 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 step = controller.get_current_step()
                 options = controller.get_step_options()
 
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "onboarding_skip",
+                        "data": {
+                            "success": True,
+                            "nextStep": {
+                                "name": step.name,
+                                "title": step.title,
+                                "description": step.description,
+                                "required": step.required,
+                                "index": controller.current_step_index,
+                                "total": controller.total_steps,
+                                "options": [
+                                    {
+                                        "value": opt.value,
+                                        "label": opt.label,
+                                        "description": opt.description,
+                                        "default": opt.default,
+                                        "icon": opt.icon,
+                                        "requires_setup": opt.requires_setup,
+                                    }
+                                    for opt in options
+                                ],
+                                "default": controller.get_step_default(),
+                                "provider": getattr(step, "provider", None),
+                            },
+                        },
+                    }
+                )
+        except Exception as e:
+            logger.error(f"[ONBOARDING] Error skipping step: {e}")
+            await self._broadcast(
+                {
                     "type": "onboarding_skip",
                     "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_onboarding_back(self) -> None:
+        """Go back to the previous onboarding step."""
+        try:
+            controller = self._get_onboarding_controller()
+
+            if not controller.previous_step():
+                await self._broadcast(
+                    {
+                        "type": "onboarding_back",
+                        "data": {
+                            "success": False,
+                            "error": "Already at the first step",
+                        },
+                    }
+                )
+                return
+
+            # Send previous step info
+            step = controller.get_current_step()
+            options = controller.get_step_options()
+
+            await self._broadcast(
+                {
+                    "type": "onboarding_back",
+                    "data": {
                         "success": True,
-                        "nextStep": {
+                        "step": {
                             "name": step.name,
                             "title": step.title,
                             "description": step.description,
@@ -2185,75 +2425,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             ],
                             "default": controller.get_step_default(),
                             "provider": getattr(step, "provider", None),
+                            "form_fields": self._get_step_form_fields(step),
                         },
                     },
-                })
+                }
+            )
         except Exception as e:
-            logger.error(f"[ONBOARDING] Error skipping step: {e}")
-            await self._broadcast({
-                "type": "onboarding_skip",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
-
-    async def _handle_onboarding_back(self) -> None:
-        """Go back to the previous onboarding step."""
-        try:
-            controller = self._get_onboarding_controller()
-
-            if not controller.previous_step():
-                await self._broadcast({
+            logger.error(f"[ONBOARDING] Error going back: {e}")
+            await self._broadcast(
+                {
                     "type": "onboarding_back",
                     "data": {
                         "success": False,
-                        "error": "Already at the first step",
+                        "error": str(e),
                     },
-                })
-                return
-
-            # Send previous step info
-            step = controller.get_current_step()
-            options = controller.get_step_options()
-
-            await self._broadcast({
-                "type": "onboarding_back",
-                "data": {
-                    "success": True,
-                    "step": {
-                        "name": step.name,
-                        "title": step.title,
-                        "description": step.description,
-                        "required": step.required,
-                        "index": controller.current_step_index,
-                        "total": controller.total_steps,
-                        "options": [
-                            {
-                                "value": opt.value,
-                                "label": opt.label,
-                                "description": opt.description,
-                                "default": opt.default,
-                                "icon": opt.icon,
-                                "requires_setup": opt.requires_setup,
-                            }
-                            for opt in options
-                        ],
-                        "default": controller.get_step_default(),
-                        "provider": getattr(step, "provider", None),
-                        "form_fields": self._get_step_form_fields(step),
-                    },
-                },
-            })
-        except Exception as e:
-            logger.error(f"[ONBOARDING] Error going back: {e}")
-            await self._broadcast({
-                "type": "onboarding_back",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+                }
+            )
 
     # ── Local LLM (Ollama) handlers ──────────────────────────────────────────
 
@@ -2261,117 +2448,158 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Return Ollama installation and runtime status."""
         try:
             from app.ui_layer.local_llm_setup import get_ollama_status
+
             status = get_ollama_status()
-            await self._broadcast({
-                "type": "local_llm_check",
-                "data": {"success": True, **status},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_check",
+                    "data": {"success": True, **status},
+                }
+            )
         except Exception as e:
             logger.error(f"[LOCAL_LLM] Error checking status: {e}")
-            await self._broadcast({
-                "type": "local_llm_check",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_check",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     async def _handle_local_llm_test(self, url: str) -> None:
         """Test an HTTP connection to a running Ollama instance."""
         try:
             from app.ui_layer.local_llm_setup import test_ollama_connection_sync
+
             result = test_ollama_connection_sync(url)
-            await self._broadcast({
-                "type": "local_llm_test",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_test",
+                    "data": result,
+                }
+            )
         except Exception as e:
             logger.error(f"[LOCAL_LLM] Error testing connection: {e}")
-            await self._broadcast({
-                "type": "local_llm_test",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_test",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     async def _handle_local_llm_install(self) -> None:
         """Install Ollama, streaming progress back to the client."""
+
         async def progress_callback(msg: str) -> None:
-            await self._broadcast({
-                "type": "local_llm_install_progress",
-                "data": {"message": msg},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_install_progress",
+                    "data": {"message": msg},
+                }
+            )
 
         try:
             from app.ui_layer.local_llm_setup import install_ollama
+
             result = await install_ollama(progress_callback)
-            await self._broadcast({
-                "type": "local_llm_install",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_install",
+                    "data": result,
+                }
+            )
         except Exception as e:
             logger.error(f"[LOCAL_LLM] Error installing: {e}")
-            await self._broadcast({
-                "type": "local_llm_install",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_install",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     async def _handle_local_llm_start(self) -> None:
         """Start the Ollama server."""
         try:
             from app.ui_layer.local_llm_setup import start_ollama
+
             result = await start_ollama()
-            await self._broadcast({
-                "type": "local_llm_start",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_start",
+                    "data": result,
+                }
+            )
         except Exception as e:
             logger.error(f"[LOCAL_LLM] Error starting Ollama: {e}")
-            await self._broadcast({
-                "type": "local_llm_start",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_start",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     async def _handle_local_llm_suggested_models(self) -> None:
         """Return the list of suggested Ollama models."""
         from app.ui_layer.local_llm_setup import SUGGESTED_MODELS
-        await self._broadcast({
-            "type": "local_llm_suggested_models",
-            "data": {"models": SUGGESTED_MODELS},
-        })
 
-    async def _handle_local_llm_pull_model(self, model: str, base_url: str | None = None) -> None:
+        await self._broadcast(
+            {
+                "type": "local_llm_suggested_models",
+                "data": {"models": SUGGESTED_MODELS},
+            }
+        )
+
+    async def _handle_local_llm_pull_model(
+        self, model: str, base_url: str | None = None
+    ) -> None:
         """Pull an Ollama model, streaming progress back to the client."""
         if not model:
-            await self._broadcast({
-                "type": "local_llm_pull_model",
-                "data": {"success": False, "error": "No model specified"},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_pull_model",
+                    "data": {"success": False, "error": "No model specified"},
+                }
+            )
             return
 
         # Resolve base URL: explicit param > stored settings > default
         if not base_url:
             try:
                 from app.ui_layer.settings.model_settings import get_model_settings
+
                 settings_data = get_model_settings()
                 base_url = settings_data.get("base_urls", {}).get("remote")
             except Exception:
                 pass
 
         async def progress_callback(data: dict) -> None:
-            await self._broadcast({
-                "type": "local_llm_pull_progress",
-                "data": data,
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_pull_progress",
+                    "data": data,
+                }
+            )
 
         try:
             from app.ui_layer.local_llm_setup import pull_ollama_model
-            result = await pull_ollama_model(model, progress_callback, base_url=base_url)
-            await self._broadcast({
-                "type": "local_llm_pull_model",
-                "data": result,
-            })
+
+            result = await pull_ollama_model(
+                model, progress_callback, base_url=base_url
+            )
+            await self._broadcast(
+                {
+                    "type": "local_llm_pull_model",
+                    "data": result,
+                }
+            )
         except Exception as e:
             logger.error(f"[LOCAL_LLM] Error pulling model {model}: {e}")
-            await self._broadcast({
-                "type": "local_llm_pull_model",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "local_llm_pull_model",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
+
     # -------------------------------------------------------------------------
     # Living UI Handlers
     # -------------------------------------------------------------------------
@@ -2386,13 +2614,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             theme = data.get("theme", "system")
 
             if not name or not description:
-                await self._broadcast({
-                    "type": "living_ui_error",
-                    "data": {
-                        "projectId": "",
-                        "error": "Name and description are required",
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "living_ui_error",
+                        "data": {
+                            "projectId": "",
+                            "error": "Name and description are required",
+                        },
+                    }
+                )
                 return
 
             # Create the project (directory/template)
@@ -2405,72 +2635,88 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # Broadcast project created
-            await self._broadcast({
-                "type": "living_ui_create",
-                "data": {
-                    "success": True,
-                    "projectId": project.id,
-                    "project": project.to_dict(),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_create",
+                    "data": {
+                        "success": True,
+                        "projectId": project.id,
+                        "project": project.to_dict(),
+                    },
+                }
+            )
 
             # Broadcast initial status update
-            await self._broadcast({
-                "type": "living_ui_status",
-                "data": {
-                    "projectId": project.id,
-                    "phase": "initializing",
-                    "progress": 10,
-                    "message": "Project created, starting development...",
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_status",
+                    "data": {
+                        "projectId": project.id,
+                        "phase": "initializing",
+                        "progress": 10,
+                        "message": "Project created, starting development...",
+                    },
+                }
+            )
 
             # Create task and fire trigger via manager
             # The manager handles: task creation, status update, trigger firing
             task_id = await self._living_ui_manager.create_development_task(project.id)
 
             if task_id:
-                logger.info(f"[LIVING_UI] Created and triggered task {task_id} for project {project.id}")
+                logger.info(
+                    f"[LIVING_UI] Created and triggered task {task_id} for project {project.id}"
+                )
             else:
-                logger.error(f"[LIVING_UI] Failed to create task for project {project.id}")
-                await self._broadcast({
-                    "type": "living_ui_error",
-                    "data": {
-                        "projectId": project.id,
-                        "error": "Failed to create development task",
-                    },
-                })
+                logger.error(
+                    f"[LIVING_UI] Failed to create task for project {project.id}"
+                )
+                await self._broadcast(
+                    {
+                        "type": "living_ui_error",
+                        "data": {
+                            "projectId": project.id,
+                            "error": "Failed to create development task",
+                        },
+                    }
+                )
 
         except Exception as e:
             logger.error(f"[LIVING_UI] Error creating project: {e}")
-            await self._broadcast({
-                "type": "living_ui_error",
-                "data": {
-                    "projectId": "",
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": "",
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_living_ui_list(self) -> None:
         """Get list of all Living UI projects."""
         try:
             projects = self._living_ui_manager.list_projects()
-            await self._broadcast({
-                "type": "living_ui_list",
-                "data": {
-                    "success": True,
-                    "projects": [p.to_dict() for p in projects],
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_list",
+                    "data": {
+                        "success": True,
+                        "projects": [p.to_dict() for p in projects],
+                    },
+                }
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Error listing projects: {e}")
-            await self._broadcast({
-                "type": "living_ui_list",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_living_ui_launch(self, project_id: str) -> None:
         """Launch a Living UI project."""
@@ -2479,93 +2725,112 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             project = self._living_ui_manager.get_project(project_id)
 
             if success and project:
-                await self._broadcast({
-                    "type": "living_ui_launch",
-                    "data": {
-                        "success": True,
-                        "projectId": project_id,
-                        "url": project.url,
-                        "port": project.port,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "living_ui_launch",
+                        "data": {
+                            "success": True,
+                            "projectId": project_id,
+                            "url": project.url,
+                            "port": project.port,
+                        },
+                    }
+                )
             else:
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "living_ui_launch",
+                        "data": {
+                            "success": False,
+                            "projectId": project_id,
+                            "error": project.error if project else "Project not found",
+                        },
+                    }
+                )
+        except Exception as e:
+            logger.error(f"[LIVING_UI] Error launching project: {e}")
+            await self._broadcast(
+                {
                     "type": "living_ui_launch",
                     "data": {
                         "success": False,
                         "projectId": project_id,
-                        "error": project.error if project else "Project not found",
+                        "error": str(e),
                     },
-                })
-        except Exception as e:
-            logger.error(f"[LIVING_UI] Error launching project: {e}")
-            await self._broadcast({
-                "type": "living_ui_launch",
-                "data": {
-                    "success": False,
-                    "projectId": project_id,
-                    "error": str(e),
-                },
-            })
+                }
+            )
 
     async def _handle_living_ui_stop(self, project_id: str) -> None:
         """Stop a running Living UI project."""
         try:
             success = await self._living_ui_manager.stop_project(project_id)
-            await self._broadcast({
-                "type": "living_ui_stop",
-                "data": {
-                    "success": success,
-                    "projectId": project_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_stop",
+                    "data": {
+                        "success": success,
+                        "projectId": project_id,
+                    },
+                }
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Error stopping project: {e}")
-            await self._broadcast({
-                "type": "living_ui_stop",
-                "data": {
-                    "success": False,
-                    "projectId": project_id,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_stop",
+                    "data": {
+                        "success": False,
+                        "projectId": project_id,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_living_ui_delete(self, project_id: str) -> None:
         """Delete a Living UI project."""
         try:
             success = await self._living_ui_manager.delete_project(project_id)
-            await self._broadcast({
-                "type": "living_ui_delete",
-                "data": {
-                    "success": success,
-                    "projectId": project_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_delete",
+                    "data": {
+                        "success": success,
+                        "projectId": project_id,
+                    },
+                }
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Error deleting project: {e}")
-            await self._broadcast({
-                "type": "living_ui_delete",
-                "data": {
-                    "success": False,
-                    "projectId": project_id,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_delete",
+                    "data": {
+                        "success": False,
+                        "projectId": project_id,
+                        "error": str(e),
+                    },
+                }
+            )
 
-    async def _living_ui_export_handler(self, request: 'web.Request') -> 'web.Response':
+    async def _living_ui_export_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: download a Living UI project as a ZIP file."""
         from aiohttp import web
-        project_id = request.match_info['project_id']
+
+        project_id = request.match_info["project_id"]
         try:
             zip_path = self._living_ui_manager.export_project_zip(project_id)
             project = self._living_ui_manager.get_project(project_id)
-            filename = f"{project.name.replace(' ', '_')}.zip" if project else f"{project_id}.zip"
+            filename = (
+                f"{project.name.replace(' ', '_')}.zip"
+                if project
+                else f"{project_id}.zip"
+            )
 
             response = web.FileResponse(
                 zip_path,
                 headers={
-                    'Content-Disposition': f'attachment; filename="{filename}"',
-                    'Content-Type': 'application/zip',
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Content-Type": "application/zip",
                 },
             )
             # Schedule cleanup after response is sent
@@ -2577,28 +2842,35 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[LIVING_UI] Export error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _living_ui_import_handler(self, request: 'web.Request') -> 'web.Response':
+    async def _living_ui_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.
 
         The frontend then sends a living_ui_import WebSocket message with
         the path so the agent handles extraction via the importer skill.
         """
         from aiohttp import web
+
         try:
             import tempfile
+
             reader = await request.multipart()
             zip_path = None
-            name = ''
+            name = ""
 
             async for part in reader:
-                if part.name == 'name':
-                    name = (await part.read()).decode('utf-8')
-                elif part.name == 'file':
+                if part.name == "name":
+                    name = (await part.read()).decode("utf-8")
+                elif part.name == "file":
                     # Save uploaded file to a staging location
-                    staging_dir = Path(self._living_ui_manager.living_ui_dir) / '_staging'
+                    staging_dir = (
+                        Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                    )
                     staging_dir.mkdir(parents=True, exist_ok=True)
                     tmp = tempfile.NamedTemporaryFile(
-                        suffix='.zip', prefix='import_', dir=str(staging_dir), delete=False
+                        suffix=".zip",
+                        prefix="import_",
+                        dir=str(staging_dir),
+                        delete=False,
                     )
                     while True:
                         chunk = await part.read_chunk()
@@ -2611,11 +2883,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not zip_path:
                 return web.json_response({"error": "No ZIP file uploaded"}, status=400)
 
-            return web.json_response({
-                "success": True,
-                "path": zip_path,
-                "name": name,
-            })
+            return web.json_response(
+                {
+                    "success": True,
+                    "path": zip_path,
+                    "name": name,
+                }
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
@@ -2628,17 +2902,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Store the state for agent context
             from app.state import STATE
-            if hasattr(STATE, 'update_living_ui_state'):
+
+            if hasattr(STATE, "update_living_ui_state"):
                 STATE.update_living_ui_state(project_id, state)
 
             # Also forward to any listening clients (for debugging/monitoring)
-            await self._broadcast({
-                "type": "living_ui_state_update",
-                "data": {
-                    "projectId": project_id,
-                    "state": state,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_state_update",
+                    "data": {
+                        "projectId": project_id,
+                        "state": state,
+                    },
+                }
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Error handling state update: {e}")
 
@@ -2646,54 +2923,68 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Return sharing info (LAN URL, tunnel URL)."""
         lan_url = self._living_ui_manager.get_lan_url(project_id)
         project = self._living_ui_manager.get_project(project_id)
-        await self._broadcast({
-            "type": "living_ui_sharing_info",
-            "data": {
-                "projectId": project_id,
-                "lanUrl": lan_url,
-                "tunnelUrl": project.tunnel_url if project else None,
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_sharing_info",
+                "data": {
+                    "projectId": project_id,
+                    "lanUrl": lan_url,
+                    "tunnelUrl": project.tunnel_url if project else None,
+                },
+            }
+        )
 
-    async def _handle_living_ui_tunnel_start(self, project_id: str, provider: str) -> None:
+    async def _handle_living_ui_tunnel_start(
+        self, project_id: str, provider: str
+    ) -> None:
         """Start a tunnel for a Living UI project."""
-        logger.info(f"[LIVING_UI] Tunnel start requested: project={project_id}, provider={provider}")
+        logger.info(
+            f"[LIVING_UI] Tunnel start requested: project={project_id}, provider={provider}"
+        )
         try:
             url = await self._living_ui_manager.start_tunnel(project_id, provider)
-            await self._broadcast({
-                "type": "living_ui_tunnel_status",
-                "data": {
-                    "projectId": project_id,
-                    "tunnelUrl": url,
-                    "success": url is not None,
-                    "error": None if url else f"Failed to start {provider} tunnel",
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_tunnel_status",
+                    "data": {
+                        "projectId": project_id,
+                        "tunnelUrl": url,
+                        "success": url is not None,
+                        "error": None if url else f"Failed to start {provider} tunnel",
+                    },
+                }
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Tunnel start error: {e}", exc_info=True)
-            await self._broadcast({
-                "type": "living_ui_tunnel_status",
-                "data": {
-                    "projectId": project_id,
-                    "tunnelUrl": None,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_tunnel_status",
+                    "data": {
+                        "projectId": project_id,
+                        "tunnelUrl": None,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_living_ui_tunnel_stop(self, project_id: str) -> None:
         """Stop a tunnel for a Living UI project."""
         await self._living_ui_manager.stop_tunnel(project_id)
-        await self._broadcast({
-            "type": "living_ui_tunnel_status",
-            "data": {
-                "projectId": project_id,
-                "tunnelUrl": None,
-                "success": True,
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_tunnel_status",
+                "data": {
+                    "projectId": project_id,
+                    "tunnelUrl": None,
+                    "success": True,
+                },
+            }
+        )
 
-    async def broadcast_living_ui_ready(self, project_id: str, url: str, port: int) -> bool:
+    async def broadcast_living_ui_ready(
+        self, project_id: str, url: str, port: int
+    ) -> bool:
         """
         Broadcast that a Living UI is ready (called from agent action).
 
@@ -2706,15 +2997,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         project = self._living_ui_manager.get_project(project_id)
         if not project:
-            logger.error(f"[LIVING_UI] Project not found for ready notification: {project_id}")
+            logger.error(
+                f"[LIVING_UI] Project not found for ready notification: {project_id}"
+            )
             # Broadcast error to browser so it can display the error state
-            await self._broadcast({
-                "type": "living_ui_error",
-                "data": {
-                    "projectId": project_id,
-                    "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the task instruction.",
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": project_id,
+                        "error": f"Project '{project_id}' not found. Check that the project_id matches the one from the task instruction.",
+                    },
+                }
+            )
             return False
 
         # Update project status to "ready" (build complete, about to launch)
@@ -2726,45 +3021,47 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if success:
             # Get updated project info with URL
             project = self._living_ui_manager.get_project(project_id)
-            await self._broadcast({
-                "type": "living_ui_ready",
-                "data": {
-                    "projectId": project_id,
-                    "url": project.url if project else url,
-                    "port": project.port if project else port,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_ready",
+                    "data": {
+                        "projectId": project_id,
+                        "url": project.url if project else url,
+                        "port": project.port if project else port,
+                    },
+                }
+            )
             logger.info(f"[LIVING_UI] Project {project_id} launched and ready")
             return True
         else:
             # Launch failed
-            await self._broadcast({
-                "type": "living_ui_error",
-                "data": {
-                    "projectId": project_id,
-                    "error": "Failed to launch Living UI server",
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": project_id,
+                        "error": "Failed to launch Living UI server",
+                    },
+                }
+            )
             logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
             return False
 
     async def broadcast_living_ui_progress(
-        self,
-        project_id: str,
-        phase: str,
-        progress: int,
-        message: str
+        self, project_id: str, phase: str, progress: int, message: str
     ) -> None:
         """Broadcast Living UI creation progress (called from agent action)."""
-        await self._broadcast({
-            "type": "living_ui_status",
-            "data": {
-                "projectId": project_id,
-                "phase": phase,
-                "progress": progress,
-                "message": message,
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_status",
+                "data": {
+                    "projectId": project_id,
+                    "phase": phase,
+                    "progress": progress,
+                    "message": message,
+                },
+            }
+        )
 
     async def broadcast_living_ui_todos(
         self,
@@ -2776,21 +3073,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         Fired from the task manager's on_todo_transition hook whenever the
         agent updates its todos during a Living UI creation task.
         """
-        await self._broadcast({
-            "type": "living_ui_todos",
-            "data": {
-                "projectId": project_id,
-                "todos": todos,
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_todos",
+                "data": {
+                    "projectId": project_id,
+                    "todos": todos,
+                },
+            }
+        )
 
     async def broadcast_living_ui_data_changed(self, project_id: str) -> None:
         """Tell the browser that a Living UI's backend data was just modified
         by the agent, so it should refresh the iframe to display new state."""
-        await self._broadcast({
-            "type": "living_ui_data_changed",
-            "data": {"projectId": project_id},
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_data_changed",
+                "data": {"projectId": project_id},
+            }
+        )
 
     async def _handle_task_cancel(self, task_id: str) -> None:
         """Cancel a running task."""
@@ -2799,16 +3100,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             task_manager = agent.task_manager
 
             # Find the task
-            task = task_manager.get_task_by_id(task_id) if task_id else task_manager.active
+            task = (
+                task_manager.get_task_by_id(task_id) if task_id else task_manager.active
+            )
             if not task:
-                await self._broadcast({
-                    "type": "task_cancel_response",
-                    "data": {
-                        "taskId": task_id,
-                        "success": False,
-                        "error": "Task not found",
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "task_cancel_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found",
+                        },
+                    }
+                )
                 return
 
             # Cancel the task
@@ -2817,25 +3122,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 task_id=task.id,
             )
 
-            await self._broadcast({
-                "type": "task_cancel_response",
-                "data": {
-                    "taskId": task.id,
-                    "success": True,
-                    "status": "cancelled",
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "task_cancel_response",
+                    "data": {
+                        "taskId": task.id,
+                        "success": True,
+                        "status": "cancelled",
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "task_cancel_response",
-                "data": {
-                    "taskId": task_id,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "task_cancel_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
-    async def _handle_option_click(self, value: str, session_id: str, message_id: str) -> None:
+    async def _handle_option_click(
+        self, value: str, session_id: str, message_id: str
+    ) -> None:
         """Handle a user clicking an option button in a chat message."""
         try:
             # Mark the option as selected in storage and in-memory
@@ -2853,16 +3164,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Navigate to model settings page
             if value == "llm_change_model":
-                await self._broadcast({
-                    "type": "navigate",
-                    "data": {"path": "/settings"},
-                })
+                await self._broadcast(
+                    {
+                        "type": "navigate",
+                        "data": {"path": "/settings"},
+                    }
+                )
                 return
 
             # Route to the controller
             await self._controller.handle_option_click(value, session_id)
         except Exception as e:
-            logger.error(f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True)
+            logger.error(
+                f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Settings Operation Handlers
@@ -2883,21 +3198,25 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 ),
             }
 
-            await self._broadcast({
-                "type": "settings_get",
-                "data": {
-                    "settings": settings,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "settings_get",
+                    "data": {
+                        "settings": settings,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "settings_get",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "settings_get",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_settings_update(self, settings: Dict[str, Any]) -> None:
         """Update settings."""
@@ -2910,53 +3229,63 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = update_general_settings(update_data)
 
             if result.get("success"):
-                await self._broadcast({
-                    "type": "settings_update",
-                    "data": {
-                        "settings": settings,
-                        "success": True,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "settings_update",
+                        "data": {
+                            "settings": settings,
+                            "success": True,
+                        },
+                    }
+                )
             else:
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "settings_update",
+                        "data": {
+                            "success": False,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
                     "type": "settings_update",
                     "data": {
                         "success": False,
-                        "error": result.get("error", "Unknown error"),
+                        "error": str(e),
                     },
-                })
-        except Exception as e:
-            await self._broadcast({
-                "type": "settings_update",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+                }
+            )
 
     async def _handle_agent_file_read(self, filename: str) -> None:
         """Read an agent file system file (USER.md or AGENT.md)."""
         result = read_agent_file(filename)
 
         if result.get("success"):
-            await self._broadcast({
-                "type": "agent_file_read",
-                "data": {
-                    "filename": filename,
-                    "content": result.get("content"),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_file_read",
+                    "data": {
+                        "filename": filename,
+                        "content": result.get("content"),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "agent_file_read",
-                "data": {
-                    "filename": filename,
-                    "content": None,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_file_read",
+                    "data": {
+                        "filename": filename,
+                        "content": None,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_agent_file_write(self, filename: str, content: str) -> None:
         """Write to an agent file system file (USER.md or AGENT.md)."""
@@ -2965,25 +3294,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if result.get("success"):
             # Update memory index after file change
             agent = self._controller.agent
-            if hasattr(agent, 'memory_manager'):
+            if hasattr(agent, "memory_manager"):
                 agent.memory_manager.update()
 
-            await self._broadcast({
-                "type": "agent_file_write",
-                "data": {
-                    "filename": filename,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_file_write",
+                    "data": {
+                        "filename": filename,
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "agent_file_write",
-                "data": {
-                    "filename": filename,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_file_write",
+                    "data": {
+                        "filename": filename,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_agent_file_restore(self, filename: str) -> None:
         """Restore an agent file from template."""
@@ -2992,26 +3325,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if result.get("success"):
             # Update memory index after file change
             agent = self._controller.agent
-            if hasattr(agent, 'memory_manager'):
+            if hasattr(agent, "memory_manager"):
                 agent.memory_manager.update()
 
-            await self._broadcast({
-                "type": "agent_file_restore",
-                "data": {
-                    "filename": filename,
-                    "content": result.get("content"),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_file_restore",
+                    "data": {
+                        "filename": filename,
+                        "content": result.get("content"),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "agent_file_restore",
-                "data": {
-                    "filename": filename,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_file_restore",
+                    "data": {
+                        "filename": filename,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_reset(self) -> None:
         """Reset agent state (equivalent to /reset command)."""
@@ -3022,62 +3359,87 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.clear()
             await self._action_panel.clear()
 
-            await self._broadcast({
-                "type": "reset",
-                "data": {
-                    "success": True,
-                    "message": result.get("message", "Agent state has been reset."),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "reset",
+                    "data": {
+                        "success": True,
+                        "message": result.get("message", "Agent state has been reset."),
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "reset",
-                "data": {
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "reset",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_clear_conversation(self) -> None:
         """
         Clear the chat conversation log only.
 
-        Drops chat messages from the panel and from chat_storage. The
-        action panel (tasks/actions) is left alone so running tasks are
-        not disrupted. Dashboard usage/task metrics live in a separate
-        database and are not touched.
+        Drops chat messages from the panel and from chat_storage, and
+        also drops the agent's persisted conversation memory so a
+        restart cannot resurrect cleared chat. The action panel
+        (tasks/actions), markdown files in agent_file_system, and the
+        Chroma memory index are left alone.
         """
         try:
             await self._chat.clear()
-            await self._broadcast({
-                "type": "clear_conversation",
-                "data": {"success": True},
-            })
+            await self._controller.agent.clear_conversation_persistence()
+            await self._broadcast(
+                {
+                    "type": "clear_conversation",
+                    "data": {"success": True},
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "clear_conversation",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "clear_conversation",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     async def _handle_clear_tasks(self) -> None:
         """
         Clear only finished tasks (completed/error/cancelled) and their
-        child actions from the panel. Running/waiting tasks are preserved.
-
-        Dashboard usage/task metrics are persisted in a separate database
-        and are not affected.
+        child actions from the panel, and drop any leftover session_storage
+        rows for those task IDs so a restart cannot resurrect them.
+        Running/waiting tasks are preserved. Dashboard usage/task metrics,
+        markdown files, and the Chroma memory index are left alone.
         """
         try:
+            terminal_statuses = {"completed", "error", "cancelled"}
+            terminal_task_ids = [
+                item.id
+                for item in self._action_panel.get_items()
+                if item.item_type == "task" and item.status in terminal_statuses
+            ]
+
             removed = await self._action_panel.clear_terminal_tasks()
-            await self._broadcast({
-                "type": "clear_tasks",
-                "data": {"success": True, "removed": removed},
-            })
+
+            if terminal_task_ids:
+                self._controller.agent.clear_task_persistence(terminal_task_ids)
+
+            await self._broadcast(
+                {
+                    "type": "clear_tasks",
+                    "data": {"success": True, "removed": removed},
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "clear_tasks",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "clear_tasks",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Skill creation from a completed task
@@ -3096,11 +3458,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # source tasks for the "Create Skill" flow. Heartbeats, planners, and
     # the onboarding interview don't need either of those two services, so
     # they don't set workflow_id — _INTERNAL_SKILL_NAMES covers them.
-    _INTERNAL_WORKFLOW_IDS = frozenset({
-        "skill_creation",
-        "skill_improvement",
-        "memory_processing",
-    })
+    _INTERNAL_WORKFLOW_IDS = frozenset(
+        {
+            "skill_creation",
+            "skill_improvement",
+            "memory_processing",
+        }
+    )
 
     # Detection of internal tasks via `selected_skills` — needed because
     # most internal workflows (heartbeats, planners, soft onboarding) only
@@ -3110,16 +3474,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # "Create Skill" button must not appear on it.
     # Used together with _INTERNAL_WORKFLOW_IDS via OR — see the frontend
     # `isInternalWorkflowTask` for the combined check.
-    _INTERNAL_SKILL_NAMES = frozenset({
-        "craftbot-skill-creator",
-        "craftbot-skill-improve",
-        "memory-processor",
-        "heartbeat-processor",
-        "user-profile-interview",
-        "day-planner",
-        "week-planner",
-        "month-planner",
-    })
+    _INTERNAL_SKILL_NAMES = frozenset(
+        {
+            "craftbot-skill-creator",
+            "craftbot-skill-improve",
+            "memory-processor",
+            "heartbeat-processor",
+            "user-profile-interview",
+            "day-planner",
+            "week-planner",
+            "month-planner",
+        }
+    )
 
     # Names the user may not type into the SkillCreatorModal (validated in
     # _handle_create_skill_from_task). Kept separate from
@@ -3132,16 +3498,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # skill that we still don't want overwritten would belong only here,
     # and an internal skill we'd let users replace would belong only in
     # _INTERNAL_SKILL_NAMES — keeping them split avoids a re-split later.
-    _RESERVED_SKILL_NAMES = frozenset({
-        "craftbot-skill-creator",
-        "craftbot-skill-improve",
-        "memory-processor",
-        "user-profile-interview",
-        "heartbeat-processor",
-        "day-planner",
-        "week-planner",
-        "month-planner",
-    })
+    _RESERVED_SKILL_NAMES = frozenset(
+        {
+            "craftbot-skill-creator",
+            "craftbot-skill-improve",
+            "memory-processor",
+            "user-profile-interview",
+            "heartbeat-processor",
+            "day-planner",
+            "week-planner",
+            "month-planner",
+        }
+    )
 
     _SKILL_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
@@ -3161,10 +3529,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         response_type = "create_skill_from_task"
 
         async def _err(msg: str) -> None:
-            await self._broadcast({
-                "type": response_type,
-                "data": {"success": False, "error": msg},
-            })
+            await self._broadcast(
+                {
+                    "type": response_type,
+                    "data": {"success": False, "error": msg},
+                }
+            )
 
         # ---- Validate request shape ----------------------------------
         source_task_id = (data.get("taskId") or "").strip()
@@ -3239,7 +3609,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if (source_item.workflow_id or "") in self._INTERNAL_WORKFLOW_IDS:
             await _err("source_task_is_internal_workflow")
             return
-        if any(s in self._INTERNAL_SKILL_NAMES for s in (source_item.selected_skills or [])):
+        if any(
+            s in self._INTERNAL_SKILL_NAMES for s in (source_item.selected_skills or [])
+        ):
             await _err("source_task_is_internal_workflow")
             return
 
@@ -3254,6 +3626,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
             try:
                 from app.tui.skill_settings import get_skill_info
+
                 if get_skill_info(target):
                     await _err("skill_already_exists")
                     return
@@ -3278,7 +3651,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             # ---- Build SKILL_SOURCE_<id>.md --------------------------
             from app.config import AGENT_FILE_SYSTEM_PATH
-            source_md_path = Path(AGENT_FILE_SYSTEM_PATH) / f"SKILL_SOURCE_{new_task_id}.md"
+
+            source_md_path = (
+                Path(AGENT_FILE_SYSTEM_PATH) / f"SKILL_SOURCE_{new_task_id}.md"
+            )
             source_md_path.parent.mkdir(parents=True, exist_ok=True)
             existing_skill_md = target_skill_md if mode == "improve" else None
             source_md_path.write_text(
@@ -3295,7 +3671,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             try:
                 enable_skill(workflow_skill)
             except Exception as e:
-                logger.debug(f"[SKILL_CREATOR] enable_skill({workflow_skill}) noop/failed: {e}")
+                logger.debug(
+                    f"[SKILL_CREATOR] enable_skill({workflow_skill}) noop/failed: {e}"
+                )
 
             # ---- Spawn the workflow task -----------------------------
             # Use absolute paths in the instruction so the agent can pass
@@ -3333,6 +3711,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # ---- Queue trigger so execution actually starts ---------
             from app.trigger import Trigger
+
             trigger = Trigger(
                 fire_at=time.time(),
                 priority=60,
@@ -3355,15 +3734,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception as e:
                 logger.debug(f"[SKILL_CREATOR] ack chat message failed: {e}")
 
-            await self._broadcast({
-                "type": response_type,
-                "data": {
-                    "success": True,
-                    "taskId": new_task_id,
-                    "skillName": target,
-                    "mode": mode,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": response_type,
+                    "data": {
+                        "success": True,
+                        "taskId": new_task_id,
+                        "skillName": target,
+                        "mode": mode,
+                    },
+                }
+            )
             return
 
         except Exception as e:
@@ -3392,7 +3773,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         # In-memory first
         try:
-            for item in (self._action_panel._items if self._action_panel else []):
+            for item in self._action_panel._items if self._action_panel else []:
                 if item.id == item_id:
                     return item
         except Exception:
@@ -3400,7 +3781,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         # SQLite fallback
         try:
-            storage = getattr(self._action_panel, "_storage", None) if self._action_panel else None
+            storage = (
+                getattr(self._action_panel, "_storage", None)
+                if self._action_panel
+                else None
+            )
             if storage is not None:
                 stored = storage.get_item(item_id)
                 if stored is not None:
@@ -3436,7 +3821,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         children: List[ActionItem] = []
 
         try:
-            for item in (self._action_panel._items if self._action_panel else []):
+            for item in self._action_panel._items if self._action_panel else []:
                 if item.parent_id == parent_id and item.id not in seen_ids:
                     children.append(item)
                     seen_ids.add(item.id)
@@ -3444,24 +3829,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             pass
 
         try:
-            storage = getattr(self._action_panel, "_storage", None) if self._action_panel else None
+            storage = (
+                getattr(self._action_panel, "_storage", None)
+                if self._action_panel
+                else None
+            )
             if storage is not None:
                 for sit in storage.get_items(limit=2000, include_running=True):
                     if sit.parent_id == parent_id and sit.id not in seen_ids:
-                        children.append(ActionItem(
-                            id=sit.id,
-                            name=sit.name,
-                            status=sit.status,
-                            item_type=sit.item_type,
-                            parent_id=sit.parent_id,
-                            created_at=sit.created_at,
-                            completed_at=sit.completed_at,
-                            input_data=sit.input_data,
-                            output_data=sit.output_data,
-                            error_message=sit.error_message,
-                            selected_skills=list(sit.selected_skills or []),
-                            workflow_id=sit.workflow_id,
-                        ))
+                        children.append(
+                            ActionItem(
+                                id=sit.id,
+                                name=sit.name,
+                                status=sit.status,
+                                item_type=sit.item_type,
+                                parent_id=sit.parent_id,
+                                created_at=sit.created_at,
+                                completed_at=sit.completed_at,
+                                input_data=sit.input_data,
+                                output_data=sit.output_data,
+                                error_message=sit.error_message,
+                                selected_skills=list(sit.selected_skills or []),
+                                workflow_id=sit.workflow_id,
+                            )
+                        )
                         seen_ids.add(sit.id)
         except Exception:
             pass
@@ -3578,25 +3969,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Get current status from scheduler if available
             agent = self._controller.agent
             scheduler_status = {}
-            if hasattr(agent, 'scheduler') and agent.scheduler:
+            if hasattr(agent, "scheduler") and agent.scheduler:
                 scheduler_status = agent.scheduler.get_status()
 
-            await self._broadcast({
-                "type": "scheduler_config_get",
-                "data": {
-                    "config": result.get("config"),
-                    "status": scheduler_status,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "scheduler_config_get",
+                    "data": {
+                        "config": result.get("config"),
+                        "status": scheduler_status,
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "scheduler_config_get",
-                "data": {
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "scheduler_config_get",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_scheduler_config_update(self, updates: Dict[str, Any]) -> None:
         """Update scheduler configuration."""
@@ -3623,7 +4018,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if result.get("success"):
                 # Update runtime scheduler if available
                 agent = self._controller.agent
-                if hasattr(agent, 'scheduler') and agent.scheduler:
+                if hasattr(agent, "scheduler") and agent.scheduler:
                     # Toggle individual schedules at runtime
                     # Note: Master proactive toggle is handled separately via proactive_mode_set
                     # which updates settings.json, not scheduler_config.json
@@ -3634,40 +4029,46 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 await toggle_schedule_runtime(
                                     agent.scheduler,
                                     schedule_id,
-                                    schedule_update["enabled"]
+                                    schedule_update["enabled"],
                                 )
 
                 # Re-read config for response
                 config_result = get_scheduler_config()
 
-                await self._broadcast({
-                    "type": "scheduler_config_update",
-                    "data": {
-                        "config": config_result.get("config", {}),
-                        "success": True,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "scheduler_config_update",
+                        "data": {
+                            "config": config_result.get("config", {}),
+                            "success": True,
+                        },
+                    }
+                )
             else:
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "scheduler_config_update",
+                        "data": {
+                            "success": False,
+                            "error": result.get("error", "Unknown error"),
+                        },
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
                     "type": "scheduler_config_update",
                     "data": {
                         "success": False,
-                        "error": result.get("error", "Unknown error"),
+                        "error": str(e),
                     },
-                })
-        except Exception as e:
-            await self._broadcast({
-                "type": "scheduler_config_update",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+                }
+            )
 
     async def _handle_proactive_tasks_get(self, frequency: str = None) -> None:
         """Get proactive tasks from PROACTIVE.md."""
         agent = self._controller.agent
-        proactive_manager = getattr(agent, 'proactive_manager', None)
+        proactive_manager = getattr(agent, "proactive_manager", None)
 
         # Reload from file before getting tasks
         if proactive_manager:
@@ -3700,27 +4101,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
                 tasks_data.append(task_dict)
 
-            await self._broadcast({
-                "type": "proactive_tasks_get",
-                "data": {
-                    "tasks": tasks_data,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_tasks_get",
+                    "data": {
+                        "tasks": tasks_data,
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "proactive_tasks_get",
-                "data": {
-                    "tasks": [],
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_tasks_get",
+                    "data": {
+                        "tasks": [],
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_proactive_task_add(self, task_data: Dict[str, Any]) -> None:
         """Add a new proactive task."""
         agent = self._controller.agent
-        proactive_manager = getattr(agent, 'proactive_manager', None)
+        proactive_manager = getattr(agent, "proactive_manager", None)
 
         result = add_recurring_task(
             proactive_manager,
@@ -3735,26 +4140,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         if result.get("success"):
-            await self._broadcast({
-                "type": "proactive_task_add",
-                "data": {
-                    "taskId": result.get("task", {}).get("id"),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_task_add",
+                    "data": {
+                        "taskId": result.get("task", {}).get("id"),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "proactive_task_add",
-                "data": {
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_task_add",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
-    async def _handle_proactive_task_update(self, task_id: str, updates: Dict[str, Any]) -> None:
+    async def _handle_proactive_task_update(
+        self, task_id: str, updates: Dict[str, Any]
+    ) -> None:
         """Update a proactive task."""
         agent = self._controller.agent
-        proactive_manager = getattr(agent, 'proactive_manager', None)
+        proactive_manager = getattr(agent, "proactive_manager", None)
 
         # Convert camelCase to snake_case for the UI layer
         update_dict = {}
@@ -3778,48 +4189,56 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         result = update_recurring_task(proactive_manager, task_id, update_dict)
 
         if result.get("success"):
-            await self._broadcast({
-                "type": "proactive_task_update",
-                "data": {
-                    "taskId": task_id,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_task_update",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "proactive_task_update",
-                "data": {
-                    "taskId": task_id,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_task_update",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_proactive_task_remove(self, task_id: str) -> None:
         """Remove a proactive task."""
         agent = self._controller.agent
-        proactive_manager = getattr(agent, 'proactive_manager', None)
+        proactive_manager = getattr(agent, "proactive_manager", None)
 
         result = remove_recurring_task(proactive_manager, task_id)
 
         if result.get("success"):
-            await self._broadcast({
-                "type": "proactive_task_remove",
-                "data": {
-                    "taskId": task_id,
-                    "removed": True,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_task_remove",
+                    "data": {
+                        "taskId": task_id,
+                        "removed": True,
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "proactive_task_remove",
-                "data": {
-                    "taskId": task_id,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_task_remove",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_proactive_tasks_reset(self) -> None:
         """Reset all proactive tasks (restore from template)."""
@@ -3828,72 +4247,84 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if result.get("success"):
             # Reload proactive manager
             agent = self._controller.agent
-            proactive_manager = getattr(agent, 'proactive_manager', None)
+            proactive_manager = getattr(agent, "proactive_manager", None)
             if proactive_manager:
                 reload_proactive_manager(proactive_manager)
 
-            await self._broadcast({
-                "type": "proactive_tasks_reset",
-                "data": {
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_tasks_reset",
+                    "data": {
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "proactive_tasks_reset",
-                "data": {
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_tasks_reset",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_proactive_file_read(self) -> None:
         """Read the raw PROACTIVE.md file content."""
         result = read_agent_file("PROACTIVE.md")
 
         if result.get("success"):
-            await self._broadcast({
-                "type": "proactive_file_read",
-                "data": {
-                    "content": result.get("content"),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_file_read",
+                    "data": {
+                        "content": result.get("content"),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "proactive_file_read",
-                "data": {
-                    "content": None,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "proactive_file_read",
+                    "data": {
+                        "content": None,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_proactive_mode_get(self) -> None:
         """Get the current proactive mode status."""
         result = get_proactive_mode()
 
-        await self._broadcast({
-            "type": "proactive_mode_get",
-            "data": {
-                "enabled": result.get("enabled", True),
-                "success": result.get("success", False),
-                "error": result.get("error"),
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "proactive_mode_get",
+                "data": {
+                    "enabled": result.get("enabled", True),
+                    "success": result.get("success", False),
+                    "error": result.get("error"),
+                },
+            }
+        )
 
     async def _handle_proactive_mode_set(self, enabled: bool) -> None:
         """Set the proactive mode on or off."""
         result = set_proactive_mode(enabled)
 
-        await self._broadcast({
-            "type": "proactive_mode_set",
-            "data": {
-                "enabled": result.get("enabled", enabled),
-                "success": result.get("success", False),
-                "error": result.get("error"),
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "proactive_mode_set",
+                "data": {
+                    "enabled": result.get("enabled", enabled),
+                    "success": result.get("success", False),
+                    "error": result.get("error"),
+                },
+            }
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # Memory Operation Handlers
@@ -3903,53 +4334,61 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Get the current memory mode status."""
         result = get_memory_mode()
 
-        await self._broadcast({
-            "type": "memory_mode_get",
-            "data": {
-                "enabled": result.get("enabled", True),
-                "success": result.get("success", False),
-                "error": result.get("error"),
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "memory_mode_get",
+                "data": {
+                    "enabled": result.get("enabled", True),
+                    "success": result.get("success", False),
+                    "error": result.get("error"),
+                },
+            }
+        )
 
     async def _handle_memory_mode_set(self, enabled: bool) -> None:
         """Set the memory mode on or off."""
         result = set_memory_mode(enabled)
 
-        await self._broadcast({
-            "type": "memory_mode_set",
-            "data": {
-                "enabled": result.get("enabled", enabled),
-                "success": result.get("success", False),
-                "error": result.get("error"),
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "memory_mode_set",
+                "data": {
+                    "enabled": result.get("enabled", enabled),
+                    "success": result.get("success", False),
+                    "error": result.get("error"),
+                },
+            }
+        )
 
     async def _handle_memory_items_get(self) -> None:
         """Get all memory items from MEMORY.md."""
         result = get_memory_items()
 
         if result.get("success"):
-            await self._broadcast({
-                "type": "memory_items_get",
-                "data": {
-                    "items": result.get("items", []),
-                    "categories": result.get("categories", []),
-                    "count": result.get("count", 0),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_items_get",
+                    "data": {
+                        "items": result.get("items", []),
+                        "categories": result.get("categories", []),
+                        "count": result.get("count", 0),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "memory_items_get",
-                "data": {
-                    "items": [],
-                    "categories": [],
-                    "count": 0,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_items_get",
+                    "data": {
+                        "items": [],
+                        "categories": [],
+                        "count": 0,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_memory_item_add(self, category: str, content: str) -> None:
         """Add a new memory item."""
@@ -3958,30 +4397,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if result.get("success"):
             # Update memory index after adding
             agent = self._controller.agent
-            if hasattr(agent, 'memory_manager'):
+            if hasattr(agent, "memory_manager"):
                 agent.memory_manager.update()
 
-            await self._broadcast({
-                "type": "memory_item_add",
-                "data": {
-                    "item": result.get("item"),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_item_add",
+                    "data": {
+                        "item": result.get("item"),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "memory_item_add",
-                "data": {
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_item_add",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_memory_item_update(
-        self,
-        item_id: str,
-        category: str = None,
-        content: str = None
+        self, item_id: str, category: str = None, content: str = None
     ) -> None:
         """Update an existing memory item."""
         result = update_memory_item(item_id=item_id, category=category, content=content)
@@ -3989,25 +4429,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if result.get("success"):
             # Update memory index after updating
             agent = self._controller.agent
-            if hasattr(agent, 'memory_manager'):
+            if hasattr(agent, "memory_manager"):
                 agent.memory_manager.update()
 
-            await self._broadcast({
-                "type": "memory_item_update",
-                "data": {
-                    "item": result.get("item"),
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_item_update",
+                    "data": {
+                        "item": result.get("item"),
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "memory_item_update",
-                "data": {
-                    "itemId": item_id,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_item_update",
+                    "data": {
+                        "itemId": item_id,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_memory_item_remove(self, item_id: str) -> None:
         """Remove a memory item."""
@@ -4016,25 +4460,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if result.get("success"):
             # Update memory index after removing
             agent = self._controller.agent
-            if hasattr(agent, 'memory_manager'):
+            if hasattr(agent, "memory_manager"):
                 agent.memory_manager.update()
 
-            await self._broadcast({
-                "type": "memory_item_remove",
-                "data": {
-                    "itemId": item_id,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_item_remove",
+                    "data": {
+                        "itemId": item_id,
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "memory_item_remove",
-                "data": {
-                    "itemId": item_id,
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_item_remove",
+                    "data": {
+                        "itemId": item_id,
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_memory_reset(self) -> None:
         """Reset memory by restoring MEMORY.md from template."""
@@ -4046,36 +4494,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Update memory index after reset
             agent = self._controller.agent
-            if hasattr(agent, 'memory_manager'):
+            if hasattr(agent, "memory_manager"):
                 agent.memory_manager.update()
 
-            await self._broadcast({
-                "type": "memory_reset",
-                "data": {
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_reset",
+                    "data": {
+                        "success": True,
+                    },
+                }
+            )
         else:
-            await self._broadcast({
-                "type": "memory_reset",
-                "data": {
-                    "success": False,
-                    "error": result.get("error", "Unknown error"),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "memory_reset",
+                    "data": {
+                        "success": False,
+                        "error": result.get("error", "Unknown error"),
+                    },
+                }
+            )
 
     async def _handle_memory_stats_get(self) -> None:
         """Get memory statistics."""
         result = get_memory_stats()
 
-        await self._broadcast({
-            "type": "memory_stats_get",
-            "data": {
-                "stats": result if result.get("success") else {},
-                "success": result.get("success", False),
-                "error": result.get("error"),
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "memory_stats_get",
+                "data": {
+                    "stats": result if result.get("success") else {},
+                    "success": result.get("success", False),
+                    "error": result.get("error"),
+                },
+            }
+        )
 
     async def _handle_memory_process_trigger(self) -> None:
         """Manually trigger memory processing."""
@@ -4085,23 +4539,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Check if memory is enabled
             mode_result = get_memory_mode()
             if not mode_result.get("enabled", True):
-                await self._broadcast({
-                    "type": "memory_process_trigger",
-                    "data": {
-                        "success": False,
-                        "error": "Memory is disabled. Enable memory mode first.",
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "memory_process_trigger",
+                        "data": {
+                            "success": False,
+                            "error": "Memory is disabled. Enable memory mode first.",
+                        },
+                    }
+                )
                 return
 
             # Check if there's a create_process_memory_task method
-            if hasattr(agent, 'create_process_memory_task'):
+            if hasattr(agent, "create_process_memory_task"):
                 task_id = agent.create_process_memory_task()
 
                 if task_id:
                     # Queue trigger to start the task (same as _handle_memory_processing_trigger)
                     import time
                     from app.trigger import Trigger
+
                     trigger = Trigger(
                         fire_at=time.time(),
                         priority=60,
@@ -4111,30 +4568,36 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     )
                     await agent.triggers.put(trigger)
 
-                await self._broadcast({
-                    "type": "memory_process_trigger",
-                    "data": {
-                        "success": True,
-                        "taskId": task_id,
-                        "message": "Memory processing task created",
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "memory_process_trigger",
+                        "data": {
+                            "success": True,
+                            "taskId": task_id,
+                            "message": "Memory processing task created",
+                        },
+                    }
+                )
             else:
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "memory_process_trigger",
+                        "data": {
+                            "success": False,
+                            "error": "Memory processing not available",
+                        },
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
                     "type": "memory_process_trigger",
                     "data": {
                         "success": False,
-                        "error": "Memory processing not available",
+                        "error": str(e),
                     },
-                })
-        except Exception as e:
-            await self._broadcast({
-                "type": "memory_process_trigger",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Model Settings Handlers
@@ -4144,35 +4607,43 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Get available model providers."""
         try:
             result = get_available_providers()
-            await self._broadcast({
-                "type": "model_providers_get",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "model_providers_get",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "model_providers_get",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "model_providers_get",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_model_settings_get(self) -> None:
         """Get current model settings."""
         try:
             result = get_model_settings()
-            await self._broadcast({
-                "type": "model_settings_get",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "model_settings_get",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "model_settings_get",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "model_settings_get",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_model_settings_update(self, data: Dict[str, Any]) -> None:
         """Update model settings.
@@ -4199,13 +4670,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
                 if not validation.get("can_save"):
                     errors = validation.get("errors", ["API key required"])
-                    await self._broadcast({
-                        "type": "model_settings_update",
-                        "data": {
-                            "success": False,
-                            "error": "; ".join(errors),
-                        },
-                    })
+                    await self._broadcast(
+                        {
+                            "type": "model_settings_update",
+                            "data": {
+                                "success": False,
+                                "error": "; ".join(errors),
+                            },
+                        }
+                    )
                     return
 
             # Step 2: Test connection before saving — only when credentials are changing.
@@ -4218,6 +4691,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if not test_api_key and provider_for_key != new_provider:
                     # Use existing key from settings if not providing a new one
                     from app.config import get_api_key
+
                     test_api_key = get_api_key(new_provider)
 
                 test_result = test_connection(
@@ -4227,13 +4701,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
                 if not test_result.get("success"):
                     error_msg = test_result.get("error", "Connection test failed")
-                    await self._broadcast({
-                        "type": "model_settings_update",
-                        "data": {
-                            "success": False,
-                            "error": f"Connection test failed: {error_msg}",
-                        },
-                    })
+                    await self._broadcast(
+                        {
+                            "type": "model_settings_update",
+                            "data": {
+                                "success": False,
+                                "error": f"Connection test failed: {error_msg}",
+                            },
+                        }
+                    )
                     return
 
             # Step 3: Now save settings (validation and connection test passed)
@@ -4253,23 +4729,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 try:
                     agent = self._controller.agent
                     agent.reinitialize_llm(new_provider)
-                    logger.info(f"[BROWSER] LLM reinitialized with provider: {new_provider}")
+                    logger.info(
+                        f"[BROWSER] LLM reinitialized with provider: {new_provider}"
+                    )
                 except Exception as e:
                     logger.warning(f"[BROWSER] Failed to reinitialize LLM: {e}")
-                    result["warning"] = f"Settings saved but LLM reinitialization failed: {e}"
+                    result["warning"] = (
+                        f"Settings saved but LLM reinitialization failed: {e}"
+                    )
 
-            await self._broadcast({
-                "type": "model_settings_update",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "model_settings_update",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "model_settings_update",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "model_settings_update",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_model_connection_test(
         self,
@@ -4286,20 +4770,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 base_url=base_url,
                 model=model,
             )
-            await self._broadcast({
-                "type": "model_connection_test",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "model_connection_test",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "model_connection_test",
-                "data": {
-                    "success": False,
-                    "message": "Test failed",
-                    "provider": provider,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "model_connection_test",
+                    "data": {
+                        "success": False,
+                        "message": "Test failed",
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_model_validate_save(self, data: Dict[str, Any]) -> None:
         """Validate if model settings can be saved."""
@@ -4310,19 +4798,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 api_key=data.get("apiKey"),
                 provider_for_key=data.get("providerForKey"),
             )
-            await self._broadcast({
-                "type": "model_validate_save",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "model_validate_save",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "model_validate_save",
-                "data": {
-                    "success": False,
-                    "can_save": False,
-                    "errors": [str(e)],
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "model_validate_save",
+                    "data": {
+                        "success": False,
+                        "can_save": False,
+                        "errors": [str(e)],
+                    },
+                }
+            )
 
     async def _handle_ollama_models_get(self, base_url: Optional[str] = None) -> None:
         """Fetch available models from Ollama and broadcast to frontend."""
@@ -4333,10 +4825,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = get_ollama_models(base_url=base_url)
             await self._broadcast({"type": "ollama_models_get", "data": result})
         except Exception as e:
-            await self._broadcast({
-                "type": "ollama_models_get",
-                "data": {"success": False, "models": [], "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "ollama_models_get",
+                    "data": {"success": False, "models": [], "error": str(e)},
+                }
+            )
 
     async def _handle_openrouter_models_get(
         self,
@@ -4351,15 +4845,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """
         try:
             from app.ui_layer.settings.openrouter_catalog import fetch_models
+
             result = await asyncio.to_thread(
                 fetch_models, base_url, force_refresh=force_refresh
             )
             await self._broadcast({"type": "openrouter_models_get", "data": result})
         except Exception as e:
-            await self._broadcast({
-                "type": "openrouter_models_get",
-                "data": {"success": False, "models": [], "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "openrouter_models_get",
+                    "data": {"success": False, "models": [], "error": str(e)},
+                }
+            )
 
     async def _handle_openrouter_credits_get(
         self,
@@ -4369,13 +4866,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Fetch the OpenRouter account credit balance for the configured key."""
         try:
             from app.ui_layer.settings.openrouter_catalog import fetch_credits
+
             result = await asyncio.to_thread(fetch_credits, api_key, base_url)
             await self._broadcast({"type": "openrouter_credits_get", "data": result})
         except Exception as e:
-            await self._broadcast({
-                "type": "openrouter_credits_get",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "openrouter_credits_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Slow Mode Handlers
@@ -4385,27 +4885,33 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Get slow mode settings."""
         try:
             from app.ui_layer.settings.model_settings import get_slow_mode_settings
+
             result = get_slow_mode_settings()
             await self._broadcast({"type": "slow_mode_get", "data": result})
         except Exception as e:
-            await self._broadcast({
-                "type": "slow_mode_get",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "slow_mode_get",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     async def _handle_slow_mode_set(self, data: Dict[str, Any]) -> None:
         """Set slow mode on or off."""
         try:
             from app.ui_layer.settings.model_settings import set_slow_mode
+
             enabled = data.get("enabled", False)
             tpm_limit = data.get("tpmLimit")
             result = set_slow_mode(enabled, tpm_limit)
             await self._broadcast({"type": "slow_mode_set", "data": result})
         except Exception as e:
-            await self._broadcast({
-                "type": "slow_mode_set",
-                "data": {"success": False, "error": str(e)},
-            })
+            await self._broadcast(
+                {
+                    "type": "slow_mode_set",
+                    "data": {"success": False, "error": str(e)},
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # MCP Settings Handlers
@@ -4415,170 +4921,200 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Get list of configured MCP servers."""
         try:
             servers = list_mcp_servers()
-            await self._broadcast({
-                "type": "mcp_list",
-                "data": {
-                    "success": True,
-                    "servers": servers,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_list",
+                    "data": {
+                        "success": True,
+                        "servers": servers,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_list",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_mcp_enable(self, name: str) -> None:
         """Enable an MCP server."""
         try:
             success, message = enable_mcp_server(name)
-            await self._broadcast({
-                "type": "mcp_enable",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_enable",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_mcp_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_enable",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_enable",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_mcp_disable(self, name: str) -> None:
         """Disable an MCP server."""
         try:
             success, message = disable_mcp_server(name)
-            await self._broadcast({
-                "type": "mcp_disable",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_disable",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_mcp_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_disable",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_disable",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_mcp_remove(self, name: str) -> None:
         """Remove an MCP server."""
         try:
             success, message = remove_mcp_server(name)
-            await self._broadcast({
-                "type": "mcp_remove",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_remove",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_mcp_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_remove",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_remove",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_mcp_add_json(self, name: str, config: str) -> None:
         """Add an MCP server from JSON configuration."""
         try:
             success, message = add_mcp_server_from_json(name, config)
-            await self._broadcast({
-                "type": "mcp_add_json",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_add_json",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_mcp_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_add_json",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_add_json",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_mcp_get_env(self, name: str) -> None:
         """Get environment variables for an MCP server."""
         try:
             env_vars = get_server_env_vars(name)
-            await self._broadcast({
-                "type": "mcp_get_env",
-                "data": {
-                    "success": True,
-                    "name": name,
-                    "env": env_vars,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_get_env",
+                    "data": {
+                        "success": True,
+                        "name": name,
+                        "env": env_vars,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_get_env",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_get_env",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
-    async def _handle_mcp_update_env(self, name: str, env_key: str, env_value: str) -> None:
+    async def _handle_mcp_update_env(
+        self, name: str, env_key: str, env_value: str
+    ) -> None:
         """Update an environment variable for an MCP server."""
         try:
             success, message = update_mcp_server_env(name, env_key, env_value)
-            await self._broadcast({
-                "type": "mcp_update_env",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                    "key": env_key,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_update_env",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                        "key": env_key,
+                    },
+                }
+            )
             # Refresh the list to show updated env status
             if success:
                 await self._handle_mcp_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "mcp_update_env",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                    "key": env_key,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "mcp_update_env",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                        "key": env_key,
+                    },
+                }
+            )
 
     # ─────────────────────────────────────────────────────────────────────
     # Skill Settings Handlers
@@ -4620,155 +5156,181 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             total = len(skills)
             enabled = sum(1 for s in skills if s.get("enabled", True))
 
-            await self._broadcast({
-                "type": "skill_list",
-                "data": {
-                    "success": True,
-                    "skills": skills,
-                    "total": total,
-                    "enabled": enabled,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_list",
+                    "data": {
+                        "success": True,
+                        "skills": skills,
+                        "total": total,
+                        "enabled": enabled,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_list",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "skills": [],
-                    "total": 0,
-                    "enabled": 0,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "skills": [],
+                        "total": 0,
+                        "enabled": 0,
+                    },
+                }
+            )
 
     async def _handle_skill_info(self, name: str) -> None:
         """Get detailed info about a skill."""
         try:
             info = get_skill_info(name)
             if info:
-                await self._broadcast({
-                    "type": "skill_info",
-                    "data": {
-                        "success": True,
-                        "name": name,
-                        "skill": info,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "skill_info",
+                        "data": {
+                            "success": True,
+                            "name": name,
+                            "skill": info,
+                        },
+                    }
+                )
             else:
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "skill_info",
+                        "data": {
+                            "success": False,
+                            "error": f"Skill '{name}' not found",
+                            "name": name,
+                        },
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
                     "type": "skill_info",
                     "data": {
                         "success": False,
-                        "error": f"Skill '{name}' not found",
+                        "error": str(e),
                         "name": name,
                     },
-                })
-        except Exception as e:
-            await self._broadcast({
-                "type": "skill_info",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+                }
+            )
 
     async def _handle_skill_enable(self, name: str) -> None:
         """Enable a skill."""
         try:
             success, message = enable_skill(name)
-            await self._broadcast({
-                "type": "skill_enable",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_enable",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list and sync skill commands
             if success:
                 await self._handle_skill_list()
                 self._controller.sync_skill_commands()
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_enable",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_enable",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_skill_disable(self, name: str) -> None:
         """Disable a skill."""
         try:
             success, message = disable_skill(name)
-            await self._broadcast({
-                "type": "skill_disable",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_disable",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list and sync skill commands
             if success:
                 await self._handle_skill_list()
                 self._controller.sync_skill_commands()
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_disable",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_disable",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_skill_reload(self) -> None:
         """Reload skills from disk."""
         try:
             success, message = reload_skills()
-            await self._broadcast({
-                "type": "skill_reload",
-                "data": {
-                    "success": success,
-                    "message": message,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_reload",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                    },
+                }
+            )
             # Refresh the list and sync skill commands
             if success:
                 await self._handle_skill_list()
                 self._controller.sync_skill_commands()
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_reload",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_reload",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_skill_run(self, name: str, args_text: str = "") -> None:
         """Run a skill by invoking it through the controller."""
         try:
             await self._controller.invoke_skill(name, args_text, self._adapter_id)
-            await self._broadcast({
-                "type": "skill_run",
-                "data": {
-                    "success": True,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_run",
+                    "data": {
+                        "success": True,
+                        "name": name,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_run",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_run",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_skill_install(self, source: str) -> None:
         """Install a skill from path or git URL."""
@@ -4779,26 +5341,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             else:
                 success, message = install_skill_from_path(source)
 
-            await self._broadcast({
-                "type": "skill_install",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "source": source,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_install",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "source": source,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_skill_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_install",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "source": source,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_install",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "source": source,
+                    },
+                }
+            )
 
     async def _handle_skill_create(
         self, name: str, description: str, content: str = ""
@@ -4808,92 +5374,108 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             success, message = create_skill_scaffold(
                 name, description, content if content else None
             )
-            await self._broadcast({
-                "type": "skill_create",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_create",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_skill_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_create",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_create",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_skill_template(self, name: str, description: str) -> None:
         """Get a skill template for the given name and description."""
         try:
             template = get_skill_template(name or "my-skill", description)
-            await self._broadcast({
-                "type": "skill_template",
-                "data": {
-                    "success": True,
-                    "template": template,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_template",
+                    "data": {
+                        "success": True,
+                        "template": template,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_template",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_template",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_skill_remove(self, name: str) -> None:
         """Remove a skill."""
         try:
             success, message = remove_skill(name)
-            await self._broadcast({
-                "type": "skill_remove",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_remove",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "name": name,
+                    },
+                }
+            )
             # Refresh the list
             if success:
                 await self._handle_skill_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_remove",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "name": name,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_remove",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "name": name,
+                    },
+                }
+            )
 
     async def _handle_skill_dirs(self) -> None:
         """Get skill search directories."""
         try:
             dirs = get_skill_search_directories()
-            await self._broadcast({
-                "type": "skill_dirs",
-                "data": {
-                    "success": True,
-                    "directories": dirs,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_dirs",
+                    "data": {
+                        "success": True,
+                        "directories": dirs,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "skill_dirs",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "directories": [],
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "skill_dirs",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "directories": [],
+                    },
+                }
+            )
 
     # =====================
     # Integration Handlers
@@ -4907,85 +5489,101 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             total = len(integrations)
             connected = sum(1 for i in integrations if i.get("connected", False))
 
-            await self._broadcast({
-                "type": "integration_list",
-                "data": {
-                    "success": True,
-                    "integrations": integrations,
-                    "total": total,
-                    "connected": connected,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_list",
+                    "data": {
+                        "success": True,
+                        "integrations": integrations,
+                        "total": total,
+                        "connected": connected,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "integration_list",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "integrations": [],
-                    "total": 0,
-                    "connected": 0,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "integrations": [],
+                        "total": 0,
+                        "connected": 0,
+                    },
+                }
+            )
 
     async def _handle_integration_info(self, integration_id: str) -> None:
         """Get detailed info about an integration."""
         try:
             info = get_integration_info(integration_id)
             if info:
-                await self._broadcast({
-                    "type": "integration_info",
-                    "data": {
-                        "success": True,
-                        "id": integration_id,
-                        "integration": info,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "integration_info",
+                        "data": {
+                            "success": True,
+                            "id": integration_id,
+                            "integration": info,
+                        },
+                    }
+                )
             else:
-                await self._broadcast({
+                await self._broadcast(
+                    {
+                        "type": "integration_info",
+                        "data": {
+                            "success": False,
+                            "error": f"Integration '{integration_id}' not found",
+                            "id": integration_id,
+                        },
+                    }
+                )
+        except Exception as e:
+            await self._broadcast(
+                {
                     "type": "integration_info",
                     "data": {
                         "success": False,
-                        "error": f"Integration '{integration_id}' not found",
+                        "error": str(e),
                         "id": integration_id,
                     },
-                })
-        except Exception as e:
-            await self._broadcast({
-                "type": "integration_info",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "id": integration_id,
-                },
-            })
+                }
+            )
 
     async def _handle_integration_connect_token(
         self, integration_id: str, credentials: Dict[str, str]
     ) -> None:
         """Connect an integration using token/credentials."""
         try:
-            success, message = await connect_integration_token(integration_id, credentials)
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "id": integration_id,
-                },
-            })
+            success, message = await connect_integration_token(
+                integration_id, credentials
+            )
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                }
+            )
             # Refresh the list on success (listener is started by connect_integration_token)
             if success:
                 await self._handle_integration_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "id": integration_id,
+                    },
+                }
+            )
 
     async def _handle_integration_connect_oauth(self, integration_id: str) -> None:
         """Start OAuth flow for an integration (non-blocking)."""
@@ -5001,40 +5599,48 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Execute OAuth flow and broadcast result (runs as background task)."""
         try:
             success, message = await connect_integration_oauth(integration_id)
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                }
+            )
             # Refresh the list on success (listener is started by connect_integration_oauth)
             if success:
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # OAuth was cancelled by user closing the modal
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": False,
-                    "message": "OAuth cancelled",
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": False,
+                        "message": "OAuth cancelled",
+                        "id": integration_id,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "id": integration_id,
+                    },
+                }
+            )
         finally:
             self._oauth_tasks.pop(integration_id, None)
 
-    async def _handle_integration_connect_interactive(self, integration_id: str) -> None:
+    async def _handle_integration_connect_interactive(
+        self, integration_id: str
+    ) -> None:
         """Connect an integration using interactive flow (non-blocking)."""
         # Cancel any existing interactive task for this integration
         if integration_id in self._oauth_tasks:
@@ -5048,36 +5654,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Execute interactive flow and broadcast result (runs as background task)."""
         try:
             success, message = await connect_integration_interactive(integration_id)
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                }
+            )
             # Refresh the list on success (listener is started by connect_integration_interactive)
             if success:
                 await self._handle_integration_list()
         except asyncio.CancelledError:
             # Interactive flow was cancelled by user closing the modal
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": False,
-                    "message": "Connection cancelled",
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": False,
+                        "message": "Connection cancelled",
+                        "id": integration_id,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "integration_connect_result",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "id": integration_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "integration_connect_result",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "id": integration_id,
+                    },
+                }
+            )
         finally:
             self._oauth_tasks.pop(integration_id, None)
 
@@ -5098,28 +5710,35 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         finishes. So we run the disconnect in a background task and let
         this handler return immediately.
         """
+
         async def _do_disconnect() -> None:
             try:
-                success, message = await disconnect_integration(integration_id, account_id)
-                await self._broadcast({
-                    "type": "integration_disconnect_result",
-                    "data": {
-                        "success": success,
-                        "message": message,
-                        "id": integration_id,
-                    },
-                })
+                success, message = await disconnect_integration(
+                    integration_id, account_id
+                )
+                await self._broadcast(
+                    {
+                        "type": "integration_disconnect_result",
+                        "data": {
+                            "success": success,
+                            "message": message,
+                            "id": integration_id,
+                        },
+                    }
+                )
                 if success:
                     await self._handle_integration_list()
             except Exception as e:
-                await self._broadcast({
-                    "type": "integration_disconnect_result",
-                    "data": {
-                        "success": False,
-                        "error": str(e),
-                        "id": integration_id,
-                    },
-                })
+                await self._broadcast(
+                    {
+                        "type": "integration_disconnect_result",
+                        "data": {
+                            "success": False,
+                            "error": str(e),
+                            "id": integration_id,
+                        },
+                    }
+                )
 
         asyncio.create_task(_do_disconnect())
 
@@ -5134,38 +5753,73 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Send the integration's config schema + current values to the frontend."""
         try:
             from craftos_integrations import get_config, get_config_schema, get_metadata
+
             meta = get_metadata(integration_id)
             if meta is None:
-                await self._broadcast({"type": "integration_config", "data": {
-                    "id": integration_id, "success": False, "error": "Unknown integration",
-                }})
+                await self._broadcast(
+                    {
+                        "type": "integration_config",
+                        "data": {
+                            "id": integration_id,
+                            "success": False,
+                            "error": "Unknown integration",
+                        },
+                    }
+                )
                 return
-            await self._broadcast({"type": "integration_config", "data": {
-                "id": integration_id,
-                "success": True,
-                "schema": get_config_schema(integration_id) or [],
-                "values": get_config(integration_id) or {},
-            }})
+            await self._broadcast(
+                {
+                    "type": "integration_config",
+                    "data": {
+                        "id": integration_id,
+                        "success": True,
+                        "schema": get_config_schema(integration_id) or [],
+                        "values": get_config(integration_id) or {},
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({"type": "integration_config", "data": {
-                "id": integration_id, "success": False, "error": str(e),
-            }})
+            await self._broadcast(
+                {
+                    "type": "integration_config",
+                    "data": {
+                        "id": integration_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
-    async def _handle_integration_update_config(self, integration_id: str, values: dict) -> None:
+    async def _handle_integration_update_config(
+        self, integration_id: str, values: dict
+    ) -> None:
         """Persist new config values; return the post-write state so the UI can refresh."""
         try:
             from craftos_integrations import get_config, update_config
+
             ok, message = update_config(integration_id, values or {})
-            await self._broadcast({"type": "integration_config_updated", "data": {
-                "id": integration_id,
-                "success": ok,
-                "message": message,
-                "values": get_config(integration_id) if ok else None,
-            }})
+            await self._broadcast(
+                {
+                    "type": "integration_config_updated",
+                    "data": {
+                        "id": integration_id,
+                        "success": ok,
+                        "message": message,
+                        "values": get_config(integration_id) if ok else None,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({"type": "integration_config_updated", "data": {
-                "id": integration_id, "success": False, "error": str(e),
-            }})
+            await self._broadcast(
+                {
+                    "type": "integration_config_updated",
+                    "data": {
+                        "id": integration_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     # ==========================
     # Living UI Settings Handlers
@@ -5174,14 +5828,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_living_ui_settings_get(self) -> None:
         """Get all Living UI projects with their settings."""
         from app.ui_layer.settings.living_ui_settings import get_living_ui_projects
+
         result = get_living_ui_projects()
         await self._broadcast({"type": "living_ui_settings_get", "data": result})
 
-    async def _handle_living_ui_project_setting_update(self, project_id: str, setting: str, value) -> None:
+    async def _handle_living_ui_project_setting_update(
+        self, project_id: str, setting: str, value
+    ) -> None:
         """Update a per-project setting."""
         from app.ui_layer.settings.living_ui_settings import update_project_setting
+
         result = update_project_setting(project_id, setting, value)
-        await self._broadcast({"type": "living_ui_project_setting_update", "data": result})
+        await self._broadcast(
+            {"type": "living_ui_project_setting_update", "data": result}
+        )
 
     # =====================
     # Marketplace Handlers
@@ -5196,31 +5856,51 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         CATALOGUE_URL = "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
 
         try:
-            import ssl, certifi
+            import ssl
+            import certifi
+
             ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            req = urllib.request.Request(CATALOGUE_URL, headers={'User-Agent': 'CraftBot'})
+            req = urllib.request.Request(
+                CATALOGUE_URL, headers={"User-Agent": "CraftBot"}
+            )
             response = urllib.request.urlopen(req, timeout=15, context=ssl_ctx)
             raw = response.read().decode()
             # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
-            raw = _re.sub(r',\s*([}\]])', r'\1', raw)
+            raw = _re.sub(r",\s*([}\]])", r"\1", raw)
             catalogue = _json.loads(raw)
-            await self._broadcast({
-                "type": "living_ui_marketplace_list",
-                "data": {"success": True, "apps": catalogue.get("apps", [])},
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_marketplace_list",
+                    "data": {"success": True, "apps": catalogue.get("apps", [])},
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "living_ui_marketplace_list",
-                "data": {"success": False, "error": str(e), "apps": []},
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_marketplace_list",
+                    "data": {"success": False, "error": str(e), "apps": []},
+                }
+            )
 
-    async def _handle_marketplace_install(self, app_id: str, app_name: str, app_description: str, custom_fields: dict = None) -> None:
+    async def _handle_marketplace_install(
+        self,
+        app_id: str,
+        app_name: str,
+        app_description: str,
+        custom_fields: dict = None,
+    ) -> None:
         """Install a marketplace app."""
         if not app_id or not app_name:
-            await self._broadcast({
-                "type": "living_ui_marketplace_install",
-                "data": {"success": False, "error": "App ID and name are required", "appId": app_id},
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_marketplace_install",
+                    "data": {
+                        "success": False,
+                        "error": "App ID and name are required",
+                        "appId": app_id,
+                    },
+                }
+            )
             return
 
         result = await self._living_ui_manager.install_from_marketplace(
@@ -5232,26 +5912,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         if result.get("status") == "success":
             # Also broadcast as living_ui_create so the sidebar updates
-            await self._broadcast({
-                "type": "living_ui_create",
-                "data": {
-                    "success": True,
-                    "projectId": result["project"]["id"],
-                    "project": result["project"],
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "living_ui_create",
+                    "data": {
+                        "success": True,
+                        "projectId": result["project"]["id"],
+                        "project": result["project"],
+                    },
+                }
+            )
 
-        await self._broadcast({
-            "type": "living_ui_marketplace_install",
-            "data": {**result, "appId": app_id},
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_marketplace_install",
+                "data": {**result, "appId": app_id},
+            }
+        )
 
     async def _handle_living_ui_import(self, source: str, name: str) -> None:
         """Handle import of an external app or ZIP — creates a task with the importer skill."""
         if not source:
             return
 
-        is_zip = source.lower().endswith('.zip')
+        is_zip = source.lower().endswith(".zip")
 
         if is_zip:
             task_instruction = (
@@ -5290,6 +5974,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if task_id:
             from app.trigger import Trigger
             import time
+
             trigger = Trigger(
                 fire_at=time.time(),
                 priority=50,
@@ -5299,10 +5984,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             await self._controller.agent.triggers.put(trigger)
 
-        await self._broadcast({
-            "type": "living_ui_import",
-            "data": {"status": "started", "name": name, "source": source},
-        })
+        await self._broadcast(
+            {
+                "type": "living_ui_import",
+                "data": {"status": "started", "name": name, "source": source},
+            }
+        )
 
     # =====================
     # WhatsApp QR Code Flow
@@ -5312,58 +5999,70 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         """Start WhatsApp Web session and return QR code."""
         try:
             result = await start_whatsapp_qr_session()
-            await self._broadcast({
-                "type": "whatsapp_qr_result",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "whatsapp_qr_result",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "whatsapp_qr_result",
-                "data": {
-                    "success": False,
-                    "status": "error",
-                    "message": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "whatsapp_qr_result",
+                    "data": {
+                        "success": False,
+                        "status": "error",
+                        "message": str(e),
+                    },
+                }
+            )
 
     async def _handle_whatsapp_check_status(self, session_id: str) -> None:
         """Check WhatsApp session status."""
         try:
             result = await check_whatsapp_session_status(session_id)
-            await self._broadcast({
-                "type": "whatsapp_status_result",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "whatsapp_status_result",
+                    "data": result,
+                }
+            )
             # If connected, refresh the integrations list (listener is started by check_whatsapp_session_status)
             if result.get("connected"):
                 await self._handle_integration_list()
         except Exception as e:
-            await self._broadcast({
-                "type": "whatsapp_status_result",
-                "data": {
-                    "success": False,
-                    "status": "error",
-                    "connected": False,
-                    "message": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "whatsapp_status_result",
+                    "data": {
+                        "success": False,
+                        "status": "error",
+                        "connected": False,
+                        "message": str(e),
+                    },
+                }
+            )
 
     async def _handle_whatsapp_cancel(self, session_id: str) -> None:
         """Cancel WhatsApp session."""
         try:
             result = cancel_whatsapp_session(session_id)
-            await self._broadcast({
-                "type": "whatsapp_cancel_result",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "whatsapp_cancel_result",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "whatsapp_cancel_result",
-                "data": {
-                    "success": False,
-                    "message": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "whatsapp_cancel_result",
+                    "data": {
+                        "success": False,
+                        "message": str(e),
+                    },
+                }
+            )
 
     async def _broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients."""
@@ -5389,17 +6088,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _broadcast_error_to_chat(self, error_message: str) -> None:
         """Broadcast an error message to the chat panel for debugging."""
         import time
+
         try:
-            await self._broadcast({
-                "type": "chat_message",
-                "data": {
-                    "sender": "System",
-                    "content": f"[DEBUG ERROR] {error_message}",
-                    "style": "error",
-                    "timestamp": time.time(),
-                    "messageId": f"error:{time.time()}",
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "chat_message",
+                    "data": {
+                        "sender": "System",
+                        "content": f"[DEBUG ERROR] {error_message}",
+                        "style": "error",
+                        "timestamp": time.time(),
+                        "messageId": f"error:{time.time()}",
+                    },
+                }
+            )
         except Exception:
             # If broadcast fails, at least print to console
             print(f"[BROWSER ADAPTER] Failed to broadcast error: {error_message}")
@@ -5482,7 +6184,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 raise ValueError(f"Path is not a directory: {directory}")
 
             # Collect and sort all files
-            all_files = sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            all_files = sorted(
+                target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
+            )
 
             # Apply search filter
             if search:
@@ -5492,33 +6196,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             total = len(all_files)
 
             # Apply pagination
-            paginated = all_files[offset:offset + limit]
+            paginated = all_files[offset : offset + limit]
             files = [self._get_file_info(item) for item in paginated]
 
-            await self._broadcast({
-                "type": "file_list",
-                "data": {
-                    "directory": directory,
-                    "files": files,
-                    "total": total,
-                    "hasMore": offset + limit < total,
-                    "offset": offset,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_list",
+                    "data": {
+                        "directory": directory,
+                        "files": files,
+                        "total": total,
+                        "hasMore": offset + limit < total,
+                        "offset": offset,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_list",
-                "data": {
-                    "directory": directory,
-                    "files": [],
-                    "total": 0,
-                    "hasMore": False,
-                    "offset": 0,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_list",
+                    "data": {
+                        "directory": directory,
+                        "files": [],
+                        "total": 0,
+                        "hasMore": False,
+                        "offset": 0,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_read(self, file_path: str) -> None:
         """Read file content."""
@@ -5545,26 +6253,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(target)
 
-            await self._broadcast({
-                "type": "file_read",
-                "data": {
-                    "path": file_path,
-                    "content": content,
-                    "isBinary": is_binary,
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_read",
+                    "data": {
+                        "path": file_path,
+                        "content": content,
+                        "isBinary": is_binary,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_read",
-                "data": {
-                    "path": file_path,
-                    "content": None,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_read",
+                    "data": {
+                        "path": file_path,
+                        "content": None,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_write(self, file_path: str, content: str) -> None:
         """Write content to a file."""
@@ -5578,23 +6290,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(target)
 
-            await self._broadcast({
-                "type": "file_write",
-                "data": {
-                    "path": file_path,
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_write",
+                    "data": {
+                        "path": file_path,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_write",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_write",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_create(self, file_path: str, file_type: str) -> None:
         """Create a new file or directory."""
@@ -5612,24 +6328,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(target)
 
-            await self._broadcast({
-                "type": "file_create",
-                "data": {
-                    "path": file_path,
-                    "fileType": file_type,
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_create",
+                    "data": {
+                        "path": file_path,
+                        "fileType": file_type,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_create",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_create",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_delete(self, file_path: str) -> None:
         """Delete a file or directory."""
@@ -5644,22 +6364,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             else:
                 target.unlink()
 
-            await self._broadcast({
-                "type": "file_delete",
-                "data": {
-                    "path": file_path,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_delete",
+                    "data": {
+                        "path": file_path,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_delete",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_delete",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_rename(self, old_path: str, new_name: str) -> None:
         """Rename a file or directory."""
@@ -5673,7 +6397,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             new_target = target.parent / new_name
 
             # Validate new path is still within workspace
-            self._validate_path(str(new_target.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())))
+            self._validate_path(
+                str(new_target.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve()))
+            )
 
             if new_target.exists():
                 raise ValueError(f"Target already exists: {new_name}")
@@ -5682,24 +6408,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(new_target)
 
-            await self._broadcast({
-                "type": "file_rename",
-                "data": {
-                    "oldPath": old_path,
-                    "newPath": str(new_target.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())).replace("\\", "/"),
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_rename",
+                    "data": {
+                        "oldPath": old_path,
+                        "newPath": str(
+                            new_target.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())
+                        ).replace("\\", "/"),
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_rename",
-                "data": {
-                    "oldPath": old_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_rename",
+                    "data": {
+                        "oldPath": old_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_batch_delete(self, paths: List[str]) -> None:
         """Delete multiple files/directories."""
@@ -5709,7 +6441,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 target = self._validate_path(file_path)
 
                 if not target.exists():
-                    results.append({"path": file_path, "success": False, "error": "Not found"})
+                    results.append(
+                        {"path": file_path, "success": False, "error": "Not found"}
+                    )
                     continue
 
                 if target.is_dir():
@@ -5721,13 +6455,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception as e:
                 results.append({"path": file_path, "success": False, "error": str(e)})
 
-        await self._broadcast({
-            "type": "file_batch_delete",
-            "data": {
-                "results": results,
-                "success": all(r["success"] for r in results),
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "file_batch_delete",
+                "data": {
+                    "results": results,
+                    "success": all(r["success"] for r in results),
+                },
+            }
+        )
 
     async def _handle_file_move(self, src_path: str, dest_path: str) -> None:
         """Move a file or directory."""
@@ -5749,25 +6485,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(dest)
 
-            await self._broadcast({
-                "type": "file_move",
-                "data": {
-                    "srcPath": src_path,
-                    "destPath": str(dest.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())).replace("\\", "/"),
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_move",
+                    "data": {
+                        "srcPath": src_path,
+                        "destPath": str(
+                            dest.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())
+                        ).replace("\\", "/"),
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_move",
-                "data": {
-                    "srcPath": src_path,
-                    "destPath": dest_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_move",
+                    "data": {
+                        "srcPath": src_path,
+                        "destPath": dest_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_copy(self, src_path: str, dest_path: str) -> None:
         """Copy a file or directory."""
@@ -5793,25 +6535,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(dest)
 
-            await self._broadcast({
-                "type": "file_copy",
-                "data": {
-                    "srcPath": src_path,
-                    "destPath": str(dest.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())).replace("\\", "/"),
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_copy",
+                    "data": {
+                        "srcPath": src_path,
+                        "destPath": str(
+                            dest.relative_to(Path(AGENT_WORKSPACE_ROOT).resolve())
+                        ).replace("\\", "/"),
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_copy",
-                "data": {
-                    "srcPath": src_path,
-                    "destPath": dest_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_copy",
+                    "data": {
+                        "srcPath": src_path,
+                        "destPath": dest_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_upload(self, file_path: str, content_b64: str) -> None:
         """Upload a file (content is base64 encoded)."""
@@ -5828,23 +6576,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(target)
 
-            await self._broadcast({
-                "type": "file_upload",
-                "data": {
-                    "path": file_path,
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_upload",
+                    "data": {
+                        "path": file_path,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_upload",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_upload",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_file_download(self, file_path: str) -> None:
         """Download a file (returns base64 encoded content)."""
@@ -5863,29 +6615,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             file_info = self._get_file_info(target)
 
-            await self._broadcast({
-                "type": "file_download",
-                "data": {
-                    "path": file_path,
-                    "content": content_b64,
-                    "fileInfo": file_info,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_download",
+                    "data": {
+                        "path": file_path,
+                        "content": content_b64,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "file_download",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "file_download",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
-    async def _handle_chat_history(self, before_timestamp: float, limit: int = 50) -> None:
+    async def _handle_chat_history(
+        self, before_timestamp: float, limit: int = 50
+    ) -> None:
         """Load older chat messages for infinite scroll."""
         try:
-            older_messages = self._chat.get_messages_before(before_timestamp, limit=limit)
+            older_messages = self._chat.get_messages_before(
+                before_timestamp, limit=limit
+            )
             total = self._chat.get_total_count()
 
             messages_data = []
@@ -5919,34 +6679,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     msg_data["optionSelected"] = m.option_selected
                 messages_data.append(msg_data)
 
-            await self._broadcast({
-                "type": "chat_history",
-                "data": {
-                    "messages": messages_data,
-                    "hasMore": len(older_messages) == limit,
-                    "total": total,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "chat_history",
+                    "data": {
+                        "messages": messages_data,
+                        "hasMore": len(older_messages) == limit,
+                        "total": total,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "chat_history",
-                "data": {
-                    "messages": [],
-                    "hasMore": False,
-                    "total": 0,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "chat_history",
+                    "data": {
+                        "messages": [],
+                        "hasMore": False,
+                        "total": 0,
+                        "error": str(e),
+                    },
+                }
+            )
 
-    async def _handle_action_history(self, before_timestamp: float, limit: int = 15) -> None:
+    async def _handle_action_history(
+        self, before_timestamp: float, limit: int = 15
+    ) -> None:
         """Load older tasks (and their actions) for pagination."""
         try:
             # before_timestamp is in milliseconds from frontend, convert to seconds
             before_ts_seconds = before_timestamp / 1000.0
-            older_items = self._action_panel.get_tasks_before(before_ts_seconds, task_limit=limit)
+            older_items = self._action_panel.get_tasks_before(
+                before_ts_seconds, task_limit=limit
+            )
 
             # Count how many tasks were returned to determine hasMore
-            task_count = sum(1 for a in older_items if a.item_type == 'task')
+            task_count = sum(1 for a in older_items if a.item_type == "task")
 
             actions_data = [
                 {
@@ -5969,22 +6737,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 for a in older_items
             ]
 
-            await self._broadcast({
-                "type": "action_history",
-                "data": {
-                    "actions": actions_data,
-                    "hasMore": task_count == limit,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "action_history",
+                    "data": {
+                        "actions": actions_data,
+                        "hasMore": task_count == limit,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "action_history",
-                "data": {
-                    "actions": [],
-                    "hasMore": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "action_history",
+                    "data": {
+                        "actions": [],
+                        "hasMore": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_chat_message_with_attachments(
         self,
@@ -6027,7 +6799,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             file_path.write_bytes(file_content)
                             size = len(file_content)
                         except Exception as e:
-                            print(f"[BROWSER ADAPTER] Error saving attachment {name}: {e}")
+                            print(
+                                f"[BROWSER ADAPTER] Error saving attachment {name}: {e}"
+                            )
                             continue
 
                     # Create attachment object
@@ -6039,7 +6813,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         url=f"/api/workspace/{relative_path}",
                     )
                     processed_attachments.append(attachment)
-                    parts.append(f"{name} ({file_type}, {size} B), saved to workspace/{relative_path}")
+                    parts.append(
+                        f"{name} ({file_type}, {size} B), saved to workspace/{relative_path}"
+                    )
 
                 if parts:
                     attachment_note = "\n\nATTACHMENTS:\n" + "\n".join(parts)
@@ -6070,7 +6846,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Update state and route to agent directly
             # (Skip submit_message to avoid duplicate chat message)
-            self._controller._state_store.dispatch("SET_AGENT_STATE", AgentStateType.WORKING.value)
+            self._controller._state_store.dispatch(
+                "SET_AGENT_STATE", AgentStateType.WORKING.value
+            )
 
             # Emit state change event so adapters can update status immediately
             self._controller._event_bus.emit(
@@ -6100,7 +6878,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         except Exception as e:
             import traceback
-            print(f"[BROWSER ADAPTER] Error in _handle_chat_message_with_attachments: {e}")
+
+            print(
+                f"[BROWSER ADAPTER] Error in _handle_chat_message_with_attachments: {e}"
+            )
             traceback.print_exc()
             # Still try to display an error message to the user
             error_message = ChatMessage(
@@ -6137,27 +6918,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             file_path.write_bytes(file_content)
 
             # Build response
-            await self._broadcast({
-                "type": "chat_attachment_upload",
-                "data": {
-                    "success": True,
-                    "attachment": {
-                        "name": name,
-                        "path": relative_path,
-                        "type": file_type,
-                        "size": len(file_content),
-                        "url": f"/api/workspace/{relative_path}",
+            await self._broadcast(
+                {
+                    "type": "chat_attachment_upload",
+                    "data": {
+                        "success": True,
+                        "attachment": {
+                            "name": name,
+                            "path": relative_path,
+                            "type": file_type,
+                            "size": len(file_content),
+                            "url": f"/api/workspace/{relative_path}",
+                        },
                     },
-                },
-            })
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "chat_attachment_upload",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "chat_attachment_upload",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_agent_profile_picture_upload(self, data: Dict[str, Any]) -> None:
         """Handle uploading a new agent profile picture."""
@@ -6197,18 +6982,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             result = save_agent_profile_picture(ext, raw_bytes)
 
-            await self._broadcast({
-                "type": "agent_profile_picture_upload",
-                "data": result,
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_profile_picture_upload",
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "agent_profile_picture_upload",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "agent_profile_picture_upload",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_agent_profile_picture_remove(self) -> None:
         """Handle removing the custom agent profile picture."""
@@ -6219,10 +7008,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             result = {"success": False, "error": str(e)}
 
-        await self._broadcast({
-            "type": "agent_profile_picture_remove",
-            "data": result,
-        })
+        await self._broadcast(
+            {
+                "type": "agent_profile_picture_remove",
+                "data": result,
+            }
+        )
 
     async def _handle_open_file(self, file_path: str) -> None:
         """Open a file with the system default application."""
@@ -6244,22 +7035,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             else:  # Linux and others
                 subprocess.run(["xdg-open", str(target)], check=True)
 
-            await self._broadcast({
-                "type": "open_file",
-                "data": {
-                    "path": file_path,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "open_file",
+                    "data": {
+                        "path": file_path,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "open_file",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "open_file",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     async def _handle_open_folder(self, file_path: str) -> None:
         """Open the folder containing a file in the system file explorer."""
@@ -6291,22 +7086,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             else:  # Linux and others
                 subprocess.run(["xdg-open", str(folder)], check=True)
 
-            await self._broadcast({
-                "type": "open_folder",
-                "data": {
-                    "path": file_path,
-                    "success": True,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "open_folder",
+                    "data": {
+                        "path": file_path,
+                        "success": True,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "open_folder",
-                "data": {
-                    "path": file_path,
-                    "success": False,
-                    "error": str(e),
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "open_folder",
+                    "data": {
+                        "path": file_path,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
 
     def _prepare_attachment(self, file_path: str) -> Attachment:
         """
@@ -6397,7 +7196,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         Returns:
             Dict with 'success', 'files_sent', and optionally 'errors'
         """
-        return await self.send_message_with_attachments(message, [file_path], sender, style)
+        return await self.send_message_with_attachments(
+            message, [file_path], sender, style
+        )
 
     async def send_message_with_attachments(
         self,
@@ -6428,6 +7229,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # (same as _handle_agent_message in base adapter)
             if sender is None:
                 from app.onboarding import onboarding_manager
+
                 sender = onboarding_manager.state.agent_name or "Agent"
 
             attachments = []
@@ -6453,7 +7255,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # If there were errors, send an error message listing them
             if errors:
-                error_content = "Failed to attach some files:\n" + "\n".join(f"- {e}" for e in errors)
+                error_content = "Failed to attach some files:\n" + "\n".join(
+                    f"- {e}" for e in errors
+                )
                 error_message = ChatMessage(
                     sender="system",
                     content=error_content,
@@ -6469,7 +7273,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     style="error",
                 )
                 await self._chat.append_message(error_message)
-                return {"success": False, "files_sent": 0, "errors": ["No files provided to attach."]}
+                return {
+                    "success": False,
+                    "files_sent": 0,
+                    "errors": ["No files provided to attach."],
+                }
 
             # Return status
             return {
@@ -6491,7 +7299,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         from app.onboarding import onboarding_manager
-        from app.ui_layer.settings.general_settings import get_agent_profile_picture_info
+        from app.ui_layer.settings.general_settings import (
+            get_agent_profile_picture_info,
+        )
 
         state = self._controller.state
         metrics = self._metrics_collector.get_metrics()
@@ -6511,7 +7321,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "currentTask": {
                 "id": state.current_task_id,
                 "name": state.current_task_name,
-            } if state.current_task_id else None,
+            }
+            if state.current_task_id
+            else None,
             "messages": [
                 {
                     "sender": m.sender,
@@ -6519,22 +7331,42 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "style": m.style,
                     "timestamp": m.timestamp,
                     "messageId": m.message_id,
-                    **({"attachments": [
+                    **(
                         {
-                            "name": att.name,
-                            "path": att.path,
-                            "type": att.type,
-                            "size": att.size,
-                            "url": att.url,
+                            "attachments": [
+                                {
+                                    "name": att.name,
+                                    "path": att.path,
+                                    "type": att.type,
+                                    "size": att.size,
+                                    "url": att.url,
+                                }
+                                for att in m.attachments
+                            ]
                         }
-                        for att in m.attachments
-                    ]} if m.attachments else {}),
-                    **({"taskSessionId": m.task_session_id} if m.task_session_id else {}),
-                    **({"options": [
-                        {"label": o.label, "value": o.value, "style": o.style}
-                        for o in m.options
-                    ]} if m.options else {}),
-                    **({"optionSelected": m.option_selected} if m.option_selected else {}),
+                        if m.attachments
+                        else {}
+                    ),
+                    **(
+                        {"taskSessionId": m.task_session_id}
+                        if m.task_session_id
+                        else {}
+                    ),
+                    **(
+                        {
+                            "options": [
+                                {"label": o.label, "value": o.value, "style": o.style}
+                                for o in m.options
+                            ]
+                        }
+                        if m.options
+                        else {}
+                    ),
+                    **(
+                        {"optionSelected": m.option_selected}
+                        if m.option_selected
+                        else {}
+                    ),
                 }
                 for m in self._chat.get_messages()
             ],
@@ -6579,10 +7411,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return web.FileResponse(index_path)
         else:
             # Fallback to inline HTML
-            return web.Response(
-                text=self._get_index_html(),
-                content_type="text/html"
-            )
+            return web.Response(text=self._get_index_html(), content_type="text/html")
 
     async def _index_handler(self, request: "web.Request") -> "web.Response":
         """Serve the main HTML page (fallback when no build exists)."""
@@ -6604,7 +7433,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         css = self._theme_adapter.get_theme_css()
         return web.Response(text=css, content_type="text/css")
 
-    async def _agent_profile_picture_handler(self, request: "web.Request") -> "web.Response":
+    async def _agent_profile_picture_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
         """Serve the current agent profile picture (user upload or bundled default)."""
         from aiohttp import web
 
@@ -6681,7 +7512,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 headers={
                     "Content-Disposition": f'inline; filename="{target.name}"',
                     "Cache-Control": "no-cache",
-                }
+                },
             )
         except ValueError as e:
             raise web.HTTPForbidden(reason=str(e))

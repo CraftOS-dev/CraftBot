@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Discord voice helpers - underscore-prefixed so the autoloader skips it.
 
 Loaded lazily by discord.py only when a voice method is invoked.
@@ -7,6 +7,7 @@ Requires extra deps (discord.py[voice], PyNaCl, FFmpeg, openai).
 API-key access goes through ConfigStore.extras["openai_api_key"]
 (set via configure(extras={"openai_api_key": "..."})).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,19 +24,23 @@ from ...config import ConfigStore
 try:
     import discord
     from discord.ext import commands
+
     DISCORD_PY_AVAILABLE = True
 except ImportError:
     DISCORD_PY_AVAILABLE = False
 
 try:
     from openai import OpenAI
+
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
 
 
 def _get_openai_audio_api_key() -> str:
-    return ConfigStore.extras.get("openai_api_key", "") or os.environ.get("OPENAI_API_KEY", "")
+    return ConfigStore.extras.get("openai_api_key", "") or os.environ.get(
+        "OPENAI_API_KEY", ""
+    )
 
 
 @dataclass
@@ -51,7 +56,9 @@ class VoiceSession:
 
 
 class AudioRecordingSink:
-    def __init__(self, session: VoiceSession, on_audio_chunk: Optional[Callable] = None):
+    def __init__(
+        self, session: VoiceSession, on_audio_chunk: Optional[Callable] = None
+    ):
         self.session = session
         self.on_audio_chunk = on_audio_chunk
         self.audio_data: Dict[int, io.BytesIO] = {}
@@ -75,7 +82,9 @@ class AudioRecordingSink:
 class DiscordVoiceManager:
     def __init__(self, bot_token: str):
         if not DISCORD_PY_AVAILABLE:
-            raise ImportError("discord.py is required for voice features. Install with: pip install discord.py[voice]")
+            raise ImportError(
+                "discord.py is required for voice features. Install with: pip install discord.py[voice]"
+            )
         self.bot_token = bot_token
         self.bot: Optional[Any] = None
         self.voice_sessions: Dict[str, VoiceSession] = {}
@@ -110,7 +119,13 @@ class DiscordVoiceManager:
             asyncio.create_task(self.bot.start(self.bot_token))
             for _ in range(30):
                 if self._running:
-                    return {"ok": True, "result": {"status": "connected", "bot_user": str(self.bot.user)}}
+                    return {
+                        "ok": True,
+                        "result": {
+                            "status": "connected",
+                            "bot_user": str(self.bot.user),
+                        },
+                    }
                 await asyncio.sleep(1)
             return {"error": "Bot failed to connect within timeout"}
         except Exception as e:
@@ -128,8 +143,13 @@ class DiscordVoiceManager:
         except Exception as e:
             return {"error": str(e)}
 
-    async def join_voice(self, guild_id: str, channel_id: str,
-                         self_deaf: bool = False, self_mute: bool = False) -> Dict[str, Any]:
+    async def join_voice(
+        self,
+        guild_id: str,
+        channel_id: str,
+        self_deaf: bool = False,
+        self_mute: bool = False,
+    ) -> Dict[str, Any]:
         try:
             if not self._running:
                 return {"error": "Bot not running. Call start() first."}
@@ -144,11 +164,18 @@ class DiscordVoiceManager:
             if guild_id in self.voice_sessions:
                 await self.leave_voice(guild_id)
             await channel.connect(self_deaf=self_deaf, self_mute=self_mute)
-            self.voice_sessions[guild_id] = VoiceSession(guild_id=guild_id, channel_id=channel_id)
-            return {"ok": True, "result": {
-                "status": "connected", "guild_id": guild_id,
-                "channel_id": channel_id, "channel_name": channel.name,
-            }}
+            self.voice_sessions[guild_id] = VoiceSession(
+                guild_id=guild_id, channel_id=channel_id
+            )
+            return {
+                "ok": True,
+                "result": {
+                    "status": "connected",
+                    "guild_id": guild_id,
+                    "channel_id": channel_id,
+                    "channel_name": channel.name,
+                },
+            }
         except Exception as e:
             return {"error": str(e)}
 
@@ -161,12 +188,20 @@ class DiscordVoiceManager:
                 await guild.voice_client.disconnect()
             if guild_id in self.voice_sessions:
                 del self.voice_sessions[guild_id]
-            return {"ok": True, "result": {"status": "disconnected", "guild_id": guild_id}}
+            return {
+                "ok": True,
+                "result": {"status": "disconnected", "guild_id": guild_id},
+            }
         except Exception as e:
             return {"error": str(e)}
 
-    async def speak_text(self, guild_id: str, text: str,
-                         tts_provider: str = "openai", voice: str = "alloy") -> Dict[str, Any]:
+    async def speak_text(
+        self,
+        guild_id: str,
+        text: str,
+        tts_provider: str = "openai",
+        voice: str = "alloy",
+    ) -> Dict[str, Any]:
         try:
             guild, err = self._get_guild_or_error(guild_id, require_voice=True)
             if err:
@@ -188,7 +223,10 @@ class DiscordVoiceManager:
             if err:
                 return err
             guild.voice_client.play(discord.FFmpegPCMAudio(audio_path))
-            return {"ok": True, "result": {"status": "playing", "audio_path": audio_path}}
+            return {
+                "ok": True,
+                "result": {"status": "playing", "audio_path": audio_path},
+            }
         except Exception as e:
             return {"error": str(e)}
 
@@ -208,19 +246,30 @@ class DiscordVoiceManager:
             if not session:
                 return {"ok": True, "result": {"connected": False}}
             guild = self.bot.get_guild(int(guild_id)) if self.bot else None
-            is_connected = bool(guild and guild.voice_client and guild.voice_client.is_connected())
-            return {"ok": True, "result": {
-                "connected": is_connected, "guild_id": guild_id,
-                "channel_id": session.channel_id, "is_recording": session.is_recording,
-                "is_speaking": session.is_speaking, "connected_at": session.connected_at.isoformat(),
-            }}
+            is_connected = bool(
+                guild and guild.voice_client and guild.voice_client.is_connected()
+            )
+            return {
+                "ok": True,
+                "result": {
+                    "connected": is_connected,
+                    "guild_id": guild_id,
+                    "channel_id": session.channel_id,
+                    "is_recording": session.is_recording,
+                    "is_speaking": session.is_speaking,
+                    "connected_at": session.connected_at.isoformat(),
+                },
+            }
         except Exception as e:
             return {"error": str(e)}
 
-    async def start_listening(self, guild_id: str,
-                              on_transcript: Optional[Callable[[int, str], None]] = None,
-                              auto_transcribe: bool = True,
-                              transcribe_interval: float = 3.0) -> Dict[str, Any]:
+    async def start_listening(
+        self,
+        guild_id: str,
+        on_transcript: Optional[Callable[[int, str], None]] = None,
+        auto_transcribe: bool = True,
+        transcribe_interval: float = 3.0,
+    ) -> Dict[str, Any]:
         try:
             session = self.voice_sessions.get(guild_id)
             if not session:
@@ -231,8 +280,17 @@ class DiscordVoiceManager:
             session.is_recording = True
             session.transcript_callback = on_transcript
             if auto_transcribe:
-                asyncio.create_task(self._auto_transcribe_loop(guild_id, transcribe_interval))
-            return {"ok": True, "result": {"status": "listening", "guild_id": guild_id, "auto_transcribe": auto_transcribe}}
+                asyncio.create_task(
+                    self._auto_transcribe_loop(guild_id, transcribe_interval)
+                )
+            return {
+                "ok": True,
+                "result": {
+                    "status": "listening",
+                    "guild_id": guild_id,
+                    "auto_transcribe": auto_transcribe,
+                },
+            }
         except Exception as e:
             return {"error": str(e)}
 
@@ -244,7 +302,10 @@ class DiscordVoiceManager:
             session.is_recording = False
             final_transcripts = dict(session.last_transcripts)
             session.audio_buffer.clear()
-            return {"ok": True, "result": {"status": "stopped", "transcripts": final_transcripts}}
+            return {
+                "ok": True,
+                "result": {"status": "stopped", "transcripts": final_transcripts},
+            }
         except Exception as e:
             return {"error": str(e)}
 
@@ -278,14 +339,18 @@ class DiscordVoiceManager:
             client = OpenAI(api_key=api_key)
             with open(wav_path, "rb") as audio_file:
                 transcript = client.audio.transcriptions.create(
-                    model="whisper-1", file=audio_file, response_format="text",
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="text",
                 )
             os.unlink(wav_path)
             return transcript.strip() if transcript else None
         except Exception:
             return None
 
-    def _pcm_to_wav(self, pcm_data: bytes, sample_rate: int = 48000, channels: int = 2) -> Optional[str]:
+    def _pcm_to_wav(
+        self, pcm_data: bytes, sample_rate: int = 48000, channels: int = 2
+    ) -> Optional[str]:
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                 with wave.open(f.name, "wb") as wav_file:
@@ -297,17 +362,22 @@ class DiscordVoiceManager:
         except Exception:
             return None
 
-    async def _generate_tts(self, text: str, provider: str = "openai", voice: str = "alloy") -> Optional[str]:
+    async def _generate_tts(
+        self, text: str, provider: str = "openai", voice: str = "alloy"
+    ) -> Optional[str]:
         try:
             api_key = _get_openai_audio_api_key()
             if provider == "openai" and OPENAI_AVAILABLE and api_key:
                 client = OpenAI(api_key=api_key)
-                response = client.audio.speech.create(model="tts-1", voice=voice, input=text)
+                response = client.audio.speech.create(
+                    model="tts-1", voice=voice, input=text
+                )
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                     response.stream_to_file(f.name)
                     return f.name
             elif provider == "gtts" or not OPENAI_AVAILABLE:
                 from gtts import gTTS
+
                 tts = gTTS(text=text, lang="en")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                     tts.save(f.name)
@@ -316,9 +386,12 @@ class DiscordVoiceManager:
         except Exception:
             return None
 
-    async def transcribe_and_respond(self, guild_id: str,
-                                     response_generator: Callable[[str], str],
-                                     voice: str = "alloy") -> Dict[str, Any]:
+    async def transcribe_and_respond(
+        self,
+        guild_id: str,
+        response_generator: Callable[[str], str],
+        voice: str = "alloy",
+    ) -> Dict[str, Any]:
         try:
             session = self.voice_sessions.get(guild_id)
             if not session:
@@ -329,11 +402,15 @@ class DiscordVoiceManager:
                     return
                 response_text = response_generator(transcript)
                 if response_text:
-                    await self.speak_text(guild_id, response_text, tts_provider="openai", voice=voice)
+                    await self.speak_text(
+                        guild_id, response_text, tts_provider="openai", voice=voice
+                    )
 
             return await self.start_listening(
                 guild_id=guild_id,
-                on_transcript=lambda uid, txt: asyncio.create_task(on_transcript(uid, txt)),
+                on_transcript=lambda uid, txt: asyncio.create_task(
+                    on_transcript(uid, txt)
+                ),
                 auto_transcribe=True,
             )
         except Exception as e:

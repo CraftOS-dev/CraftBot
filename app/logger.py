@@ -5,13 +5,12 @@ app.logger
 Standard logger for the agent framework. Should be moved to utils
 """
 
-import sys
-import os
 from datetime import datetime
 from loguru import logger as _logger
 from app.config import PROJECT_ROOT
 
 _print_level = "INFO"
+
 
 def define_log_level(print_level="ERROR", logfile_level="DEBUG", name: str = None):
     """

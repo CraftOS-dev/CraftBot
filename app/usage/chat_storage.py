@@ -12,7 +12,6 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -75,6 +74,7 @@ class ChatStorage:
         """
         if db_path is None:
             from app.config import APP_DATA_PATH
+
             usage_dir = Path(APP_DATA_PATH) / ".usage"
             usage_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(usage_dir / "chat.db")
@@ -146,21 +146,24 @@ class ChatStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO chat_messages
                 (message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                message.message_id,
-                message.sender,
-                message.content,
-                message.style,
-                message.timestamp,
-                json.dumps(message.attachments) if message.attachments else None,
-                message.task_session_id,
-                json.dumps(message.options) if message.options else None,
-                message.option_selected,
-            ))
+            """,
+                (
+                    message.message_id,
+                    message.sender,
+                    message.content,
+                    message.style,
+                    message.timestamp,
+                    json.dumps(message.attachments) if message.attachments else None,
+                    message.task_session_id,
+                    json.dumps(message.options) if message.options else None,
+                    message.option_selected,
+                ),
+            )
             conn.commit()
             return cursor.lastrowid
 
@@ -181,12 +184,15 @@ class ChatStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
                 FROM chat_messages
                 ORDER BY timestamp ASC
                 LIMIT ? OFFSET ?
-            """, (limit, offset))
+            """,
+                (limit, offset),
+            )
             rows = cursor.fetchall()
 
             return [
@@ -217,12 +223,15 @@ class ChatStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             # Get last N messages ordered by timestamp DESC, then reverse
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
                 FROM chat_messages
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
             rows = cursor.fetchall()
 
             messages = [
@@ -291,8 +300,7 @@ class ChatStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "DELETE FROM chat_messages WHERE message_id = ?",
-                (message_id,)
+                "DELETE FROM chat_messages WHERE message_id = ?", (message_id,)
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -314,13 +322,16 @@ class ChatStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
                 FROM chat_messages
                 WHERE timestamp < ?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (before_timestamp, limit))
+            """,
+                (before_timestamp, limit),
+            )
             rows = cursor.fetchall()
 
             messages = [

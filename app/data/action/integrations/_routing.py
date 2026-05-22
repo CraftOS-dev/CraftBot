@@ -9,6 +9,7 @@ action files themselves.
 If you add a new integration with new conversation-mode actions, add the
 mapping below.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List
@@ -19,13 +20,13 @@ from craftos_integrations import list_connected
 # Per-platform list of action names to expose when the integration is connected.
 # Keys are platform_ids (the same string handlers expose as ``handler.spec.platform_id``).
 PLATFORM_CONVERSATION_ACTIONS: Dict[str, List[str]] = {
-    "discord":           ["send_discord_message", "send_discord_dm"],
-    "lark":              ["send_lark_message"],
-    "slack":             ["send_slack_message"],
-    "telegram_bot":      ["send_telegram_bot_message"],
-    "telegram_user":     ["send_telegram_user_message"],
+    "discord": ["send_discord_message", "send_discord_dm"],
+    "lark": ["send_lark_message"],
+    "slack": ["send_slack_message"],
+    "telegram_bot": ["send_telegram_bot_message"],
+    "telegram_user": ["send_telegram_user_message"],
     "whatsapp_business": ["send_whatsapp_web_text_message"],
-    "whatsapp_web":      ["send_whatsapp_web_text_message"],
+    "whatsapp_web": ["send_whatsapp_web_text_message"],
 }
 
 

@@ -4,6 +4,7 @@
 Manages the Node.js subprocess lifecycle and provides an async API for
 sending commands and receiving events via stdin/stdout JSON lines.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,11 +42,17 @@ class WhatsAppBridge:
         if auth_dir:
             self._auth_dir = auth_dir
         else:
-            self._auth_dir = str(ConfigStore.project_root / ".credentials" / "whatsapp_wwebjs_auth")
+            self._auth_dir = str(
+                ConfigStore.project_root / ".credentials" / "whatsapp_wwebjs_auth"
+            )
 
     @property
     def is_running(self) -> bool:
-        return self._running and self._process is not None and self._process.returncode is None
+        return (
+            self._running
+            and self._process is not None
+            and self._process.returncode is None
+        )
 
     @property
     def is_ready(self) -> bool:
@@ -97,6 +104,7 @@ class WhatsAppBridge:
         killed = 0
         try:
             import psutil  # type: ignore[import-untyped]
+
             for proc in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
                 try:
                     name = (proc.info.get("name") or "").lower()
@@ -110,7 +118,11 @@ class WhatsAppBridge:
                         continue
                     proc.kill()
                     killed += 1
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                except (
+                    psutil.NoSuchProcess,
+                    psutil.AccessDenied,
+                    psutil.ZombieProcess,
+                ):
                     continue
         except ImportError:
             # No psutil — fall back to taskkill on Windows. Best-effort
@@ -118,9 +130,16 @@ class WhatsAppBridge:
             if os.name == "nt":
                 try:
                     subprocess.run(
-                        ["taskkill", "/F", "/IM", "chrome.exe",
-                         "/FI", f"WINDOWTITLE eq *{session_dir.name}*"],
-                        capture_output=True, timeout=5,
+                        [
+                            "taskkill",
+                            "/F",
+                            "/IM",
+                            "chrome.exe",
+                            "/FI",
+                            f"WINDOWTITLE eq *{session_dir.name}*",
+                        ],
+                        capture_output=True,
+                        timeout=5,
                     )
                 except Exception:
                     pass
@@ -129,8 +148,11 @@ class WhatsAppBridge:
         # user-data-dir at every launch and uses them to detect
         # already-running instances.
         lock_names = (
-            "SingletonLock", "SingletonSocket", "SingletonCookie",
-            "lockfile", "Singleton",
+            "SingletonLock",
+            "SingletonSocket",
+            "SingletonCookie",
+            "lockfile",
+            "Singleton",
         )
         removed = 0
         for name in lock_names:
@@ -156,7 +178,10 @@ class WhatsAppBridge:
         instead of silently restoring the stale session.
         """
         import shutil
-        cred_path = Path(ConfigStore.project_root) / ".credentials" / "whatsapp_web.json"
+
+        cred_path = (
+            Path(ConfigStore.project_root) / ".credentials" / "whatsapp_web.json"
+        )
         auth_path = Path(self._auth_dir)
         if cred_path.exists():
             return  # User is still connected; LocalAuth is legitimate.
@@ -183,7 +208,8 @@ class WhatsAppBridge:
             logger.info("[WA-Bridge] Installing npm dependencies...")
             npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
             proc = await asyncio.create_subprocess_exec(
-                npm_cmd, "install",
+                npm_cmd,
+                "install",
                 cwd=str(BRIDGE_DIR),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -197,7 +223,9 @@ class WhatsAppBridge:
 
         node_cmd = "node.exe" if os.name == "nt" else "node"
         self._process = await asyncio.create_subprocess_exec(
-            node_cmd, str(BRIDGE_SCRIPT), self._auth_dir,
+            node_cmd,
+            str(BRIDGE_SCRIPT),
+            self._auth_dir,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -228,6 +256,7 @@ class WhatsAppBridge:
         await self._teardown(cmd="logout", send_timeout=3.0, wait_timeout=3.0)
         from pathlib import Path
         import shutil
+
         try:
             shutil.rmtree(Path(self._auth_dir), ignore_errors=True)
         except Exception as e:
@@ -261,7 +290,8 @@ class WhatsAppBridge:
                     try:
                         subprocess.run(
                             ["taskkill", "/F", "/T", "/PID", str(self._process.pid)],
-                            capture_output=True, timeout=5,
+                            capture_output=True,
+                            timeout=5,
                         )
                     except Exception:
                         self._process.kill()
@@ -285,8 +315,9 @@ class WhatsAppBridge:
                 future.set_exception(RuntimeError("Bridge stopped"))
         self._pending.clear()
 
-    async def send_command(self, cmd: str, args: Optional[Dict[str, Any]] = None,
-                           timeout: float = 30.0) -> Dict[str, Any]:
+    async def send_command(
+        self, cmd: str, args: Optional[Dict[str, Any]] = None, timeout: float = 30.0
+    ) -> Dict[str, Any]:
         if not self.is_running:
             raise RuntimeError("Bridge not running")
 
@@ -317,7 +348,9 @@ class WhatsAppBridge:
         return await self.send_command("get_chats", {"limit": limit})
 
     async def get_chat_messages(self, chat_id: str, limit: int = 50) -> Dict[str, Any]:
-        return await self.send_command("get_chat_messages", {"chat_id": chat_id, "limit": limit})
+        return await self.send_command(
+            "get_chat_messages", {"chat_id": chat_id, "limit": limit}
+        )
 
     async def search_contact(self, name: str) -> Dict[str, Any]:
         return await self.send_command("search_contact", {"name": name})

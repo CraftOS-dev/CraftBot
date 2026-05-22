@@ -8,6 +8,7 @@ Payload contract (kept unchanged from the legacy implementation):
     source, integrationType, contactId, contactName, messageBody,
     channelId, channelName, messageId, is_self_message, raw
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -41,7 +42,9 @@ class ExternalCommsManager:
             if not client.supports_listening:
                 continue
             if not client.has_credentials():
-                logger.info(f"[INTEGRATIONS] {platform_id} has no credentials, skipping")
+                logger.info(
+                    f"[INTEGRATIONS] {platform_id} has no credentials, skipping"
+                )
                 continue
 
             try:
@@ -51,7 +54,9 @@ class ExternalCommsManager:
                     started.append(platform_id)
                     logger.info(f"[INTEGRATIONS] Started listening on {platform_id}")
                 else:
-                    logger.warning(f"[INTEGRATIONS] {platform_id} returned but not listening")
+                    logger.warning(
+                        f"[INTEGRATIONS] {platform_id} returned but not listening"
+                    )
             except Exception as e:
                 logger.warning(f"[INTEGRATIONS] Failed to start {platform_id}: {e}")
 
@@ -71,14 +76,20 @@ class ExternalCommsManager:
 
         autoload_integrations()
         client = get_client(platform_id)
-        if client is None or not client.supports_listening or not client.has_credentials():
+        if (
+            client is None
+            or not client.supports_listening
+            or not client.has_credentials()
+        ):
             return False
 
         try:
             await client.start_listening(self._handle_platform_message)
             if client.is_listening:
                 self._active_clients[platform_id] = client
-                logger.info(f"[INTEGRATIONS] Started listening on {platform_id} (post-connect)")
+                logger.info(
+                    f"[INTEGRATIONS] Started listening on {platform_id} (post-connect)"
+                )
                 return True
         except Exception as e:
             logger.warning(f"[INTEGRATIONS] Failed to start {platform_id}: {e}")
@@ -109,14 +120,20 @@ class ExternalCommsManager:
 
     async def reload(self) -> Dict[str, Any]:
         """Stop platforms whose creds disappeared, start ones whose appeared."""
-        result: Dict[str, Any] = {"success": True, "stopped": [], "started": [], "message": ""}
+        result: Dict[str, Any] = {
+            "success": True,
+            "stopped": [],
+            "started": [],
+            "message": "",
+        }
         try:
             autoload_integrations()
             currently_active = set(self._active_clients.keys())
             all_clients = get_all_clients()
 
             should_be_active = {
-                pid for pid, c in all_clients.items()
+                pid
+                for pid, c in all_clients.items()
                 if c.supports_listening and c.has_credentials()
             }
 

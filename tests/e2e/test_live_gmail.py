@@ -24,7 +24,6 @@ import time
 import pytest
 
 from tests.e2e._harness import (
-    assert_action_called,
     build_agent,
     format_agent_trace,
     run_scenario,
@@ -76,7 +75,8 @@ def test_live_gmail_send_to_me():
         # Gmail can take 10–20s to index a new sent message for search.
         await asyncio.sleep(15.0)
         return await gmail.recent_sent_emails(
-            contains=sentinel, since_ts=test_start_ts,
+            contains=sentinel,
+            since_ts=test_start_ts,
         )
 
     recent = asyncio.run(_run())
@@ -116,7 +116,8 @@ def test_live_gmail_threads_user_content_through():
         # Gmail can take 10–20s to index a new sent message for search.
         await asyncio.sleep(15.0)
         return await gmail.recent_sent_emails(
-            contains=sentinel, since_ts=test_start_ts,
+            contains=sentinel,
+            since_ts=test_start_ts,
         )
 
     recent = asyncio.run(_run())
@@ -129,8 +130,7 @@ def test_live_gmail_threads_user_content_through():
     assert recent, (
         f"no sent email containing the sentinel arrived. The agent may "
         f"have paraphrased the body instead of threading verbatim. "
-        f"sentinel={sentinel!r}. trace: {log_path}\n\n"
-        + format_agent_trace(agent)
+        f"sentinel={sentinel!r}. trace: {log_path}\n\n" + format_agent_trace(agent)
     )
 
 
@@ -161,7 +161,8 @@ def test_live_gmail_sends_unicode_body():
         # Search for the rocket — if Gmail or the MIME encoder mangled
         # it to '?' or a numeric reference, this finds nothing.
         return await gmail.recent_sent_emails(
-            contains=rocket, since_ts=test_start_ts,
+            contains=rocket,
+            since_ts=test_start_ts,
         )
 
     recent = asyncio.run(_run())
@@ -206,15 +207,24 @@ def test_live_gmail_lists_unread_emails():
     # Either action_set is acceptable — they both pull from the same
     # Gmail API. Assert at least one fired.
     from tests.e2e._harness import actions_called
+
     called = actions_called(agent)
     log_path = save_trace_log(
-        agent, extra={"actions_called": called, "expecting_any_of": [
-            "list_gmail", "read_top_emails", "read_recent_google_workspace_emails",
-        ]},
+        agent,
+        extra={
+            "actions_called": called,
+            "expecting_any_of": [
+                "list_gmail",
+                "read_top_emails",
+                "read_recent_google_workspace_emails",
+            ],
+        },
     )
     print(f"\nagent trace: {log_path}")
     acceptable = {
-        "list_gmail", "read_top_emails", "read_recent_google_workspace_emails",
+        "list_gmail",
+        "read_top_emails",
+        "read_recent_google_workspace_emails",
     }
     assert acceptable.intersection(called), (
         f"agent didn't call any gmail read action. Called: {called}. "
@@ -243,15 +253,22 @@ def test_live_gmail_reads_top_emails_with_details():
 
     asyncio.run(_run())
     from tests.e2e._harness import actions_called
+
     called = actions_called(agent)
     log_path = save_trace_log(
-        agent, extra={"actions_called": called, "expecting_any_of": [
-            "read_top_emails", "read_recent_google_workspace_emails",
-        ]},
+        agent,
+        extra={
+            "actions_called": called,
+            "expecting_any_of": [
+                "read_top_emails",
+                "read_recent_google_workspace_emails",
+            ],
+        },
     )
     print(f"\nagent trace: {log_path}")
     acceptable = {
-        "read_top_emails", "read_recent_google_workspace_emails",
+        "read_top_emails",
+        "read_recent_google_workspace_emails",
     }
     assert acceptable.intersection(called), (
         f"agent didn't call a read-with-body gmail action. Called: {called}. "

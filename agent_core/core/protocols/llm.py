@@ -6,7 +6,7 @@ This module defines the LLMInterfaceProtocol that specifies the
 interface for LLM operations.
 """
 
-from typing import Any, Dict, List, Optional, Protocol
+from typing import List, Optional, Protocol
 
 
 class LLMInterfaceProtocol(Protocol):

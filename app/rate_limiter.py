@@ -25,6 +25,7 @@ class TokenRateLimiter:
     def _get_tpm_limit(self) -> int:
         """Read TPM limit from settings (single source of truth)."""
         from app.config import get_slow_mode_tpm_limit
+
         return get_slow_mode_tpm_limit()
 
     def _prune_window(self):

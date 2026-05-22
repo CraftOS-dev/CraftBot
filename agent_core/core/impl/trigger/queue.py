@@ -4,6 +4,7 @@ core.impl.trigger.queue
 
 TriggerQueue implementation - manages agent trigger events with priority ordering.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +22,7 @@ from agent_core.core.state import get_state_or_none
 if TYPE_CHECKING:
     from agent_core.core.protocols import LLMInterfaceProtocol, TaskManagerProtocol
     from agent_core.core.task import Task
+
     # TaskManager type alias for backwards compatibility
     TaskManager = TaskManagerProtocol
 
@@ -63,7 +65,9 @@ class TriggerQueue:
             event_stream_manager: Optional event stream manager for accessing recent events.
         """
         self._heap: List[Trigger] = []
-        self._active: Dict[str, Trigger] = {}  # Triggers being processed (session_id -> trigger)
+        self._active: Dict[
+            str, Trigger
+        ] = {}  # Triggers being processed (session_id -> trigger)
         self._cv = asyncio.Condition()
         self.llm = llm
         self._route_to_session_prompt = route_to_session_prompt
@@ -103,9 +107,11 @@ class TriggerQueue:
             return
 
         now = time.time()
-        for i, t in enumerate(sorted(self._heap, key=lambda x: (x.fire_at, x.priority))):
+        for i, t in enumerate(
+            sorted(self._heap, key=lambda x: (x.fire_at, x.priority))
+        ):
             logger.debug(
-                f"{i+1}. session_id={t.session_id} | "
+                f"{i + 1}. session_id={t.session_id} | "
                 f"prio={t.priority} | "
                 f"fire_at={t.fire_at:.6f} ({time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t.fire_at))}) | "
                 f"delta={t.fire_at - now:.2f}s\n"
@@ -191,15 +197,15 @@ class TriggerQueue:
         sections = []
         for i, task in enumerate(running_tasks, 1):
             # Check waiting_for_user_reply state on task
-            is_waiting = getattr(task, 'waiting_for_user_reply', False)
+            is_waiting = getattr(task, "waiting_for_user_reply", False)
             status = "WAITING FOR REPLY" if is_waiting else "ACTIVE"
 
             lines = [
                 f"--- Session {i} ---",
                 f"Session ID: {task.id}",
                 f"Status: {status}",
-                f"Task Name: \"{task.name}\"",
-                f"Original Request: \"{task.instruction}\"",
+                f'Task Name: "{task.name}"',
+                f'Original Request: "{task.instruction}"',
                 f"Mode: {task.mode}",
                 f"Created: {task.created_at}",
             ]
@@ -212,7 +218,7 @@ class TriggerQueue:
                 )
                 lines.append(f"Progress: {completed}/{len(task.todos)} todos completed")
                 if in_progress_todo:
-                    lines.append(f"Currently working on: \"{in_progress_todo.content}\"")
+                    lines.append(f'Currently working on: "{in_progress_todo.content}"')
 
             # Get recent events from event stream for this task
             if event_stream_manager and task.id:
@@ -228,8 +234,8 @@ class TriggerQueue:
                     pass  # Gracefully handle if event stream not available
 
             # Add platform/conversation info if available
-            platform = getattr(task, 'platform', 'default')
-            conversation_id = getattr(task, 'conversation_id', 'N/A')
+            platform = getattr(task, "platform", "default")
+            conversation_id = getattr(task, "conversation_id", "N/A")
             lines.append(f"Platform: {platform}")
             lines.append(f"Conversation ID: {conversation_id}")
 
@@ -252,26 +258,41 @@ class TriggerQueue:
             skip_merge: If True, skip LLM-based trigger merging. Use for system
                         triggers that should not be merged with user triggers.
         """
-        logger.debug(f"\n[PUT] Incoming trigger for session={trig.session_id} (skip_merge={skip_merge})")
+        logger.debug(
+            f"\n[PUT] Incoming trigger for session={trig.session_id} (skip_merge={skip_merge})"
+        )
         self._print_queue("BEFORE PUT")
 
         # Get running tasks from TaskManager (the source of truth for active sessions)
         # This includes tasks being processed (trigger consumed) AND tasks with queued triggers
         running_tasks: List["Task"] = []
         if self._task_manager:
-            running_tasks = [t for t in self._task_manager.tasks.values() if t.status == "running"]
+            running_tasks = [
+                t for t in self._task_manager.tasks.values() if t.status == "running"
+            ]
 
         # Skip LLM routing if:
         # 1. Trigger already has a session_id assigned (proceed with that session)
         # 2. skip_merge is True (already routed at message handler level)
         # 3. System triggers (memory_processing, task_execution, scheduled)
         trigger_type = trig.payload.get("type", "")
-        is_system_trigger = trigger_type in ("memory_processing", "task_execution", "scheduled")
+        is_system_trigger = trigger_type in (
+            "memory_processing",
+            "task_execution",
+            "scheduled",
+        )
         has_session_id = trig.session_id is not None and trig.session_id != ""
 
         if has_session_id:
-            logger.debug(f"[PUT] Trigger already has session_id={trig.session_id}, skipping LLM routing")
-        elif len(running_tasks) > 0 and not skip_merge and not is_system_trigger and self._route_to_session_prompt:
+            logger.debug(
+                f"[PUT] Trigger already has session_id={trig.session_id}, skipping LLM routing"
+            )
+        elif (
+            len(running_tasks) > 0
+            and not skip_merge
+            and not is_system_trigger
+            and self._route_to_session_prompt
+        ):
             # Use unified routing prompt with rich task context from running tasks
             existing_sessions = self._format_sessions_for_routing(
                 running_tasks,
@@ -281,11 +302,19 @@ class TriggerQueue:
             # Build recent conversation context for routing
             recent_conversation = "No recent conversation history."
             if self._event_stream_manager:
-                recent_msgs = self._event_stream_manager.get_recent_conversation_messages(limit=10)
+                recent_msgs = (
+                    self._event_stream_manager.get_recent_conversation_messages(
+                        limit=10
+                    )
+                )
                 if recent_msgs:
                     conv_lines = []
                     for evt in recent_msgs:
-                        ts = evt.ts.strftime("%Y-%m-%d %H:%M:%S") if evt.ts else "unknown"
+                        ts = (
+                            evt.ts.strftime("%Y-%m-%d %H:%M:%S")
+                            if evt.ts
+                            else "unknown"
+                        )
                         conv_line = f"[{ts}] [{evt.kind}]: {evt.message}"
                         if len(conv_line) > 300:
                             conv_line = conv_line[:297] + "..."
@@ -300,7 +329,8 @@ class TriggerQueue:
                 conversation_id=trig.payload.get("conversation_id", "N/A"),
                 existing_sessions=existing_sessions,
                 recent_conversation=recent_conversation,
-                current_living_ui_id=trig.payload.get("living_ui_id") or "(not on a Living UI page)",
+                current_living_ui_id=trig.payload.get("living_ui_id")
+                or "(not on a Living UI page)",
             )
 
             logger.debug(f"[UNIFIED ROUTING PROMPT]:\n{usr_msg}")
@@ -328,9 +358,11 @@ class TriggerQueue:
                 trig.session_id = matched_session_id
                 logger.debug(f"[PUT] Routed to existing session: {matched_session_id}")
             else:
-                logger.debug(f"[PUT] Creating new session (no match found)")
+                logger.debug("[PUT] Creating new session (no match found)")
         else:
-            logger.debug(f"[PUT] Skipping LLM routing (no_running_tasks={len(running_tasks) == 0}, skip_merge={skip_merge}, is_system={is_system_trigger})")
+            logger.debug(
+                f"[PUT] Skipping LLM routing (no_running_tasks={len(running_tasks) == 0}, skip_merge={skip_merge}, is_system={is_system_trigger})"
+            )
 
         async with self._cv:
             # find all triggers in heap with same session_id
@@ -507,7 +539,9 @@ class TriggerQueue:
                         t.payload["pending_platform"] = platform
                 if living_ui_id:
                     t.payload["living_ui_id"] = living_ui_id
-                logger.debug(f"[FIRE] Attached message to active trigger for session {session_id}")
+                logger.debug(
+                    f"[FIRE] Attached message to active trigger for session {session_id}"
+                )
                 return True
 
             return False
@@ -545,7 +579,9 @@ class TriggerQueue:
         """
         self._active.pop(session_id, None)
 
-    def pop_pending_user_message(self, session_id: str) -> tuple[str | None, str | None]:
+    def pop_pending_user_message(
+        self, session_id: str
+    ) -> tuple[str | None, str | None]:
         """
         Extract and remove any pending user message from an active trigger.
 
@@ -569,7 +605,9 @@ class TriggerQueue:
         platform = trigger.payload.pop("pending_platform", None)
 
         if message:
-            logger.debug(f"[TRIGGER] Extracted pending user message for session {session_id}: {message[:50]}...")
+            logger.debug(
+                f"[TRIGGER] Extracted pending user message for session {session_id}: {message[:50]}..."
+            )
 
         return message, platform
 
@@ -583,12 +621,16 @@ class TriggerQueue:
 
         result = []
         for session_id, triggers in grouped.items():
-            logger.debug(f"[MERGE READY] Merging {len(triggers)} triggers for session={session_id}")
+            logger.debug(
+                f"[MERGE READY] Merging {len(triggers)} triggers for session={session_id}"
+            )
             result.append(self._merge_trigger_group(session_id, triggers))
 
         return result
 
-    def _merge_trigger_group(self, session_id: Optional[str], triggers: List[Trigger]) -> Trigger:
+    def _merge_trigger_group(
+        self, session_id: Optional[str], triggers: List[Trigger]
+    ) -> Trigger:
         logger.debug(f"[MERGE GROUP] session={session_id}, count={len(triggers)}")
         triggers.sort(key=lambda t: (t.priority, t.fire_at))
 
@@ -607,7 +649,9 @@ class TriggerQueue:
 
             combined_payload.update(trig.payload)
 
-        merged_desc = "\n\n".join(combined_desc.keys()) or triggers[0].next_action_description
+        merged_desc = (
+            "\n\n".join(combined_desc.keys()) or triggers[0].next_action_description
+        )
 
         merged = Trigger(
             fire_at=fire_at,
@@ -617,5 +661,7 @@ class TriggerQueue:
             session_id=session_id,
         )
 
-        logger.debug(f"[MERGE RESULT] session={session_id}, fire_at={fire_at}, priority={priority}")
+        logger.debug(
+            f"[MERGE RESULT] session={session_id}, fire_at={fire_at}, priority={priority}"
+        )
         return merged

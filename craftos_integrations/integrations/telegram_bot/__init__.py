@@ -1,5 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Telegram Bot integration - handler (token + invite via shared bot) + client (long-polling)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -43,27 +44,37 @@ def _shape_telegram(result: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-async def _telegram_acall(url: str, *, json: Optional[Dict[str, Any]] = None,
-                          params: Optional[Dict[str, Any]] = None,
-                          timeout: float = 10.0) -> Dict[str, Any]:
+async def _telegram_acall(
+    url: str,
+    *,
+    json: Optional[Dict[str, Any]] = None,
+    params: Optional[Dict[str, Any]] = None,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
     """Telegram Bot API call. Returns raw response on ``ok=True``, ``{error, details}`` otherwise.
 
     Layers on top of ``arequest`` to add Telegram's ``{ok: bool, result, description}`` envelope.
     """
     method = "POST" if json is not None else "GET"
-    result = await arequest(method, url, json=json, params=params,
-                            timeout=timeout, expected=(200,))
+    result = await arequest(
+        method, url, json=json, params=params, timeout=timeout, expected=(200,)
+    )
     return _shape_telegram(result)
 
 
-def _telegram_call_sync(url: str, *, json: Optional[Dict[str, Any]] = None,
-                        params: Optional[Dict[str, Any]] = None,
-                        timeout: float = 10.0) -> Dict[str, Any]:
+def _telegram_call_sync(
+    url: str,
+    *,
+    json: Optional[Dict[str, Any]] = None,
+    params: Optional[Dict[str, Any]] = None,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
     """Sync variant - for use from login flows where async-context detection
     can be fragile. Wrap in ``asyncio.to_thread`` from coroutines."""
     method = "POST" if json is not None else "GET"
-    result = http_request(method, url, json=json, params=params,
-                          timeout=timeout, expected=(200,))
+    result = http_request(
+        method, url, json=json, params=params, timeout=timeout, expected=(200,)
+    )
     return _shape_telegram(result)
 
 
@@ -76,6 +87,7 @@ class TelegramBotCredential:
 @dataclass
 class TelegramBotConfig:
     """Runtime knobs persisted to ``telegram_bot_config.json``."""
+
     # When True, only forward messages from private 1:1 DMs (drops groups,
     # supergroups, and channels). Closest analog to "self-only" for a bot,
     # which has no self-chat concept of its own.
@@ -100,6 +112,7 @@ def _telegram_bot_config_file() -> str:
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(TELEGRAM_BOT.name)
 class TelegramBotHandler(IntegrationHandler):
     spec = TELEGRAM_BOT
@@ -114,14 +127,23 @@ class TelegramBotHandler(IntegrationHandler):
         "Paste it as the Bot Token below",
     ]
     fields = [
-        {"key": "bot_token", "label": "Bot Token", "placeholder": "From @BotFather", "password": True},
+        {
+            "key": "bot_token",
+            "label": "Bot Token",
+            "placeholder": "From @BotFather",
+            "password": True,
+        },
     ]
 
     config_class = TelegramBotConfig
     config_fields = [
-        {"key": "self_messages_only", "label": "Private DMs only", "type": "checkbox",
-         "help": "Only forward messages from 1:1 private chats with the bot. "
-                 "Drops group, supergroup, and channel messages before they reach the agent."},
+        {
+            "key": "self_messages_only",
+            "label": "Private DMs only",
+            "type": "checkbox",
+            "help": "Only forward messages from 1:1 private chats with the bot. "
+            "Drops group, supergroup, and channel messages before they reach the agent.",
+        },
     ]
 
     @property
@@ -139,15 +161,20 @@ class TelegramBotHandler(IntegrationHandler):
             )
 
         data = await asyncio.to_thread(
-            _telegram_call_sync, f"{TELEGRAM_API_BASE}/bot{shared_token}/getMe",
+            _telegram_call_sync,
+            f"{TELEGRAM_API_BASE}/bot{shared_token}/getMe",
         )
         if "error" in data:
             return False, f"Shared bot token invalid: {data['error']}"
         info = data["result"]
 
-        save_credential(self.spec.cred_file, TelegramBotCredential(
-            bot_token=shared_token, bot_username=info.get("username", ""),
-        ))
+        save_credential(
+            self.spec.cred_file,
+            TelegramBotCredential(
+                bot_token=shared_token,
+                bot_username=info.get("username", ""),
+            ),
+        )
 
         bot_link = f"https://t.me/{shared_username}"
         try:
@@ -161,26 +188,38 @@ class TelegramBotHandler(IntegrationHandler):
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         if not args:
-            return False, "Usage: /telegram_bot login <bot_token>\nGet from @BotFather on Telegram."
+            return (
+                False,
+                "Usage: /telegram_bot login <bot_token>\nGet from @BotFather on Telegram.",
+            )
         bot_token = args[0]
 
         data = await asyncio.to_thread(
-            _telegram_call_sync, f"{TELEGRAM_API_BASE}/bot{bot_token}/getMe",
+            _telegram_call_sync,
+            f"{TELEGRAM_API_BASE}/bot{bot_token}/getMe",
         )
         if "error" in data:
             return False, f"Invalid bot token: {data['error']}"
         info = data["result"]
 
-        save_credential(self.spec.cred_file, TelegramBotCredential(
-            bot_token=bot_token, bot_username=info.get("username", ""),
-        ))
-        return True, f"Telegram bot connected: @{info.get('username')} ({info.get('id')})"
+        save_credential(
+            self.spec.cred_file,
+            TelegramBotCredential(
+                bot_token=bot_token,
+                bot_username=info.get("username", ""),
+            ),
+        )
+        return (
+            True,
+            f"Telegram bot connected: @{info.get('username')} ({info.get('id')})",
+        )
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
         if not has_credential(self.spec.cred_file):
             return False, "No Telegram bot credentials found."
         try:
             from ...manager import get_external_comms_manager
+
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -193,13 +232,16 @@ class TelegramBotHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return True, "Telegram bot: Not connected"
         cred = load_credential(self.spec.cred_file, TelegramBotCredential)
-        label = f"@{cred.bot_username}" if cred and cred.bot_username else "Bot configured"
+        label = (
+            f"@{cred.bot_username}" if cred and cred.bot_username else "Bot configured"
+        )
         return True, f"Telegram bot: Connected\n  - {label}"
 
 
 # -----------------------------------------------------------------
 # Client
 # -----------------------------------------------------------------
+
 
 @register_client
 class TelegramBotClient(BasePlatformClient):
@@ -222,9 +264,13 @@ class TelegramBotClient(BasePlatformClient):
             shared_token = ConfigStore.get_oauth("TELEGRAM_SHARED_BOT_TOKEN")
             shared_username = ConfigStore.get_oauth("TELEGRAM_SHARED_BOT_USERNAME")
             if shared_token:
-                save_credential(self.spec.cred_file, TelegramBotCredential(
-                    bot_token=shared_token, bot_username=shared_username or "",
-                ))
+                save_credential(
+                    self.spec.cred_file,
+                    TelegramBotCredential(
+                        bot_token=shared_token,
+                        bot_username=shared_username or "",
+                    ),
+                )
                 logger.info("[TELEGRAM_BOT] Auto-saved shared bot credentials")
                 return True
         except Exception:
@@ -235,7 +281,9 @@ class TelegramBotClient(BasePlatformClient):
         if self._cred is None:
             self._cred = load_credential(self.spec.cred_file, TelegramBotCredential)
         if self._cred is None:
-            raise RuntimeError("No Telegram Bot credentials. Use /telegram_bot login first.")
+            raise RuntimeError(
+                "No Telegram Bot credentials. Use /telegram_bot login first."
+            )
         return self._cred
 
     def _api_url(self, method: str) -> str:
@@ -267,7 +315,9 @@ class TelegramBotClient(BasePlatformClient):
 
         info = await self.get_me()
         if "error" in info:
-            raise RuntimeError(f"Invalid bot token: {info.get('error', 'unknown error')}")
+            raise RuntimeError(
+                f"Invalid bot token: {info.get('error', 'unknown error')}"
+            )
         self._bot_info = info.get("result", {})
 
         self._listening = True
@@ -309,11 +359,15 @@ class TelegramBotClient(BasePlatformClient):
     def _poll_updates_sync(self) -> Dict[str, Any]:
         """Sync long-poll - runs in a worker thread to bypass anyio."""
         try:
-            resp = httpx.get(self._api_url("getUpdates"), params={
-                "offset": self._poll_offset,
-                "timeout": POLL_TIMEOUT,
-                "allowed_updates": ["message"],
-            }, timeout=POLL_TIMEOUT + 10)
+            resp = httpx.get(
+                self._api_url("getUpdates"),
+                params={
+                    "offset": self._poll_offset,
+                    "timeout": POLL_TIMEOUT,
+                    "allowed_updates": ["message"],
+                },
+                timeout=POLL_TIMEOUT + 10,
+            )
             data = resp.json()
             return data if data.get("ok") else {"result": []}
         except httpx.TimeoutException:
@@ -334,7 +388,10 @@ class TelegramBotClient(BasePlatformClient):
         from_user = message.get("from", {})
         chat = message.get("chat", {})
 
-        cfg = load_config(_telegram_bot_config_file(), TelegramBotConfig) or TelegramBotConfig()
+        cfg = (
+            load_config(_telegram_bot_config_file(), TelegramBotConfig)
+            or TelegramBotConfig()
+        )
         if cfg.self_messages_only and chat.get("type") != "private":
             return
 
@@ -351,24 +408,31 @@ class TelegramBotClient(BasePlatformClient):
             pass
 
         if self._message_callback:
-            await self._message_callback(PlatformMessage(
-                platform=self.spec.platform_id,
-                sender_id=str(from_user.get("id", "")),
-                sender_name=sender_name or str(from_user.get("id", "unknown")),
-                text=text,
-                channel_id=str(chat.get("id", "")),
-                channel_name=chat.get("title", chat.get("first_name", "")),
-                message_id=str(message.get("message_id", "")),
-                timestamp=ts,
-                raw=update,
-            ))
+            await self._message_callback(
+                PlatformMessage(
+                    platform=self.spec.platform_id,
+                    sender_id=str(from_user.get("id", "")),
+                    sender_name=sender_name or str(from_user.get("id", "unknown")),
+                    text=text,
+                    channel_id=str(chat.get("id", "")),
+                    channel_name=chat.get("title", chat.get("first_name", "")),
+                    message_id=str(message.get("message_id", "")),
+                    timestamp=ts,
+                    raw=update,
+                )
+            )
 
     # ----- API -----
     async def get_me(self) -> Dict[str, Any]:
         return await _telegram_acall(self._api_url("getMe"))
 
-    async def send_photo(self, chat_id: Union[int, str], photo: str,
-                         caption: Optional[str] = None, parse_mode: Optional[str] = None) -> Dict[str, Any]:
+    async def send_photo(
+        self,
+        chat_id: Union[int, str],
+        photo: str,
+        caption: Optional[str] = None,
+        parse_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"chat_id": chat_id, "photo": photo}
         if caption:
             payload["caption"] = caption
@@ -376,8 +440,13 @@ class TelegramBotClient(BasePlatformClient):
             payload["parse_mode"] = parse_mode
         return await _telegram_acall(self._api_url("sendPhoto"), json=payload)
 
-    async def send_document(self, chat_id: Union[int, str], document: str,
-                            caption: Optional[str] = None, parse_mode: Optional[str] = None) -> Dict[str, Any]:
+    async def send_document(
+        self,
+        chat_id: Union[int, str],
+        document: str,
+        caption: Optional[str] = None,
+        parse_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"chat_id": chat_id, "document": document}
         if caption:
             payload["caption"] = caption
@@ -385,28 +454,52 @@ class TelegramBotClient(BasePlatformClient):
             payload["parse_mode"] = parse_mode
         return await _telegram_acall(self._api_url("sendDocument"), json=payload)
 
-    async def get_updates(self, offset: Optional[int] = None, limit: int = 100,
-                          timeout: int = 0, allowed_updates: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def get_updates(
+        self,
+        offset: Optional[int] = None,
+        limit: int = 100,
+        timeout: int = 0,
+        allowed_updates: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"limit": limit, "timeout": timeout}
         if offset is not None:
             payload["offset"] = offset
         if allowed_updates:
             payload["allowed_updates"] = allowed_updates
-        return await _telegram_acall(self._api_url("getUpdates"), json=payload, timeout=timeout + 10)
+        return await _telegram_acall(
+            self._api_url("getUpdates"), json=payload, timeout=timeout + 10
+        )
 
     async def get_chat(self, chat_id: Union[int, str]) -> Dict[str, Any]:
-        return await _telegram_acall(self._api_url("getChat"), json={"chat_id": chat_id})
+        return await _telegram_acall(
+            self._api_url("getChat"), json={"chat_id": chat_id}
+        )
 
-    async def get_chat_member(self, chat_id: Union[int, str], user_id: int) -> Dict[str, Any]:
-        return await _telegram_acall(self._api_url("getChatMember"),
-                                      json={"chat_id": chat_id, "user_id": user_id})
+    async def get_chat_member(
+        self, chat_id: Union[int, str], user_id: int
+    ) -> Dict[str, Any]:
+        return await _telegram_acall(
+            self._api_url("getChatMember"),
+            json={"chat_id": chat_id, "user_id": user_id},
+        )
 
     async def get_chat_members_count(self, chat_id: Union[int, str]) -> Dict[str, Any]:
-        return await _telegram_acall(self._api_url("getChatMembersCount"), json={"chat_id": chat_id})
+        return await _telegram_acall(
+            self._api_url("getChatMembersCount"), json={"chat_id": chat_id}
+        )
 
-    async def forward_message(self, chat_id: Union[int, str], from_chat_id: Union[int, str],
-                              message_id: int, disable_notification: bool = False) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
+    async def forward_message(
+        self,
+        chat_id: Union[int, str],
+        from_chat_id: Union[int, str],
+        message_id: int,
+        disable_notification: bool = False,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "chat_id": chat_id,
+            "from_chat_id": from_chat_id,
+            "message_id": message_id,
+        }
         if disable_notification:
             payload["disable_notification"] = True
         return await _telegram_acall(self._api_url("forwardMessage"), json=payload)
@@ -437,11 +530,16 @@ class TelegramBotClient(BasePlatformClient):
                     full_name = chat.get("title", "")
                     searchable = f"{full_name} {chat.get('username', '')}".lower()
                 if search_lower in searchable:
-                    contacts.append({
-                        "chat_id": chat_id, "type": chat_type, "name": full_name or chat.get("username", ""),
-                        "username": chat.get("username", ""),
-                        "first_name": chat.get("first_name", ""), "last_name": chat.get("last_name", ""),
-                    })
+                    contacts.append(
+                        {
+                            "chat_id": chat_id,
+                            "type": chat_type,
+                            "name": full_name or chat.get("username", ""),
+                            "username": chat.get("username", ""),
+                            "first_name": chat.get("first_name", ""),
+                            "last_name": chat.get("last_name", ""),
+                        }
+                    )
             sender = message.get("from", {})
             sender_id = sender.get("id")
             if sender_id and sender_id not in seen_ids:
@@ -449,13 +547,23 @@ class TelegramBotClient(BasePlatformClient):
                 full_name = f"{sender.get('first_name', '')} {sender.get('last_name', '')}".strip()
                 searchable = f"{full_name} {sender.get('username', '')}".lower()
                 if search_lower in searchable and not sender.get("is_bot"):
-                    contacts.append({
-                        "chat_id": sender_id, "type": "private",
-                        "name": full_name or sender.get("username", ""), "username": sender.get("username", ""),
-                        "first_name": sender.get("first_name", ""), "last_name": sender.get("last_name", ""),
-                    })
+                    contacts.append(
+                        {
+                            "chat_id": sender_id,
+                            "type": "private",
+                            "name": full_name or sender.get("username", ""),
+                            "username": sender.get("username", ""),
+                            "first_name": sender.get("first_name", ""),
+                            "last_name": sender.get("last_name", ""),
+                        }
+                    )
 
         if contacts:
-            return {"ok": True, "result": {"contacts": contacts, "count": len(contacts)}}
-        return {"error": f"No contacts found matching '{name}'",
-                "details": {"searched_updates": len(updates), "name": name}}
+            return {
+                "ok": True,
+                "result": {"contacts": contacts, "count": len(contacts)},
+            }
+        return {
+            "error": f"No contacts found matching '{name}'",
+            "details": {"searched_updates": len(updates), "name": name},
+        }

@@ -29,6 +29,7 @@ BYTEPLUS_MAX_INPUT_TOKENS = 229376
 
 class BytePlusContextOverflowError(Exception):
     """Raised when BytePlus API rejects input due to context length exceeding maximum."""
+
     pass
 
 
@@ -138,7 +139,9 @@ class BytePlusCacheManager:
 
         # Log the request
         logger.info(f"[BYTEPLUS REQUEST] URL: {url}")
-        logger.info(f"[BYTEPLUS REQUEST] Payload: {self._sanitize_payload_for_logging(payload)}")
+        logger.info(
+            f"[BYTEPLUS REQUEST] Payload: {self._sanitize_payload_for_logging(payload)}"
+        )
 
         response = requests.post(url, json=payload, headers=headers, timeout=600)
 
@@ -151,7 +154,9 @@ class BytePlusCacheManager:
             logger.info(f"[BYTEPLUS RESPONSE] Body: {response_json}")
         except Exception as json_err:
             logger.warning(f"[BYTEPLUS RESPONSE] Failed to parse JSON: {json_err}")
-            logger.info(f"[BYTEPLUS RESPONSE] Raw text: {response.text[:1000]}")  # First 1000 chars
+            logger.info(
+                f"[BYTEPLUS RESPONSE] Raw text: {response.text[:1000]}"
+            )  # First 1000 chars
             response.raise_for_status()
             return {}
 
@@ -177,7 +182,9 @@ class BytePlusCacheManager:
                 for msg in value:
                     truncated_msg = {
                         "role": msg.get("role"),
-                        "content": msg.get("content", "")[:200] + "..." if len(msg.get("content", "")) > 200 else msg.get("content", "")
+                        "content": msg.get("content", "")[:200] + "..."
+                        if len(msg.get("content", "")) > 200
+                        else msg.get("content", ""),
                     }
                     sanitized[key].append(truncated_msg)
             else:
@@ -243,7 +250,9 @@ class BytePlusCacheManager:
         response_id = result.get("id")
         if response_id:
             self._prefix_cache_registry[prompt_hash] = response_id
-            logger.info(f"[CACHE] Created prefix cache {response_id} for hash {prompt_hash}")
+            logger.info(
+                f"[CACHE] Created prefix cache {response_id} for hash {prompt_hash}"
+            )
 
         return result
 
@@ -252,13 +261,20 @@ class BytePlusCacheManager:
         prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
         removed = self._prefix_cache_registry.pop(prompt_hash, None)
         if removed:
-            logger.info(f"[CACHE] Invalidated prefix cache {removed} for hash {prompt_hash}")
+            logger.info(
+                f"[CACHE] Invalidated prefix cache {removed} for hash {prompt_hash}"
+            )
 
     # ─────────────────── Session Cache Methods ───────────────────
 
     def create_session_cache(
-        self, task_id: str, call_type: str, system_prompt: str,
-        user_prompt: str, temperature: float, max_tokens: int
+        self,
+        task_id: str,
+        call_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
     ) -> Dict[str, Any]:
         """Create a new session cache for a specific call type within a task.
 
@@ -282,8 +298,12 @@ class BytePlusCacheManager:
         """
         session_key = self._make_session_key(task_id, call_type)
         if session_key in self._session_cache_registry:
-            logger.warning(f"[CACHE] Session cache already exists for {session_key}, using existing")
-            return self.chat_with_session(task_id, call_type, user_prompt, temperature, max_tokens)
+            logger.warning(
+                f"[CACHE] Session cache already exists for {session_key}, using existing"
+            )
+            return self.chat_with_session(
+                task_id, call_type, user_prompt, temperature, max_tokens
+            )
 
         logger.info(f"[CACHE] Creating session cache for {session_key}")
         result = self._call_responses_api(
@@ -302,13 +322,19 @@ class BytePlusCacheManager:
         response_id = result.get("id")
         if response_id:
             self._session_cache_registry[session_key] = response_id
-            logger.info(f"[CACHE] Created session cache {response_id} for {session_key}")
+            logger.info(
+                f"[CACHE] Created session cache {response_id} for {session_key}"
+            )
 
         return result
 
     def chat_with_session(
-        self, task_id: str, call_type: str, user_prompt: str,
-        temperature: float, max_tokens: int
+        self,
+        task_id: str,
+        call_type: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
     ) -> Dict[str, Any]:
         """Send a message using existing session cache.
 
@@ -348,7 +374,9 @@ class BytePlusCacheManager:
         new_response_id = result.get("id")
         if new_response_id:
             self._session_cache_registry[session_key] = new_response_id
-            logger.debug(f"[CACHE] Updated session cache for {session_key}: {new_response_id}")
+            logger.debug(
+                f"[CACHE] Updated session cache for {session_key}: {new_response_id}"
+            )
 
         return result
 
@@ -366,7 +394,9 @@ class BytePlusCacheManager:
 
     def end_all_sessions_for_task(self, task_id: str) -> None:
         """Clean up ALL session caches for a task (all call types)."""
-        keys_to_remove = [k for k in self._session_cache_registry if k.startswith(f"{task_id}:")]
+        keys_to_remove = [
+            k for k in self._session_cache_registry if k.startswith(f"{task_id}:")
+        ]
         for key in keys_to_remove:
             response_id = self._session_cache_registry.pop(key, None)
             if response_id:

@@ -101,8 +101,7 @@ class UIState:
         return [
             item
             for item_id in self.action_order
-            if (item := self.action_items.get(item_id))
-            and item.item_type == "task"
+            if (item := self.action_items.get(item_id)) and item.item_type == "task"
         ]
 
     def get_actions_for_task(self, task_id: str) -> List[ActionItemState]:
@@ -117,6 +116,4 @@ class UIState:
 
     def has_running_items(self) -> bool:
         """Check if there are any running tasks or actions."""
-        return any(
-            item.status == "running" for item in self.action_items.values()
-        )
+        return any(item.status == "running" for item in self.action_items.values())

@@ -3,6 +3,7 @@
 The host calls configure(...) once at startup. Every module reads from
 ConfigStore — no module imports from the host application.
 """
+
 from __future__ import annotations
 
 import logging

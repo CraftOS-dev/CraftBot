@@ -1,5 +1,6 @@
 from agent_core import action
 
+
 @action(
     name="schedule_task_toggle",
     description="Enable or disable a scheduled task by its ID.",
@@ -8,24 +9,24 @@ from agent_core import action
         "schedule_id": {
             "type": "string",
             "description": "The ID of the schedule to toggle",
-            "example": "memory-processing"
+            "example": "memory-processing",
         },
         "enabled": {
             "type": "boolean",
             "description": "True to enable, False to disable",
-            "example": True
-        }
+            "example": True,
+        },
     },
     output_schema={
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
         "enabled": {
             "type": "boolean",
-            "description": "The new enabled state of the schedule"
-        }
-    }
+            "description": "The new enabled state of the schedule",
+        },
+    },
 )
 def schedule_task_toggle(input_data: dict) -> dict:
     """Enable or disable a scheduled task."""
@@ -33,10 +34,7 @@ def schedule_task_toggle(input_data: dict) -> dict:
 
     scheduler = iai.InternalActionInterface.scheduler
     if scheduler is None:
-        return {
-            "status": "error",
-            "error": "Scheduler not initialized"
-        }
+        return {"status": "error", "error": "Scheduler not initialized"}
 
     try:
         schedule_id = input_data.get("schedule_id")
@@ -50,10 +48,7 @@ def schedule_task_toggle(input_data: dict) -> dict:
         # Get the schedule to verify it exists
         schedule = scheduler.get_schedule(schedule_id)
         if schedule is None:
-            return {
-                "status": "error",
-                "error": f"Schedule '{schedule_id}' not found"
-            }
+            return {"status": "error", "error": f"Schedule '{schedule_id}' not found"}
 
         # Toggle the schedule
         if enabled:
@@ -66,16 +61,13 @@ def schedule_task_toggle(input_data: dict) -> dict:
             return {
                 "status": "ok",
                 "enabled": enabled,
-                "message": f"Schedule '{schedule_id}' has been {action_word}"
+                "message": f"Schedule '{schedule_id}' has been {action_word}",
             }
         else:
             return {
                 "status": "error",
-                "error": f"Failed to update schedule '{schedule_id}'"
+                "error": f"Failed to update schedule '{schedule_id}'",
             }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

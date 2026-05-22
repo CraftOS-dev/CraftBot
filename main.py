@@ -7,7 +7,7 @@ import time
 import socket
 import signal
 import threading
-import shutil # Needed for lsof check on Linux/macOS
+import shutil  # Needed for lsof check on Linux/macOS
 
 # --- CONFIGURATION ---
 # Path to the directory containing the docker-compose.yml file
@@ -25,10 +25,17 @@ CLEANUP_PORT = 7861
 
 # --- HELPER FUNCTIONS ---
 
-def run_command(cmd: list, cwd: str = None, check: bool = True, capture: bool = False, quiet: bool = False) -> subprocess.CompletedProcess:
+
+def run_command(
+    cmd: list,
+    cwd: str = None,
+    check: bool = True,
+    capture: bool = False,
+    quiet: bool = False,
+) -> subprocess.CompletedProcess:
     """Helper to run subprocess commands robustly."""
     try:
-        use_shell = (platform.system() == "Windows")
+        use_shell = platform.system() == "Windows"
         # Always capture output when quiet mode is enabled
         should_capture = capture or quiet
         result = subprocess.run(
@@ -38,7 +45,7 @@ def run_command(cmd: list, cwd: str = None, check: bool = True, capture: bool = 
             shell=use_shell,
             stdout=subprocess.PIPE if should_capture else sys.stdout,
             stderr=subprocess.PIPE if should_capture else sys.stderr,
-            text=True if should_capture else False
+            text=True if should_capture else False,
         )
         return result
     except subprocess.CalledProcessError as e:
@@ -47,8 +54,9 @@ def run_command(cmd: list, cwd: str = None, check: bool = True, capture: bool = 
             print(f"STDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}")
         raise
     except FileNotFoundError:
-         print(f"\n[ERROR] Command executable not found: {cmd[0]}")
-         raise
+        print(f"\n[ERROR] Command executable not found: {cmd[0]}")
+        raise
+
 
 def is_port_open(host: str, port: int, timeout: int = 1) -> bool:
     """Checks if a TCP port is open on a given host."""
@@ -57,6 +65,7 @@ def is_port_open(host: str, port: int, timeout: int = 1) -> bool:
             return True
     except (socket.timeout, ConnectionRefusedError, OSError):
         return False
+
 
 def kill_process_on_port(port: int):
     """Finds and kills any process listening on the specified TCP port (Cross-platform)."""
@@ -71,12 +80,10 @@ def kill_process_on_port(port: int):
             try:
                 # Use netstat without shell pipes - safer approach
                 output = subprocess.check_output(
-                    ["netstat", "-ano"],
-                    text=True,
-                    stderr=subprocess.DEVNULL
+                    ["netstat", "-ano"], text=True, stderr=subprocess.DEVNULL
                 )
                 pids_to_kill = set()
-                for line in output.strip().split('\n'):
+                for line in output.strip().split("\n"):
                     parts = line.strip().split()
                     # Format: PROTO  LOCAL_ADDR  FOREIGN_ADDR  STATE  PID
                     if len(parts) >= 5 and "LISTENING" in line and parts[-1].isdigit():
@@ -87,20 +94,22 @@ def kill_process_on_port(port: int):
                                 pids_to_kill.add(pid)
                         except ValueError:
                             continue
-                
+
                 if not pids_to_kill:
-                     print(f"[*] Port {port} is free.")
-                     return
+                    print(f"[*] Port {port} is free.")
+                    return
 
                 for pid in pids_to_kill:
-                    print(f"[!] Found stale process (PID: {pid}) on port {port}. Killing it...")
+                    print(
+                        f"[!] Found stale process (PID: {pid}) on port {port}. Killing it..."
+                    )
                     # SECURITY FIX: Use list-based call instead of f-string with shell=True
                     try:
                         subprocess.run(
                             ["taskkill", "/F", "/T", "/PID", pid],
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
-                            timeout=5
+                            timeout=5,
                         )
                     except subprocess.TimeoutExpired:
                         print(f"[!] Timeout killing PID {pid}")
@@ -111,27 +120,42 @@ def kill_process_on_port(port: int):
             except subprocess.CalledProcessError:
                 print(f"[*] Port {port} is free.")
 
-        else: # Linux/macOS
+        else:  # Linux/macOS
             find_cmd = ["lsof", "-t", "-i", f"TCP:{port_str}"]
             if shutil.which("lsof"):
                 try:
-                    output = subprocess.check_output(find_cmd, text=True, stderr=subprocess.DEVNULL)
-                    pids = [p for p in output.strip().split('\n') if p.isdigit() and int(p) > 0]
+                    output = subprocess.check_output(
+                        find_cmd, text=True, stderr=subprocess.DEVNULL
+                    )
+                    pids = [
+                        p
+                        for p in output.strip().split("\n")
+                        if p.isdigit() and int(p) > 0
+                    ]
                     if not pids:
                         print(f"[*] Port {port} is free.")
                         return
                     for pid in pids:
-                        print(f"[!] Found stale process (PID: {pid}) on port {port}. Killing it...")
-                        subprocess.run(["kill", "-9", pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        print(
+                            f"[!] Found stale process (PID: {pid}) on port {port}. Killing it..."
+                        )
+                        subprocess.run(
+                            ["kill", "-9", pid],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
                     print(f"[*] Port {port} cleared.")
                     time.sleep(0.5)
                 except subprocess.CalledProcessError:
                     print(f"[*] Port {port} is free.")
             else:
-                 print(f"[!] Warning: 'lsof' not found. Cannot automatically clean port {port}.")
+                print(
+                    f"[!] Warning: 'lsof' not found. Cannot automatically clean port {port}."
+                )
 
     except Exception as e:
         print(f"[!] Warning: Failed to clean up port {port}: {e}")
+
 
 def kill_process_on_port_quiet(port: int):
     """Quietly kill any process listening on the specified TCP port."""
@@ -143,12 +167,10 @@ def kill_process_on_port_quiet(port: int):
             # SECURITY FIX: Use list-based subprocess call instead of shell=True
             try:
                 output = subprocess.check_output(
-                    ["netstat", "-ano"],
-                    text=True,
-                    stderr=subprocess.DEVNULL
+                    ["netstat", "-ano"], text=True, stderr=subprocess.DEVNULL
                 )
                 pids_to_kill = set()
-                for line in output.strip().split('\n'):
+                for line in output.strip().split("\n"):
                     parts = line.strip().split()
                     if len(parts) >= 5 and "LISTENING" in line and parts[-1].isdigit():
                         try:
@@ -157,14 +179,14 @@ def kill_process_on_port_quiet(port: int):
                                 pids_to_kill.add(parts[-1])
                         except ValueError:
                             continue
-                
+
                 for pid in pids_to_kill:
                     try:
                         subprocess.run(
                             ["taskkill", "/F", "/T", "/PID", pid],
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
-                            timeout=5
+                            timeout=5,
                         )
                     except (subprocess.TimeoutExpired, Exception):
                         pass
@@ -174,16 +196,28 @@ def kill_process_on_port_quiet(port: int):
             find_cmd = ["lsof", "-t", "-i", f"TCP:{port_str}"]
             if shutil.which("lsof"):
                 try:
-                    output = subprocess.check_output(find_cmd, text=True, stderr=subprocess.DEVNULL)
-                    pids = [p for p in output.strip().split('\n') if p.isdigit() and int(p) > 0]
+                    output = subprocess.check_output(
+                        find_cmd, text=True, stderr=subprocess.DEVNULL
+                    )
+                    pids = [
+                        p
+                        for p in output.strip().split("\n")
+                        if p.isdigit() and int(p) > 0
+                    ]
                     for pid in pids:
-                        subprocess.run(["kill", "-9", pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(
+                            ["kill", "-9", pid],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
                 except subprocess.CalledProcessError:
                     pass
     except Exception:
         pass
 
+
 # --- MAIN LOGIC ---
+
 
 def main():
     # === IGNORE CTRL+C ===
@@ -213,19 +247,23 @@ def main():
             if not browser_startup_ui:
                 print("\n[1/3] Launching VM Docker containers in background...")
             if not os.path.isdir(VM_DIR):
-                 print(f"[ERROR] Docker directory not found: {VM_DIR}")
-                 sys.exit(1)
+                print(f"[ERROR] Docker directory not found: {VM_DIR}")
+                sys.exit(1)
             run_command(["docker", "compose", "up", "-d"], cwd=VM_DIR)
             docker_started = True
 
             # 2. Wait Loop
             if not browser_startup_ui:
-                print(f"\n[2/3] Waiting for VM service to be ready on port {READY_PORT}...")
+                print(
+                    f"\n[2/3] Waiting for VM service to be ready on port {READY_PORT}..."
+                )
             waited = 0
             while not is_port_open(READY_HOST, READY_PORT):
                 if waited >= MAX_WAIT_SECONDS:
                     print(f"\n[ERROR] Timed out waiting for VM port {READY_PORT}.")
-                    raise TimeoutError(f"Service on port {READY_PORT} did not become ready.")
+                    raise TimeoutError(
+                        f"Service on port {READY_PORT} did not become ready."
+                    )
                 if not browser_startup_ui:
                     print(".", end="", flush=True)
                 time.sleep(1)
@@ -235,7 +273,7 @@ def main():
 
             # 3. Start Python Agent
             if not browser_startup_ui:
-                print(f"\n[3/3] Launching Python Agent...")
+                print("\n[3/3] Launching Python Agent...")
         else:
             if not browser_startup_ui:
                 print("\n[1/1] Launching Python Agent (CLI Mode)...")
@@ -247,10 +285,11 @@ def main():
 
         # Run the main Python app in the foreground.
         # This call BLOCKS until the app exits.
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             # PyInstaller binary: import and run directly instead of subprocess
             # (sys.executable points to the binary, not Python)
             from app.main import main as app_main
+
             app_main()
             final_exit_code = 0
         else:
@@ -260,35 +299,36 @@ def main():
                 stdin=sys.stdin,
                 stdout=sys.stdout,
                 stderr=sys.stderr,
-                check=False
+                check=False,
             )
             final_exit_code = result.returncode
 
     except (subprocess.CalledProcessError, TimeoutError, FileNotFoundError) as e:
         import traceback
+
         print(f"\n[main] {type(e).__name__}: {e}")
         traceback.print_exc()
         final_exit_code = 1
 
     except Exception as e:
         import traceback
+
         print(f"\n[main] Unhandled {type(e).__name__}: {e}")
         traceback.print_exc()
         final_exit_code = 1
-
 
     # === FINALLY BLOCK: Guaranteed Cleanup ===
     # This block runs only when the 'try' block finishes naturally or hits a non-signal error.
     finally:
         print(f"\n\n--- Cleanup Initiated (Exit Status: {final_exit_code}) ---")
-        
+
         # 1. Stop Docker containers (only if started)
         if docker_started:
             print("[*] Stopping Docker VM containers...")
             try:
                 run_command(["docker", "compose", "down"], cwd=VM_DIR, check=False)
             except Exception as e:
-                 print(f"[!] Warning: Error during docker shutdown: {e}")
+                print(f"[!] Warning: Error during docker shutdown: {e}")
 
             # 2. Clean up ports
             kill_process_on_port(CLEANUP_PORT)
@@ -296,6 +336,7 @@ def main():
             print("[*] Skipping Docker cleanup (not started in CLI mode).")
 
         sys.exit(final_exit_code)
+
 
 if __name__ == "__main__":
     main()

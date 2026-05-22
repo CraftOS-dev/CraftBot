@@ -24,6 +24,7 @@ except Exception:  # pragma: no cover
 @dataclass
 class CacheMetricsEntry:
     """Metrics for a single cache operation type."""
+
     total_calls: int = 0
     cache_hits: int = 0
     cache_misses: int = 0

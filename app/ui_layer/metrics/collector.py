@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 import threading
 from collections import defaultdict
@@ -10,19 +9,21 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor
 
 
 class TimePeriod(Enum):
     """Time period for filtered metrics queries."""
+
     HOUR_1 = "1h"
     DAY_1 = "1d"
     WEEK_1 = "1w"
     MONTH_1 = "1m"
     TOTAL = "total"
 
+
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -74,9 +75,11 @@ def get_model_pricing(model: str) -> Dict[str, float]:
 # Data Classes
 # ─────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class LLMCallRecord:
     """Record of a single LLM call."""
+
     timestamp: float
     provider: str
     model: str
@@ -90,6 +93,7 @@ class LLMCallRecord:
 @dataclass
 class TaskRecord:
     """Record of a completed task."""
+
     task_id: str
     name: str
     status: str  # "completed" or "error"
@@ -102,6 +106,7 @@ class TaskRecord:
 @dataclass
 class SystemMetrics:
     """Current system resource metrics."""
+
     cpu_percent: float = 0.0
     memory_percent: float = 0.0
     memory_used_mb: float = 0.0
@@ -118,6 +123,7 @@ class SystemMetrics:
 @dataclass
 class ThreadPoolMetrics:
     """Thread pool utilization metrics."""
+
     active_threads: int = 0
     max_workers: int = 16
     pending_tasks: int = 0
@@ -127,6 +133,7 @@ class ThreadPoolMetrics:
 @dataclass
 class CostMetrics:
     """Cost-related metrics."""
+
     cost_per_request_avg: float = 0.0
     cost_per_task_avg: float = 0.0
     cost_today: float = 0.0
@@ -138,6 +145,7 @@ class CostMetrics:
 @dataclass
 class TaskMetrics:
     """Task success/failure metrics."""
+
     total_tasks: int = 0
     completed_tasks: int = 0
     failed_tasks: int = 0
@@ -148,6 +156,7 @@ class TaskMetrics:
 @dataclass
 class UsageMetrics:
     """Request volume and usage patterns."""
+
     requests_last_hour: int = 0
     requests_today: int = 0
     peak_hour: int = 0  # 0-23
@@ -158,6 +167,7 @@ class UsageMetrics:
 @dataclass
 class TokenMetrics:
     """Token usage metrics."""
+
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cached_tokens: int = 0
@@ -167,6 +177,7 @@ class TokenMetrics:
 @dataclass
 class MCPServerInfo:
     """Information about an MCP server."""
+
     name: str
     status: str  # "connected", "disconnected", "error"
     tool_count: int
@@ -178,6 +189,7 @@ class MCPServerInfo:
 @dataclass
 class UsageCount:
     """Usage count for a tool or skill."""
+
     name: str
     count: int = 0
 
@@ -185,6 +197,7 @@ class UsageCount:
 @dataclass
 class MCPMetrics:
     """MCP server metrics."""
+
     total_servers: int = 0
     connected_servers: int = 0
     total_tools: int = 0
@@ -196,6 +209,7 @@ class MCPMetrics:
 @dataclass
 class SkillInfo:
     """Information about a skill."""
+
     name: str
     enabled: bool
     description: str = ""
@@ -206,6 +220,7 @@ class SkillInfo:
 @dataclass
 class SkillMetrics:
     """Skill metrics."""
+
     total_skills: int = 0
     enabled_skills: int = 0
     total_invocations: int = 0
@@ -216,6 +231,7 @@ class SkillMetrics:
 @dataclass
 class ModelMetrics:
     """Current model information."""
+
     provider: str = ""
     model_id: str = ""
     model_name: str = ""  # Friendly name
@@ -224,6 +240,7 @@ class ModelMetrics:
 @dataclass
 class DashboardMetrics:
     """Complete dashboard metrics snapshot."""
+
     # Timing
     uptime_seconds: float = 0.0
     timestamp: float = field(default_factory=time.time)
@@ -324,8 +341,7 @@ class DashboardMetrics:
                     for s in self.mcp.servers
                 ],
                 "topTools": [
-                    {"name": t.name, "count": t.count}
-                    for t in self.mcp.top_tools
+                    {"name": t.name, "count": t.count} for t in self.mcp.top_tools
                 ],
             },
             "skill": {
@@ -343,8 +359,7 @@ class DashboardMetrics:
                     for s in self.skill.skills
                 ],
                 "topSkills": [
-                    {"name": s.name, "count": s.count}
-                    for s in self.skill.top_skills
+                    {"name": s.name, "count": s.count} for s in self.skill.top_skills
                 ],
             },
             "model": {
@@ -358,6 +373,7 @@ class DashboardMetrics:
 @dataclass
 class FilteredDashboardMetrics:
     """Filtered dashboard metrics for a specific time period."""
+
     period: str  # "1h", "1d", "1w", "1m", "total"
     token: TokenMetrics = field(default_factory=TokenMetrics)
     task: TaskMetrics = field(default_factory=TaskMetrics)
@@ -393,6 +409,7 @@ class FilteredDashboardMetrics:
 # ─────────────────────────────────────────────────────────────────────
 # Metrics Collector
 # ─────────────────────────────────────────────────────────────────────
+
 
 class MetricsCollector:
     """
@@ -461,13 +478,16 @@ class MetricsCollector:
         try:
             from app.usage.storage import get_usage_storage
             from app.usage.task_storage import get_task_storage
+
             self._usage_storage = get_usage_storage()
             self._task_storage = get_task_storage()
         except Exception:
             # Storage may not be available in all contexts
             pass
 
-    def _get_period_bounds(self, period: TimePeriod) -> Tuple[Optional[datetime], Optional[datetime]]:
+    def _get_period_bounds(
+        self, period: TimePeriod
+    ) -> Tuple[Optional[datetime], Optional[datetime]]:
         """Calculate start/end datetime for the given period."""
         # Use local time to match how tasks are stored (via datetime.fromtimestamp)
         now = datetime.now()
@@ -540,6 +560,7 @@ class MetricsCollector:
         if self._usage_storage:
             try:
                 from app.usage.storage import UsageEvent
+
                 usage_event = UsageEvent(
                     service_type="llm",
                     provider=provider,
@@ -589,6 +610,7 @@ class MetricsCollector:
         if self._task_storage:
             try:
                 from app.usage.task_storage import TaskEvent
+
                 task_event = TaskEvent(
                     task_id=task_id,
                     task_name=name,
@@ -619,9 +641,7 @@ class MetricsCollector:
         """Get top N most used MCP tools."""
         with self._lock:
             sorted_tools = sorted(
-                self._mcp_tool_usage.items(),
-                key=lambda x: x[1],
-                reverse=True
+                self._mcp_tool_usage.items(), key=lambda x: x[1], reverse=True
             )
             return sorted_tools[:limit]
 
@@ -639,9 +659,7 @@ class MetricsCollector:
         """Get top N most used skills."""
         with self._lock:
             sorted_skills = sorted(
-                self._skill_usage.items(),
-                key=lambda x: x[1],
-                reverse=True
+                self._skill_usage.items(), key=lambda x: x[1], reverse=True
             )
             return sorted_skills[:limit]
 
@@ -758,17 +776,25 @@ class MetricsCollector:
                     connected += 1
 
                 # Get transport type and action set from config
-                transport = connection.config.transport if connection.config else "stdio"
-                action_set = connection.config.resolved_action_set_name if connection.config else ""
+                transport = (
+                    connection.config.transport if connection.config else "stdio"
+                )
+                action_set = (
+                    connection.config.resolved_action_set_name
+                    if connection.config
+                    else ""
+                )
 
-                servers.append(MCPServerInfo(
-                    name=name,
-                    status=status,
-                    tool_count=tool_count,
-                    transport=transport,
-                    action_set=action_set,
-                    tools=tools,
-                ))
+                servers.append(
+                    MCPServerInfo(
+                        name=name,
+                        status=status,
+                        tool_count=tool_count,
+                        transport=transport,
+                        action_set=action_set,
+                        tools=tools,
+                    )
+                )
 
             # Get top tools usage
             top_tools = [
@@ -810,13 +836,15 @@ class MetricsCollector:
                 if user_invocable:
                     user_invocable_count += 1
 
-                skills.append(SkillInfo(
-                    name=name,
-                    enabled=enabled,
-                    description=description,
-                    user_invocable=user_invocable,
-                    action_sets=action_sets,
-                ))
+                skills.append(
+                    SkillInfo(
+                        name=name,
+                        enabled=enabled,
+                        description=description,
+                        user_invocable=user_invocable,
+                        action_sets=action_sets,
+                    )
+                )
 
             # Get top skills usage
             top_skills = [
@@ -921,16 +949,13 @@ class MetricsCollector:
             # Cost metrics
             total_cost = sum(call.cost_usd for call in self._llm_calls)
             cost_today = sum(
-                call.cost_usd for call in self._llm_calls
-                if call.timestamp >= today_ts
+                call.cost_usd for call in self._llm_calls if call.timestamp >= today_ts
             )
             cost_week = sum(
-                call.cost_usd for call in self._llm_calls
-                if call.timestamp >= week_ts
+                call.cost_usd for call in self._llm_calls if call.timestamp >= week_ts
             )
             cost_month = sum(
-                call.cost_usd for call in self._llm_calls
-                if call.timestamp >= month_ts
+                call.cost_usd for call in self._llm_calls if call.timestamp >= month_ts
             )
 
             num_calls = len(self._llm_calls)
@@ -940,30 +965,34 @@ class MetricsCollector:
             completed_tasks = [t for t in self._task_records if t.status == "completed"]
             avg_cost_per_task = (
                 sum(t.total_cost for t in completed_tasks) / len(completed_tasks)
-                if completed_tasks else 0
+                if completed_tasks
+                else 0
             )
 
             # Task metrics
             total_tasks = len(self._task_records)
-            completed_count = len([t for t in self._task_records if t.status == "completed"])
-            failed_count = len([t for t in self._task_records if t.status in ("error", "cancelled")])
+            completed_count = len(
+                [t for t in self._task_records if t.status == "completed"]
+            )
+            failed_count = len(
+                [t for t in self._task_records if t.status in ("error", "cancelled")]
+            )
             running_count = len(self._running_tasks)
 
             finished_tasks = completed_count + failed_count
             success_rate = (
                 (completed_count / finished_tasks) * 100
-                if finished_tasks > 0 else 100.0
+                if finished_tasks > 0
+                else 100.0
             )
 
             # Usage metrics
-            requests_last_hour = len([
-                call for call in self._llm_calls
-                if call.timestamp >= hour_ago
-            ])
-            requests_today = len([
-                call for call in self._llm_calls
-                if call.timestamp >= today_ts
-            ])
+            requests_last_hour = len(
+                [call for call in self._llm_calls if call.timestamp >= hour_ago]
+            )
+            requests_today = len(
+                [call for call in self._llm_calls if call.timestamp >= today_ts]
+            )
 
             # Find peak hour
             peak_hour = 0
@@ -1040,7 +1069,9 @@ class MetricsCollector:
         # Query historical token/usage data from UsageStorage
         if self._usage_storage:
             try:
-                usage_summary = self._usage_storage.get_usage_summary(start_date, end_date)
+                usage_summary = self._usage_storage.get_usage_summary(
+                    start_date, end_date
+                )
                 token_metrics = TokenMetrics(
                     total_input_tokens=usage_summary.get("total_input_tokens", 0),
                     total_output_tokens=usage_summary.get("total_output_tokens", 0),
@@ -1049,7 +1080,9 @@ class MetricsCollector:
                 )
 
                 # Get hourly distribution
-                hourly_dist = self._usage_storage.get_hourly_distribution(start_date, end_date)
+                hourly_dist = self._usage_storage.get_hourly_distribution(
+                    start_date, end_date
+                )
 
                 # Calculate peak hour
                 peak_hour = 0
@@ -1063,8 +1096,12 @@ class MetricsCollector:
                 total_calls = usage_summary.get("total_calls", 0)
 
                 usage_metrics = UsageMetrics(
-                    requests_last_hour=total_calls if period == TimePeriod.HOUR_1 else 0,
-                    requests_today=total_calls if period in (TimePeriod.HOUR_1, TimePeriod.DAY_1) else 0,
+                    requests_last_hour=total_calls
+                    if period == TimePeriod.HOUR_1
+                    else 0,
+                    requests_today=total_calls
+                    if period in (TimePeriod.HOUR_1, TimePeriod.DAY_1)
+                    else 0,
                     peak_hour=peak_hour,
                     peak_hour_requests=peak_requests,
                     hourly_distribution=hourly_dist,
@@ -1103,6 +1140,7 @@ class MetricsCollector:
 
     def create_usage_hook(self) -> Callable:
         """Create a usage reporting hook for the LLM interface."""
+
         async def report_usage(event) -> None:
             """Hook to receive usage events from LLM interface."""
             self.record_llm_call(
@@ -1113,4 +1151,5 @@ class MetricsCollector:
                 cached_tokens=event.cached_tokens,
                 task_id=None,  # Could be enhanced to track current task
             )
+
         return report_usage

@@ -104,7 +104,9 @@ def get_config(key: str, default=None):
 
 # Credential client registry
 _credential_client: Optional[CredentialClientProtocol] = None
-_credential_client_factory: Optional[Callable[[], Optional[CredentialClientProtocol]]] = None
+_credential_client_factory: Optional[
+    Callable[[], Optional[CredentialClientProtocol]]
+] = None
 
 
 def register_credential_client(client_or_factory) -> None:
@@ -116,7 +118,9 @@ def register_credential_client(client_or_factory) -> None:
                           or a callable that returns one.
     """
     global _credential_client, _credential_client_factory
-    if callable(client_or_factory) and not hasattr(client_or_factory, 'request_credential'):
+    if callable(client_or_factory) and not hasattr(
+        client_or_factory, "request_credential"
+    ):
         _credential_client_factory = client_or_factory
         _credential_client = None
     else:
