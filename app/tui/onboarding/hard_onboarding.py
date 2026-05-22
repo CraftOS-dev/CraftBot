@@ -11,7 +11,7 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    MCPStep,
+    IntegrationStep,
     SkillsStep,
 )
 from app.onboarding import onboarding_manager
@@ -30,8 +30,8 @@ class TUIHardOnboarding(OnboardingInterface):
     1. LLM Provider selection
     2. API Key input
     3. Agent name (optional)
-    4. MCP server selection (optional)
-    5. Skills selection (optional)
+    4. Skills selection (optional)
+    5. External app integration setup (optional)
 
     Note: User name is collected during soft onboarding (conversational interview).
     """
@@ -45,8 +45,8 @@ class TUIHardOnboarding(OnboardingInterface):
             None,  # ApiKeyStep - created dynamically based on provider
             AgentNameStep(),
             UserProfileStep(),
-            MCPStep(),
             SkillsStep(),
+            IntegrationStep(),
         ]
 
     async def run_hard_onboarding(self) -> Dict[str, Any]:

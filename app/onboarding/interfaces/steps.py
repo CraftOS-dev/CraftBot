@@ -493,72 +493,29 @@ class UserProfileStep:
         return {f.name: f.default for f in fields}
 
 
-class MCPStep:
-    """MCP server selection step."""
+class IntegrationStep:
+    """External app integration setup step.
 
-    name = "mcp"
-    title = "Recommended MCP Servers"
-    description = "MCP servers are your agent's toolbox. Each one adds extra tools that let your agent work with apps like Gmail, Slack, or Notion on your behalf.\nItems marked 'Setup required' need API keys - configure them in Settings after onboarding."
+    Renders the full Integrations settings panel inside the wizard so the
+    user can connect any registered integration in place. The step has no
+    submittable value of its own — clicking Next moves on whether or not
+    the user connected anything.
+    """
+
+    name = "integrations"
+    title = "Connect External Apps"
+    description = "Connect any external apps you want your agent to use — Gmail, Slack, GitHub, Notion, and more. You can connect now, or skip and connect later from Settings → Integrations."
     required = False
 
-    # Top 10 recommended MCP servers for onboarding (most popular/useful)
-    # Names must match exactly with names in mcp_config.json
-    # Format: {name: (icon, requires_setup)}
-    RECOMMENDED_SERVERS = {
-        "filesystem": ("Folder", False),           # Local file access - works out of the box
-        "brave-search": ("Search", True),          # Web search - needs BRAVE_API_KEY
-        "github": ("Github", True),                # Git/GitHub - needs GITHUB_PERSONAL_ACCESS_TOKEN
-        "playwright-mcp": ("Globe", False),        # Browser automation - works out of the box
-        "notion-mcp": ("FileText", True),          # Note-taking - needs NOTION_API_KEY
-        "slack-mcp": ("MessageSquare", True),      # Team communication - needs Slack OAuth
-        "gmail-mcp": ("Mail", True),               # Email - needs Google OAuth
-        "google-calendar-mcp": ("Calendar", True), # Calendar - needs Google OAuth
-        "todoist-mcp": ("CheckSquare", True),      # Task management - needs TODOIST_API_KEY
-        "obsidian-mcp": ("Gem", True),             # Knowledge management - needs Obsidian plugin
-    }
-
     def get_options(self) -> List[StepOption]:
-        """Get top 10 recommended MCP servers for onboarding."""
-        try:
-            from app.tui.mcp_settings import list_mcp_servers
-            servers = list_mcp_servers()
-        except Exception:
-            # If MCP config is completely broken, show nothing rather than
-            # crashing the wizard — the user can configure later in Settings.
-            return []
-
-        # Create a lookup by name
-        server_lookup = {s["name"]: s for s in servers}
-
-        # Return only recommended servers that exist in config
-        options = []
-        for name, (icon, requires_setup) in self.RECOMMENDED_SERVERS.items():
-            if name in server_lookup:
-                server = server_lookup[name]
-                label = server["name"].replace("-", " ").replace(" mcp", "").title()
-                # Append platform warning to description when server paths
-                # are incompatible with the current OS
-                desc = server.get("description", f"MCP server: {server['name']}")
-                if server.get("platform_blocked"):
-                    label += " (⚠ Windows-only — requires setup on this OS)"
-                options.append(StepOption(
-                    value=server["name"],
-                    label=label,
-                    description=desc,
-                    default=server.get("enabled", False),
-                    icon=icon,
-                    requires_setup=requires_setup,
-                ))
-        return options
+        return []
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
-        # Value should be a list of server names
-        if not isinstance(value, list):
-            return False, "Expected a list of server names"
+        # The step is a UI panel — any value (including empty) is acceptable.
         return True, None
 
-    def get_default(self) -> List[str]:
-        return []
+    def get_default(self) -> str:
+        return ""
 
 
 class SkillsStep:
@@ -628,6 +585,6 @@ ALL_STEPS = [
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    MCPStep,
     SkillsStep,
+    IntegrationStep,
 ]

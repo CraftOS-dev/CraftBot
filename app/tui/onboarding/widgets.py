@@ -278,8 +278,8 @@ class OnboardingWizardScreen(Screen):
     1. LLM Provider selection
     2. API Key input
     3. Agent name (optional)
-    4. MCP server selection (optional)
-    5. Skills selection (optional)
+    4. Skills selection (optional)
+    5. External app integration setup (optional)
 
     User name is collected during soft onboarding (conversational interview).
     """
@@ -372,11 +372,16 @@ class OnboardingWizardScreen(Screen):
             self._form_fields = form_fields
             self._form_checkbox_values = {}
             self._build_form(content, step, form_fields)
-        elif step.name in ("mcp", "skills"):
+        elif step.name == "skills":
             # Multi-select list
             self._form_fields = []
             self._multi_select_values = step.get_default()
             self._build_multi_select(content, options)
+        elif step.name == "integrations":
+            # Panel step — the integrations connect UI is web-only. In the
+            # TUI, show a notice and let the user advance.
+            self._form_fields = []
+            self._build_integration_notice(content)
         elif options:
             # Single-select list
             self._form_fields = []
@@ -443,6 +448,15 @@ class OnboardingWizardScreen(Screen):
         )
         container.mount(input_widget)
         self.call_after_refresh(input_widget.focus)
+
+    def _build_integration_notice(self, container: Container) -> None:
+        """Render a static notice for the integrations panel step in TUI."""
+        notice = Static(
+            "Integration setup is available in the browser interface "
+            "(Settings → Integrations). Press Next to continue.",
+            classes="option-desc",
+        )
+        container.mount(notice)
 
     def _build_multi_select(self, container: Container, options: list) -> None:
         """Build a multi-select list with toggle buttons."""
@@ -639,8 +653,12 @@ class OnboardingWizardScreen(Screen):
         if self._form_fields:
             return self._get_form_value()
 
-        if step.name in ("mcp", "skills"):
+        if step.name == "skills":
             return self._multi_select_values
+
+        if step.name == "integrations":
+            # Panel step has no submittable value
+            return ""
 
         # Check for option list (IDs are now like "option-list-provider")
         option_list = self.query(f"#option-list-{step.name}")
