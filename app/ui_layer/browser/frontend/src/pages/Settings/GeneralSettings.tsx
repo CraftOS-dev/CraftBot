@@ -20,7 +20,8 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
-import { useAppSelector } from '../../store/hooks'
+import { useAppSelector, useAppDispatch } from '../../store/hooks'
+import { resetUpdateCheck } from '../../store/slices/generalSettingsSlice'
 import {
   selectUserMd,
   selectAgentMd,
@@ -64,6 +65,7 @@ export function GeneralSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
   const version = useAppSelector(selectVersion)
+  const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
@@ -505,9 +507,7 @@ export function GeneralSettings() {
   }
 
   const handleCheckUpdate = () => {
-    setIsCheckingUpdate(true)
-    setUpdateCheckDone(false)
-    setUpdateAvailable(false)
+    dispatch(resetUpdateCheck())
     setUpdateMessages([])
     send('check_update')
   }

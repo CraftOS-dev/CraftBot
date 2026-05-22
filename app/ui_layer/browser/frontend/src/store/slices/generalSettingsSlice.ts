@@ -54,10 +54,15 @@ const generalSettingsSlice = createSlice({
       state.latestVersion = action.payload.latestVersion
       state.updateChecked = true
     },
+    resetUpdateCheck(state) {
+      state.updateChecked = false
+      state.updateAvailable = false
+      state.latestVersion = ''
+    },
   },
 })
 
-export const { setAgentFile, setUpdateInfo } = generalSettingsSlice.actions
+export const { setAgentFile, setUpdateInfo, resetUpdateCheck } = generalSettingsSlice.actions
 export default generalSettingsSlice.reducer
 
 // Multi-handler: GeneralSettings cares about USER.md, AGENT.md, SOUL.md.
