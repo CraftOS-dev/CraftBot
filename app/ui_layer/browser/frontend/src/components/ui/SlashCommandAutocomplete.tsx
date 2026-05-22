@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
 import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
-import { ActivitySquare } from 'lucide-react'
+import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
 
 interface SkillConfig {
@@ -12,40 +12,149 @@ interface SkillConfig {
   source: string
 }
 
-interface SlashCommandProps {
-    input: string;
-    onSelectSkill: (skill: string) => void;
+interface CommandConfig {
+  name: string
+  description: string
 }
 
-export function SlashCommandAutocomplete({ input, onSelectSkill }: SlashCommandProps) {
+type ItemKind = 'command' | 'skill'
+
+interface AutocompleteItem {
+  name: string
+  kind: ItemKind
+}
+
+export interface SlashCommandAutocompleteHandle {
+  /**
+   * Handle a Tab keypress from the parent input.
+   * - When 1 item is visible: commits it via `onSelectItem` and returns true.
+   * - When >1 items are visible: cycles the highlighted index and returns true.
+   * - When no items are visible: returns false so the caller can do nothing / fall through.
+   */
+  handleTab: () => boolean
+  isOpen: () => boolean
+}
+
+interface SlashCommandProps {
+    input: string;
+    onSelectItem: (name: string) => void;
+}
+
+export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandle, SlashCommandProps>(
+  function SlashCommandAutocomplete({ input, onSelectItem }, ref) {
     const [skills, setSkills] = useState<string[]>([]);
+    const [commands, setCommands] = useState<string[]>([]);
+    const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
     const { send, onMessage, isConnected } = useSettingsWebSocket()
+
     useEffect(() => {
         if (!isConnected) return;
 
-        const cleanup = onMessage('skill_list', (data: unknown) => {
-            const d = data as { success: boolean; skills?: SkillConfig[]; total?: number; enabled?: number; error?: string }
+        const cleanupSkills = onMessage('skill_list', (data: unknown) => {
+            const d = data as { success: boolean; skills?: SkillConfig[]; error?: string }
             if (d.success && d.skills) {
                 const userInvocable = d.skills.filter(s => s.enabled)
                 setSkills(userInvocable.map(s => s.name))
             }
         })
 
+        const cleanupCommands = onMessage('command_list', (data: unknown) => {
+            const d = data as { success: boolean; commands?: CommandConfig[]; error?: string }
+            if (d.success && d.commands) {
+                setCommands(d.commands.map(c => c.name))
+            }
+        })
+
         send('skill_list')
-        return cleanup
+        send('command_list')
+
+        return () => {
+            cleanupSkills()
+            cleanupCommands()
+        }
     }, [isConnected, send, onMessage])
 
-    const filteredSkills = input[0] === '/' ? skills.filter(item => item.includes(input.slice(1))) : []
-    
-    if (filteredSkills.length > 0) return (
+    const query = input[0] === '/' ? input.slice(1).toLowerCase() : null
+
+    const { filteredCommands, filteredSkills, flatItems } = useMemo(() => {
+        if (query === null) {
+            return { filteredCommands: [], filteredSkills: [], flatItems: [] as AutocompleteItem[] }
+        }
+        const fc = commands.filter(item => item.toLowerCase().includes(query))
+        const fs = skills.filter(item => item.toLowerCase().includes(query))
+        const flat: AutocompleteItem[] = [
+            ...fc.map<AutocompleteItem>(name => ({ name, kind: 'command' })),
+            ...fs.map<AutocompleteItem>(name => ({ name, kind: 'skill' })),
+        ]
+        return { filteredCommands: fc, filteredSkills: fs, flatItems: flat }
+    }, [query, commands, skills])
+
+    // Reset / clamp the selected index whenever the visible list changes.
+    useEffect(() => {
+        if (flatItems.length === 0) {
+            if (selectedIndex !== 0) setSelectedIndex(0)
+            return
+        }
+        if (selectedIndex >= flatItems.length) {
+            setSelectedIndex(0)
+        }
+    }, [flatItems.length, selectedIndex])
+
+    useImperativeHandle(ref, () => ({
+        handleTab: () => {
+            if (flatItems.length === 0) return false
+            if (flatItems.length === 1) {
+                onSelectItem(flatItems[0].name)
+                return true
+            }
+            setSelectedIndex(prev => (prev + 1) % flatItems.length)
+            return true
+        },
+        isOpen: () => flatItems.length > 0,
+    }), [flatItems, onSelectItem])
+
+    if (flatItems.length === 0) return null
+
+    let runningIndex = 0
+    return (
         <div>
             <ul className={styles.autocomplete}>
-                <p className={styles.header}><ActivitySquare size={12}></ActivitySquare>Skills</p>
-                {filteredSkills.map((item, index) => (
-                    <li key={index} className={styles.item} onClick={() => onSelectSkill(item)}>/{item}</li>
-                ))}
+                {filteredCommands.length > 0 && (
+                    <>
+                        <p className={styles.header}><Terminal size={12} />Commands</p>
+                        {filteredCommands.map((item) => {
+                            const idx = runningIndex++
+                            const isSelected = idx === selectedIndex
+                            return (
+                                <li
+                                    key={`cmd-${item}`}
+                                    className={`${styles.item}${isSelected ? ` ${styles.itemSelected}` : ''}`}
+                                    onClick={() => onSelectItem(item)}
+                                    onMouseEnter={() => setSelectedIndex(idx)}
+                                >/{item}</li>
+                            )
+                        })}
+                    </>
+                )}
+                {filteredSkills.length > 0 && (
+                    <>
+                        <p className={styles.header}><ActivitySquare size={12} />Skills</p>
+                        {filteredSkills.map((item) => {
+                            const idx = runningIndex++
+                            const isSelected = idx === selectedIndex
+                            return (
+                                <li
+                                    key={`skill-${item}`}
+                                    className={`${styles.item}${isSelected ? ` ${styles.itemSelected}` : ''}`}
+                                    onClick={() => onSelectItem(item)}
+                                    onMouseEnter={() => setSelectedIndex(idx)}
+                                >/{item}</li>
+                            )
+                        })}
+                    </>
+                )}
             </ul>
         </div>
     );
-}
+})

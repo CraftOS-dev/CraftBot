@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
 import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator } from '../ui'
+import type { SlashCommandAutocompleteHandle } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
 import styles from './Chat.module.css'
@@ -128,6 +129,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<PendingAttachment | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const autocompleteRef = useRef<SlashCommandAutocompleteHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Voice input state
@@ -404,6 +406,12 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && !e.shiftKey) {
+      if (autocompleteRef.current?.handleTab()) {
+        e.preventDefault()
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -728,7 +736,14 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
             </div>
           )}
           
-          <SlashCommandAutocomplete input={input} onSelectSkill={(skill) => setInput(`/${skill}`)}></SlashCommandAutocomplete>
+          <SlashCommandAutocomplete
+            ref={autocompleteRef}
+            input={input}
+            onSelectItem={(name) => {
+              setInput(`/${name}`)
+              inputRef.current?.focus()
+            }}
+          />
           <textarea
             ref={inputRef}
             className={`${styles.input}${isListening ? ` ${styles.inputListening}` : ''}`}

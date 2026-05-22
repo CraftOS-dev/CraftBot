@@ -54,7 +54,8 @@
     line-height: var(--leading-normal);
 }
 
-.item:hover {
+.item:hover,
+.itemSelected {
   color: var(--text-primary);
   background: var(--bg-tertiary);
   cursor: pointer;
