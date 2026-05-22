@@ -14,6 +14,9 @@ export { MarkdownContent } from './MarkdownContent'
 
 export { AttachmentDisplay } from './AttachmentDisplay'
 
+export { Modal, ModalBody, ModalFooter } from './Modal'
+export type { ModalProps, ModalSize, ModalSectionProps } from './Modal'
+
 export { ConfirmModal } from './ConfirmModal'
 export type { ConfirmModalProps } from './ConfirmModal'
 
