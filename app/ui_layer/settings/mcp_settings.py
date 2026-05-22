@@ -1,4 +1,4 @@
-"""MCP settings management for the TUI interface."""
+"""MCP settings management."""
 
 from __future__ import annotations
 

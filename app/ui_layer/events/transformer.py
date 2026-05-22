@@ -186,7 +186,7 @@ class EventTransformer:
             if hidden in kind or hidden in message_lower:
                 return True
 
-        # Skip screenshot events in CLI (handled separately for TUI)
+        # Skip screenshot events in CLI (footage is handled by the browser UI)
         if "screen" in kind and "shot" in kind:
             return True
 

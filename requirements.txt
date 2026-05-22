@@ -35,8 +35,6 @@ pygetwindow
 python3-xlib
 tenacity
 docling
-textual>=7.0.0
-textual-image>=0.8.0
 pyperclip
 gradio_client
 python-dotenv

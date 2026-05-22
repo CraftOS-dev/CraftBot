@@ -1,7 +1,7 @@
 """Proactive and scheduler settings management for UI layer.
 
 Provides functions for managing proactive tasks and scheduler configuration
-that can be used by any interface adapter (Browser, TUI, CLI).
+that can be used by any interface adapter (Browser, CLI).
 """
 
 import json

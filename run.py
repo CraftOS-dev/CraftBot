@@ -4,11 +4,9 @@ CraftBot Run Script
 
 Usage:
     python run.py             # Run the agent (browser interface - default)
-    python run.py --tui       # Run in TUI mode
     python run.py --cli       # Run in CLI mode
 
 Options:
-    --tui                     Use TUI (terminal UI) interface instead of browser
     --cli                     Use CLI (command line) interface
     --conda                   Use conda environment (overrides config setting)
     --no-conda                Don't use conda (overrides config setting)
@@ -877,7 +875,7 @@ def launch_agent_background(
         return None
 
     # Filter flags (--browser passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda", "--tui"}
+    skip_flags = {"--gui", "--conda", "--no-conda"}
     # Also skip port flags and their values
     pass_args = []
     skip_next = False
@@ -1116,7 +1114,7 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
         print(f"Error: {main_script} not found.")
         sys.exit(1)
 
-    # Filter flags (--cli and --tui pass through to agent)
+    # Filter flags (--cli passes through to agent)
     skip_flags = {"--gui", "--conda", "--no-conda", "--browser"}
     # Also skip port flags and their values
     pass_args = []
@@ -1198,7 +1196,6 @@ if __name__ == "__main__":
         print("    Please run without --gui flag.\n")
         sys.exit(1)
     gui_mode = False  # "--gui" in args  # [V1.2.2] disabled
-    tui_mode = "--tui" in args
     cli_mode = "--cli" in args
     conda_flag = "--conda" in args
     no_conda_flag = "--no-conda" in args
@@ -1209,8 +1206,8 @@ if __name__ == "__main__":
     FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
     BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 
-    # Browser mode is default (unless --tui or --cli specified)
-    browser_mode = not tui_mode and not cli_mode
+    # Browser mode is default (unless --cli specified)
+    browser_mode = not cli_mode
 
     # Load saved config to check what was actually installed
     config = load_config()
@@ -1237,12 +1234,7 @@ if __name__ == "__main__":
 
     # Determine mode string for display (only print for non-browser modes)
     if not browser_mode:
-        if cli_mode:
-            mode_str = "CLI"
-        elif gui_mode:
-            mode_str = "GUI + TUI"
-        else:
-            mode_str = "TUI"
+        mode_str = "GUI + CLI" if gui_mode else "CLI"
         print(f"\nMode: {mode_str}")
 
     # Check conda only if it was installed earlier

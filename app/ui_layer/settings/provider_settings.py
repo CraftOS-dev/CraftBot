@@ -1,4 +1,4 @@
-"""Settings utilities for the TUI interface."""
+"""Provider/API-key/remote-endpoint settings utilities."""
 
 from __future__ import annotations
 

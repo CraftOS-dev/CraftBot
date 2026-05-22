@@ -16,7 +16,7 @@ from app.onboarding.interfaces.steps import (
     StepOption,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_json
+from app.ui_layer.settings.provider_settings import save_settings_to_json
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -46,7 +46,7 @@ class OnboardingFlowController:
 
     Interfaces implement the presentation layer and call this controller
     for the business logic. This ensures consistent onboarding behavior
-    across CLI, TUI, and Browser interfaces.
+    across CLI and Browser interfaces.
 
     Example:
         controller = OnboardingFlowController(ui_controller)
@@ -270,7 +270,7 @@ class OnboardingFlowController:
         if provider == "remote":
             # api_key holds the Ollama base URL for the remote provider
             remote_url = api_key or "http://localhost:11434"
-            from app.tui.settings import save_remote_endpoint
+            from app.ui_layer.settings.provider_settings import save_remote_endpoint
 
             save_remote_endpoint(remote_url)
         elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
@@ -330,14 +330,14 @@ class OnboardingFlowController:
 
         # Apply MCP server selections
         if selected_mcp_servers:
-            from app.tui.mcp_settings import enable_mcp_server
+            from app.ui_layer.settings.mcp_settings import enable_mcp_server
 
             for server_name in selected_mcp_servers:
                 enable_mcp_server(server_name)
 
         # Apply skill selections
         if selected_skills:
-            from app.tui.skill_settings import enable_skill
+            from app.ui_layer.settings.skill_settings import enable_skill
 
             for skill_name in selected_skills:
                 enable_skill(skill_name)

@@ -538,7 +538,7 @@ class MCPStep:
     def get_options(self) -> List[StepOption]:
         """Get top 10 recommended MCP servers for onboarding."""
         try:
-            from app.tui.mcp_settings import list_mcp_servers
+            from app.ui_layer.settings.mcp_settings import list_mcp_servers
 
             servers = list_mcp_servers()
         except Exception:
@@ -608,7 +608,7 @@ class SkillsStep:
     def get_options(self) -> List[StepOption]:
         """Get top 10 recommended skills for onboarding."""
         try:
-            from app.tui.skill_settings import list_skills
+            from app.ui_layer.settings.skill_settings import list_skills
 
             skills = list_skills()
 

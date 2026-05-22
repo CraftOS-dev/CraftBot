@@ -151,7 +151,7 @@ __all__ = [
     "connect_token",
     "connect_oauth",
     "connect_interactive",
-    # Sync wrappers + helpers (for TUI / synchronous callers)
+    # Sync wrappers + helpers (for synchronous callers)
     "list_integrations_sync",
     "get_integration_info_sync",
     "get_integration_accounts",

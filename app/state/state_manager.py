@@ -221,7 +221,7 @@ class StateManager:
             content: The message content.
             session_id: Optional task/session ID for multi-task isolation.
                        If not provided, falls back to current task's ID.
-            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot TUI").
+            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot CLI").
                      If provided, the event label becomes "user message from platform: X".
         """
         # Get task_id for proper event stream isolation in multi-task scenarios
@@ -262,7 +262,7 @@ class StateManager:
             content: The message content.
             session_id: Optional task/session ID for multi-task isolation.
                        If not provided, falls back to current task's ID.
-            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot TUI").
+            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot CLI").
                      If provided, the event label becomes "agent message to platform: X".
         """
         # Get task_id for proper event stream isolation in multi-task scenarios

@@ -1,13 +1,10 @@
 """Settings module for UI layer.
 
 Provides centralized settings management functions that can be used by
-any interface adapter (Browser, TUI, CLI).
-
-Re-exports settings from their original locations for backwards compatibility.
+any interface adapter (Browser, CLI).
 """
 
-# Re-export from existing modules
-from app.tui.mcp_settings import (
+from app.ui_layer.settings.mcp_settings import (
     list_mcp_servers,
     add_mcp_server,
     add_mcp_server_from_json,
@@ -18,7 +15,7 @@ from app.tui.mcp_settings import (
     update_mcp_server_env,
 )
 
-from app.tui.skill_settings import (
+from app.ui_layer.settings.skill_settings import (
     list_skills,
     get_skill_info,
     enable_skill,

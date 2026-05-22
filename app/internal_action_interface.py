@@ -48,7 +48,7 @@ class InternalActionInterface:
     memory_manager: Optional[MemoryManager] = None
     scheduler: Optional["SchedulerManager"] = None
     proactive_manager: Optional["ProactiveManager"] = None
-    ui_adapter: Optional[Any] = None  # Reference to UI adapter (browser, TUI, etc.)
+    ui_adapter: Optional[Any] = None  # Reference to UI adapter (browser, CLI, etc.)
 
     @classmethod
     def initialize(
@@ -91,7 +91,7 @@ class InternalActionInterface:
     async def use_llm(
         cls, prompt: str, system_message: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Generate a response from the configured LLM (async to avoid blocking TUI)."""
+        """Generate a response from the configured LLM (async to avoid blocking UI)."""
         if cls.llm_interface is None:
             raise RuntimeError(
                 "InternalActionInterface not initialized with LLMInterface."
@@ -114,7 +114,7 @@ class InternalActionInterface:
     def perform_ocr(cls, image_path: str, user_prompt: Optional[str] = None) -> dict:
         """
         Run OCR on an image and persist the extracted text to workspace.
-        Returns a concise status dict + saved file path to avoid TUI flooding.
+        Returns a concise status dict + saved file path to avoid UI flooding.
         """
         if cls.vlm_interface is None:
             raise RuntimeError(
@@ -153,7 +153,7 @@ class InternalActionInterface:
     ) -> dict:
         """
         Analyse a video by extracting keyframes and querying the VLM.
-        Persists the summary to workspace to avoid TUI/context flooding.
+        Persists the summary to workspace to avoid UI/context flooding.
         """
         if cls.vlm_interface is None:
             raise RuntimeError(
@@ -448,7 +448,7 @@ class InternalActionInterface:
             original_query: Optional original user message to log to the task's
                            event stream before the task_start event.
             original_platform: Optional platform where the original message came from
-                              (e.g., "CraftBot TUI", "Telegram", "Whatsapp").
+                              (e.g., "CraftBot CLI", "Telegram", "Whatsapp").
             pre_selected_skills: Optional list of skill names to use directly,
                                 bypassing LLM skill selection. Used when skills are
                                 invoked explicitly via slash commands (e.g., /pdf).
@@ -582,7 +582,7 @@ class InternalActionInterface:
                 available_sets=sets_text,
             )
 
-            # Step 3: Call LLM asynchronously to avoid blocking TUI
+            # Step 3: Call LLM asynchronously to avoid blocking UI
             response = await cls.llm_interface.generate_response_async(
                 user_prompt=prompt,
                 system_prompt="You are a helpful assistant that selects action sets for tasks. Return only valid JSON.",
@@ -683,7 +683,7 @@ class InternalActionInterface:
                 available_skills=skills_text,
             )
 
-            # Call LLM asynchronously to avoid blocking TUI
+            # Call LLM asynchronously to avoid blocking UI
             response = await cls.llm_interface.generate_response_async(
                 user_prompt=prompt,
                 system_prompt="You are a helpful assistant that selects skills for tasks. Return only valid JSON.",
@@ -826,12 +826,12 @@ class InternalActionInterface:
             prompt = SKILLS_AND_ACTION_SETS_SELECTION_PROMPT.format(
                 task_name=task_name,
                 task_description=task_description,
-                source_platform=source_platform or "CraftBot TUI",
+                source_platform=source_platform or "CraftBot CLI",
                 available_skills=skills_text,
                 available_sets=sets_text,
             )
 
-            # Call LLM asynchronously to avoid blocking TUI
+            # Call LLM asynchronously to avoid blocking UI
             response = await cls.llm_interface.generate_response_async(
                 user_prompt=prompt,
                 system_prompt="You are a helpful assistant that selects skills and action sets for tasks. Return only valid JSON.",

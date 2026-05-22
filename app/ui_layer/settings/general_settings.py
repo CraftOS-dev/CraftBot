@@ -1,7 +1,7 @@
 """General settings management for UI layer.
 
 Provides functions for managing general application settings that can be
-used by any interface adapter (Browser, TUI, CLI).
+used by any interface adapter (Browser, CLI).
 """
 
 from pathlib import Path

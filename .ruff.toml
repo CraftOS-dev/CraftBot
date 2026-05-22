@@ -14,6 +14,4 @@ extend-exclude = [
 "app/config.py" = ["E402"]
 "app/llm_interface.py" = ["E402"]
 "app/main.py" = ["E402"]
-"app/tui/app.py" = ["E402"]
-"app/tui/widgets.py" = ["E402"]
 "craftos_integrations/__init__.py" = ["E402"]

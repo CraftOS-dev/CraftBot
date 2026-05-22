@@ -264,7 +264,7 @@ class AgentBase:
 
         # Set _interface_mode early so context_engine.make_prompt() works during restore
         # (will be updated again in run() based on selected interface)
-        self._interface_mode: str = "tui"
+        self._interface_mode: str = "cli"
 
         # Restore active sessions from previous run, then clean up leftover temp dirs
         self._restored_task_ids = self._restore_sessions()
@@ -3465,7 +3465,7 @@ class AgentBase:
 
         Called from ``run()`` before the interactive interface starts.
         Also called directly by the e2e test harness so tests get the
-        exact same setup as production without blocking on ``TUI/CLI/Browser``
+        exact same setup as production without blocking on ``CLI/Browser``
         interactive loops.
 
         Steps:
@@ -3550,7 +3550,7 @@ class AgentBase:
         provider: str | None = None,
         api_key: str = "",
         base_url: str | None = None,
-        interface_mode: str = "tui",
+        interface_mode: str = "cli",
     ) -> None:
         """
         Launch the interactive loop for the agent.
@@ -3564,7 +3564,8 @@ class AgentBase:
                 initialization.
             api_key: Optional API key presented in the interface for convenience.
             base_url: Optional base URL for the provider.
-            interface_mode: "tui" for Textual interface, "cli" for command line.
+            interface_mode: "browser" for the browser WebSocket UI, or "cli"
+                for the terminal command-line interface (default).
         """
         browser_ui = os.getenv("BROWSER_STARTUP_UI", "0") == "1"
 
@@ -3574,7 +3575,6 @@ class AgentBase:
         if not browser_ui:
             print("\n[OK] Ready!\n", flush=True)
 
-        # Flush stdout/stderr to ensure clean output before TUI starts
         import sys
 
         sys.stdout.flush()
@@ -3592,19 +3592,10 @@ class AgentBase:
                     default_provider=provider or self.llm.provider,
                     default_api_key=api_key,
                 )
-            elif interface_mode == "cli":
+            else:
                 from app.cli import CLIInterface
 
                 interface = CLIInterface(
-                    self,
-                    default_provider=provider or self.llm.provider,
-                    default_api_key=api_key,
-                )
-            else:
-                # Import TUI lazily to avoid terminal capability queries at startup
-                from app.tui import TUIInterface
-
-                interface = TUIInterface(
                     self,
                     default_provider=provider or self.llm.provider,
                     default_api_key=api_key,

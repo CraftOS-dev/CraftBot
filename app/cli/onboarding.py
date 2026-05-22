@@ -17,7 +17,7 @@ from app.onboarding.interfaces.steps import (
     SkillsStep,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_json
+from app.ui_layer.settings.provider_settings import save_settings_to_json
 from app.logger import logger
 
 if TYPE_CHECKING:

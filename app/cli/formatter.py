@@ -31,7 +31,7 @@ class CLIFormatter:
     }
 
     # ANSI escape codes for colors
-    # Using true color (24-bit) for exact color matching with TUI
+    # Using true color (24-bit) for exact color matching
     COLORS = {
         "user": "\033[1;37m",  # Bold white
         "agent": "\033[1;38;2;255;79;24m",  # Bold orange (#ff4f18)

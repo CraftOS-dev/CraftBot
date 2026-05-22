@@ -1,7 +1,7 @@
 """Living UI settings management for UI layer.
 
 Provides functions for managing Living UI project settings
-that can be used by any interface adapter (Browser, TUI, CLI).
+that can be used by any interface adapter (Browser, CLI).
 """
 
 from typing import Dict, Any

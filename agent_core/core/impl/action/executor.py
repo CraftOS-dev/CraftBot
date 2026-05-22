@@ -288,8 +288,7 @@ def _suppress_worker_stdio():
     Redirect OS-level stdout/stderr to devnull in the worker process.
 
     This prevents venv.EnvBuilder, ensurepip, and other subprocess calls
-    from writing to the inherited terminal, which would corrupt the
-    Textual TUI display.
+    from writing to the inherited terminal.
 
     Returns (saved_stdout_fd, saved_stderr_fd) for later restoration.
     """
@@ -327,13 +326,13 @@ def _atomic_action_venv_process(
     via pip persist in the venv, eliminating redundant installations.
 
     stdout/stderr are suppressed at the OS level so that venv creation
-    and other subprocess calls do not corrupt the parent's TUI.
+    and other subprocess calls do not corrupt the parent's terminal.
     """
     # GUI mode - delegate to GUI handler hook
     if mode == "GUI" and _gui_execute_hook:
         return _gui_execute_hook(_get_gui_target(), action_code, input_data, mode)
 
-    # Suppress worker stdout/stderr to prevent TUI corruption
+    # Suppress worker stdout/stderr to prevent terminal corruption
     saved_stdout, saved_stderr = _suppress_worker_stdio()
 
     try:
