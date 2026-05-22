@@ -727,7 +727,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
               ))}
             </div>
           )}
-          <SlashCommandAutocomplete input={input}></SlashCommandAutocomplete>
+          
+          <SlashCommandAutocomplete input={input} onSelectSkill={(skill) => setInput(`/${skill}`)}></SlashCommandAutocomplete>
           <textarea
             ref={inputRef}
             className={`${styles.input}${isListening ? ` ${styles.inputListening}` : ''}`}

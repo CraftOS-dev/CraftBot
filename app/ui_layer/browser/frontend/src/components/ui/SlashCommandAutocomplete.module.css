@@ -1,20 +1,17 @@
 .autocomplete {
     list-style: none;
     padding: 0;
-
+    margin: 0;
     position: absolute;
     left: 0;
     right: 0;
-    bottom: calc(100% + 8px);
-
+    bottom: calc(100%);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-lg);
     background: var(--bg-secondary);
-
     max-height: 220px;
     overflow-y: auto;
     overflow-x: hidden;
-
     z-index: 100;
 }
 
