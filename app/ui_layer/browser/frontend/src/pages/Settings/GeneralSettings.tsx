@@ -32,6 +32,7 @@ import {
   selectUpdateAvailable,
   selectLatestVersion,
 } from '../../store/selectors/generalSettings'
+import { selectVersion } from '../../store/selectors/connection'
 
 // Theme application helper
 function applyTheme(theme: string) {
@@ -61,7 +62,8 @@ function getInitialAgentName(): string {
 
 export function GeneralSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
-  const { version, agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const version = useAppSelector(selectVersion)
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
