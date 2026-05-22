@@ -2,20 +2,29 @@ import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef } 
 import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
 import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
+import { useAppSelector } from '../../store/hooks';
+import {
+  selectSkillsHasLoaded,
+  selectEnabledSkillNames,
+} from '../../store/selectors/skillsSettings'
+import {
+  selectCommandNames,
+  selectCommandsHasLoaded,
+} from '../../store/selectors/commandsSettings'
 
-interface SkillConfig {
-  name: string
-  description: string
-  enabled: boolean
-  user_invocable: boolean
-  action_sets: string[]
-  source: string
-}
+// interface SkillConfig {
+//   name: string
+//   description: string
+//   enabled: boolean
+//   user_invocable: boolean
+//   action_sets: string[]
+//   source: string
+// }
 
-interface CommandConfig {
-  name: string
-  description: string
-}
+// interface CommandConfig {
+//   name: string
+//   description: string
+// }
 
 type ItemKind = 'command' | 'skill'
 
@@ -42,38 +51,20 @@ interface SlashCommandProps {
 
 export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandle, SlashCommandProps>(
   function SlashCommandAutocomplete({ input, onSelectItem }, ref) {
-    const [skills, setSkills] = useState<string[]>([]);
-    const [commands, setCommands] = useState<string[]>([]);
     const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
-    const { send, onMessage, isConnected } = useSettingsWebSocket()
+    const skills = useAppSelector(selectEnabledSkillNames);
+    const hasLoaded = useAppSelector(selectSkillsHasLoaded);
+    const commands = useAppSelector(selectCommandNames);
+    const commandsHasLoaded = useAppSelector(selectCommandsHasLoaded);
+    const { send, isConnected } = useSettingsWebSocket()
 
-    useEffect(() => {
-        if (!isConnected) return;
-
-        const cleanupSkills = onMessage('skill_list', (data: unknown) => {
-            const d = data as { success: boolean; skills?: SkillConfig[]; error?: string }
-            if (d.success && d.skills) {
-                const userInvocable = d.skills.filter(s => s.enabled)
-                setSkills(userInvocable.map(s => s.name))
-            }
-        })
-
-        const cleanupCommands = onMessage('command_list', (data: unknown) => {
-            const d = data as { success: boolean; commands?: CommandConfig[]; error?: string }
-            if (d.success && d.commands) {
-                setCommands(d.commands.map(c => c.name))
-            }
-        })
-
-        send('skill_list')
-        send('command_list')
-
-        return () => {
-            cleanupSkills()
-            cleanupCommands()
-        }
-    }, [isConnected, send, onMessage])
+  // Fetch only if no one else has loaded the data yet this session.
+  useEffect(() => {
+    if (!isConnected) return
+    if (!hasLoaded) send('skill_list')
+    if (!commandsHasLoaded) send('command_list')
+    }, [isConnected, hasLoaded, commandsHasLoaded, send])
 
     const query = input[0] === '/' ? input.slice(1).toLowerCase() : null
 
@@ -81,11 +72,11 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
         if (query === null) {
             return { filteredCommands: [], filteredSkills: [], flatItems: [] as AutocompleteItem[] }
         }
-        const fc = commands.filter(item => item.toLowerCase().includes(query))
-        const fs = skills.filter(item => item.toLowerCase().includes(query))
+        const fc = commands.filter((item: string) => item.toLowerCase().includes(query))
+        const fs = skills.filter((item: string) => item.toLowerCase().includes(query))
         const flat: AutocompleteItem[] = [
-            ...fc.map<AutocompleteItem>(name => ({ name, kind: 'command' })),
-            ...fs.map<AutocompleteItem>(name => ({ name, kind: 'skill' })),
+            ...fc.map<AutocompleteItem>((name: any) => ({ name, kind: 'command' })),
+            ...fs.map<AutocompleteItem>((name: any) => ({ name, kind: 'skill' })),
         ]
         return { filteredCommands: fc, filteredSkills: fs, flatItems: flat }
     }, [query, commands, skills])
@@ -123,7 +114,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
                 {filteredCommands.length > 0 && (
                     <>
                         <p className={styles.header}><Terminal size={12} />Commands</p>
-                        {filteredCommands.map((item) => {
+                        {filteredCommands.map((item: string) => {
                             const idx = runningIndex++
                             const isSelected = idx === selectedIndex
                             return (
@@ -140,7 +131,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
                 {filteredSkills.length > 0 && (
                     <>
                         <p className={styles.header}><ActivitySquare size={12} />Skills</p>
-                        {filteredSkills.map((item) => {
+                        {filteredSkills.map((item: string) => {
                             const idx = runningIndex++
                             const isSelected = idx === selectedIndex
                             return (
