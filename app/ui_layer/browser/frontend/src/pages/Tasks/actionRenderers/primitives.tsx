@@ -344,6 +344,18 @@ export function Pending({ label }: { label?: string }) {
   return <div className={styles.pendingPlaceholder}>{label ?? 'Waiting for result…'}</div>
 }
 
+// Subtle hint that the message action was sent with wait_for_user_reply
+// set to true. Phrased as a description of the message itself ("this message
+// waits …"), not the agent's current state — so it stays accurate even
+// after the user has replied.
+export function WaitForReplyPill() {
+  return (
+    <span className={styles.waitForReplyPill}>
+      This message waits for user's reply
+    </span>
+  )
+}
+
 // Re-export the styles object so renderer files in this folder can also use
 // a few specific classes (e.g. .section) for ad-hoc layouts.
 export { styles as primStyles }

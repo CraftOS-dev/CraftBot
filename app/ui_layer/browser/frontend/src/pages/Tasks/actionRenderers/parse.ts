@@ -147,6 +147,18 @@ export function strField(obj: Record<string, unknown> | null, key: string): stri
   return typeof v === 'string' ? v : undefined
 }
 
+export function boolField(obj: Record<string, unknown> | null, key: string): boolean | undefined {
+  const v = obj?.[key]
+  if (typeof v === 'boolean') return v
+  // Python `True`/`False` may come through as raw word tokens when parseDict
+  // bailed out — treat them defensively.
+  if (typeof v === 'string') {
+    if (v === 'True' || v === 'true') return true
+    if (v === 'False' || v === 'false') return false
+  }
+  return undefined
+}
+
 export function arrField(obj: Record<string, unknown> | null, key: string): unknown[] | null {
   return parseArray(obj?.[key])
 }

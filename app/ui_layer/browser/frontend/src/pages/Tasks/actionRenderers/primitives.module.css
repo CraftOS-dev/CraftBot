@@ -76,7 +76,7 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -109,7 +109,7 @@
   color: #e5e5e5;
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-all;
@@ -175,7 +175,7 @@
 }
 
 .resultSnippet {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: var(--leading-normal);
   margin-top: 2px;
@@ -266,7 +266,7 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: 1.55;
   overflow: hidden;
   max-height: 360px;
@@ -313,7 +313,7 @@
    used by list_folder so the entries read like `tree` command output. */
 .dirTree {
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: 1.7;
   color: var(--text-primary);
   white-space: pre;
@@ -344,9 +344,22 @@
   color: var(--color-primary-hover, var(--color-primary));
 }
 
-/* Empty placeholder when waiting for output */
+/* Pending state text and image/video captions (the user's prompt/query
+   shown below the media). Same size as body content; italic+muted gives a
+   gentle hierarchy hint without breaking the uniform sizing. */
 .pendingPlaceholder {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* Subtle "wait_for_user_reply" hint for the message renderers — a small
+   muted line describing the message's configuration, not the agent's
+   current state, so it stays accurate after the user has replied. */
+.waitForReplyPill {
+  display: inline-block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--text-muted);
 }

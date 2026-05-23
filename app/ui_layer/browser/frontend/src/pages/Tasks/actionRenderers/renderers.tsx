@@ -4,9 +4,9 @@ import type { ActionItem } from '../../../types'
 import {
   Section, FilePathChip, UrlChip, CodeBlock, Terminal, ResultList, ResultCard,
   ImageThumbnail, ImageThumbnailRow, MetaPill, MetaRow, DiffView, Collapsible,
-  Pending, primStyles,
+  Pending, WaitForReplyPill, primStyles,
 } from './primitives'
-import { strField, arrField, dictField, langFromPath, parseDict } from './parse'
+import { strField, boolField, arrField, dictField, langFromPath, parseDict } from './parse'
 
 // Renderer contract: receives the action item + pre-parsed input/output dicts
 // (each is null if absent or unparseable). Returns the JSX that goes inside
@@ -535,6 +535,71 @@ const MemorySearchRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile 
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// MESSAGING + TASK CONTROL
+// ─────────────────────────────────────────────────────────────────────
+
+const SendMessageRenderer: ActionRenderer = ({ inputObj }) => {
+  const message = strField(inputObj, 'message') ?? ''
+  const waitForReply = boolField(inputObj, 'wait_for_user_reply')
+
+  return (
+    <Section label="Message">
+      {message
+        ? <div style={{ whiteSpace: 'pre-wrap' }}>{message}</div>
+        : <Pending label="Composing…" />}
+      {waitForReply && <WaitForReplyPill />}
+    </Section>
+  )
+}
+
+const SendMessageWithAttachmentRenderer: ActionRenderer = ({ inputObj, onOpenFile }) => {
+  const message = strField(inputObj, 'message') ?? ''
+  const waitForReply = boolField(inputObj, 'wait_for_user_reply')
+  const filePaths = (arrField(inputObj, 'file_paths') ?? [])
+    .filter((p): p is string => typeof p === 'string')
+
+  return (
+    <>
+      <Section label="Message">
+        {message
+          ? <div style={{ whiteSpace: 'pre-wrap' }}>{message}</div>
+          : <Pending label="Composing…" />}
+        {waitForReply && <WaitForReplyPill />}
+      </Section>
+      <Section label="Attachments">
+        {filePaths.length === 0
+          ? <Pending label="(none yet)" />
+          : (
+            <div className={primStyles.resultList}>
+              {filePaths.map((p, i) => <FilePathChip key={i} path={p} onOpen={onOpenFile} />)}
+            </div>
+          )}
+      </Section>
+    </>
+  )
+}
+
+const TaskEndRenderer: ActionRenderer = ({ inputObj }) => {
+  const reason = strField(inputObj, 'reason') ?? ''
+  const summary = strField(inputObj, 'summary') ?? ''
+
+  return (
+    <>
+      {reason && (
+        <Section label="Reason">
+          <div style={{ whiteSpace: 'pre-wrap' }}>{reason}</div>
+        </Section>
+      )}
+      <Section label="Summary">
+        {summary
+          ? <div style={{ whiteSpace: 'pre-wrap' }}>{summary}</div>
+          : <Pending label="(no summary)" />}
+      </Section>
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // TASK UPDATE TODOS
 // ─────────────────────────────────────────────────────────────────────
 
@@ -574,7 +639,7 @@ const TaskUpdateTodosRenderer: ActionRenderer = ({ inputObj }) => {
   if (!todos) return <Section label="Todos"><Pending label="(no todos)" /></Section>
   return (
     <Section label="Todos">
-      <ul className={primStyles.resultList} style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
         {todos.map((t, i) => {
           const done = t.status === 'completed'
           const inProgress = t.status === 'in_progress'
@@ -583,11 +648,11 @@ const TaskUpdateTodosRenderer: ActionRenderer = ({ inputObj }) => {
               display: 'flex',
               alignItems: 'flex-start',
               gap: 'var(--space-2)',
-              padding: 'var(--space-1) 0',
+              padding: 0,
               color: done ? 'var(--text-muted)' : 'var(--text-primary)',
               textDecoration: done ? 'line-through' : 'none',
               fontWeight: inProgress ? 'var(--font-medium)' : 'var(--font-normal)',
-              fontSize: 'var(--text-sm)',
+              fontSize: 'var(--text-base)',
             }}>
               <span style={{
                 display: 'inline-flex',
@@ -635,6 +700,10 @@ const REGISTRY: Record<string, ActionRenderer> = {
   // search
   grep_files: GrepFilesRenderer,
   memory_search: MemorySearchRenderer,
+  // messaging + task control
+  send_message: SendMessageRenderer,
+  send_message_with_attachment: SendMessageWithAttachmentRenderer,
+  task_end: TaskEndRenderer,
   // todos
   task_update_todos: TaskUpdateTodosRenderer,
 }
