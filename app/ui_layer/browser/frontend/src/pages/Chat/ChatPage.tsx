@@ -3,6 +3,7 @@ import { X, Loader2, Reply } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
+import { MascotDisplay } from '@mascot'
 import { getActivePlaceholder } from '../../utils/taskPlaceholder'
 import styles from './ChatPage.module.css'
 
@@ -93,6 +94,7 @@ export function ChatPage() {
 
       {/* Task/Action Panel */}
       <div className={styles.actionPanel} style={{ width: panelWidth, flexShrink: 0 }}>
+        <MascotDisplay />
         <div className={styles.panelHeader}>
           <h3>Tasks & Actions</h3>
         </div>

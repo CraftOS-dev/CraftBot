@@ -1,0 +1,344 @@
+/* CraftBot Mascot — character + display panel styles. Lifted out of
+   LivingUIPage.module.css so the mascot is portable across screens. */
+
+/* ─────────────────────────────────────────────────────────────────────
+   Character (CraftBotMascot.tsx)
+   ───────────────────────────────────────────────────────────────────── */
+
+.wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.float {
+  display: inline-flex;
+  transform-origin: 50% 85%;
+}
+
+.breathe {
+  transform-origin: 50% 60%;
+  animation: mascotBreathe 4s ease-in-out infinite;
+}
+
+.sleepBreathe {
+  transform-origin: 50% 60%;
+  animation: mascotBreathe 6s ease-in-out infinite;
+}
+
+.eye {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: mascotBlink 4.5s infinite;
+  /* When state flips and the animation is removed (→ .eyeClosed), the
+     transform interpolates from its computed value to the new static value
+     instead of snapping. The reverse direction restarts the animation so the
+     transition is mainly felt on close. */
+  transition: transform 220ms ease;
+}
+
+.eyeLeft  { animation-delay: 0ms; }
+.eyeRight { animation-delay: 120ms; }
+
+.eyeClosed {
+  transform-origin: center;
+  transform-box: fill-box;
+  transform: scaleY(0.08);
+  transition: transform 220ms ease;
+}
+
+.blushPulse {
+  animation: mascotBlushPulse 2.2s ease-in-out infinite;
+}
+
+.wiggle {
+  animation: mascotWiggle 600ms ease-in-out;
+}
+
+/* Body silhouette is near-white — in light mode it blends into the bg,
+   so we stroke a thin outline. Dark mode needs no outline. */
+.body {
+  stroke: none;
+}
+
+[data-theme="light"] .body {
+  stroke: var(--text-muted, var(--border-secondary));
+  stroke-width: 3;
+  paint-order: stroke fill;
+}
+
+.sleepZ {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: mascotSleepZ 2.4s ease-in-out infinite;
+  opacity: 0;
+}
+
+.sleepZDelayed {
+  animation-delay: 1.2s;
+}
+
+@keyframes mascotBreathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.015); }
+}
+
+@keyframes mascotBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95%, 97%      { transform: scaleY(0.05); }
+}
+
+@keyframes mascotBlushPulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.9; }
+}
+
+@keyframes mascotWiggle {
+  0%   { transform: translateY(0)    rotate(0deg); }
+  20%  { transform: translateY(-4px) rotate(-6deg); }
+  45%  { transform: translateY(-2px) rotate(6deg); }
+  70%  { transform: translateY(-1px) rotate(-3deg); }
+  100% { transform: translateY(0)    rotate(0deg); }
+}
+
+@keyframes mascotSleepZ {
+  0%   { opacity: 0; transform: translateY(0); }
+  30%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Display panel (MascotDisplay.tsx)
+   ───────────────────────────────────────────────────────────────────── */
+
+.display {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+/* Stage is now a positioned container so the mascot can float at any
+   horizontal anchor (centered when nothing's happening, pinned left when
+   the action renderer is showing). The renderer card layers underneath
+   the mascot on the right half so the mascot visually overlaps it. */
+.stage {
+  position: relative;
+  padding: var(--space-3);
+  min-height: 220px;
+  overflow: hidden;
+}
+
+.stageWithAction {
+  min-height: 220px;
+}
+
+.stageCompact {
+  min-height: 80px;
+  padding: var(--space-3) var(--space-3) var(--space-1);
+}
+
+/* Wrapper around the mascot SVG. Always vertically centered; the horizontal
+   anchor is controlled by .mascotCenter / .mascotLeft so the swap between
+   them animates as a horizontal slide. */
+.mascotLayer {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Both anchor classes set translateX explicitly so the interpolation
+     only animates the X component (no jumpy two-axis movement). */
+  transition: left 500ms ease, transform 500ms ease;
+  pointer-events: none;
+}
+
+.mascotCenter {
+  left: 50%;
+  transform: translateX(-50%) translateY(-50%);
+}
+
+.mascotLeft {
+  left: var(--space-3);
+  transform: translateX(0) translateY(-50%);
+}
+
+/* Wander motion is now driven by the Web Animations API in MascotDisplay,
+   so there's no CSS transition here — the imperative animate() call owns
+   the transform property over a multi-keyframe hop sequence (crouch →
+   push off → arc → squash on landing → settle). transform-origin is
+   pinned near the feet so squash-and-stretch deforms upward into the body
+   instead of sinking through the floor. */
+.wander {
+  transform-origin: 50% 95%;
+}
+
+/* Renderer layer is anchored to the *right* side of the stage and sized to
+   fit the card, not the full width of the stage. The mascot lives on its
+   own at left: var(--space-3); the two are independent — they only end up
+   overlapping when the panel is too narrow to keep them apart, never by
+   design. max-width responds to panel width so the card shrinks (and may
+   start overlapping) on cramped panels. */
+.rendererLayer {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
+  /* Default card-area width; clamped by max-width so it never overruns
+     the stage padding. The card inside picks up width: 100%. */
+  width: 220px;
+  max-width: calc(100% - 24px);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.collapseBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.collapseBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Compact wrapper around the *real* Tasks-page action renderer. The card
+   fills the renderer layer's width and derives its height from the 2:1
+   aspect ratio — landscape rectangle, which fits multi-line text content
+   (REASON/SUMMARY, code snippets, file paths) more comfortably than a
+   tight square would. */
+.compactRenderer {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  font-size: var(--text-xs);
+  animation: mascotActionFadeIn 160ms ease-out;
+}
+
+/* The Section component from primitives.tsx renders a .actionSection from
+   TasksPage.module.css with var(--space-2)/var(--space-3) padding. Those
+   class names are hashed by CSS-modules so we can't override them by
+   selector — instead we trim spacing via the wrapper's child rules. The
+   renderer's top-level child IS the Section <div>, so a `> div` selector
+   reliably targets it without depending on the hashed class name. Tighter
+   padding here helps the content breathe inside the smaller square. */
+.compactRenderer > div {
+  padding: var(--space-1) var(--space-2);
+  gap: 2px;
+}
+
+/* Tighten common renderer internals so they don't blow the square out
+   vertically. Scoped to .compactRenderer so the Tasks panel is untouched. */
+.compactRenderer pre,
+.compactRenderer code {
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.compactRenderer img {
+  max-width: 100%;
+  height: auto;
+}
+
+.compactRenderer p,
+.compactRenderer div {
+  font-size: inherit;
+}
+
+/* Fallback shown when no renderer is registered for the action name. */
+.compactFallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-3);
+  gap: var(--space-1);
+  text-align: center;
+}
+
+.compactFallbackName {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.compactFallbackStatus {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Speech-bubble overlay anchored to the top-right of the mascot wrapper.
+   Used for the chat-bubble cue (sending a message) and the question-mark
+   cue (waiting for a user reply). pointer-events:none so it never blocks
+   the collapse button or any future mascot interaction. */
+.bubble {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  animation: mascotBubblePop 240ms ease-out, mascotBubblePulse 1.8s ease-in-out 240ms infinite;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.bubbleChat {
+  color: var(--color-primary);
+}
+
+.bubbleWait {
+  color: var(--color-warning, var(--color-primary));
+}
+
+@keyframes mascotBubblePop {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes mascotBubblePulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+
+@keyframes mascotActionFadeIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
