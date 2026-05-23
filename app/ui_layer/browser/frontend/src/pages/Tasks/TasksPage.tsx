@@ -5,7 +5,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import { useSkillCreator } from './useSkillCreator'
-import { getActivePlaceholder } from '../../utils/taskPlaceholder'
+import { getActivePlaceholder, type ActivePlaceholder } from '../../utils/taskPlaceholder'
 import styles from './TasksPage.module.css'
 
 function isInternalWorkflowTask(
@@ -530,6 +530,98 @@ function ActionBlock({ item, expanded, onToggleDetail }: ActionBlockProps) {
   )
 }
 
+// Trailing placeholder rendered at the end of the transcript while the task
+// is still active (Thinking / Waiting for reply / Paused). Shows an
+// always-visible reply icon-button when the task is awaiting a user reply.
+interface TranscriptPlaceholderProps {
+  placeholder: ActivePlaceholder
+  showReply: boolean
+  onReply: () => void
+}
+
+function TranscriptPlaceholder({ placeholder, showReply, onReply }: TranscriptPlaceholderProps) {
+  return (
+    <div className={styles.transcriptItem}>
+      <div className={styles.gutter}>
+        <div className={styles.gutterIcon}>
+          <StatusIndicator status={placeholder.status} size="sm" />
+        </div>
+      </div>
+      <div className={`${styles.reasoningContent} ${styles.placeholderRow}`}>
+        <span className={styles.reasoningPlaceholder}>{placeholder.label}</span>
+        {showReply && (
+          <IconButton
+            size="sm"
+            variant="ghost"
+            className={styles.placeholderReplyBtn}
+            onClick={onReply}
+            title="Reply to Task"
+            icon={<Reply size={12} />}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Scrollable body of the detail panel: chronological list of reasoning +
+// action items, with a trailing active-state placeholder while the task is
+// still running/waiting/paused.
+interface TaskTranscriptProps {
+  task: ActionItem
+  items: ActionItem[]
+  expandedDetailIds: Set<string>
+  onToggleDetail: (id: string) => void
+  tasksAwaitingOption: Set<string>
+  onTaskReply: (task: ActionItem) => void
+}
+
+function TaskTranscript({
+  task,
+  items,
+  expandedDetailIds,
+  onToggleDetail,
+  tasksAwaitingOption,
+  onTaskReply,
+}: TaskTranscriptProps) {
+  const placeholder = getActivePlaceholder(task.status, items)
+
+  if (items.length === 0 && !placeholder) {
+    return (
+      <div className={styles.emptyTranscript}>
+        No actions or reasoning recorded.
+      </div>
+    )
+  }
+
+  const showReply =
+    placeholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
+
+  return (
+    <div className={styles.transcript}>
+      {items.map(item =>
+        item.itemType === 'reasoning' ? (
+          <ReasoningBlock key={item.id} item={item} />
+        ) : (
+          <ActionBlock
+            key={item.id}
+            item={item}
+            expanded={expandedDetailIds.has(item.id)}
+            onToggleDetail={() => onToggleDetail(item.id)}
+          />
+        )
+      )}
+      {placeholder && (
+        <TranscriptPlaceholder
+          placeholder={placeholder}
+          showReply={showReply}
+          onReply={() => onTaskReply(task)}
+        />
+      )}
+    </div>
+  )
+}
+
 // Panel width limits (1:3 ratio default)
 const DEFAULT_PANEL_WIDTH = 350
 const MIN_PANEL_WIDTH = 200
@@ -767,6 +859,11 @@ export function TasksPage() {
               const taskItems = getItemsForTask(task.id)
               const actionCount = getActionCountForTask(task.id)
               const isCurrentTask = selectedTaskId === task.id
+              const listPlaceholder = isCurrentTask
+                ? getActivePlaceholder(task.status, taskItems)
+                : null
+              const showListReply =
+                listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
 
               return (
                 <div key={task.id} className={styles.taskGroup}>
@@ -798,49 +895,44 @@ export function TasksPage() {
                     </Badge>
                   </button>
 
-                  {isCurrentTask && (() => {
-                    const listPlaceholder = getActivePlaceholder(task.status, taskItems)
-                    const showListReply =
-                      listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
-                    return (
-                      <div className={styles.actionsList}>
-                        {taskItems.map(action => (
-                          <button
-                            key={action.id}
-                            className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${scrollTargetId === action.id ? styles.selected : ''}`}
-                            onClick={() => handleSelectFromList(action)}
-                          >
-                            {action.itemType !== 'reasoning' && (
-                              <StatusIndicator status={action.status} size="sm" />
-                            )}
-                            <span className={styles.itemName}>{action.name}</span>
-                          </button>
-                        ))}
-                        {listPlaceholder && (
-                          <div className={styles.placeholderItem}>
-                            <StatusIndicator status={listPlaceholder.status} size="sm" />
-                            <span className={styles.itemName}>{listPlaceholder.label}</span>
-                            {showListReply && (
-                              <IconButton
-                                size="sm"
-                                variant="ghost"
-                                className={styles.placeholderReplyBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleTaskReply(task)
-                                }}
-                                title="Reply to Task"
-                                icon={<Reply size={12} />}
-                              />
-                            )}
-                          </div>
-                        )}
-                        {taskItems.length === 0 && !listPlaceholder && (
-                          <div className={styles.noActions}>No actions yet</div>
-                        )}
-                      </div>
-                    )
-                  })()}
+                  {isCurrentTask && (
+                    <div className={styles.actionsList}>
+                      {taskItems.map(action => (
+                        <button
+                          key={action.id}
+                          className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${scrollTargetId === action.id ? styles.selected : ''}`}
+                          onClick={() => handleSelectFromList(action)}
+                        >
+                          {action.itemType !== 'reasoning' && (
+                            <StatusIndicator status={action.status} size="sm" />
+                          )}
+                          <span className={styles.itemName}>{action.name}</span>
+                        </button>
+                      ))}
+                      {listPlaceholder && (
+                        <div className={styles.placeholderItem}>
+                          <StatusIndicator status={listPlaceholder.status} size="sm" />
+                          <span className={styles.itemName}>{listPlaceholder.label}</span>
+                          {showListReply && (
+                            <IconButton
+                              size="sm"
+                              variant="ghost"
+                              className={styles.placeholderReplyBtn}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleTaskReply(task)
+                              }}
+                              title="Reply to Task"
+                              icon={<Reply size={12} />}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {taskItems.length === 0 && !listPlaceholder && (
+                        <div className={styles.noActions}>No actions yet</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })
@@ -938,62 +1030,14 @@ export function TasksPage() {
                 </dl>
               </div>
 
-              {/* Transcript: chronological reasoning + actions, with a
-                  trailing placeholder while the task is active (Thinking /
-                  Waiting for reply / Paused) so the timeline visibly continues
-                  past the last real item. */}
-              {(() => {
-                const placeholder = getActivePlaceholder(selectedTask.status, transcriptItems)
-                if (transcriptItems.length === 0 && !placeholder) {
-                  return (
-                    <div className={styles.emptyTranscript}>
-                      No actions or reasoning recorded.
-                    </div>
-                  )
-                }
-                return (
-                  <div className={styles.transcript}>
-                    {transcriptItems.map(item =>
-                      item.itemType === 'reasoning' ? (
-                        <ReasoningBlock key={item.id} item={item} />
-                      ) : (
-                        <ActionBlock
-                          key={item.id}
-                          item={item}
-                          expanded={expandedDetailIds.has(item.id)}
-                          onToggleDetail={() => toggleDetailExpansion(item.id)}
-                        />
-                      )
-                    )}
-                    {placeholder && (() => {
-                      const showBodyReply =
-                        placeholder.status === 'waiting' && !tasksAwaitingOption.has(selectedTask.id)
-                      return (
-                        <div className={styles.transcriptItem}>
-                          <div className={styles.gutter}>
-                            <div className={styles.gutterIcon}>
-                              <StatusIndicator status={placeholder.status} size="sm" />
-                            </div>
-                          </div>
-                          <div className={`${styles.reasoningContent} ${styles.placeholderRow}`}>
-                            <span className={styles.reasoningPlaceholder}>{placeholder.label}</span>
-                            {showBodyReply && (
-                              <IconButton
-                                size="sm"
-                                variant="ghost"
-                                className={styles.placeholderReplyBtn}
-                                onClick={() => handleTaskReply(selectedTask)}
-                                title="Reply to Task"
-                                icon={<Reply size={12} />}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })()}
-                  </div>
-                )
-              })()}
+              <TaskTranscript
+                task={selectedTask}
+                items={transcriptItems}
+                expandedDetailIds={expandedDetailIds}
+                onToggleDetail={toggleDetailExpansion}
+                tasksAwaitingOption={tasksAwaitingOption}
+                onTaskReply={handleTaskReply}
+              />
 
               {selectedTask.error && (
                 <div className={styles.taskErrorSection}>
