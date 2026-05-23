@@ -1,0 +1,352 @@
+/* Shared UI primitives for action renderers.
+   The <Section> wrapper reuses TasksPage's .actionSection/.ioLabel from the
+   parent module — only the renderer-specific primitives live here. */
+
+/* File path chip — monospace, click to open */
+/* File link — borderless, transparent, primary color, underline on hover.
+   text-sm so it reads at link weight, not metadata weight. */
+.filePathChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  background: transparent;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  max-width: 100%;
+  text-align: left;
+  text-decoration: none;
+  transition: text-decoration var(--transition-fast);
+}
+
+.filePathChip:hover {
+  text-decoration: underline;
+}
+
+.filePathChip.nonInteractive {
+  cursor: default;
+  color: var(--text-primary);
+}
+
+.filePathChip.nonInteractive:hover {
+  text-decoration: none;
+}
+
+.filePathChipPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;          /* keep filename visible when truncating long paths */
+  text-align: left;
+  min-width: 0;
+}
+
+/* URL link — same shape as the file link: borderless, transparent. */
+.urlChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  background: transparent;
+  padding: 0;
+  text-decoration: none;
+  max-width: 100%;
+  transition: text-decoration var(--transition-fast);
+}
+
+.urlChip:hover {
+  text-decoration: underline;
+}
+
+.urlChipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Generic code block — monospace + bg, optional language tag */
+.codeBlock {
+  position: relative;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.codeBlockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-sans, inherit);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.codeBlockLang {
+  font-weight: var(--font-medium);
+  text-transform: lowercase;
+}
+
+/* Terminal-style output (run_python, run_shell) — darker bg, no max width */
+.terminal {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: #0b0b0b;
+  color: #e5e5e5;
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* stderr stays grayscale — italic + dimmed opacity is enough to set it apart
+   from stdout without relying on red. */
+.terminalStderr {
+  color: #e5e5e5;
+  opacity: 0.65;
+  font-style: italic;
+}
+
+.terminalDim {
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Result list (web_search, memory_search, grep) */
+.resultList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.resultCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.resultCard:hover {
+  border-color: var(--border-secondary);
+  background: var(--bg-secondary);
+}
+
+.resultTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultUrl {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultSnippet {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Image thumbnail — click to open fullscreen */
+.imageThumb {
+  display: block;
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: var(--radius-md);
+  cursor: zoom-in;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  object-fit: contain;
+}
+
+.imageThumbsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Fullscreen image overlay */
+.imageOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  cursor: zoom-out;
+  animation: imageFadeIn 0.12s ease-out;
+}
+
+.imageOverlayImg {
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+}
+
+@keyframes imageFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Status / meta pills */
+.metaRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.metaPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* Variant pills inherit the neutral .metaPill look — grayscale only. The
+   variant prop is preserved on the component API so renderers stay
+   semantically clear, but no color differentiation is applied. The
+   accompanying StatusIndicator icon already conveys success/error/etc. */
+.metaPillSuccess,
+.metaPillError,
+.metaPillWarn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Diff view (stream_edit) */
+.diffBlock {
+  margin: 0;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  overflow: hidden;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.diffLine {
+  display: block;
+  padding: 0 var(--space-3);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Conventional diff colors — red for removed, green for added. */
+.diffLineRemoved {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgb(252, 165, 165);
+}
+
+.diffLineAdded {
+  background: rgba(16, 185, 129, 0.15);
+  color: rgb(110, 231, 183);
+}
+
+.diffLineRemoved::before {
+  content: '- ';
+  color: rgb(239, 68, 68);
+}
+
+.diffLineAdded::before {
+  content: '+ ';
+  color: rgb(16, 185, 129);
+}
+
+.diffSeparator {
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: var(--text-xs);
+  border-top: 1px solid var(--border-primary);
+}
+
+/* Directory tree — monospace listing with ├── / └── branch characters,
+   used by list_folder so the entries read like `tree` command output. */
+.dirTree {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre;
+}
+
+.dirTreeBranch {
+  color: var(--text-muted);
+}
+
+.dirTreeFolder {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+/* Inline collapsible "show more" toggle */
+.expandToggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.expandToggle:hover {
+  color: var(--color-primary-hover, var(--color-primary));
+}
+
+/* Empty placeholder when waiting for output */
+.pendingPlaceholder {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}

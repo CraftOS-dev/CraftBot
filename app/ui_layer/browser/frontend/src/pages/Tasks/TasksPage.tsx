@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply, Plus, Square, CheckSquare } from 'lucide-react'
+import { ChevronRight, XCircle, ArrowLeft, Reply, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import { useSkillCreator } from './useSkillCreator'
 import { getActivePlaceholder, type ActivePlaceholder } from '../../utils/taskPlaceholder'
+import { getActionRenderer, parseIO } from './actionRenderers/renderers'
 import styles from './TasksPage.module.css'
 
 function isInternalWorkflowTask(
@@ -281,103 +282,6 @@ function JsonDisplay({ content }: { content: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Todo List Display (for task_update_todos action)
-// ─────────────────────────────────────────────────────────────────────
-
-type TodoStatus = 'pending' | 'in_progress' | 'completed' | string
-
-interface TodoEntry {
-  content: string
-  status: TodoStatus
-}
-
-function extractTodos(content: string): TodoEntry[] | null {
-  // First try the standard parser
-  const parsed = parsePythonDict(content)
-  const raw = (parsed as Record<string, unknown>)?.todos
-
-  // The parsePythonDict helper currently stores arrays as the raw "[...]"
-  // string slice, so try to recover real objects either from a real array
-  // or by parsing the array string as JSON / a small Python-literal subset.
-  let items: unknown[] | null = null
-
-  if (Array.isArray(raw)) {
-    items = raw
-  } else if (typeof raw === 'string') {
-    items = tryParseArrayLiteral(raw)
-  }
-
-  if (!items) return null
-
-  const todos: TodoEntry[] = []
-  for (const item of items) {
-    if (item && typeof item === 'object') {
-      const obj = item as Record<string, unknown>
-      const todoContent = obj.content
-      const status = obj.status
-      if (typeof todoContent === 'string' && typeof status === 'string') {
-        todos.push({ content: todoContent, status })
-      }
-    }
-  }
-
-  return todos.length > 0 ? todos : null
-}
-
-function tryParseArrayLiteral(raw: string): unknown[] | null {
-  // Direct JSON
-  try {
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) return parsed
-  } catch {
-    // fall through
-  }
-
-  // Python-style array: single quotes + True/False/None — convert to JSON
-  try {
-    let normalized = raw.trim()
-    // Replace Python literals with JSON equivalents (only when whole-word)
-    normalized = normalized
-      .replace(/\bTrue\b/g, 'true')
-      .replace(/\bFalse\b/g, 'false')
-      .replace(/\bNone\b/g, 'null')
-    // Naive single-quote → double-quote swap. Good enough for our schema
-    // (todo content/status are plain words/sentences without embedded quotes
-    // most of the time); fall back to null on failure.
-    normalized = normalized.replace(/'/g, '"')
-    const parsed = JSON.parse(normalized)
-    if (Array.isArray(parsed)) return parsed
-  } catch {
-    // ignore
-  }
-  return null
-}
-
-function TodoListDisplay({ todos }: { todos: TodoEntry[] }) {
-  return (
-    <ul className={styles.todoItems}>
-      {todos.map((todo, index) => {
-        const isCompleted = todo.status === 'completed'
-        const isInProgress = todo.status === 'in_progress'
-        const itemClass = [
-          styles.todoItem,
-          isCompleted ? styles.todoCompleted : '',
-          isInProgress ? styles.todoInProgress : '',
-        ].filter(Boolean).join(' ')
-        return (
-          <li key={index} className={itemClass}>
-            <span className={styles.todoIcon} aria-hidden="true">
-              {isCompleted ? <CheckSquare size={16} /> : <Square size={16} />}
-            </span>
-            <span className={styles.todoContent}>{todo.content}</span>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Formatting helpers
 // ─────────────────────────────────────────────────────────────────────
 
@@ -449,11 +353,15 @@ interface ActionBlockProps {
 }
 
 function ActionBlock({ item, expanded, onToggleDetail }: ActionBlockProps) {
+  const { openFile } = useWebSocket()
   const elapsed = getElapsedMs(item)
 
-  const normalizedName = (item.name || '').toLowerCase().replace(/[\s-]+/g, '_')
-  const isTodoAction = normalizedName === 'task_update_todos'
-  const todos = isTodoAction && item.input ? extractTodos(item.input) : null
+  // Look up a custom renderer for this action. If one is registered it
+  // replaces the generic Input/Output sections with a tailored view (diff
+  // for stream_edit, terminal for run_python, image grid for generate_image,
+  // …); otherwise we fall back to the structured JSON / plain-text display.
+  const Renderer = getActionRenderer(item.name)
+  const { inputObj, outputObj } = Renderer ? parseIO(item) : { inputObj: null, outputObj: null }
 
   return (
     <div id={`transcript-item-${item.id}`} className={styles.transcriptItem}>
@@ -473,20 +381,29 @@ function ActionBlock({ item, expanded, onToggleDetail }: ActionBlockProps) {
         </div>
 
         <div className={styles.actionBox}>
-          {item.input && (
-            <div className={styles.actionSection}>
-              <div className={styles.ioLabel}>Input</div>
-              {todos
-                ? <TodoListDisplay todos={todos} />
-                : <ContentDisplay content={item.input} />}
-            </div>
-          )}
+          {Renderer ? (
+            <Renderer
+              item={item}
+              inputObj={inputObj}
+              outputObj={outputObj}
+              onOpenFile={openFile}
+            />
+          ) : (
+            <>
+              {item.input && (
+                <div className={styles.actionSection}>
+                  <div className={styles.ioLabel}>Input</div>
+                  <ContentDisplay content={item.input} />
+                </div>
+              )}
 
-          {item.output && (
-            <div className={styles.actionSection}>
-              <div className={styles.ioLabel}>Output</div>
-              <ContentDisplay content={item.output} />
-            </div>
+              {item.output && (
+                <div className={styles.actionSection}>
+                  <div className={styles.ioLabel}>Output</div>
+                  <ContentDisplay content={item.output} />
+                </div>
+              )}
+            </>
           )}
 
           {item.error && (
