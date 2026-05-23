@@ -5,6 +5,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import { useSkillCreator } from './useSkillCreator'
+import { getActivePlaceholder } from '../../utils/taskPlaceholder'
 import styles from './TasksPage.module.css'
 
 function isInternalWorkflowTask(
@@ -376,6 +377,159 @@ function TodoListDisplay({ todos }: { todos: TodoEntry[] }) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Formatting helpers
+// ─────────────────────────────────────────────────────────────────────
+
+function formatDuration(ms?: number): string {
+  if (ms == null) return '-'
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  const minutes = Math.floor(ms / 60000)
+  const seconds = Math.floor((ms % 60000) / 1000)
+  return `${minutes}m ${seconds}s`
+}
+
+function formatTimestamp(ts?: number): string {
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
+}
+
+// Returns the duration to display: the completed duration if available,
+// otherwise the live elapsed time since createdAt for running items.
+function getElapsedMs(item: ActionItem): number | undefined {
+  if (item.duration != null) return item.duration
+  if ((item.status === 'running' || item.status === 'waiting') && item.createdAt) {
+    return Date.now() - item.createdAt
+  }
+  return undefined
+}
+
+// Heuristic: does the content look like a structured dict/array?
+function looksStructured(content: string): boolean {
+  const trimmed = content.trim()
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  )
+}
+
+// Renders streamed input/output. Structured content gets the JsonDisplay grid;
+// plain text falls back to a code block so partial streams stay readable.
+function ContentDisplay({ content }: { content: string }) {
+  if (looksStructured(content)) return <JsonDisplay content={content} />
+  return <pre className={styles.contentText}>{content}</pre>
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Transcript blocks
+// ─────────────────────────────────────────────────────────────────────
+
+function ReasoningBlock({ item }: { item: ActionItem }) {
+  return (
+    <div id={`transcript-item-${item.id}`} className={styles.transcriptItem}>
+      <div className={styles.gutter}>
+        <div className={styles.gutterIcon}>
+          <div className={styles.reasoningCircle} aria-hidden="true" />
+        </div>
+      </div>
+      <div className={styles.reasoningContent}>
+        {item.output
+          ? item.output
+          : <span className={styles.reasoningPlaceholder}>Thinking…</span>}
+      </div>
+    </div>
+  )
+}
+
+interface ActionBlockProps {
+  item: ActionItem
+  expanded: boolean
+  onToggleDetail: () => void
+}
+
+function ActionBlock({ item, expanded, onToggleDetail }: ActionBlockProps) {
+  const elapsed = getElapsedMs(item)
+
+  const normalizedName = (item.name || '').toLowerCase().replace(/[\s-]+/g, '_')
+  const isTodoAction = normalizedName === 'task_update_todos'
+  const todos = isTodoAction && item.input ? extractTodos(item.input) : null
+
+  return (
+    <div id={`transcript-item-${item.id}`} className={styles.transcriptItem}>
+      <div className={styles.gutter}>
+        <div className={styles.gutterIcon}>
+          <StatusIndicator status={item.status} size="sm" />
+        </div>
+      </div>
+      <div className={styles.actionContent}>
+        <div className={styles.actionHeader}>
+          <span className={styles.actionName}>{item.name}</span>
+          {elapsed != null && (
+            <span className={styles.actionDuration}>
+              {formatDuration(elapsed)}
+            </span>
+          )}
+        </div>
+
+        <div className={styles.actionBox}>
+          {item.input && (
+            <div className={styles.actionSection}>
+              <div className={styles.ioLabel}>Input</div>
+              {todos
+                ? <TodoListDisplay todos={todos} />
+                : <ContentDisplay content={item.input} />}
+            </div>
+          )}
+
+          {item.output && (
+            <div className={styles.actionSection}>
+              <div className={styles.ioLabel}>Output</div>
+              <ContentDisplay content={item.output} />
+            </div>
+          )}
+
+          {item.error && (
+            <div className={styles.actionSection}>
+              <div className={styles.ioLabel}>Error</div>
+              <pre className={`${styles.codeBlock} ${styles.errorBlock}`}>{item.error}</pre>
+            </div>
+          )}
+
+          <div className={styles.actionMoreRow}>
+            <button
+              className={styles.moreDetailBtn}
+              onClick={onToggleDetail}
+              aria-expanded={expanded}
+            >
+              <ChevronRight
+                size={12}
+                className={`${styles.moreDetailChevron} ${expanded ? styles.expanded : ''}`}
+              />
+              {expanded ? 'Hide details' : 'More detail'}
+            </button>
+          </div>
+
+          {expanded && (
+            <div className={styles.actionSection}>
+              <dl className={`${styles.detailList} ${styles.actionDetailList}`}>
+                <dt>Type</dt>
+                <dd>{item.itemType}</dd>
+                <dt>ID</dt>
+                <dd className={styles.mono}>{item.id}</dd>
+                <dt>Started</dt>
+                <dd>{formatTimestamp(item.createdAt)}</dd>
+                <dt>Duration</dt>
+                <dd>{formatDuration(item.duration)}</dd>
+              </dl>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Panel width limits (1:3 ratio default)
 const DEFAULT_PANEL_WIDTH = 350
 const MIN_PANEL_WIDTH = 200
@@ -387,7 +541,14 @@ export function TasksPage() {
   const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
   const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
   const navigate = useNavigate()
-  const [selectedItem, setSelectedItem] = useState<ActionItem | null>(null)
+
+  // Body navigation state:
+  //   selectedTaskId  — which task's transcript is shown in the body
+  //   scrollTargetId  — child action/reasoning to scroll to; null = scroll to latest
+  //   expandedDetailIds — action ids whose "More detail" panel is open
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [scrollTargetId, setScrollTargetId] = useState<string | null>(null)
+  const [expandedDetailIds, setExpandedDetailIds] = useState<Set<string>>(new Set())
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
   const skillCreator = useSkillCreator()
 
@@ -395,8 +556,27 @@ export function TasksPage() {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  // Tracks whether the user is currently following along near the bottom of
+  // the transcript. Updated by the scroll listener; consulted by auto-follow.
+  // Same pattern as the chat panel's wasNearBottomRef.
+  const wasNearBottomRef = useRef(true)
+  // A counter we bump every second to re-render live durations for running items.
+  const [, forceTick] = useState(0)
 
-  const tasks = actions.filter(a => a.itemType === 'task')
+  const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
+
+  const selectedTask = useMemo(
+    () => tasks.find(t => t.id === selectedTaskId) ?? null,
+    [tasks, selectedTaskId],
+  )
+
+  const transcriptItems = useMemo(() => {
+    if (!selectedTaskId) return []
+    return actions
+      .filter(a => a.parentId === selectedTaskId && (a.itemType === 'action' || a.itemType === 'reasoning'))
+      .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+  }, [actions, selectedTaskId])
 
   // Tasks whose latest UX gate is an unanswered option prompt — the user
   // must click an option, so suppress the reply affordance for these.
@@ -421,33 +601,111 @@ export function TasksPage() {
     navigate('/chat')
   }, [setReplyTarget, navigate])
 
-  // Get all items (actions + reasoning) for a task
-  const getItemsForTask = (taskId: string) =>
-    actions.filter(a => (a.itemType === 'action' || a.itemType === 'reasoning') && a.parentId === taskId)
+  // Items shown inline beneath a task in the left list (actions + reasoning)
+  const getItemsForTask = useCallback(
+    (taskId: string) =>
+      actions.filter(a => (a.itemType === 'action' || a.itemType === 'reasoning') && a.parentId === taskId),
+    [actions],
+  )
 
-  // Get only actual actions (not reasoning) for count
-  const getActionCountForTask = (taskId: string) =>
-    actions.filter(a => a.itemType === 'action' && a.parentId === taskId).length
+  // Action count per task (excludes reasoning) — used for the badge
+  const getActionCountForTask = useCallback(
+    (taskId: string) =>
+      actions.filter(a => a.itemType === 'action' && a.parentId === taskId).length,
+    [actions],
+  )
 
-  const formatDuration = (ms?: number) => {
-    if (!ms) return '-'
-    if (ms < 1000) return `${ms}ms`
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-    return `${(ms / 60000).toFixed(1)}m`
-  }
-
-  const formatTimestamp = (ts?: number) => {
-    if (!ts) return '-'
-    return new Date(ts).toLocaleString()
-  }
-
-  // Handle selecting an item (with mobile detail view)
-  const handleSelectItem = useCallback((item: ActionItem | null) => {
-    setSelectedItem(item)
-    if (item) {
-      setMobileShowDetail(true)
+  // Clicking a task or action in the left list drives the body's view.
+  // Tasks → show that task, scroll to latest progress.
+  // Actions/reasoning → show their parent task, scroll to the clicked item.
+  const handleSelectFromList = useCallback((item: ActionItem) => {
+    if (item.itemType === 'task') {
+      if (selectedTaskId === item.id) {
+        // Toggle off when clicking the already-selected task
+        setSelectedTaskId(null)
+        setScrollTargetId(null)
+      } else {
+        setSelectedTaskId(item.id)
+        setScrollTargetId(null)
+      }
+    } else {
+      setSelectedTaskId(item.parentId ?? null)
+      setScrollTargetId(item.id)
     }
+    setMobileShowDetail(true)
+  }, [selectedTaskId])
+
+  const toggleDetailExpansion = useCallback((id: string) => {
+    setExpandedDetailIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }, [])
+
+  // Scroll-position tracker (mirrors Chat.tsx). Maintains wasNearBottomRef so
+  // auto-follow can tell at a glance whether the user is still "following
+  // along" at the bottom or has scrolled up to inspect previous activity.
+  useEffect(() => {
+    const body = bodyRef.current
+    if (!body) return
+    const handleScroll = () => {
+      const distFromBottom = body.scrollHeight - body.scrollTop - body.clientHeight
+      wasNearBottomRef.current = distFromBottom < 100
+    }
+    body.addEventListener('scroll', handleScroll)
+    return () => body.removeEventListener('scroll', handleScroll)
+  }, [selectedTaskId])
+
+  // Scroll to the target item (or to latest) when selection changes.
+  useEffect(() => {
+    if (!selectedTaskId) return
+    const body = bodyRef.current
+    if (!body) return
+    // Wait a tick so the new transcript has rendered before measuring.
+    const timer = setTimeout(() => {
+      if (scrollTargetId) {
+        const el = document.getElementById(`transcript-item-${scrollTargetId}`)
+        if (el && bodyRef.current) {
+          const bodyEl = bodyRef.current
+          const bodyRect = bodyEl.getBoundingClientRect()
+          const elRect = el.getBoundingClientRect()
+          const offset = elRect.top - bodyRect.top + bodyEl.scrollTop - 16
+          bodyEl.scrollTo({ top: offset, behavior: 'smooth' })
+        }
+        // Jumping mid-transcript counts as "not following the tail."
+        wasNearBottomRef.current = false
+      } else {
+        body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
+        wasNearBottomRef.current = true
+      }
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [selectedTaskId, scrollTargetId])
+
+  // Auto-follow: when new transcript items arrive on an active task, stick to
+  // the bottom only if the user was near the bottom. If they scrolled up to
+  // look at previous activity, leave them where they are.
+  useEffect(() => {
+    if (!selectedTask) return
+    if (selectedTask.status !== 'running' && selectedTask.status !== 'waiting') return
+    if (!wasNearBottomRef.current) return
+    const body = bodyRef.current
+    if (!body) return
+    body.scrollTo({ top: body.scrollHeight })
+  }, [transcriptItems, selectedTask])
+
+  // Live ticker for running item durations. 100ms keeps the "X.Xs" decimal
+  // updating smoothly instead of jumping a second at a time.
+  useEffect(() => {
+    const hasRunning =
+      (selectedTask?.status === 'running' || selectedTask?.status === 'waiting') ||
+      transcriptItems.some(i => i.status === 'running' || i.status === 'waiting')
+    if (!hasRunning) return
+    const interval = setInterval(() => forceTick(t => t + 1), 100)
+    return () => clearInterval(interval)
+  }, [transcriptItems, selectedTask])
 
   // Handle back button on mobile
   const handleMobileBack = useCallback(() => {
@@ -486,6 +744,10 @@ export function TasksPage() {
     }
   }, [isResizing])
 
+  const canCreateSkill =
+    selectedTask?.status === 'completed' &&
+    !isInternalWorkflowTask(selectedTask, internalWorkflowIds, internalSkillNames)
+
   return (
     <div className={`${styles.tasksPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
       {/* Task List - Left Side (resizable) */}
@@ -504,25 +766,17 @@ export function TasksPage() {
             tasks.map(task => {
               const taskItems = getItemsForTask(task.id)
               const actionCount = getActionCountForTask(task.id)
-              const isExpanded = selectedItem?.id === task.id ||
-                taskItems.some(a => a.id === selectedItem?.id)
+              const isCurrentTask = selectedTaskId === task.id
 
               return (
                 <div key={task.id} className={styles.taskGroup}>
                   <button
-                    className={`${styles.taskItem} ${selectedItem?.id === task.id ? styles.selected : ''}`}
-                    onClick={() => {
-                      // Toggle: if task is selected, deselect; otherwise select
-                      if (selectedItem?.id === task.id) {
-                        handleSelectItem(null)
-                      } else {
-                        handleSelectItem(task)
-                      }
-                    }}
+                    className={`${styles.taskItem} ${isCurrentTask ? styles.selected : ''}`}
+                    onClick={() => handleSelectFromList(task)}
                   >
                     <ChevronRight
                       size={14}
-                      className={`${styles.chevron} ${isExpanded ? styles.expanded : ''}`}
+                      className={`${styles.chevron} ${isCurrentTask ? styles.expanded : ''}`}
                     />
                     <StatusIndicator status={task.status} size="sm" />
                     <span className={styles.itemName}>{task.name}</span>
@@ -539,37 +793,54 @@ export function TasksPage() {
                         icon={<Reply size={12} />}
                       />
                     )}
-                    <Badge
-                      variant={
-                        task.status === 'completed' ? 'success' :
-                        (task.status === 'error' || task.status === 'cancelled') ? 'error' :
-                        task.status === 'running' ? 'primary' : 'default'
-                      }
-                    >
+                    <Badge variant="default">
                       {actionCount} actions
                     </Badge>
                   </button>
 
-                  {isExpanded && (
-                    <div className={styles.actionsList}>
-                      {taskItems.length > 0 ? (
-                        taskItems.map(action => (
+                  {isCurrentTask && (() => {
+                    const listPlaceholder = getActivePlaceholder(task.status, taskItems)
+                    const showListReply =
+                      listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
+                    return (
+                      <div className={styles.actionsList}>
+                        {taskItems.map(action => (
                           <button
                             key={action.id}
-                            className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${selectedItem?.id === action.id ? styles.selected : ''}`}
-                            onClick={() => handleSelectItem(action)}
+                            className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${scrollTargetId === action.id ? styles.selected : ''}`}
+                            onClick={() => handleSelectFromList(action)}
                           >
                             {action.itemType !== 'reasoning' && (
                               <StatusIndicator status={action.status} size="sm" />
                             )}
                             <span className={styles.itemName}>{action.name}</span>
                           </button>
-                        ))
-                      ) : (
-                        <div className={styles.noActions}>No actions yet</div>
-                      )}
-                    </div>
-                  )}
+                        ))}
+                        {listPlaceholder && (
+                          <div className={styles.placeholderItem}>
+                            <StatusIndicator status={listPlaceholder.status} size="sm" />
+                            <span className={styles.itemName}>{listPlaceholder.label}</span>
+                            {showListReply && (
+                              <IconButton
+                                size="sm"
+                                variant="ghost"
+                                className={styles.placeholderReplyBtn}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleTaskReply(task)
+                                }}
+                                title="Reply to Task"
+                                icon={<Reply size={12} />}
+                              />
+                            )}
+                          </div>
+                        )}
+                        {taskItems.length === 0 && !listPlaceholder && (
+                          <div className={styles.noActions}>No actions yet</div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })
@@ -590,15 +861,13 @@ export function TasksPage() {
       </div>
 
       {/* Resize Handle */}
-      <div
-        className={styles.resizeHandle}
-        onMouseDown={handleMouseDown}
-      />
+      <div className={styles.resizeHandle} onMouseDown={handleMouseDown} />
 
       {/* Detail Panel - Right Side */}
       <div className={`${styles.detailPanel} ${mobileShowDetail ? styles.mobileVisible : ''}`}>
-        {selectedItem ? (
+        {selectedTask ? (
           <>
+            {/* Header — task name + status + task-level actions */}
             <div className={styles.detailHeader}>
               <div className={styles.detailTitle}>
                 <IconButton
@@ -608,120 +877,129 @@ export function TasksPage() {
                   onClick={handleMobileBack}
                   tooltip="Back to list"
                 />
-                <StatusIndicator status={selectedItem.status} size="md" />
-                <h2>{selectedItem.name}</h2>
+                <StatusIndicator status={selectedTask.status} size="md" />
+                <h2>{selectedTask.name}</h2>
               </div>
-              {selectedItem.itemType === 'task' && (
-                <div className={styles.detailActions}>
-                  {(selectedItem.status === 'running' || selectedItem.status === 'waiting') ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<XCircle size={14} />}
-                      loading={cancellingTaskId === selectedItem.id}
-                      onClick={() => cancelTask(selectedItem.id)}
-                      className={styles.cancelButton}
-                    >
-                      {cancellingTaskId === selectedItem.id ? 'Cancelling...' : 'Cancel Task'}
-                    </Button>
-                  ) : selectedItem.status === 'completed' && !isInternalWorkflowTask(selectedItem, internalWorkflowIds, internalSkillNames) ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Plus size={14} />}
-                      onClick={() => skillCreator.open(selectedItem)}
-                    >
-                      Create Skill
-                    </Button>
-                  ) : (selectedItem.status === 'error' || selectedItem.status === 'cancelled') && (
-                    <Badge variant="error">Aborted</Badge>
-                  )}
-                </div>
-              )}
+              <div className={styles.headerActions}>
+                {(selectedTask.status === 'running' || selectedTask.status === 'waiting') ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<XCircle size={14} />}
+                    loading={cancellingTaskId === selectedTask.id}
+                    onClick={() => cancelTask(selectedTask.id)}
+                    className={styles.cancelButton}
+                  >
+                    {cancellingTaskId === selectedTask.id ? 'Cancelling…' : 'Cancel Task'}
+                  </Button>
+                ) : canCreateSkill ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Plus size={14} />}
+                    onClick={() => skillCreator.open(selectedTask)}
+                  >
+                    Create Skill
+                  </Button>
+                ) : (selectedTask.status === 'error' || selectedTask.status === 'cancelled') && (
+                  <Badge variant="error">Aborted</Badge>
+                )}
+              </div>
             </div>
 
-            <div className={styles.detailContent}>
-              <div className={styles.detailSection}>
-                <h4>Details</h4>
+            {/* Body — scrollable transcript */}
+            <div className={styles.detailContent} ref={bodyRef}>
+              {/* Task details card sits at the top of the body */}
+              <div className={styles.taskDetailsCard}>
+                <h4 className={styles.taskDetailsLabel}>Task Details</h4>
                 <dl className={styles.detailList}>
-                  <dt>Type</dt>
-                  <dd>{selectedItem.itemType}</dd>
-                  <dt>ID</dt>
-                  <dd className={styles.mono}>{selectedItem.id}</dd>
-                  {selectedItem.parentId && (
-                    <>
-                      <dt>Parent Task</dt>
-                      <dd className={styles.mono}>{selectedItem.parentId}</dd>
-                    </>
-                  )}
                   <dt>Started</dt>
-                  <dd>{formatTimestamp(selectedItem.createdAt)}</dd>
+                  <dd>{formatTimestamp(selectedTask.createdAt)}</dd>
                   <dt>Duration</dt>
-                  <dd>{formatDuration(selectedItem.duration)}</dd>
-                  {selectedItem.itemType === 'task' && selectedItem.inputTokens != null && (
+                  <dd>{formatDuration(getElapsedMs(selectedTask))}</dd>
+                  {selectedTask.inputTokens != null && (
                     <>
                       <dt>Input Tokens</dt>
-                      <dd>{selectedItem.inputTokens.toLocaleString()}</dd>
+                      <dd>{selectedTask.inputTokens.toLocaleString()}</dd>
                     </>
                   )}
-                  {selectedItem.itemType === 'task' && selectedItem.outputTokens != null && (
+                  {selectedTask.outputTokens != null && (
                     <>
                       <dt>Output Tokens</dt>
-                      <dd>{selectedItem.outputTokens.toLocaleString()}</dd>
+                      <dd>{selectedTask.outputTokens.toLocaleString()}</dd>
                     </>
                   )}
-                  {selectedItem.itemType === 'task' && selectedItem.cacheTokens != null && (
+                  {selectedTask.cacheTokens != null && (
                     <>
                       <dt>Cache Tokens</dt>
-                      <dd>{selectedItem.cacheTokens.toLocaleString()}</dd>
+                      <dd>{selectedTask.cacheTokens.toLocaleString()}</dd>
                     </>
                   )}
                 </dl>
               </div>
 
-              {selectedItem.itemType === 'reasoning' ? (
-                selectedItem.output && (
-                  <div className={styles.detailSection}>
-                    <h4>Content</h4>
-                    <div className={styles.reasoningContent}>
-                      {selectedItem.output}
+              {/* Transcript: chronological reasoning + actions, with a
+                  trailing placeholder while the task is active (Thinking /
+                  Waiting for reply / Paused) so the timeline visibly continues
+                  past the last real item. */}
+              {(() => {
+                const placeholder = getActivePlaceholder(selectedTask.status, transcriptItems)
+                if (transcriptItems.length === 0 && !placeholder) {
+                  return (
+                    <div className={styles.emptyTranscript}>
+                      No actions or reasoning recorded.
                     </div>
+                  )
+                }
+                return (
+                  <div className={styles.transcript}>
+                    {transcriptItems.map(item =>
+                      item.itemType === 'reasoning' ? (
+                        <ReasoningBlock key={item.id} item={item} />
+                      ) : (
+                        <ActionBlock
+                          key={item.id}
+                          item={item}
+                          expanded={expandedDetailIds.has(item.id)}
+                          onToggleDetail={() => toggleDetailExpansion(item.id)}
+                        />
+                      )
+                    )}
+                    {placeholder && (() => {
+                      const showBodyReply =
+                        placeholder.status === 'waiting' && !tasksAwaitingOption.has(selectedTask.id)
+                      return (
+                        <div className={styles.transcriptItem}>
+                          <div className={styles.gutter}>
+                            <div className={styles.gutterIcon}>
+                              <StatusIndicator status={placeholder.status} size="sm" />
+                            </div>
+                          </div>
+                          <div className={`${styles.reasoningContent} ${styles.placeholderRow}`}>
+                            <span className={styles.reasoningPlaceholder}>{placeholder.label}</span>
+                            {showBodyReply && (
+                              <IconButton
+                                size="sm"
+                                variant="ghost"
+                                className={styles.placeholderReplyBtn}
+                                onClick={() => handleTaskReply(selectedTask)}
+                                title="Reply to Task"
+                                icon={<Reply size={12} />}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
-              ) : (
-                <>
-                  {selectedItem.input && (() => {
-                    const normalizedName = (selectedItem.name || '')
-                      .toLowerCase()
-                      .replace(/[\s-]+/g, '_')
-                    const isTodoAction =
-                      selectedItem.itemType === 'action' &&
-                      normalizedName === 'task_update_todos'
-                    const todos = isTodoAction ? extractTodos(selectedItem.input) : null
-                    return (
-                      <div className={styles.detailSection}>
-                        <h4>{todos ? 'Todos' : 'Input'}</h4>
-                        {todos
-                          ? <TodoListDisplay todos={todos} />
-                          : <JsonDisplay content={selectedItem.input} />}
-                      </div>
-                    )
-                  })()}
+              })()}
 
-                  {selectedItem.output && (
-                    <div className={styles.detailSection}>
-                      <h4>Output</h4>
-                      <JsonDisplay content={selectedItem.output} />
-                    </div>
-                  )}
-                </>
-              )}
-
-              {selectedItem.error && (
-                <div className={styles.detailSection}>
-                  <h4>Error</h4>
+              {selectedTask.error && (
+                <div className={styles.taskErrorSection}>
+                  <h4>Task Error</h4>
                   <pre className={`${styles.codeBlock} ${styles.errorBlock}`}>
-                    {selectedItem.error}
+                    {selectedTask.error}
                   </pre>
                 </div>
               )}
@@ -729,7 +1007,7 @@ export function TasksPage() {
           </>
         ) : (
           <div className={styles.emptyDetail}>
-            <p>Select a task or action to view details</p>
+            <p>Select a task to view its progress</p>
           </div>
         )}
       </div>

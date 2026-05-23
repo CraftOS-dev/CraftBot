@@ -458,6 +458,32 @@
   font-style: italic;
 }
 
+/* Active-state placeholder shown at the end of a task's child action list
+   (Thinking… / Waiting for reply… / Paused…). Non-interactive except for
+   an always-visible reply button when the task is waiting. */
+.placeholderItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Reply button on the placeholder — same look as .taskReplyBtn but always
+   visible (no hover-revealed opacity). */
+.placeholderReplyBtn {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.placeholderReplyBtn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
 /* Hidden file input */
 .hiddenFileInput {
   display: none;

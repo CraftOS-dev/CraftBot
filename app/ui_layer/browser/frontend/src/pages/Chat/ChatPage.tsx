@@ -3,6 +3,7 @@ import { X, Loader2, Reply } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
+import { getActivePlaceholder } from '../../utils/taskPlaceholder'
 import styles from './ChatPage.module.css'
 
 // Panel width limits
@@ -147,19 +148,44 @@ export function ChatPage() {
                     </>
                   )}
                 </div>
-                {selectedTaskId === task.id && (
-                  <div className={styles.actionsList}>
-                    {getActionsForTask(task.id).map(action => (
-                      <div key={action.id} className={styles.actionItem}>
-                        <StatusIndicator status={action.status} size="sm" />
-                        <span className={styles.actionName}>{action.name}</span>
-                      </div>
-                    ))}
-                    {getActionsForTask(task.id).length === 0 && (
-                      <div className={styles.noActions}>No actions yet</div>
-                    )}
-                  </div>
-                )}
+                {selectedTaskId === task.id && (() => {
+                  const taskActions = getActionsForTask(task.id)
+                  const listPlaceholder = getActivePlaceholder(task.status, taskActions)
+                  const showListReply =
+                    listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
+                  return (
+                    <div className={styles.actionsList}>
+                      {taskActions.map(action => (
+                        <div key={action.id} className={styles.actionItem}>
+                          <StatusIndicator status={action.status} size="sm" />
+                          <span className={styles.actionName}>{action.name}</span>
+                        </div>
+                      ))}
+                      {listPlaceholder && (
+                        <div className={styles.placeholderItem}>
+                          <StatusIndicator status={listPlaceholder.status} size="sm" />
+                          <span className={styles.actionName}>{listPlaceholder.label}</span>
+                          {showListReply && (
+                            <IconButton
+                              size="sm"
+                              variant="ghost"
+                              className={styles.placeholderReplyBtn}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleTaskReply(task.id, task.name)
+                              }}
+                              title="Reply to Task"
+                              icon={<Reply size={12} />}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {taskActions.length === 0 && !listPlaceholder && (
+                        <div className={styles.noActions}>No actions yet</div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             ))
           )}
