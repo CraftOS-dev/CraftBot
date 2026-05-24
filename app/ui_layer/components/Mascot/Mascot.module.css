@@ -19,9 +19,9 @@
 .breathe {
   transform-origin: 50% 60%;
   animation: mascotBreathe 4s ease-in-out infinite;
-  /* Let happy-reaction rays extend past the 160×200 viewBox bounds —
-     they're positioned at radius 82–98 from the body center, so most of
-     them fall outside the viewBox horizontally. */
+  /* Let happy-reaction rays + frustrated sweat drop extend past the
+     160×200 viewBox bounds — rays sit at radius 82–98 from the body
+     center, sweat drop sits near the top corner. */
   overflow: visible;
 }
 
@@ -90,9 +90,9 @@
   100% { opacity: 0;   transform: scale(1.35); }
 }
 
-/* Bracket eyes ("> <") shown during the happy reaction. A short
-   fade-in masks the moment the normal eye paths are swapped out for
-   the polylines — without this the swap reads as a hard cut. */
+/* Bracket eyes ("> <") + flat dashes ("— —") shown during reactions.
+   The same fade-in masks the swap from the regular eye paths to the
+   reaction shape so it doesn't read as a hard cut. */
 .happyEyes {
   animation: mascotHappyEyesFadeIn 140ms ease-out;
 }
@@ -100,6 +100,22 @@
 @keyframes mascotHappyEyesFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/* Frustrated sweat drop — small blue teardrop next to the head. Pops
+   in, drips down a few pixels, then loops while the frustrated
+   reaction is held. Lives outside the mirror group so its position
+   stays anchored regardless of facing direction. */
+.sweatDrop {
+  animation: mascotSweatDrop 700ms ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes mascotSweatDrop {
+  0%   { opacity: 0; transform: translateY(-4px); }
+  20%  { opacity: 1; transform: translateY(0); }
+  80%  { opacity: 1; transform: translateY(6px); }
+  100% { opacity: 0; transform: translateY(10px); }
 }
 
 .sleepZ {
@@ -154,10 +170,10 @@
   flex-shrink: 0;
 }
 
-/* Stage is now a positioned container so the mascot can float at any
-   horizontal anchor (centered when nothing's happening, pinned left when
-   the action renderer is showing). The renderer card layers underneath
-   the mascot on the right half so the mascot visually overlaps it. */
+/* The stage no longer hosts an action card — the speech bubble lives
+   inside the mascot wrapper itself — so this is just a positioned box
+   for the mascot to wander in. min-height needs to be generous enough
+   to give the bubble headroom above the mascot without clipping. */
 .stage {
   position: relative;
   padding: var(--space-3);
@@ -165,56 +181,37 @@
   overflow: hidden;
 }
 
-.stageWithAction {
-  min-height: 220px;
-}
-
 .stageCompact {
   min-height: 80px;
   padding: var(--space-3) var(--space-3) var(--space-1);
 }
 
-/* Wrapper around the mascot SVG. The horizontal anchor is controlled by
-   .mascotCenter / .mascotLeft so the swap between them animates as a
-   horizontal slide. Top:70% (rather than 50%) parks the mascot's feet
-   near the stage's content-area floor — gives the hop animation a real
-   "ground" to push off from and land on, so the squash-and-stretch reads
-   as the mascot impacting the floor instead of pushing against thin air. */
+/* Wrapper around the mascot SVG. Always centered horizontally now —
+   the speech-bubble approach removes the old left-pin / right-card
+   layout. Top:70% parks the mascot's feet near the stage's content-
+   area floor so the hop animation has a real "ground" to land on. */
 .mascotLayer {
   position: absolute;
   top: 70%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-50%);
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Both anchor classes set translateX explicitly so the interpolation
-     only animates the X component (no jumpy two-axis movement). */
-  transition: left 500ms ease, transform 500ms ease;
   pointer-events: none;
 }
 
-.mascotCenter {
-  left: 50%;
-  transform: translateX(-50%) translateY(-50%);
-}
-
-.mascotLeft {
-  left: var(--space-3);
-  transform: translateX(0) translateY(-50%);
-}
-
-/* Wander motion is now driven by the Web Animations API in MascotDisplay,
-   so there's no CSS transition here — the imperative animate() call owns
-   the transform property over a multi-keyframe hop sequence (crouch →
-   push off → arc → squash on landing → settle). transform-origin is
-   pinned near the feet so squash-and-stretch deforms upward into the body
-   instead of sinking through the floor.
-
-   pointer-events: auto overrides .mascotLayer's "none" so clicks on the
-   mascot reach the wander wrapper (and trigger the happy reaction). The
-   .mascotLayer parent stays click-through so it doesn't block the
-   action-renderer card behind it. */
+/* Wander motion is driven by the Web Animations API — the imperative
+   animate() call owns the transform property over a multi-keyframe hop
+   sequence (crouch → push off → arc → squash on landing → settle).
+   transform-origin is pinned near the feet so squash-and-stretch
+   deforms upward into the body instead of sinking through the floor.
+   pointer-events: auto overrides .mascotLayer's "none" so clicks reach
+   the wander wrapper. position:relative anchors the absolutely-
+   positioned speech bubble inside this same coordinate space. */
 .wander {
+  position: relative;
   transform-origin: 50% 95%;
   cursor: pointer;
   pointer-events: auto;
@@ -224,25 +221,6 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 4px;
   border-radius: var(--radius-md);
-}
-
-/* Renderer layer is anchored to the *right* side of the stage and sized to
-   fit the card, not the full width of the stage. The mascot lives on its
-   own at left: var(--space-3); the two are independent — they only end up
-   overlapping when the panel is too narrow to keep them apart, never by
-   design. max-width responds to panel width so the card shrinks (and may
-   start overlapping) on cramped panels. */
-.rendererLayer {
-  position: absolute;
-  top: 50%;
-  right: var(--space-3);
-  transform: translateY(-50%);
-  /* Default card-area width; clamped by max-width so it never overruns
-     the stage padding. The card inside picks up width: 100%. */
-  width: 220px;
-  max-width: calc(100% - 24px);
-  z-index: 1;
-  pointer-events: none;
 }
 
 .statusBar {
@@ -274,122 +252,181 @@
   color: var(--text-primary);
 }
 
-/* Compact wrapper around the *real* Tasks-page action renderer. The card
-   fills the renderer layer's width and derives its height from the 2:1
-   aspect ratio — landscape rectangle, which fits multi-line text content
-   (REASON/SUMMARY, code snippets, file paths) more comfortably than a
-   tight square would. */
-.compactRenderer {
-  pointer-events: auto;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  aspect-ratio: 2 / 1;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  overflow: auto;
-  font-size: var(--text-xs);
-  animation: mascotActionFadeIn 160ms ease-out;
-}
+/* ─────────────────────────────────────────────────────────────────────
+   Speech bubble (SpeechBubble.tsx)
+   ─────────────────────────────────────────────────────────────────────
 
-/* The Section component from primitives.tsx renders a .actionSection from
-   TasksPage.module.css with var(--space-2)/var(--space-3) padding. Those
-   class names are hashed by CSS-modules so we can't override them by
-   selector — instead we trim spacing via the wrapper's child rules. The
-   renderer's top-level child IS the Section <div>, so a `> div` selector
-   reliably targets it without depending on the hashed class name. Tighter
-   padding here helps the content breathe inside the smaller square. */
-.compactRenderer > div {
-  padding: var(--space-1) var(--space-2);
-  gap: 2px;
-}
+   Anchored to the right of the mascot — sits beside the body rather
+   than above it, so the stage doesn't need extra vertical headroom
+   for the bubble. Living inside .wander means the bubble inherits the
+   hop's translateX (follows the mascot across the stage) and the
+   small Y-bob on each landing.
 
-/* Tighten common renderer internals so they don't blow the square out
-   vertically. Scoped to .compactRenderer so the Tasks panel is untouched. */
-.compactRenderer pre,
-.compactRenderer code {
-  font-size: var(--text-xs);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+   max-height clamps long results/messages so the bubble never grows
+   taller than the mascot itself; the body uses webkit-line-clamp to
+   add an ellipsis ("…") on the truncation line.
 
-.compactRenderer img {
-  max-width: 100%;
-  height: auto;
-}
+   pointer-events:none keeps the bubble click-through so it never
+   blocks clicks on the mascot underneath. */
 
-.compactRenderer p,
-.compactRenderer div {
-  font-size: inherit;
-}
-
-/* Fallback shown when no renderer is registered for the action name. */
-.compactFallback {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: var(--space-3);
-  gap: var(--space-1);
-  text-align: center;
-}
-
-.compactFallbackName {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-primary);
-  word-break: break-all;
-}
-
-.compactFallbackStatus {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* Speech-bubble overlay anchored to the top-right of the mascot wrapper.
-   Used for the chat-bubble cue (sending a message) and the question-mark
-   cue (waiting for a user reply). pointer-events:none so it never blocks
-   the collapse button or any future mascot interaction. */
-.bubble {
+.speechBubble {
   position: absolute;
-  top: -6px;
-  right: -10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--bg-secondary);
+  /* Vertical anchor: top:40% with translateY(-50%) places the bubble
+     center near the face (eyes sit around 46% of the SVG height). */
+  top: 40%;
+  transform: translateY(-50%);
+  /* Background + border match the agent chat bubble in ChatPage.module.css
+     (.message.agent) so the mascot's speech and the chat panel's agent
+     messages read as the same voice/style. Layout is not shared. */
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-  animation: mascotBubblePop 240ms ease-out, mascotBubblePulse 1.8s ease-in-out 240ms infinite;
-  z-index: 3;
+  border-radius: var(--radius-md, 10px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  min-width: 120px;
+  max-width: 220px;
+  width: max-content;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  color: var(--text-primary);
+  font-size: var(--text-xs, 12px);
+  line-height: 1.4;
+  pointer-events: none;
+  /* IMPORTANT: no overflow:hidden / outer max-height on the bubble
+     itself. The body element handles its own truncation via
+     -webkit-line-clamp below — clipping at the bubble level would crop
+     the tail pseudo-elements (positioned outside the box) AND would
+     eat the bottom padding when the clamped body fills the height. */
+  z-index: 4;
+  animation: speechBubbleIn 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Side variants. Driven by useMascotBehavior's bubbleSide output so the
+   bubble flips to the opposite side when the mascot drifts toward an
+   edge — that keeps it from getting clipped against the stage walls.
+   Each variant sets its own horizontal anchor + transform-origin + tail
+   direction so the swap is self-contained. */
+
+.bubbleSideRight {
+  left: calc(100% + 10px);
+  transform-origin: left center;
+}
+
+.bubbleSideLeft {
+  right: calc(100% + 10px);
+  transform-origin: right center;
+}
+
+/* Bubble tails — small triangles joining the bubble to the mascot's
+   silhouette. Two stacked pseudo-elements (border trick): the outer
+   triangle is the bubble border, the inner is the fill stacked on top
+   so the join reads as a single tail. The two variants point in
+   opposite directions to match the side anchor. */
+.speechBubble::after,
+.speechBubble::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
   pointer-events: none;
 }
 
-.bubbleChat {
-  color: var(--color-primary);
+/* Right-anchored: tail on bubble's LEFT, pointing at the mascot on the
+   left. Sized at 11/10 so the 1px border outline shows around the fill,
+   making the tail read as a clear pointer rather than a faint notch. */
+.bubbleSideRight::before {
+  left: -11px;
+  transform: translateY(-50%);
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+  border-right: 11px solid var(--border-primary);
 }
 
-.bubbleWait {
-  color: var(--color-warning, var(--color-primary));
+.bubbleSideRight::after {
+  left: -10px;
+  transform: translateY(-50%);
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 10px solid var(--bg-tertiary);
 }
 
-@keyframes mascotBubblePop {
-  from { opacity: 0; transform: scale(0.6); }
-  to   { opacity: 1; transform: scale(1); }
+/* Left-anchored: tail on bubble's RIGHT, pointing at the mascot on
+   the right. Mirror of the above. */
+.bubbleSideLeft::before {
+  right: -11px;
+  transform: translateY(-50%);
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+  border-left: 11px solid var(--border-primary);
 }
 
-@keyframes mascotBubblePulse {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.08); }
+.bubbleSideLeft::after {
+  right: -10px;
+  transform: translateY(-50%);
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 10px solid var(--bg-tertiary);
 }
 
-@keyframes mascotActionFadeIn {
-  from { opacity: 0; transform: translateX(8px); }
-  to   { opacity: 1; transform: translateX(0); }
+.speechBubbleLabel {
+  font-size: var(--text-xs, 11px);
+  font-weight: 600;
+  color: var(--color-primary, #FF4F18);
+  margin-bottom: 2px;
+  letter-spacing: 0.01em;
+}
+
+.speechBubbleBody {
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs, 12px);
+  word-break: break-word;
+  white-space: pre-wrap;
+  /* Multi-line truncation with ellipsis. -webkit-line-clamp on a
+     -webkit-box keeps the layout single-stop and avoids needing JS to
+     measure overflow. The em-based max-height is a fallback for any
+     env that doesn't support line-clamp (matches 4 lines at 1.4
+     line-height). */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: 5.6em;
+}
+
+/* Thinking and waiting use the primary color directly (no label/body
+   split) and a slightly italic body so they read as a status cue
+   rather than a quoted action invocation. */
+.bubble_thinking .speechBubbleBody,
+.bubble_waiting .speechBubbleBody {
+  font-family: var(--font-sans, system-ui);
+  font-style: italic;
+  color: var(--text-muted, var(--text-primary));
+}
+
+/* Thinking gets a subtle pulsing tail to imply ongoing activity. */
+.bubble_thinking .speechBubbleBody::after {
+  content: '';
+  display: inline-block;
+  animation: speechBubbleThinkingDots 1.4s steps(4, end) infinite;
+}
+
+@keyframes speechBubbleThinkingDots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+
+/* Message bubbles use the regular sans body — these are user-facing
+   messages, not internal action invocations. */
+.bubble_message .speechBubbleBody {
+  font-family: var(--font-sans, system-ui);
+  font-style: normal;
+}
+
+@keyframes speechBubbleIn {
+  from { opacity: 0; transform: translateY(-50%) scale(0.7); }
+  to   { opacity: 1; transform: translateY(-50%) scale(1); }
 }

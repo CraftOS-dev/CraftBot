@@ -18,6 +18,7 @@ import {
   transition,
   type EngineState,
   type Phase,
+  type ReactionKind,
 } from './mascotEngine'
 
 export interface BehaviorInputs {
@@ -38,6 +39,12 @@ export interface BehaviorInputs {
   /** External wake-up trigger — typically `resetIdleTimer` from
    *  useMascotState. Called on click when the mascot is asleep. */
   onWakeFromSleep: () => void
+  /** Monotonic counter — rises by 1 each time a task finishes successfully.
+   *  Drives the celebrate (happy) external reaction. */
+  successTaskCount?: number
+  /** Monotonic counter — rises by 1 each time a task is aborted (status
+   *  cancelled or error). Drives the frustrated external reaction. */
+  abortedTaskCount?: number
 }
 
 export interface BehaviorOutputs {
@@ -47,9 +54,12 @@ export interface BehaviorOutputs {
   phase: Phase
   /** Visual orientation matching the last hop's direction of travel. */
   facing: 'left' | 'right'
-  /** True iff in the 'reacting' phase. Passed down to CraftBotMascot
-   *  to render > < eyes + light rays. */
-  isReacting: boolean
+  /** Which reaction visual to render. null when phase !== 'reacting'. */
+  reaction: ReactionKind | null
+  /** Which side of the mascot a peripheral overlay (speech bubble) should
+   *  anchor to so it doesn't clip against the stage edges. Derived from
+   *  the mascot's target X — bubble sits opposite the mascot's drift. */
+  bubbleSide: 'left' | 'right'
   /** Onclick callback for the mascot wrapper. */
   handleClick: () => void
 }
@@ -63,6 +73,7 @@ export interface BehaviorOutputs {
  *    animation back to center on inactive, reaction timer → REACTION_DONE).
  *  - The click handler, which does the synchronous DOM snap to avoid
  *    a one-frame flicker before the reaction effect runs.
+ *  - External reaction triggers fed by the success/aborted task counters.
  */
 export function useMascotBehavior(inputs: BehaviorInputs): BehaviorOutputs {
   const [state, dispatch] = useReducer(transition, INITIAL_STATE)
@@ -93,6 +104,29 @@ export function useMascotBehavior(inputs: BehaviorInputs): BehaviorOutputs {
   useEffect(() => {
     dispatch({ type: 'SET_ACTIVE', active: inputs.isActive })
   }, [inputs.isActive])
+
+  // ─── Sync: success/aborted task counters → EXTERNAL_REACT ───────────
+  // Same pattern as the celebrate-wiggle counter in CraftBotMascot: we
+  // remember the prior count and dispatch a reaction when it ticks up.
+  // First-mount value is treated as the baseline so we don't fire on
+  // initial state hydration.
+  const prevSuccessRef = useRef(inputs.successTaskCount ?? 0)
+  useEffect(() => {
+    const cur = inputs.successTaskCount ?? 0
+    if (cur > prevSuccessRef.current) {
+      dispatch({ type: 'EXTERNAL_REACT', kind: 'happy' })
+    }
+    prevSuccessRef.current = cur
+  }, [inputs.successTaskCount])
+
+  const prevAbortedRef = useRef(inputs.abortedTaskCount ?? 0)
+  useEffect(() => {
+    const cur = inputs.abortedTaskCount ?? 0
+    if (cur > prevAbortedRef.current) {
+      dispatch({ type: 'EXTERNAL_REACT', kind: 'frustrated' })
+    }
+    prevAbortedRef.current = cur
+  }, [inputs.abortedTaskCount])
 
   // ─── Effect: wander timer (resting → hopping) ────────────────────────
   // Fires WANDER_TICK after a delay. Warmup is used for the first
@@ -272,11 +306,25 @@ export function useMascotBehavior(inputs: BehaviorInputs): BehaviorOutputs {
     dispatch({ type: 'CLICK', currentVisualX: currentX })
   }, [state.phase, inputs])
 
+  // Bubble side derivation. While hopping, we use the hop's destination
+  // rather than the (pre-hop) rest position — so when the mascot leaps
+  // toward an edge, the bubble pre-switches to the safe side and is
+  // already there as the mascot lands. Outside of hopping, state.position
+  // is the current rest position.
+  const effectiveX = state.phase === 'hopping' ? state.hopTarget : state.position
+  // Threshold at 0 (stage midpoint). The mascot's amplitude is symmetric
+  // around 0 so any positive X means "right of center" → bubble on the
+  // left, and vice versa. No hysteresis needed because hop crossings of
+  // center are infrequent and the bubble swap happens during the hop's
+  // own motion, masking any visual snap.
+  const bubbleSide: 'left' | 'right' = effectiveX > 0 ? 'left' : 'right'
+
   return {
     wanderRef,
     phase: state.phase,
     facing: (state as EngineState).facing,
-    isReacting: state.phase === 'reacting',
+    reaction: state.phase === 'reacting' ? state.reactionKind : null,
+    bubbleSide,
     handleClick,
   }
 }

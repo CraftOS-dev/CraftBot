@@ -1,26 +1,12 @@
 import { useRef, useState } from 'react'
-import {
-  ChevronUp,
-  ChevronDown,
-  MessageCircle,
-  HelpCircle,
-} from 'lucide-react'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import { CraftBotMascot } from './CraftBotMascot'
+import { SpeechBubble } from './SpeechBubble'
 import { useMascotState } from './useMascotState'
-import { useDisplayedAction } from './useDisplayedAction'
+import { useMascotNarration } from './useMascotNarration'
 import { useStageMeasure } from './useStageMeasure'
 import { useMascotBehavior } from './useMascotBehavior'
-import {
-  CARDLESS_ACTIONS,
-  MESSAGE_ACTIONS,
-  computeMaxAmplitude,
-  normalizeActionName,
-} from './mascotEngine'
-import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketContext'
-import {
-  getActionRenderer,
-  parseIO,
-} from '../../browser/frontend/src/pages/Tasks/actionRenderers/renderers'
+import { computeMaxAmplitude } from './mascotEngine'
 import styles from './Mascot.module.css'
 
 interface Props {
@@ -35,23 +21,14 @@ export function MascotDisplay({
   defaultCollapsed = false,
 }: Props) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
-  const { state, completedCount, resetIdleTimer } = useMascotState()
-  const { displayed } = useDisplayedAction()
-  const { openFile } = useWebSocket()
-
-  // ── Derive render flags from agent + UI state ─────────────────────
-  // Cardless actions (send_message family, task_end) are signaled by
-  // overlays + wiggle rather than a renderer card.
-  const normalizedName = displayed ? normalizeActionName(displayed.name) : ''
-  const isCardlessAction = !!displayed && CARDLESS_ACTIONS.has(normalizedName)
-  const hasCard = !!displayed && !isCardlessAction
-  const isMessageAction = !!displayed && MESSAGE_ACTIONS.has(normalizedName)
-
-  // Bubble overlay: chat-circle when sending a message, question-circle
-  // when waiting for user input. Mutually exclusive.
-  let bubble: 'chat' | 'wait' | null = null
-  if (isMessageAction) bubble = 'chat'
-  else if (state === 'waiting') bubble = 'wait'
+  const {
+    state,
+    completedCount,
+    successTaskCount,
+    abortedTaskCount,
+    resetIdleTimer,
+  } = useMascotState()
+  const { bubble } = useMascotNarration({ mascotState: state })
 
   // Sleeping states (idle = 30-min idle, stopped/error = external).
   // Only 'idle' is recoverable by clicking; the others stay sleeping.
@@ -66,33 +43,28 @@ export function MascotDisplay({
   const maxAmplitude = computeMaxAmplitude(stageContentWidth, effectiveSize)
 
   // ── Behavior FSM ───────────────────────────────────────────────────
-  // isActive controls whether the wander loop runs. isClickable filters
-  // out clicks while pinned/collapsed (sleeping IS clickable so the user
-  // can wake the mascot).
-  const { wanderRef, facing, isReacting, handleClick } = useMascotBehavior({
-    isActive: !hasCard && !isSleeping && !collapsed,
-    isClickable: !hasCard && !collapsed,
+  // The chat-bubble narration replaces the old action-card pin, so the
+  // mascot is free to wander any time the panel is open + the agent is
+  // not sleeping. Clicks are likewise allowed any time it's not
+  // collapsed (sleeping mascots accept clicks so the user can wake them).
+  const { wanderRef, facing, reaction, bubbleSide, handleClick } = useMascotBehavior({
+    isActive: !isSleeping && !collapsed,
+    isClickable: !collapsed,
     isAsleep: canBeWoken,
     maxAmplitude,
     onWakeFromSleep: resetIdleTimer,
+    successTaskCount,
+    abortedTaskCount,
   })
-
-  // ── Action renderer resolution ────────────────────────────────────
-  const Renderer = hasCard && displayed ? getActionRenderer(displayed.name) : null
-  const io = hasCard && displayed ? parseIO(displayed) : null
 
   return (
     <div className={styles.display}>
       <div
         ref={stageRef}
-        className={`
-          ${styles.stage}
-          ${hasCard ? styles.stageWithAction : ''}
-          ${collapsed ? styles.stageCompact : ''}
-        `.trim()}
+        className={`${styles.stage} ${collapsed ? styles.stageCompact : ''}`.trim()}
       >
         <div
-          className={`${styles.mascotLayer} ${hasCard ? styles.mascotLeft : styles.mascotCenter}`}
+          className={`${styles.mascotLayer} ${styles.mascotCenter}`}
           style={{ width: effectiveSize, height: effectiveSize }}
         >
           <div
@@ -114,40 +86,11 @@ export function MascotDisplay({
               size={effectiveSize}
               completedCount={completedCount}
               facing={facing}
-              reacting={isReacting}
+              reaction={reaction}
             />
+            {!collapsed && <SpeechBubble content={bubble} side={bubbleSide} />}
           </div>
-          {bubble && !collapsed && (
-            <div
-              className={`${styles.bubble} ${bubble === 'chat' ? styles.bubbleChat : styles.bubbleWait}`}
-              aria-hidden="true"
-            >
-              {bubble === 'chat' ? <MessageCircle size={16} /> : <HelpCircle size={16} />}
-            </div>
-          )}
         </div>
-
-        {hasCard && !collapsed && displayed && (
-          <div key={displayed.id} className={styles.rendererLayer}>
-            <div className={styles.compactRenderer}>
-              {Renderer && io ? (
-                <Renderer
-                  item={displayed}
-                  inputObj={io.inputObj}
-                  outputObj={io.outputObj}
-                  onOpenFile={openFile}
-                />
-              ) : (
-                <div className={styles.compactFallback}>
-                  <div className={styles.compactFallbackName}>{displayed.name}</div>
-                  <div className={styles.compactFallbackStatus}>
-                    {displayed.status === 'running' ? 'Running…' : displayed.status}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       <div className={styles.statusBar}>

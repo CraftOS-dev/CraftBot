@@ -62,17 +62,9 @@ export function normalizeActionName(name: string): string {
   return name.toLowerCase().replace(/[\s-]+/g, '_')
 }
 
-/** Action names that don't get a renderer card. send_message family is
- *  handled by the chat-bubble overlay (the message already lives in the
- *  chat panel below); task_end is signaled by the wiggle that fires when
- *  completedCount rises. */
-export const CARDLESS_ACTIONS: ReadonlySet<string> = new Set([
-  'send_message',
-  'send_message_with_attachment',
-  'task_end',
-])
-
-/** Action names that trigger the chat-bubble overlay on the mascot. */
+/** Action names that route through the narration FSM's 'message' phase
+ *  (single-bubble display of the message body itself) rather than the
+ *  default 'running' → 'result' lane. */
 export const MESSAGE_ACTIONS: ReadonlySet<string> = new Set([
   'send_message',
   'send_message_with_attachment',
@@ -221,10 +213,15 @@ export function buildSettleKeyframes(start: number, target: number): Keyframe[] 
  *  - `resting`: awake, between hops. Breathing animation only. The
  *    wander timer is counting down toward the next hop.
  *  - `hopping`: a hop animation is in flight.
- *  - `reacting`: click-triggered happy reaction. Body is pinned at the
- *    click position, > < eyes + ray burst render.
+ *  - `reacting`: a click or external trigger pinned the body for a
+ *    reaction (happy on click / task success; frustrated on task abort).
  */
 export type Phase = 'inactive' | 'resting' | 'hopping' | 'reacting'
+
+/** Which reaction visual to render while phase === 'reacting'.
+ *  - `happy`: > < eyes + yellow ray burst (click + task success).
+ *  - `frustrated`: flat eye dashes + sweat drop (task aborted/error). */
+export type ReactionKind = 'happy' | 'frustrated'
 
 export interface EngineState {
   phase: Phase
@@ -234,6 +231,8 @@ export interface EngineState {
   hopTarget: number
   /** Visual orientation — set on hop start to match direction of travel. */
   facing: 'left' | 'right'
+  /** Which reaction is being played. Only meaningful while phase === 'reacting'. */
+  reactionKind: ReactionKind
 }
 
 export const INITIAL_STATE: EngineState = {
@@ -241,6 +240,7 @@ export const INITIAL_STATE: EngineState = {
   position: 0,
   hopTarget: 0,
   facing: 'right',
+  reactionKind: 'happy',
 }
 
 export type EngineEvent =
@@ -251,11 +251,14 @@ export type EngineEvent =
   | { type: 'WANDER_TICK', maxAmp: number }
   /** The hop's WAAPI animation reached offset 1. */
   | { type: 'HOP_DONE' }
-  /** The happy-reaction timer expired. */
+  /** The reaction timer expired. */
   | { type: 'REACTION_DONE' }
   /** User clicked the mascot. Carries the visual X at click time so
    *  the reacting phase can pin the body to the right spot. */
   | { type: 'CLICK', currentVisualX: number }
+  /** External trigger (task end success/aborted) — pins the body at the
+   *  current rest position and plays the requested reaction kind. */
+  | { type: 'EXTERNAL_REACT', kind: ReactionKind }
 
 export function transition(state: EngineState, event: EngineEvent): EngineState {
   switch (event.type) {
@@ -312,6 +315,21 @@ export function transition(state: EngineState, event: EngineEvent): EngineState 
         phase: 'reacting',
         position: event.currentVisualX,
         hopTarget: event.currentVisualX,
+        reactionKind: 'happy',
+      }
+    }
+
+    case 'EXTERNAL_REACT': {
+      // Already reacting? Ignore — don't stack/override an in-flight
+      // reaction. Otherwise pin at the current rest position (no hop
+      // interruption snap because external reactions usually arrive
+      // outside of motion) and play the requested kind.
+      if (state.phase === 'reacting') return state
+      return {
+        ...state,
+        phase: 'reacting',
+        hopTarget: state.position,
+        reactionKind: event.kind,
       }
     }
   }

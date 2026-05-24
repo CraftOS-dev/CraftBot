@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { LEFT_EYE_D, RIGHT_EYE_D, BODY_D, FOREHEAD_D, ANTENNA_D } from './mascotPaths'
 import { getPose } from './poses'
 import type { MascotState } from './types'
+import type { ReactionKind } from './mascotEngine'
 import styles from './Mascot.module.css'
 
 interface Props {
@@ -16,10 +17,10 @@ interface Props {
    *  of the chest. The chest itself is symmetric around the mirror axis so
    *  the "white square" looks identical in both directions. */
   facing?: 'left' | 'right'
-  /** When true, renders the happy-reaction visuals: eyes close at a
-   *  raised Y position (joyful ^_^ shape) and a starburst of light rays
-   *  bursts outward around the body. The body itself stays still. */
-  reacting?: boolean
+  /** When non-null, renders one of the reaction visuals (body still stays
+   *  pinned by the FSM). 'happy' = > < eyes + yellow ray burst; 'frustrated'
+   *  = flat eye dashes + sweat drop. null = normal eye paths. */
+  reaction?: ReactionKind | null
 }
 
 // Single mirror pivot used for the entire SVG content. The body path's
@@ -41,6 +42,13 @@ const HAPPY_EYE_HALF_SIZE = 8
 const HAPPY_EYE_LEFT_X = 82
 const HAPPY_EYE_RIGHT_X = 123.25
 
+// Frustrated-reaction "— —" flat eye dashes. Anime "resigned/exhausted"
+// shape: just a short horizontal line where each eye would normally be.
+// Positioned at the regular eye Y rather than the lower happy-eye Y so
+// the expression reads as flat-stare-into-the-void rather than smiling.
+const FLAT_EYE_Y = 100
+const FLAT_EYE_HALF_WIDTH = 7
+
 // Number of light-ray dashes radiating from the body during a happy
 // reaction. 12 gives an evenly-distributed starburst at 30° intervals.
 const HAPPY_RAY_COUNT = 12
@@ -51,7 +59,7 @@ export function CraftBotMascot({
   progress = 0,
   completedCount = 0,
   facing = 'right',
-  reacting = false,
+  reaction = null,
 }: Props) {
   const [wiggling, setWiggling] = useState(false)
   const prevCompleted = useRef(completedCount)
@@ -71,13 +79,15 @@ export function CraftBotMascot({
   // late-stage progress signal (>60%). We OR them so either path lights it up.
   const showBlush = pose.showBlush || (state === 'creating' && progress > 60)
   const breatheClass = pose.sleeping ? styles.sleepBreathe : styles.breathe
-  // When reacting, the normal eye paths are replaced with > < bracket
-  // polylines below — so eyeClass only matters for the non-reacting path.
+  // When reacting, the normal eye paths are replaced with bracket polylines
+  // or flat dashes below — so eyeClass only matters for the non-reacting path.
   const eyeClass = pose.sleeping ? styles.eyeClosed : styles.eye
 
-  // Precompute the bracket polylines so the JSX stays readable. Left eye
-  // is ">", right eye is "<" — both point inward toward the face center,
-  // which is the standard happy/excited expression in anime/cartoons.
+  const isHappy = reaction === 'happy'
+  const isFrustrated = reaction === 'frustrated'
+
+  // Precompute the happy bracket polylines. Left eye is ">", right eye is
+  // "<" — both point inward toward the face center.
   const happyLeftBracket =
     `${HAPPY_EYE_LEFT_X - HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y - HAPPY_EYE_HALF_SIZE} ` +
     `${HAPPY_EYE_LEFT_X + HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y} ` +
@@ -119,11 +129,10 @@ export function CraftBotMascot({
               transform="translate(52,31) scale(1,0.94)"
             />
 
-            {reacting ? (
-              // Happy "> <" eyes — pure polylines so we get clean bracket
-              // strokes (the original eye paths are solid filled shapes
-              // and don't deform into a bracket cleanly). Both eyes use
-              // the left-eye color for visual unity during the reaction.
+            {isHappy ? (
+              // Happy "> <" eyes — polylines (the original eye paths are
+              // solid filled shapes and don't deform into a bracket
+              // cleanly). Both use the left-eye color for visual unity.
               <g className={styles.happyEyes}>
                 <polyline
                   points={happyLeftBracket}
@@ -140,6 +149,29 @@ export function CraftBotMascot({
                   strokeWidth="12"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                />
+              </g>
+            ) : isFrustrated ? (
+              // Frustrated "— —" flat eye dashes. Same fade-in animation
+              // as happy eyes for visual consistency on swap.
+              <g className={styles.happyEyes}>
+                <line
+                  x1={HAPPY_EYE_LEFT_X - FLAT_EYE_HALF_WIDTH}
+                  y1={FLAT_EYE_Y}
+                  x2={HAPPY_EYE_LEFT_X + FLAT_EYE_HALF_WIDTH}
+                  y2={FLAT_EYE_Y}
+                  stroke="#FF4D17"
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1={HAPPY_EYE_RIGHT_X - FLAT_EYE_HALF_WIDTH}
+                  y1={FLAT_EYE_Y}
+                  x2={HAPPY_EYE_RIGHT_X + FLAT_EYE_HALF_WIDTH}
+                  y2={FLAT_EYE_Y}
+                  stroke="#FF4D17"
+                  strokeWidth="10"
+                  strokeLinecap="round"
                 />
               </g>
             ) : (
@@ -173,7 +205,7 @@ export function CraftBotMascot({
              above the local origin. The outer translate moves the origin
              to the body center (80, 109); the inner rotate then spins
              that dash around the center so the rays radiate outward. */}
-          {reacting && (
+          {isHappy && (
             <g className={styles.happyRays}>
               {Array.from({ length: HAPPY_RAY_COUNT }).map((_, i) => {
                 const angle = (i * 360) / HAPPY_RAY_COUNT
@@ -191,6 +223,28 @@ export function CraftBotMascot({
                   />
                 )
               })}
+            </g>
+          )}
+
+          {/* Frustrated sweat drop — small blue teardrop anchored next to
+             the head. Lives OUTSIDE the mirror group so it always renders
+             on the same side of the panel regardless of facing direction
+             (otherwise it would appear to "swap sides" as the mascot
+             turns, which reads as a glitch). The drip animation drops it
+             a few pixels then fades out, looping while frustrated. */}
+          {isFrustrated && (
+            <g className={styles.sweatDrop}>
+              <path
+                d="M 0 0 Q -6 7 -6 12 A 6 6 0 1 0 6 12 Q 6 7 0 0 Z"
+                fill="#6BB7F0"
+                transform="translate(135 55)"
+              />
+              <path
+                d="M 0 0 Q -3 3 -3 6 A 3 3 0 1 0 3 6 Q 3 3 0 0 Z"
+                fill="#FFFFFF"
+                opacity="0.55"
+                transform="translate(133 58)"
+              />
             </g>
           )}
 

@@ -10,6 +10,14 @@ export interface MascotStateSnapshot {
   currentAction: ActionItem | null
   /** Total completed actions+tasks. CraftBotMascot wiggles when this rises. */
   completedCount: number
+  /** Count of tasks (itemType === 'task') currently in the 'completed'
+   *  status. Used by useMascotBehavior to fire the happy reaction when
+   *  a task wraps up successfully. Monotonic in practice — tasks don't
+   *  leave 'completed' — so the rising edge is what triggers the react. */
+  successTaskCount: number
+  /** Count of tasks currently in an aborted status ('cancelled' or 'error').
+   *  Rises trigger the frustrated reaction. */
+  abortedTaskCount: number
   /** Human-readable label suitable for the display panel's status line. */
   label: string
   /** Manually restart the idle-to-sleep countdown. Used by the click
@@ -50,6 +58,14 @@ export function useMascotState(): MascotStateSnapshot {
       a => (a.itemType === 'action' || a.itemType === 'task') && a.status === 'completed'
     ).length
 
+    const successTaskCount = actions.filter(
+      a => a.itemType === 'task' && a.status === 'completed'
+    ).length
+
+    const abortedTaskCount = actions.filter(
+      a => a.itemType === 'task' && (a.status === 'cancelled' || a.status === 'error')
+    ).length
+
     const hasPausedTask = actions.some(
       a => a.itemType === 'task' && a.status === 'paused'
     )
@@ -70,7 +86,7 @@ export function useMascotState(): MascotStateSnapshot {
       rawState = 'idle'
     }
 
-    return { rawState, currentAction, completedCount }
+    return { rawState, currentAction, completedCount, successTaskCount, abortedTaskCount }
   }, [actions, messages, connected, status])
 
   // Timestamp of when the agent most recently became idle. Reset whenever
@@ -126,6 +142,8 @@ export function useMascotState(): MascotStateSnapshot {
     state,
     currentAction: raw.currentAction,
     completedCount: raw.completedCount,
+    successTaskCount: raw.successTaskCount,
+    abortedTaskCount: raw.abortedTaskCount,
     label: status.message,
     resetIdleTimer,
   }
