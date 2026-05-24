@@ -3,11 +3,12 @@ import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketConte
 import { parseDict } from '../../browser/frontend/src/pages/Tasks/actionRenderers/parse'
 import type { ActionItem } from '../../browser/frontend/src/types'
 import { MESSAGE_ACTIONS, normalizeActionName } from './mascotEngine'
+import { formatMessage, formatParams, formatResult } from './narrationFormat'
 import type { MascotState } from './types'
 
-// How long each narration phase holds before transitioning. The user-facing
-// requirement was "after 5 seconds" for both the running-floor and the
-// result-display windows, so the same constant feeds both.
+// How long each narration phase holds before transitioning. The spec was
+// "after 5 seconds" for both the running-floor and the result-display
+// windows, so the same constant feeds both.
 const PHASE_DURATION_MS = 5000
 
 // Action names that are never narrated as a normal running/result pair.
@@ -36,12 +37,12 @@ interface NarrationSnapshot {
 //               and we're between actions → 'thinking' is chosen instead).
 //   - running:  showing "Running <name> with <params>". Held for at least
 //               PHASE_DURATION_MS, AND until the action itself completes
-//               (whichever is later). Then → result (or message → done).
+//               (whichever is later). Then → result.
 //   - result:   showing the action's output. Held for PHASE_DURATION_MS.
 //   - message:  alternate "single bubble" lane for send_message family —
 //               just the message text, held for PHASE_DURATION_MS.
 //   - thinking: between actions while a task is still running. Stays until
-//               a new narratable action appears.
+//               a new narratable action appears or the task ends.
 //
 // Selection rule: when a phase ends, we pick the EARLIEST (smallest
 // createdAt) action that hasn't been narrated yet AND isn't in
@@ -61,84 +62,79 @@ interface InternalState {
 const INITIAL: InternalState = { phase: 'idle', actionId: null, enteredAt: 0 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Formatting helpers
+// Pure helpers — operate on inputs, return next state or selection
 // ─────────────────────────────────────────────────────────────────────
 
-function trim(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max).trimEnd() + '…' : s
-}
+/** A task is "active" for narration purposes if it can still produce or
+ *  hold actions — running/waiting/paused. Completed, cancelled, and
+ *  errored tasks are terminal: their leftover actions should never be
+ *  picked up by future narration cycles. */
+const ACTIVE_TASK_STATUSES: ReadonlySet<string> = new Set([
+  'running',
+  'waiting',
+  'paused',
+])
 
-function stringifyValue(v: unknown, max = 100): string {
-  if (v == null) return ''
-  const s = typeof v === 'string' ? v : JSON.stringify(v)
-  return trim(s, max)
-}
-
-/** Pick the most informative single value out of an action's parsed input.
- *  - Empty/no dict → empty string.
- *  - One entry → just that value.
- *  - Multiple → the longest string value (heuristic for "the prompt/query/
- *    main argument"), falling back to a compact key=value list. */
-function formatParams(input: Record<string, unknown> | null): string {
-  if (!input) return ''
-  const entries = Object.entries(input)
-  if (entries.length === 0) return ''
-  if (entries.length === 1) return stringifyValue(entries[0][1])
-
-  let primary: [string, string] | null = null
-  for (const [k, v] of entries) {
-    if (typeof v === 'string' && (!primary || v.length > primary[1].length)) {
-      primary = [k, v]
+/** Set of task IDs whose status is currently active. Used as the
+ *  membership filter for action eligibility — an action is narratable
+ *  only if its root task is in this set. */
+function activeTaskIds(actions: ActionItem[]): Set<string> {
+  const ids = new Set<string>()
+  for (const a of actions) {
+    if (a.itemType === 'task' && ACTIVE_TASK_STATUSES.has(a.status)) {
+      ids.add(a.id)
     }
   }
-  if (primary) return stringifyValue(primary[1])
-
-  return trim(entries.map(([k, v]) => `${k}=${stringifyValue(v, 30)}`).join(', '), 140)
+  return ids
 }
 
-/** Pull a human-readable result string from an action. Prefers parsed-dict
- *  fields commonly carrying the "main" output (text/content/result/message),
- *  then falls back to the raw output string, then to a generic "Done". */
-function formatResult(item: ActionItem, output: Record<string, unknown> | null): string {
-  if (item.status === 'error' || item.error) {
-    const err = item.error ?? String(output?.error ?? '')
-    return err ? trim(`Error: ${err}`, 160) : 'Error'
+/** Walk parentId up to the root task. Actions are typically direct
+ *  children of tasks (one hop), but the walk is bounded to handle any
+ *  future nested-action structures defensively without risk of cycles. */
+function findRootTaskId(
+  itemMap: ReadonlyMap<string, ActionItem>,
+  start: ActionItem,
+): string | null {
+  let cur: ActionItem | undefined = start
+  for (let depth = 0; cur && depth < 16; depth++) {
+    if (cur.itemType === 'task') return cur.id
+    if (!cur.parentId) return null
+    cur = itemMap.get(cur.parentId)
   }
-  if (item.status === 'cancelled') return 'Cancelled'
-  if (output) {
-    const text =
-      output.text ??
-      output.content ??
-      output.result ??
-      output.message ??
-      output.output ??
-      null
-    if (typeof text === 'string' && text.length > 0) return trim(text, 160)
-    return stringifyValue(output, 160)
-  }
-  if (item.output) return trim(item.output, 160)
-  return 'Done'
+  return null
 }
 
-/** Pull the message text out of a send_message action's input. Falls back
- *  to the whole input dump if no recognised field is present. */
-function formatMessage(input: Record<string, unknown> | null): string {
-  if (!input) return ''
-  const msg = input.message ?? input.text ?? input.content
-  if (typeof msg === 'string') return trim(msg, 220)
-  return stringifyValue(input, 220)
+function isTaskActive(actions: ActionItem[]): boolean {
+  return activeTaskIds(actions).size > 0
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Action selection
-// ─────────────────────────────────────────────────────────────────────
-
-/** Filter the action list down to candidates we'd narrate, then sort by
- *  ascending createdAt so the earliest unnarrated one is at the front. */
+/** Filter the action list down to narratable candidates and sort by
+ *  ascending createdAt. The earliest unnarrated one wins selection.
+ *
+ *  Eligibility rules:
+ *    1. Item type is 'action' (not 'task' or 'reasoning').
+ *    2. Name isn't in the always-skip set (task_end → body reaction
+ *       instead of narration).
+ *    3. The action's root task is in the active set. THIS IS THE KEY
+ *       guard against stale narration: when a previous task ends with
+ *       actions that were never narrated (because they piled up faster
+ *       than the FSM could play them), those actions stay in the list
+ *       forever — but their root task is terminal, so they're excluded.
+ *       Only the currently-running task's actions survive the filter. */
 function listNarratableActions(actions: ActionItem[]): ActionItem[] {
+  const activeIds = activeTaskIds(actions)
+  if (activeIds.size === 0) return []
+
+  const itemMap = new Map<string, ActionItem>()
+  for (const a of actions) itemMap.set(a.id, a)
+
   return actions
     .filter(a => a.itemType === 'action')
     .filter(a => !SKIP_ACTION_NAMES.has(normalizeActionName(a.name)))
+    .filter(a => {
+      const rootId = findRootTaskId(itemMap, a)
+      return rootId !== null && activeIds.has(rootId)
+    })
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
 }
 
@@ -149,10 +145,24 @@ function findNextAction(actions: ActionItem[], narrated: ReadonlySet<string>): A
   return null
 }
 
-function isTaskActive(actions: ActionItem[]): boolean {
-  return actions.some(
-    a => a.itemType === 'task' && (a.status === 'running' || a.status === 'waiting' || a.status === 'paused'),
-  )
+/** State factories — every transition lands on one of these, so wrapping
+ *  them keeps `enteredAt: Date.now()` consistent and avoids the (3x)
+ *  repetition of the same object literal across the FSM. */
+function stateForAction(action: ActionItem): InternalState {
+  const isMessage = MESSAGE_ACTIONS.has(normalizeActionName(action.name))
+  return {
+    phase: isMessage ? 'message' : 'running',
+    actionId: action.id,
+    enteredAt: Date.now(),
+  }
+}
+
+function stateThinking(): InternalState {
+  return { phase: 'thinking', actionId: null, enteredAt: Date.now() }
+}
+
+function stateIdle(): InternalState {
+  return { phase: 'idle', actionId: null, enteredAt: 0 }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -186,77 +196,51 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
   //   - Schedule a timer for the next deadline (5s minimum on running;
   //     5s display on result/message).
   useEffect(() => {
-    const startNextOrIdle = () => {
+    // Shared "look for a queued action and either start it or fall back
+    // to thinking/idle" helper. Used by every "phase ended, what now?"
+    // codepath below. The `whenEmpty` argument decides what to do when
+    // there's nothing queued — 'thinking' for between-action gaps,
+    // 'idle' for after-task cleanup.
+    const promoteOrFallback = (whenEmpty: 'thinking' | 'idle') => {
       const list = actionsRef.current
-      // Only consider narrating new actions while a task is still
-      // active. Once the task wraps up we don't want to keep chewing
-      // through completed actions that piled up in the queue — the
-      // mascot would look "still working" long after the task ended.
+      // Once the task is over we don't queue more narrations — leftover
+      // completed actions are stale and shouldn't keep the bubble alive.
       if (!isTaskActive(list)) {
-        setInternal({ phase: 'idle', actionId: null, enteredAt: Date.now() })
+        setInternal(stateIdle())
         return
       }
       const next = findNextAction(list, narratedRef.current)
       if (next) {
-        const isMessage = MESSAGE_ACTIONS.has(normalizeActionName(next.name))
-        setInternal({
-          phase: isMessage ? 'message' : 'running',
-          actionId: next.id,
-          enteredAt: Date.now(),
-        })
+        setInternal(stateForAction(next))
         return
       }
-      // Task is still active but no unnarrated actions left — sit in
-      // 'thinking' until a new action arrives or the task ends.
-      setInternal({
-        phase: 'thinking',
-        actionId: null,
-        enteredAt: Date.now(),
-      })
+      setInternal(whenEmpty === 'thinking' ? stateThinking() : stateIdle())
     }
 
     const finishCurrent = () => {
       if (internal.actionId) narratedRef.current.add(internal.actionId)
-      startNextOrIdle()
+      promoteOrFallback('thinking')
     }
 
     switch (internal.phase) {
       case 'idle': {
         // Don't start narrating anything if there's no active task —
-        // even if there are unnarrated actions in the list (they're
-        // stale leftovers from a previous task that already ended).
+        // even if unnarrated actions linger (they're stale leftovers
+        // from a previous task that already ended).
         if (!isTaskActive(actions)) return
         const next = findNextAction(actions, narratedRef.current)
-        if (next) {
-          const isMessage = MESSAGE_ACTIONS.has(normalizeActionName(next.name))
-          setInternal({
-            phase: isMessage ? 'message' : 'running',
-            actionId: next.id,
-            enteredAt: Date.now(),
-          })
-        } else {
-          // Task started but no narratable action yet — show 'thinking'.
-          setInternal({ phase: 'thinking', actionId: null, enteredAt: Date.now() })
-        }
+        setInternal(next ? stateForAction(next) : stateThinking())
         return
       }
 
       case 'thinking': {
-        // If task is done, drop the bubble immediately — agent has
-        // nothing more to say.
+        // If task is done, drop the bubble — agent has nothing more to say.
         if (!isTaskActive(actions)) {
-          setInternal({ phase: 'idle', actionId: null, enteredAt: Date.now() })
+          setInternal(stateIdle())
           return
         }
         const next = findNextAction(actions, narratedRef.current)
-        if (next) {
-          const isMessage = MESSAGE_ACTIONS.has(normalizeActionName(next.name))
-          setInternal({
-            phase: isMessage ? 'message' : 'running',
-            actionId: next.id,
-            enteredAt: Date.now(),
-          })
-        }
+        if (next) setInternal(stateForAction(next))
         return
       }
 
@@ -305,48 +289,57 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
     }
   }, [internal, actions])
 
-  // ── Resolve the rendered bubble ────────────────────────────────────
-  //
-  // 'waiting' is a hard override on top of the internal narration FSM —
-  // if the mascot state itself reports waiting (agent paused on a user
-  // reply), that always takes precedence over whatever the FSM was
-  // saying. Other mascot states pass through and let the FSM speak.
-  const bubble: NarrationContent | null = (() => {
-    if (mascotState === 'waiting') return { kind: 'waiting' }
+  return { bubble: resolveBubble(internal, actions, mascotState) }
+}
 
-    switch (internal.phase) {
-      case 'idle':
-        return null
-      case 'thinking':
-        return { kind: 'thinking' }
-      case 'running': {
-        const item = actions.find(a => a.id === internal.actionId)
-        if (!item) return null
-        return {
-          kind: 'running',
-          actionName: item.name,
-          params: formatParams(parseDict(item.input)),
-        }
-      }
-      case 'result': {
-        const item = actions.find(a => a.id === internal.actionId)
-        if (!item) return null
-        return {
-          kind: 'result',
-          actionName: item.name,
-          result: formatResult(item, parseDict(item.output)),
-        }
-      }
-      case 'message': {
-        const item = actions.find(a => a.id === internal.actionId)
-        if (!item) return null
-        return {
-          kind: 'message',
-          text: formatMessage(parseDict(item.input)),
-        }
+// ─────────────────────────────────────────────────────────────────────
+// Render-side resolution
+// ─────────────────────────────────────────────────────────────────────
+
+/** Map the FSM state + current action list + mascot state to what the
+ *  speech bubble should actually render. Pulled out of the hook body so
+ *  the hook is just state-machine plumbing; this is all view logic.
+ *
+ *  The 'waiting' mascot-state is a hard override on top of the internal
+ *  FSM — if the mascot reports waiting (agent paused on a user reply),
+ *  that always takes precedence over whatever the FSM was saying. */
+function resolveBubble(
+  internal: InternalState,
+  actions: ActionItem[],
+  mascotState: MascotState,
+): NarrationContent | null {
+  if (mascotState === 'waiting') return { kind: 'waiting' }
+
+  switch (internal.phase) {
+    case 'idle':
+      return null
+    case 'thinking':
+      return { kind: 'thinking' }
+    case 'running': {
+      const item = actions.find(a => a.id === internal.actionId)
+      if (!item) return null
+      return {
+        kind: 'running',
+        actionName: item.name,
+        params: formatParams(parseDict(item.input)),
       }
     }
-  })()
-
-  return { bubble }
+    case 'result': {
+      const item = actions.find(a => a.id === internal.actionId)
+      if (!item) return null
+      return {
+        kind: 'result',
+        actionName: item.name,
+        result: formatResult(item, parseDict(item.output)),
+      }
+    }
+    case 'message': {
+      const item = actions.find(a => a.id === internal.actionId)
+      if (!item) return null
+      return {
+        kind: 'message',
+        text: formatMessage(parseDict(item.input)),
+      }
+    }
+  }
 }

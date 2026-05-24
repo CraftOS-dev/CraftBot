@@ -37,6 +37,24 @@ export const WANDER_WARMUP_MS = 300
  *  shorter CSS animation, ~420ms). */
 export const HAPPY_DURATION_MS = 700
 
+/** A single vertical jump-in-place takes this long. Matched to the hop
+ *  duration so the squash-and-stretch beats land on the same rhythm —
+ *  the in-place jump should read as "same character, just vertical". */
+export const JUMP_IN_PLACE_DURATION_MS = HOP_DURATION_MS
+
+/** Rest between consecutive in-place jumps, sampled uniformly in this
+ *  range. Shorter than the wander rest because the agent is "expectant"
+ *  — repeated little hops feel more attentive than long pauses. */
+export const JUMP_REST_MIN_MS = 250
+export const JUMP_REST_MAX_MS = 500
+
+/** Idle-mode cycle interval. The mascot switches between wandering
+ *  (hopping around the stage) and tracking (standing still with eyes
+ *  following the cursor) on this rhythm — randomized so it doesn't
+ *  feel mechanical. */
+export const IDLE_CYCLE_MIN_MS = 6_000
+export const IDLE_CYCLE_MAX_MS = 10_000
+
 // ─────────────────────────────────────────────────────────────────────
 // Geometry constants
 // ─────────────────────────────────────────────────────────────────────
@@ -202,6 +220,47 @@ export function buildSettleKeyframes(start: number, target: number): Keyframe[] 
   ]
 }
 
+/** Vertical jump-in-place keyframes. Mirrors buildHopKeyframes' full
+ *  eight-beat structure (rest → crouch → push off → peak → descent →
+ *  land → recover → settle) with translateX locked to 0 throughout, so
+ *  the animation reads as the same character motion as a hop — just
+ *  vertical. Skipping the push-off / descent / recovery beats (as an
+ *  earlier 5-keyframe version did) makes the jump feel stiff and
+ *  un-Pixar; keeping them all preserves the squash-and-stretch arc. */
+export function buildJumpInPlaceKeyframes(): Keyframe[] {
+  const arcH = 18
+  const arcMid = arcH * 0.65
+
+  return [
+    // Rest.
+    { transform: 'translate(0px, 0) scale(1, 1)', offset: 0 },
+    // Crouch — wider + shorter, slight dip into the floor.
+    { transform: 'translate(0px, 4px) scale(1.15, 0.85)', offset: 0.18 },
+    // Push off — body stretches up as feet leave the ground.
+    { transform: `translate(0px, ${-arcMid}px) scale(0.92, 1.10)`, offset: 0.35 },
+    // Peak — apex of the arc.
+    { transform: `translate(0px, ${-arcH}px) scale(0.94, 1.06)`, offset: 0.5 },
+    // Descent — still stretched on the way back down.
+    { transform: `translate(0px, ${-arcMid}px) scale(0.95, 1.06)`, offset: 0.65 },
+    // Landing — heaviest squash, absorbs the impact.
+    { transform: 'translate(0px, 4px) scale(1.18, 0.82)', offset: 0.80 },
+    // Recovery — half-squash on the way back to neutral.
+    { transform: 'translate(0px, 2px) scale(1.05, 0.96)', offset: 0.90 },
+    // Settle.
+    { transform: 'translate(0px, 0) scale(1, 1)', offset: 1 },
+  ]
+}
+
+/** Sample a uniform-random rest delay in [JUMP_REST_MIN_MS, JUMP_REST_MAX_MS]. */
+export function pickJumpRest(): number {
+  return JUMP_REST_MIN_MS + Math.random() * (JUMP_REST_MAX_MS - JUMP_REST_MIN_MS)
+}
+
+/** Sample a uniform-random idle-mode cycle interval. */
+export function pickIdleCycleDelay(): number {
+  return IDLE_CYCLE_MIN_MS + Math.random() * (IDLE_CYCLE_MAX_MS - IDLE_CYCLE_MIN_MS)
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // State machine
 // ─────────────────────────────────────────────────────────────────────
@@ -211,17 +270,26 @@ export function buildSettleKeyframes(start: number, target: number): Keyframe[] 
  *  - `inactive`: not wandering for any external reason (sleeping/pinned/
  *    collapsed). The mascot sits at center, body not animated.
  *  - `resting`: awake, between hops. Breathing animation only. The
- *    wander timer is counting down toward the next hop.
+ *    wander timer is counting down toward the next hop (wander mode
+ *    only — track mode just sits and lets the eyes follow cursor).
  *  - `hopping`: a hop animation is in flight.
  *  - `reacting`: a click or external trigger pinned the body for a
  *    reaction (happy on click / task success; frustrated on task abort).
+ *  - `waitingJump`: agent is waiting for a user reply — body is pinned
+ *    at the stage center and loops vertical jumps in place.
  */
-export type Phase = 'inactive' | 'resting' | 'hopping' | 'reacting'
+export type Phase = 'inactive' | 'resting' | 'hopping' | 'reacting' | 'waitingJump'
 
 /** Which reaction visual to render while phase === 'reacting'.
  *  - `happy`: > < eyes + yellow ray burst (click + task success).
  *  - `frustrated`: flat eye dashes + sweat drop (task aborted/error). */
 export type ReactionKind = 'happy' | 'frustrated'
+
+/** Cycles within the `resting` phase to keep idle behavior varied.
+ *  - `wander`: existing behavior — pick a random hop target periodically.
+ *  - `track`:  stand still and let the eyes follow the cursor.
+ *  Cycled on a randomized timer in useMascotBehavior. */
+export type IdleMode = 'wander' | 'track'
 
 export interface EngineState {
   phase: Phase
@@ -233,6 +301,9 @@ export interface EngineState {
   facing: 'left' | 'right'
   /** Which reaction is being played. Only meaningful while phase === 'reacting'. */
   reactionKind: ReactionKind
+  /** Current idle behavior. Determines whether 'resting' arms the wander
+   *  timer or stays put for eye-tracking. */
+  idleMode: IdleMode
 }
 
 export const INITIAL_STATE: EngineState = {
@@ -241,6 +312,7 @@ export const INITIAL_STATE: EngineState = {
   hopTarget: 0,
   facing: 'right',
   reactionKind: 'happy',
+  idleMode: 'wander',
 }
 
 export type EngineEvent =
@@ -259,6 +331,13 @@ export type EngineEvent =
   /** External trigger (task end success/aborted) — pins the body at the
    *  current rest position and plays the requested reaction kind. */
   | { type: 'EXTERNAL_REACT', kind: ReactionKind }
+  /** Cycle timer fired — flip between wander and track idle modes.
+   *  Only meaningful in the active idle phases (resting/hopping); other
+   *  phases ignore it. */
+  | { type: 'CYCLE_IDLE_MODE' }
+  /** External signal that the agent has entered (active=true) or exited
+   *  (active=false) the waiting-for-user-reply state. */
+  | { type: 'SET_WAITING', active: boolean }
 
 export function transition(state: EngineState, event: EngineEvent): EngineState {
   switch (event.type) {
@@ -331,6 +410,34 @@ export function transition(state: EngineState, event: EngineEvent): EngineState 
         hopTarget: state.position,
         reactionKind: event.kind,
       }
+    }
+
+    case 'CYCLE_IDLE_MODE': {
+      // Only flips during the active idle phases. Reacting/inactive/
+      // waitingJump explicitly ignore — those phases own their own
+      // visuals and would look wrong if the eyes started tracking
+      // mid-reaction or mid-jump. The cycle effect re-arms when phase
+      // returns to resting, so a tick missed during e.g. a hop comes
+      // back on the next cycle.
+      if (state.phase !== 'resting' && state.phase !== 'hopping') return state
+      return { ...state, idleMode: state.idleMode === 'wander' ? 'track' : 'wander' }
+    }
+
+    case 'SET_WAITING': {
+      if (event.active) {
+        // Enter waiting jump from anywhere except 'reacting' (don't
+        // interrupt an in-flight reaction — REACTION_DONE will land us
+        // back in 'resting' and the React-side re-sync effect will
+        // promote into waitingJump on the next render). Snap position
+        // to 0 because the jump animation runs in-place at the stage
+        // center.
+        if (state.phase === 'reacting') return state
+        return { ...state, phase: 'waitingJump', position: 0, hopTarget: 0 }
+      }
+      // Leaving waiting — drop back into the normal idle loop. The
+      // wander/track cycle picks up wherever idleMode left off.
+      if (state.phase !== 'waitingJump') return state
+      return { ...state, phase: 'resting' }
     }
   }
 }

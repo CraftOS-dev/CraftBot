@@ -9,10 +9,14 @@ import {
   HAPPY_DURATION_MS,
   HOP_DURATION_MS,
   INITIAL_STATE,
+  JUMP_IN_PLACE_DURATION_MS,
   SETTLE_DURATION_MS,
   WANDER_WARMUP_MS,
   buildHopKeyframes,
+  buildJumpInPlaceKeyframes,
   buildSettleKeyframes,
+  pickIdleCycleDelay,
+  pickJumpRest,
   pickPostHopRest,
   readCurrentTranslateX,
   transition,
@@ -45,6 +49,10 @@ export interface BehaviorInputs {
   /** Monotonic counter — rises by 1 each time a task is aborted (status
    *  cancelled or error). Drives the frustrated external reaction. */
   abortedTaskCount?: number
+  /** Whether the agent is waiting for a user reply. When true, the
+   *  mascot is forced into the waitingJump phase (centers + jumps in
+   *  place). Reverts to normal idle when this flips back to false. */
+  isWaiting?: boolean
 }
 
 export interface BehaviorOutputs {
@@ -60,6 +68,9 @@ export interface BehaviorOutputs {
    *  anchor to so it doesn't clip against the stage edges. Derived from
    *  the mascot's target X — bubble sits opposite the mascot's drift. */
   bubbleSide: 'left' | 'right'
+  /** True iff the FSM is in 'resting' phase with idleMode === 'track'.
+   *  Drives the cursor eye-tracking hook on the consumer side. */
+  isEyeTracking: boolean
   /** Onclick callback for the mascot wrapper. */
   handleClick: () => void
 }
@@ -110,40 +121,78 @@ export function useMascotBehavior(inputs: BehaviorInputs): BehaviorOutputs {
   // remember the prior count and dispatch a reaction when it ticks up.
   // First-mount value is treated as the baseline so we don't fire on
   // initial state hydration.
-  const prevSuccessRef = useRef(inputs.successTaskCount ?? 0)
-  useEffect(() => {
-    const cur = inputs.successTaskCount ?? 0
-    if (cur > prevSuccessRef.current) {
-      dispatch({ type: 'EXTERNAL_REACT', kind: 'happy' })
-    }
-    prevSuccessRef.current = cur
-  }, [inputs.successTaskCount])
+  useReactionOnIncrease(inputs.successTaskCount, () => {
+    dispatch({ type: 'EXTERNAL_REACT', kind: 'happy' })
+  })
+  useReactionOnIncrease(inputs.abortedTaskCount, () => {
+    dispatch({ type: 'EXTERNAL_REACT', kind: 'frustrated' })
+  })
 
-  const prevAbortedRef = useRef(inputs.abortedTaskCount ?? 0)
+  // ─── Sync: isWaiting → SET_WAITING event ────────────────────────────
+  // Re-checks on every (input, phase) change so that if a reaction
+  // briefly interrupts waitingJump, REACTION_DONE landing in 'resting'
+  // immediately re-promotes back to waitingJump while isWaiting is still
+  // true. The reducer's SET_WAITING transition is a no-op when the
+  // requested phase already matches, so this is safe to fire repeatedly.
   useEffect(() => {
-    const cur = inputs.abortedTaskCount ?? 0
-    if (cur > prevAbortedRef.current) {
-      dispatch({ type: 'EXTERNAL_REACT', kind: 'frustrated' })
+    if (inputs.isWaiting && state.phase !== 'waitingJump') {
+      dispatch({ type: 'SET_WAITING', active: true })
+    } else if (!inputs.isWaiting && state.phase === 'waitingJump') {
+      dispatch({ type: 'SET_WAITING', active: false })
     }
-    prevAbortedRef.current = cur
-  }, [inputs.abortedTaskCount])
+  }, [inputs.isWaiting, state.phase])
+
+  // ─── Effect: idle-mode cycle timer ──────────────────────────────────
+  // Self-rescheduling recursive timeout that fires CYCLE_IDLE_MODE on
+  // the desired cadence for the *lifetime of the hook*.
+  //
+  // CRITICAL: this effect runs once on mount and is not redone on phase
+  // changes. An earlier version had `[state.phase, state.idleMode]` as
+  // deps, but the hop+rest cycle changes phase every 1.3–5.5s, which
+  // tore down and rebuilt the 12–20s cycle timer faster than it could
+  // ever fire — eye tracking effectively never triggered. Decoupling
+  // from phase fixes that.
+  //
+  // It's safe to fire CYCLE_IDLE_MODE while the FSM is in non-idle
+  // phases (reacting / inactive / waitingJump): the reducer's guard
+  // short-circuits those into a no-op and the next tick is already
+  // scheduled, so cycling resumes naturally once we're back in idle.
+  useEffect(() => {
+    let timerId: number | null = null
+    const schedule = () => {
+      timerId = window.setTimeout(() => {
+        timerId = null
+        dispatch({ type: 'CYCLE_IDLE_MODE' })
+        schedule()
+      }, pickIdleCycleDelay())
+    }
+    schedule()
+    return () => {
+      if (timerId !== null) window.clearTimeout(timerId)
+    }
+  }, [])
 
   // ─── Effect: wander timer (resting → hopping) ────────────────────────
   // Fires WANDER_TICK after a delay. Warmup is used for the first
   // resting tick after waking/reaction; full random rest is used after
   // hops so the rhythm matches the old hop+rest cycle (1300–5500ms total).
+  //
+  // Skipped entirely in track mode — that's the "stand still, eyes
+  // follow cursor" idle behavior. The cycle timer above will eventually
+  // flip idleMode back to 'wander' and re-arm this effect.
   useEffect(() => {
     const prevPhase = prevPhaseRef.current
     prevPhaseRef.current = state.phase
 
     if (state.phase !== 'resting') return
+    if (state.idleMode === 'track') return
 
     const delay = prevPhase === 'hopping' ? pickPostHopRest() : WANDER_WARMUP_MS
     const id = window.setTimeout(() => {
       dispatch({ type: 'WANDER_TICK', maxAmp: maxAmpRef.current })
     }, delay)
     return () => window.clearTimeout(id)
-  }, [state.phase])
+  }, [state.phase, state.idleMode])
 
   // ─── Effect: hop animation (drives HOP_DONE) ─────────────────────────
   // When the FSM enters 'hopping', start the WAAPI keyframe sequence
@@ -230,6 +279,79 @@ export function useMascotBehavior(inputs: BehaviorInputs): BehaviorOutputs {
       dispatch({ type: 'REACTION_DONE' })
     }, HAPPY_DURATION_MS)
     return () => window.clearTimeout(id)
+  }, [state.phase])
+
+  // ─── Effect: waitingJump animation loop ─────────────────────────────
+  // While phase === 'waitingJump', the mascot stands at center and
+  // loops vertical jumps. If it entered waitingJump from a non-center
+  // X (mid-wander hop, for example), settle to center first, THEN start
+  // the loop. The loop schedules each jump with a randomized rest
+  // between them so it doesn't feel mechanical.
+  //
+  // The `cancelled` closure flag (rather than a ref) is what stops the
+  // loop on cleanup — every async continuation checks it before
+  // scheduling the next step. Animations and timers both get cleaned up.
+  useEffect(() => {
+    if (state.phase !== 'waitingJump') return
+    const el = wanderRef.current
+    if (!el) return
+
+    let cancelled = false
+    let restTimerId: number | null = null
+
+    const playJump = () => {
+      if (cancelled) return
+      const node = wanderRef.current
+      if (!node) return
+      const anim = node.animate(
+        buildJumpInPlaceKeyframes(),
+        { duration: JUMP_IN_PLACE_DURATION_MS, easing: 'ease-in-out', fill: 'forwards' },
+      )
+      currentAnimRef.current = anim
+      anim.onfinish = () => {
+        if (currentAnimRef.current === anim) currentAnimRef.current = null
+        if (cancelled) return
+        restTimerId = window.setTimeout(playJump, pickJumpRest())
+      }
+      anim.oncancel = () => {
+        if (currentAnimRef.current === anim) currentAnimRef.current = null
+      }
+    }
+
+    // Settle to center first if needed. Without this, an entry from
+    // mid-hop would have the jumps happen at the hop's last X instead
+    // of the stage center.
+    const currentX = readCurrentTranslateX(el)
+    if (Math.abs(currentX) >= 1) {
+      if (currentAnimRef.current) {
+        try { currentAnimRef.current.commitStyles() } catch { /* noop */ }
+        currentAnimRef.current.cancel()
+        currentAnimRef.current = null
+      }
+      const settleAnim = el.animate(
+        buildSettleKeyframes(currentX, 0),
+        { duration: SETTLE_DURATION_MS, easing: 'ease-in-out', fill: 'forwards' },
+      )
+      currentAnimRef.current = settleAnim
+      settleAnim.onfinish = () => {
+        if (currentAnimRef.current === settleAnim) currentAnimRef.current = null
+        if (cancelled) return
+        playJump()
+      }
+      settleAnim.oncancel = () => {
+        if (currentAnimRef.current === settleAnim) currentAnimRef.current = null
+      }
+    } else {
+      playJump()
+    }
+
+    return () => {
+      cancelled = true
+      if (restTimerId !== null) {
+        window.clearTimeout(restTimerId)
+        restTimerId = null
+      }
+    }
   }, [state.phase])
 
   // ─── Click handler ──────────────────────────────────────────────────
@@ -325,6 +447,25 @@ export function useMascotBehavior(inputs: BehaviorInputs): BehaviorOutputs {
     facing: (state as EngineState).facing,
     reaction: state.phase === 'reacting' ? state.reactionKind : null,
     bubbleSide,
+    isEyeTracking: state.phase === 'resting' && state.idleMode === 'track',
     handleClick,
   }
+}
+
+/** Fire `onIncrease` exactly when `counter` ticks up. Mount-time value is
+ *  treated as the baseline so initial hydration doesn't spuriously fire.
+ *  Used to translate the success/aborted task counters from useMascotState
+ *  into one-shot EXTERNAL_REACT dispatches. */
+function useReactionOnIncrease(counter: number | undefined, onIncrease: () => void): void {
+  const value = counter ?? 0
+  const prev = useRef(value)
+  // We keep the callback in a ref so consumers can pass an inline arrow
+  // without forcing the effect to re-run on every parent render.
+  const cb = useRef(onIncrease)
+  useEffect(() => { cb.current = onIncrease }, [onIncrease])
+
+  useEffect(() => {
+    if (value > prev.current) cb.current()
+    prev.current = value
+  }, [value])
 }

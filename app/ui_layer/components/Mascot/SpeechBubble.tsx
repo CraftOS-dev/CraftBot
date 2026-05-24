@@ -12,10 +12,9 @@ interface Props {
   side?: 'left' | 'right'
 }
 
-/** Floating speech bubble anchored above the mascot. Lives inside the
- *  `.wander` wrapper so it follows the mascot's hop translation; the
- *  bubble's own scale/transform-origin keeps it readable even while the
- *  body squashes on landing.
+/** Speech bubble visual. Floats beside the mascot (side chosen
+ *  dynamically by useMascotBehavior) and follows the wander wrapper's
+ *  hop translation.
  *
  *  Content swaps fade in/out via a small keyed re-mount: when the kind
  *  or primary text changes, the old node fades out and a fresh one fades
@@ -23,15 +22,13 @@ interface Props {
  *  instead of one bubble whose text silently changes. */
 export function SpeechBubble({ content, side = 'right' }: Props) {
   // Keep the last non-null content around for one fade-out cycle so the
-  // bubble doesn't pop out instantly when narration ends — but in
-  // practice the FSM nearly always replaces with the next bubble anyway.
+  // bubble doesn't pop out instantly when narration ends. In practice
+  // the FSM nearly always replaces with the next bubble anyway.
   const [render, setRender] = useState<NarrationContent | null>(content)
 
   useEffect(() => {
     if (content) setRender(content)
     else {
-      // Defer null clearing slightly so the final bubble fades rather
-      // than disappearing on the same frame the FSM clears it.
       const id = window.setTimeout(() => setRender(null), 180)
       return () => window.clearTimeout(id)
     }
@@ -39,39 +36,11 @@ export function SpeechBubble({ content, side = 'right' }: Props) {
 
   if (!render) return null
 
-  // Build the displayed text per kind. Some kinds have a label/body
-  // structure (running / result), others are single-line.
-  let label: string | null = null
-  let body: string
-  switch (render.kind) {
-    case 'running':
-      label = `Running ${render.actionName}`
-      body = render.params ? `with ${render.params}` : ''
-      break
-    case 'result':
-      label = `${render.actionName} →`
-      body = render.result
-      break
-    case 'message':
-      label = null
-      body = render.text
-      break
-    case 'thinking':
-      label = null
-      body = 'Thinking…'
-      break
-    case 'waiting':
-      label = null
-      body = 'Waiting for your reply…'
-      break
-  }
-
-  // The key drives the swap animation — when content kind or primary
-  // body changes, React unmounts the old node and mounts a new one
-  // (each running a fresh fade-in).
-  const swapKey = `${render.kind}:${label ?? ''}:${body.slice(0, 32)}`
-
+  const { label, body } = bubbleText(render)
   const sideClass = side === 'left' ? styles.bubbleSideLeft : styles.bubbleSideRight
+  // Re-mount key — when content kind or primary text changes, React
+  // unmounts the old node and mounts a new one (fresh fade-in).
+  const swapKey = `${render.kind}:${label ?? ''}:${body.slice(0, 32)}`
 
   return (
     <div
@@ -84,4 +53,29 @@ export function SpeechBubble({ content, side = 'right' }: Props) {
       <div className={styles.speechBubbleBody}>{body}</div>
     </div>
   )
+}
+
+/** Map a NarrationContent variant to the displayed `{label, body}` pair.
+ *  Pure function — pulled out so the component stays focused on the
+ *  React lifecycle + DOM, and the per-kind text shaping has a single
+ *  obvious home. */
+function bubbleText(content: NarrationContent): { label: string | null; body: string } {
+  switch (content.kind) {
+    case 'running':
+      return {
+        label: `Running ${content.actionName}`,
+        body: content.params ? `with ${content.params}` : '',
+      }
+    case 'result':
+      return {
+        label: `${content.actionName} →`,
+        body: content.result,
+      }
+    case 'message':
+      return { label: null, body: content.text }
+    case 'thinking':
+      return { label: null, body: 'Thinking…' }
+    case 'waiting':
+      return { label: null, body: 'Waiting for your reply…' }
+  }
 }

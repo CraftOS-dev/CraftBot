@@ -42,6 +42,17 @@
   transition: transform 220ms ease;
 }
 
+/* Eye-tracking wrapper <g>. useCursorEyeTracking writes this element's
+   `transform` attribute directly (no React state), and a CSS transition
+   on `transform` smooths the discrete attribute writes — so both the
+   per-mousemove tracking updates AND the reset-to-center on disable
+   ease rather than snap.
+   220ms matches the .eye / .eyeClosed transition so the whole eye
+   subsystem feels like one continuous interpolation. */
+.eyeTrackingGroup {
+  transition: transform 220ms ease-out;
+}
+
 .eyeLeft  { animation-delay: 0ms; }
 .eyeRight { animation-delay: 120ms; }
 
@@ -181,20 +192,131 @@
   overflow: hidden;
 }
 
-.stageCompact {
-  min-height: 80px;
-  padding: var(--space-3) var(--space-3) var(--space-1);
+/* ─────────────────────────────────────────────────────────────────────
+   Background scene (MascotBackground.tsx)
+   ─────────────────────────────────────────────────────────────────────
+
+   Two cover-fit images stacked at the same position. The currently-
+   active theme reveals one and hides the other via opacity, so the
+   theme switch crossfades smoothly. Both stay loaded in the DOM, so
+   the swap has no flash-of-loading.
+
+   Background sits at z-index:0 (mascotLayer is z-index:2) and is
+   pointer-events:none so it doesn't intercept the stage's wheel-to-
+   zoom handler or block clicks reaching the mascot. */
+.background {
+  /* ── Tunables ────────────────────────────────────────────────
+     Change these three numbers to retune the scene; the math below
+     uses them via calc() so positioning stays consistent.
+       --bg-zoom            baseline scale of the scene (higher =
+                            more zoomed-in mountains/clouds, AND
+                            wider safety margin against side gaps
+                            at low user zoom).
+       --bg-image-grass-y   the grass line's vertical position
+                            inside the image file, as % of image
+                            height from top. (Adjust per-image.)
+       --bg-ground-line-y   where the ground should land in the
+                            stage, as % of stage height. Should
+                            match the mascot's body-bottom Y. */
+  --bg-zoom: 4;
+  --bg-image-grass-y: 75%;
+  --bg-ground-line-y: 81%;
+
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* NO transform on .background itself. The previous version put
+     scale() here, which shrunk the WHOLE container (including the
+     image inside) below stage size at low user zoom — that's what
+     produced the black borders around the scene. The user-zoom
+     scale lives on the image elements (.bgDay/.bgNight) below
+     instead, so .background stays at stage-full size and only the
+     image content scales within it. */
 }
+
+.bgDay,
+.bgNight {
+  position: absolute;
+  /* Image sized by HEIGHT ONLY — width follows the image's intrinsic
+     aspect ratio. This decouples image dimensions from panel width:
+     resizing the panel horizontally does NOT change image height,
+     so the grass line stays at a fixed Y in stage coords regardless
+     of panel resize (the "ground level invariant under aspect
+     change" rule).
+     --bg-zoom × 100% is the baseline scale (default 4× stage
+     height). The high baseline is what keeps the image wide enough
+     to fill the panel even at minimum user zoom (0.5×): natural
+     image width = aspect × 4 × stage_h ≈ 8 × stage_h, scaled by
+     0.5 → ~4× stage_h, which covers up to max panel width 800px
+     with no side gaps. */
+  height: calc(var(--bg-zoom) * 100%);
+  width: auto;
+  /* Vertical alignment math (all % of stage height):
+       grass_in_image_offset = bg-image-grass-y × bg-zoom
+       image_top = bg-ground-line-y − grass_in_image_offset
+     With defaults (75%, 4, 78%):
+       grass_in_image_offset = 75% × 4 = 300%
+       image_top = 78% − 300% = −222%
+     i.e., the image extends ~222% of stage height ABOVE the stage
+     so its 75%-into-image grass line lands at 78% of stage. */
+  top: calc(var(--bg-ground-line-y) - var(--bg-image-grass-y) * var(--bg-zoom));
+  bottom: auto;
+  left: 50%;
+  /* Combines horizontal centering (translateX(-50%) shifts the image
+     left by half its own width so its center sits at stage center)
+     with the user wheel-zoom scale.
+     transform-origin = (50%, --bg-image-grass-y) = the image's
+     horizontal center + the grass-line vertically. The horizontal
+     50% maps to STAGE CENTER (since the image is centered there) —
+     and that's the same point the mascot scales around (see
+     .mascotLayer below). Both elements scale uniformly around stage
+     center, so the mascot's scene-relative position is preserved
+     across zoom: a feature at scene-offset B goes to s·B; the
+     mascot at wander-offset d goes to s·d; relative position
+     (d − B) stays constant in scene coordinates. */
+  transform: translateX(-50%) scale(var(--mascot-zoom, 1));
+  transform-origin: 50% var(--bg-image-grass-y);
+  transition: opacity 400ms ease, transform 120ms ease-out;
+}
+
+/* Default (dark theme — the project's base palette) shows night. */
+.bgDay   { opacity: 0; }
+.bgNight { opacity: 1; }
+
+/* Light theme — swap which layer is visible. */
+[data-theme="light"] .bgDay   { opacity: 1; }
+[data-theme="light"] .bgNight { opacity: 0; }
 
 /* Wrapper around the mascot SVG. Always centered horizontally now —
    the speech-bubble approach removes the old left-pin / right-card
-   layout. Top:70% parks the mascot's feet near the stage's content-
-   area floor so the hop animation has a real "ground" to land on. */
+   layout. Top:62% lifts the mascot slightly above stage mid-bottom —
+   still close enough to the floor that the hop's squash-and-stretch
+   reads as "landing on a surface", but with more headroom above for
+   the speech bubble. */
 .mascotLayer {
   position: absolute;
-  top: 70%;
+  top: 65%;
   left: 50%;
-  transform: translateX(-50%) translateY(-50%);
+  /* User wheel-zoom scale lives on .mascotLayer (NOT on .zoomLayer
+     deeper inside) so the scale composes with .wander's WAAPI hop
+     translate(d): mascot at wander offset d visually lands at offset
+     s·d from stage center, matching how the background's features at
+     scene-offset B land at s·B. Both scale uniformly around stage
+     center → mascot's scene-relative position stays invariant during
+     zoom.
+     transform-origin: 50% 95%
+       X = 50% (mascotLayer's local center; combined with left:50% +
+         translateX(-50%) above, this point lands at STAGE CENTER —
+         same horizontal pivot as the background image's scale.)
+       Y = 95% (the mascot's body-bottom in mascotLayer local — feet
+         stay at the same screen Y as the user zooms). */
+  transform: translateX(-50%) translateY(-50%) scale(var(--mascot-zoom, 1));
+  transform-origin: 50% 95%;
+  transition: transform 120ms ease-out;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -217,39 +339,22 @@
   pointer-events: auto;
 }
 
+/* .zoomLayer is now a passive wrapper — kept for the JSX structure
+   (it groups CraftBotMascot + SpeechBubble inside .wander) and for
+   the bubble's `position: absolute` anchor, but no longer carries
+   the user-zoom scale. Scaling was moved UP to .mascotLayer so the
+   wander's WAAPI hop translate(d) gets scaled too — making the
+   mascot's wander offset behave uniformly with the background's
+   scaling and keeping the mascot's scene-relative position
+   invariant during zoom. */
+.zoomLayer {
+  position: relative;
+}
+
 .wander:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 4px;
   border-radius: var(--radius-md);
-}
-
-.statusBar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3) var(--space-3);
-}
-
-.collapseBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.collapseBtn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
