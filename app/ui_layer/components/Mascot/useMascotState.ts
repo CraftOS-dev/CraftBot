@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketContext'
 import { useDerivedAgentStatus } from '../../browser/frontend/src/hooks/useDerivedAgentStatus'
 import type { ActionItem } from '../../browser/frontend/src/types'
@@ -12,6 +12,10 @@ export interface MascotStateSnapshot {
   completedCount: number
   /** Human-readable label suitable for the display panel's status line. */
   label: string
+  /** Manually restart the idle-to-sleep countdown. Used by the click
+   *  handler to wake the mascot when it's been idle long enough to
+   *  enter the sleeping pose — clicking should rouse it. */
+  resetIdleTimer: () => void
 }
 
 // How long the agent must stay continuously idle before the mascot transitions
@@ -110,10 +114,19 @@ export function useMascotState(): MascotStateSnapshot {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raw.rawState, tick])
 
+  // Push the idle-start timestamp to now and bump the tick so the
+  // state-resolution memo re-runs and re-evaluates. If the mascot was
+  // sleeping ('idle'), this drops it back into 'resting' immediately.
+  const resetIdleTimer = useCallback(() => {
+    idleStartRef.current = Date.now()
+    setTick(t => t + 1)
+  }, [])
+
   return {
     state,
     currentAction: raw.currentAction,
     completedCount: raw.completedCount,
     label: status.message,
+    resetIdleTimer,
   }
 }

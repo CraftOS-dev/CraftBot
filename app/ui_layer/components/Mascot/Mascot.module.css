@@ -19,11 +19,16 @@
 .breathe {
   transform-origin: 50% 60%;
   animation: mascotBreathe 4s ease-in-out infinite;
+  /* Let happy-reaction rays extend past the 160×200 viewBox bounds —
+     they're positioned at radius 82–98 from the body center, so most of
+     them fall outside the viewBox horizontally. */
+  overflow: visible;
 }
 
 .sleepBreathe {
   transform-origin: 50% 60%;
   animation: mascotBreathe 6s ease-in-out infinite;
+  overflow: visible;
 }
 
 .eye {
@@ -65,6 +70,36 @@
   stroke: var(--text-muted, var(--border-secondary));
   stroke-width: 3;
   paint-order: stroke fill;
+}
+
+/* Happy-reaction starburst. Each <line> radiates outward from the body
+   center; the whole group bursts in, expands past the body silhouette,
+   and fades back out — sharp and snappy so it reads as a quick punch
+   of energy rather than a slow glow. transform-origin pins the scale
+   around the body center so the expansion radiates from the mascot. */
+.happyRays {
+  transform-origin: 80px 109px;
+  animation: mascotHappyRays 420ms ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes mascotHappyRays {
+  0%   { opacity: 0;   transform: scale(0.4); }
+  15%  { opacity: 1;   transform: scale(0.92); }
+  40%  { opacity: 1;   transform: scale(1.05); }
+  100% { opacity: 0;   transform: scale(1.35); }
+}
+
+/* Bracket eyes ("> <") shown during the happy reaction. A short
+   fade-in masks the moment the normal eye paths are swapped out for
+   the polylines — without this the swap reads as a hard cut. */
+.happyEyes {
+  animation: mascotHappyEyesFadeIn 140ms ease-out;
+}
+
+@keyframes mascotHappyEyesFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .sleepZ {
@@ -139,12 +174,15 @@
   padding: var(--space-3) var(--space-3) var(--space-1);
 }
 
-/* Wrapper around the mascot SVG. Always vertically centered; the horizontal
-   anchor is controlled by .mascotCenter / .mascotLeft so the swap between
-   them animates as a horizontal slide. */
+/* Wrapper around the mascot SVG. The horizontal anchor is controlled by
+   .mascotCenter / .mascotLeft so the swap between them animates as a
+   horizontal slide. Top:70% (rather than 50%) parks the mascot's feet
+   near the stage's content-area floor — gives the hop animation a real
+   "ground" to push off from and land on, so the squash-and-stretch reads
+   as the mascot impacting the floor instead of pushing against thin air. */
 .mascotLayer {
   position: absolute;
-  top: 50%;
+  top: 70%;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -170,9 +208,22 @@
    the transform property over a multi-keyframe hop sequence (crouch →
    push off → arc → squash on landing → settle). transform-origin is
    pinned near the feet so squash-and-stretch deforms upward into the body
-   instead of sinking through the floor. */
+   instead of sinking through the floor.
+
+   pointer-events: auto overrides .mascotLayer's "none" so clicks on the
+   mascot reach the wander wrapper (and trigger the happy reaction). The
+   .mascotLayer parent stays click-through so it doesn't block the
+   action-renderer card behind it. */
 .wander {
   transform-origin: 50% 95%;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.wander:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: var(--radius-md);
 }
 
 /* Renderer layer is anchored to the *right* side of the stage and sized to

@@ -16,6 +16,10 @@ interface Props {
    *  of the chest. The chest itself is symmetric around the mirror axis so
    *  the "white square" looks identical in both directions. */
   facing?: 'left' | 'right'
+  /** When true, renders the happy-reaction visuals: eyes close at a
+   *  raised Y position (joyful ^_^ shape) and a starburst of light rays
+   *  bursts outward around the body. The body itself stays still. */
+  reacting?: boolean
 }
 
 // Single mirror pivot used for the entire SVG content. The body path's
@@ -26,12 +30,28 @@ interface Props {
 // flip to the right side. Eyes and antenna ride along on the same pivot.
 const MIRROR = 'translate(166 0) scale(-1 1)'
 
+// Happy-reaction "> <" bracket eyes. Drawn as 3-point polylines that
+// form an angle pointing inward — left eye looks like ">" (pointing
+// right toward the face center), right eye like "<" (pointing left).
+// Sized roughly to match the visual weight of the regular eye paths,
+// and positioned slightly below the default eye Y so the brackets sit
+// at "smiling-cheek" height rather than "eyebrow" height.
+const HAPPY_EYE_Y = 115
+const HAPPY_EYE_HALF_SIZE = 8
+const HAPPY_EYE_LEFT_X = 82
+const HAPPY_EYE_RIGHT_X = 123.25
+
+// Number of light-ray dashes radiating from the body during a happy
+// reaction. 12 gives an evenly-distributed starburst at 30° intervals.
+const HAPPY_RAY_COUNT = 12
+
 export function CraftBotMascot({
   state,
   size = 140,
   progress = 0,
   completedCount = 0,
   facing = 'right',
+  reacting = false,
 }: Props) {
   const [wiggling, setWiggling] = useState(false)
   const prevCompleted = useRef(completedCount)
@@ -51,7 +71,21 @@ export function CraftBotMascot({
   // late-stage progress signal (>60%). We OR them so either path lights it up.
   const showBlush = pose.showBlush || (state === 'creating' && progress > 60)
   const breatheClass = pose.sleeping ? styles.sleepBreathe : styles.breathe
+  // When reacting, the normal eye paths are replaced with > < bracket
+  // polylines below — so eyeClass only matters for the non-reacting path.
   const eyeClass = pose.sleeping ? styles.eyeClosed : styles.eye
+
+  // Precompute the bracket polylines so the JSX stays readable. Left eye
+  // is ">", right eye is "<" — both point inward toward the face center,
+  // which is the standard happy/excited expression in anime/cartoons.
+  const happyLeftBracket =
+    `${HAPPY_EYE_LEFT_X - HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y - HAPPY_EYE_HALF_SIZE} ` +
+    `${HAPPY_EYE_LEFT_X + HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y} ` +
+    `${HAPPY_EYE_LEFT_X - HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y + HAPPY_EYE_HALF_SIZE}`
+  const happyRightBracket =
+    `${HAPPY_EYE_RIGHT_X + HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y - HAPPY_EYE_HALF_SIZE} ` +
+    `${HAPPY_EYE_RIGHT_X - HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y} ` +
+    `${HAPPY_EYE_RIGHT_X + HAPPY_EYE_HALF_SIZE},${HAPPY_EYE_Y + HAPPY_EYE_HALF_SIZE}`
 
   return (
     <div
@@ -85,13 +119,40 @@ export function CraftBotMascot({
               transform="translate(52,31) scale(1,0.94)"
             />
 
-            <g className={`${eyeClass} ${styles.eyeLeft}`}>
-              <path d={LEFT_EYE_D} fill="#FF4D17" transform="translate(82,93)" />
-            </g>
+            {reacting ? (
+              // Happy "> <" eyes — pure polylines so we get clean bracket
+              // strokes (the original eye paths are solid filled shapes
+              // and don't deform into a bracket cleanly). Both eyes use
+              // the left-eye color for visual unity during the reaction.
+              <g className={styles.happyEyes}>
+                <polyline
+                  points={happyLeftBracket}
+                  fill="none"
+                  stroke="#FF4D17"
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <polyline
+                  points={happyRightBracket}
+                  fill="none"
+                  stroke="#FF4D17"
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </g>
+            ) : (
+              <>
+                <g className={`${eyeClass} ${styles.eyeLeft}`}>
+                  <path d={LEFT_EYE_D} fill="#FF4D17" transform="translate(82,93)" />
+                </g>
 
-            <g className={`${eyeClass} ${styles.eyeRight}`}>
-              <path d={RIGHT_EYE_D} fill="#FF4F1A" transform="translate(123.25,92.75)" />
-            </g>
+                <g className={`${eyeClass} ${styles.eyeRight}`}>
+                  <path d={RIGHT_EYE_D} fill="#FF4F1A" transform="translate(123.25,92.75)" />
+                </g>
+              </>
+            )}
 
             <path d={ANTENNA_D} fill="#FF4F18" transform="translate(52,2)" />
 
@@ -102,6 +163,36 @@ export function CraftBotMascot({
               </g>
             )}
           </g>
+
+          {/* Happy-reaction starburst — small radial dashes around the
+             body, animated via CSS. Lives outside the mirror group so it
+             radiates symmetrically regardless of facing direction. The
+             SVG has overflow:visible (.breathe class) so rays that fall
+             outside the 160×200 viewBox still render. Each ray is a line
+             from (0,-82) to (0,-98) — i.e., a 16-unit vertical dash
+             above the local origin. The outer translate moves the origin
+             to the body center (80, 109); the inner rotate then spins
+             that dash around the center so the rays radiate outward. */}
+          {reacting && (
+            <g className={styles.happyRays}>
+              {Array.from({ length: HAPPY_RAY_COUNT }).map((_, i) => {
+                const angle = (i * 360) / HAPPY_RAY_COUNT
+                return (
+                  <line
+                    key={i}
+                    x1="0"
+                    y1="-82"
+                    x2="0"
+                    y2="-98"
+                    stroke="#FFE600"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    transform={`translate(80 109) rotate(${angle})`}
+                  />
+                )
+              })}
+            </g>
+          )}
 
           {/* Sleep Z's live OUTSIDE the mirror group so the 'z' letters
              don't render backwards when the mascot faces left. They float
