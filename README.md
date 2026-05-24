@@ -1,10 +1,12 @@
 <div align="center">
-    <img src="assets/craftbot_readme_banner.png" alt="CraftBot Banner" width="1280"/>
+    <a href="https://www.youtube.com/watch?v=8GpdW-gJrDA&autoplay=1" target="_blank">
+        <img src="https://img.youtube.com/vi/8GpdW-gJrDA/maxresdefault.jpg" alt="CraftBot Demo Video" width="1280"/>
+    </a>
 </div>
 
-<h1  align="center">
-CraftBot
-</h1>
+<div align="center">
+    <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="400"/>
+</div>
 
 Most agent harnesses stop at chat and tool calls. CraftBot goes further than that. It builds, evolves, and operates its own SaaS tools, then uses that tool layer to communicate and automate with you.
 
