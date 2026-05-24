@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
 import { CraftBotMascot } from './CraftBotMascot'
 import { MascotBackground } from './MascotBackground'
 import { SpeechBubble } from './SpeechBubble'
@@ -7,6 +7,7 @@ import { useMascotNarration } from './useMascotNarration'
 import { useStageMeasure } from './useStageMeasure'
 import { useMascotBehavior } from './useMascotBehavior'
 import { useCursorEyeTracking } from './useCursorEyeTracking'
+import { useWheelZoom } from './useWheelZoom'
 import { computeMaxAmplitude } from './mascotEngine'
 import styles from './Mascot.module.css'
 
@@ -15,14 +16,18 @@ interface Props {
   mascotSize?: number
 }
 
-// Zoom bounds + per-tick step for the stage's scroll-to-zoom interaction.
-// Multiplicative steps (rather than additive) give an even perceptual feel
-// at any current zoom level — 10% bigger / 10% smaller per wheel notch.
-// ZOOM_MAX is 1 so the default is the largest size — the user can only
-// scroll to shrink the mascot, not enlarge past the design baseline.
-const ZOOM_MIN = 0.40
-const ZOOM_MAX = 1
-const ZOOM_STEP = 0.1
+// Zoom configuration for the stage's scroll-to-zoom interaction.
+//   - max=1 caps zoom-in at the design baseline (user can only scroll
+//     to shrink, not enlarge past the intended scene scale).
+//   - initial < max so the scene starts slightly pulled-back, giving
+//     the mascot some breathing room against the background on first
+//     paint. The user can still wheel up to max=1 for the baseline view.
+const STAGE_ZOOM = {
+  min: 0.40,
+  max: 1,
+  step: 0.1,
+  initial: 0.8,
+} as const
 
 export function MascotDisplay({ mascotSize = 80 }: Props) {
   const {
@@ -33,11 +38,6 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
     resetIdleTimer,
   } = useMascotState()
   const { bubble } = useMascotNarration({ mascotState: state })
-  // Default zoom < ZOOM_MAX (1) so the scene starts slightly pulled-back
-  // — gives the mascot more breathing room against the background at
-  // first paint. User can still wheel up to 1.0 if they want the
-  // full-baseline view.
-  const [zoom, setZoom] = useState(0.8)
 
   // Sleeping states (idle = 30-min idle, stopped/error = external).
   // Only 'idle' is recoverable by clicking; the others stay sleeping.
@@ -48,6 +48,12 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const stageContentWidth = useStageMeasure(stageRef)
   const maxAmplitude = computeMaxAmplitude(stageContentWidth, mascotSize)
+
+  // ── Stage scroll-to-zoom ───────────────────────────────────────────
+  // useWheelZoom binds the wheel listener (non-passive) and clamps the
+  // returned zoom value to STAGE_ZOOM's bounds. Multiplicative stepping
+  // and bound enforcement live inside the hook.
+  const zoom = useWheelZoom(stageRef, STAGE_ZOOM)
 
   // ── Behavior FSM ───────────────────────────────────────────────────
   // The mascot is free to wander any time the agent isn't sleeping;
@@ -64,29 +70,6 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
     abortedTaskCount,
     isWaiting: state === 'waiting',
   })
-
-  // ── Stage scroll-to-zoom ───────────────────────────────────────────
-  // Wheel inside the stage adjusts the mascot's visual scale. We bind
-  // via addEventListener (not React's onWheel) with passive:false so
-  // preventDefault() actually stops the page-level scroll — React's
-  // built-in wheel handler is passive by default and can't block it.
-  // Plain wheel (no Ctrl) so it doesn't collide with browser zoom.
-  useEffect(() => {
-    const el = stageRef.current
-    if (!el) return
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      setZoom(z => {
-        // Multiplicative step keeps the perceptual delta consistent
-        // across the zoom range (zooming in from 2.0 feels the same as
-        // from 0.5).
-        const factor = e.deltaY < 0 ? 1 + ZOOM_STEP : 1 / (1 + ZOOM_STEP)
-        return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z * factor))
-      })
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [])
 
   // ── Cursor eye tracking ────────────────────────────────────────────
   // The hook writes the eye group's transform attribute directly (no
