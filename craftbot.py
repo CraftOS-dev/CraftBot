@@ -12,7 +12,6 @@ Commands:
     python craftbot.py status             Show if CraftBot is running
     python craftbot.py logs [-n N]        Show last N log lines (default: 50)
     python craftbot.py install [options]  Register for auto-start on boot/login
-    python craftbot.py uninstall          Remove auto-start registration
     python craftbot.py repair [options]   Re-copy current EXE over the installed
                                           copy and restart (frozen EXE only)
     python craftbot.py wizard             Open the GUI wizard
@@ -1567,9 +1566,6 @@ def main() -> None:
 
     elif command == "install":
         cmd_install(rest)
-
-    elif command == "uninstall":
-        cmd_uninstall()
 
     elif command == "repair":
         cmd_repair(rest)

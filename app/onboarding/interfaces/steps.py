@@ -331,7 +331,7 @@ class UserProfileStep:
         ("whatsapp", "WhatsApp"),
         ("discord", "Discord"),
         ("slack", "Slack"),
-        ("tui", "CraftBot Interface"),
+        ("craftbot", "CraftBot Interface"),
     ]
 
     @staticmethod
@@ -481,10 +481,10 @@ class UserProfileStep:
                 label="Preferred Notification Platform",
                 field_type="select",
                 options=[
-                    StepOption(value=val, label=label, default=(val == "tui"))
+                    StepOption(value=val, label=label, default=(val == "craftbot"))
                     for val, label in self.PLATFORM_OPTIONS
                 ],
-                default="tui",
+                default="craftbot",
             ),
         ]
 

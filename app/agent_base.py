@@ -311,9 +311,6 @@ class AgentBase:
             context_engine=self.context_engine,
         )
 
-        # Initialize footage callback (will be set by CraftBot interface later)
-        self._tui_footage_callback = None
-
         # Only initialize GUIModule if GUI mode is globally enabled
         gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
         if gui_globally_enabled:
@@ -324,7 +321,6 @@ class AgentBase:
                 context_engine=self.context_engine,
                 action_manager=self.action_manager,
                 event_stream_manager=self.event_stream_manager,
-                tui_footage_callback=self._tui_footage_callback,
             )
             # Set gui_module reference in InternalActionInterface for GUI event stream integration
             InternalActionInterface.gui_module = GUIHandler.gui_module
@@ -2946,7 +2942,6 @@ class AgentBase:
                     context_engine=self.context_engine,
                     action_manager=self.action_manager,
                     event_stream_manager=self.event_stream_manager,
-                    tui_footage_callback=self._tui_footage_callback,
                 )
         return llm_ok and vlm_ok
 

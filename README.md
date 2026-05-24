@@ -121,7 +121,6 @@ python craftbot.py stop       # Stop CraftBot
 python craftbot.py restart    # Restart CraftBot
 python craftbot.py status     # Check if it's running and if auto-start is enabled
 python craftbot.py logs       # See recent log output
-python craftbot.py uninstall  # Stop, remove auto-start, and uninstall packages
 ```
 
 > [!TIP]
@@ -289,7 +288,6 @@ REST API, and trigger actions on your behalf.
 | `python craftbot.py restart` | Stop and start CraftBot |
 | `python craftbot.py status` | Check if CraftBot is running and if auto-start is enabled |
 | `python craftbot.py logs` | Show recent log output (`-n 100` for more lines) |
-| `python craftbot.py uninstall` | Stop CraftBot, remove auto-start registration, uninstall pip packages, and purge pip cache |
 
 ---
 

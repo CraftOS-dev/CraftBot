@@ -196,7 +196,7 @@ class CLIAdapter(InterfaceAdapter):
         from app.config import get_app_version
 
         print(f"CraftBot v{get_app_version()}")
-        print("Type /help for commands, /exit to quit.\n")
+        print("Type /help for commands.\n")
 
         # Emit ready event
         self._controller.event_bus.emit(

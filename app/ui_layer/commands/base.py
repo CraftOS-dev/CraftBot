@@ -30,7 +30,7 @@ class Command(ABC):
     """
     Base class for all commands.
 
-    Commands handle user input that starts with a slash (e.g., /help, /exit).
+    Commands handle user input that starts with a slash (e.g., /help, /clear).
     Each command must define a name, description, and execute method.
 
     Example:

@@ -18,7 +18,6 @@ class CommandRegistry:
     Example:
         registry = CommandRegistry()
         registry.register(HelpCommand(controller))
-        registry.register(ExitCommand(controller))
 
         # Look up command
         cmd = registry.get("/help")

@@ -116,7 +116,6 @@ python craftbot.py stop       # CraftBot stoppen
 python craftbot.py restart    # CraftBot neu starten
 python craftbot.py status     # Prüfen ob er läuft und ob Autostart aktiviert ist
 python craftbot.py logs       # Aktuelle Logs ansehen
-python craftbot.py uninstall  # Stoppen, Autostart entfernen, Pakete deinstallieren
 ```
 
 > [!TIP]
@@ -299,7 +298,6 @@ REST-API abfragen und in deinem Namen Aktionen auslösen.
 | `restart` | Stoppen und neu starten |
 | `status` | Laufstatus und Autostart-Status anzeigen |
 | `logs [-n N]` | Die letzten N Log-Zeilen anzeigen (Standard: 50) |
-| `uninstall` | Autostart-Registrierung entfernen |
 
 **Installationsbeispiele:**
 ```bash
@@ -366,7 +364,6 @@ python craftbot.py logs     # Aktuelle Log-Ausgabe ansehen
 | `python craftbot.py restart` | CraftBot stoppen und starten |
 | `python craftbot.py status` | Prüfen, ob CraftBot läuft und ob Autostart aktiviert ist |
 | `python craftbot.py logs` | Aktuelle Log-Ausgabe anzeigen (`-n 100` für mehr Zeilen) |
-| `python craftbot.py uninstall` | CraftBot stoppen, Autostart entfernen, pip-Pakete deinstallieren und pip-Cache leeren |
 
 > [!TIP]
 > Nach `craftbot.py start` oder `craftbot.py install` wird automatisch eine **CraftBot-Desktop-Verknüpfung** erstellt. Hast du den Browser versehentlich geschlossen, doppelklicke die Verknüpfung, um ihn wieder zu öffnen.

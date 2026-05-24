@@ -138,11 +138,11 @@ def _infer_timezone() -> str:
 
 
 # Mirrors PLATFORM_OPTIONS in app/onboarding/interfaces/steps.py — the value
-# written to USER.md is the stored key (e.g. "tui"); callers need the runtime
-# display string (e.g. "CraftBot Interface").
+# written to USER.md is the stored key (e.g. "craftbot"); callers need the
+# runtime display string (e.g. "CraftBot Interface").
 DEFAULT_PREFERRED_PLATFORM = "CraftBot Interface"
 _PLATFORM_NORMALIZATION = {
-    "tui": "CraftBot Interface",
+    "craftbot": "CraftBot Interface",
     "craftbot interface": "CraftBot Interface",
     "telegram": "Telegram",
     "whatsapp": "WhatsApp",

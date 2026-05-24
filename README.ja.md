@@ -116,7 +116,6 @@ python craftbot.py stop       # CraftBotを停止
 python craftbot.py restart    # CraftBotを再起動
 python craftbot.py status     # 実行中か確認、自動起動が有効かも確認
 python craftbot.py logs       # 最近のログを確認
-python craftbot.py uninstall  # 停止、自動起動削除、パッケージをアンインストール
 ```
 
 > [!TIP]
@@ -351,7 +350,6 @@ python craftbot.py logs     # 最近のログ出力を確認
 | `python craftbot.py restart` | CraftBot を停止して再起動 |
 | `python craftbot.py status` | CraftBot が実行中か、自動起動が有効かを確認 |
 | `python craftbot.py logs` | 最近のログ出力を表示（`-n 100` でより多く表示） |
-| `python craftbot.py uninstall` | CraftBot を停止、自動起動の登録解除、pip パッケージのアンインストール、pip キャッシュの削除 |
 
 > [!TIP]
 > `craftbot.py start` または `craftbot.py install` の後、**CraftBot デスクトップショートカット**が自動作成されます。ブラウザを誤って閉じた場合は、ショートカットをダブルクリックして再度開けます。

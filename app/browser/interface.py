@@ -76,7 +76,7 @@ class BrowserInterface:
             # Clear UI adapter reference
             InternalActionInterface.set_ui_adapter(None)
             # Stop the adapter to release ports (e.g., aiohttp server on port 7926).
-            # Covers all exit paths: /exit command, Ctrl+C, and unhandled exceptions.
+            # Covers all exit paths: Ctrl+C and unhandled exceptions.
             await self._adapter.stop()
             # Stop the controller
             await self._controller.stop()

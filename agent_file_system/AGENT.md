@@ -1486,7 +1486,6 @@ Run `/help` for the live list. If you need to verify a specific command, read it
 /clear               clear the conversation
 /clear_tasks         clear finished tasks (completed, failed, aborted) from the action panel
 /reset               reset the agent to its initial state
-/exit                quit the application
 /update              check for updates and update CraftBot
 /provider <name>     switch LLM provider (openai, anthropic, google, byteplus, remote)
 ```
@@ -1582,7 +1581,7 @@ If a user types a slash command and you receive the resulting task or message:
 - The runtime processes the command BEFORE you see it. Your role is to react to its outcome, not to re-execute.
 - For `/<skill_name>`, the runtime creates a task with the skill pre-selected. You take over from there.
 - For `/<integration> connect` or `/cred status`, the result lands in the chat as text. The user may then ask you to do something with the now-connected integration.
-- For `/clear`, `/clear_tasks`, `/reset`, `/exit`: state changes happen immediately. You may not have continuity with prior conversation/tasks after these.
+- For `/clear`, `/clear_tasks`, `/reset`: state changes happen immediately. You may not have continuity with prior conversation/tasks after these.
 
 ---
 

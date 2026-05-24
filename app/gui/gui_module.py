@@ -79,7 +79,6 @@ class GUIModule:
         context_engine: ContextEngine = None,
         action_manager: ActionManager = None,
         event_stream_manager: EventStreamManager = None,
-        tui_footage_callback=None,
     ):
         # Read API key and base URL from settings.json
         from app.config import get_api_key, get_base_url
@@ -98,7 +97,6 @@ class GUIModule:
         self.context_engine: ContextEngine = context_engine
         self.action_manager: ActionManager = action_manager
         self.event_stream_manager: EventStreamManager = event_stream_manager
-        self._tui_footage_callback = tui_footage_callback
 
         # ==================================
         #  CONFIG - Read from settings.json
@@ -140,10 +138,6 @@ class GUIModule:
             "image_description_list": None,
             "annotated_image_bytes": None,
         }
-
-    def set_tui_footage_callback(self, callback) -> None:
-        """Set the footage callback for screen display."""
-        self._tui_footage_callback = callback
 
     def switch_to_gui_mode(self) -> None:
         STATE.update_gui_mode(True)
@@ -317,15 +311,6 @@ class GUIModule:
             png_bytes = GUIHandler.get_screen_state(GUIHandler.TARGET_CONTAINER)
             if png_bytes is None:
                 return {"status": "error", "message": "Failed to take screenshot"}
-
-            # Push screenshot to UI for display
-            if self._tui_footage_callback and png_bytes:
-                try:
-                    await self._tui_footage_callback(
-                        png_bytes, GUIHandler.TARGET_CONTAINER
-                    )
-                except Exception as e:
-                    logger.debug(f"[GUI] Failed to push footage to UI: {e}")
 
             # ===================================
             # 3. Get Image Description + Prepare Image for VLM

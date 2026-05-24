@@ -116,7 +116,6 @@ python craftbot.py stop       # Arrêter CraftBot
 python craftbot.py restart    # Redémarrer CraftBot
 python craftbot.py status     # Vérifier s'il tourne et si le démarrage automatique est activé
 python craftbot.py logs       # Voir les logs récents
-python craftbot.py uninstall  # Arrêter, supprimer le démarrage auto et désinstaller les paquets
 ```
 
 > [!TIP]
@@ -298,7 +297,6 @@ données de l'app via l'API REST, et déclencher des actions en votre nom.
 | `restart` | Arrête puis redémarre |
 | `status` | Affiche l'état d'exécution et celui du démarrage automatique |
 | `logs [-n N]` | Affiche les N dernières lignes de log (par défaut : 50) |
-| `uninstall` | Supprime l'enregistrement du démarrage automatique |
 
 **Exemples d'installation :**
 ```bash
@@ -365,7 +363,6 @@ python craftbot.py logs     # Affiche les logs récents
 | `python craftbot.py restart` | Arrête puis démarre CraftBot |
 | `python craftbot.py status` | Vérifie si CraftBot tourne et si le démarrage automatique est activé |
 | `python craftbot.py logs` | Affiche les logs récents (`-n 100` pour plus de lignes) |
-| `python craftbot.py uninstall` | Arrête CraftBot, supprime le démarrage automatique, désinstalle les paquets pip et purge le cache pip |
 
 > [!TIP]
 > Après `craftbot.py start` ou `craftbot.py install`, un **raccourci CraftBot sur le bureau** est créé automatiquement. Si vous fermez le navigateur par accident, double-cliquez sur le raccourci pour le rouvrir.

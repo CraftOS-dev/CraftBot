@@ -552,7 +552,6 @@ class UIController:
             ClearCommand,
             ClearTasksCommand,
             ResetCommand,
-            ExitCommand,
             MenuCommand,
             ProviderCommand,
             MCPCommand,
@@ -565,7 +564,6 @@ class UIController:
         self._command_registry.register(ClearCommand(self))
         self._command_registry.register(ClearTasksCommand(self))
         self._command_registry.register(ResetCommand(self))
-        self._command_registry.register(ExitCommand(self))
         self._command_registry.register(MenuCommand(self))
         self._command_registry.register(ProviderCommand(self))
         self._command_registry.register(MCPCommand(self))

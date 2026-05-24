@@ -98,7 +98,7 @@ class ContextEngine:
 
         Args:
             context: Dict containing message metadata:
-                - platform: Source platform (telegram, whatsapp, discord, slack, tui, cli)
+                - platform: Source platform (telegram, whatsapp, discord, slack, craftbot, cli)
                 - contact_id: Contact/sender ID
                 - contact_name: Human-readable contact name
                 - channel_id: Channel/group ID (if applicable)
@@ -121,7 +121,7 @@ class ContextEngine:
         if not self._current_message_context:
             return ""
 
-        platform = self._current_message_context.get("platform", "tui")
+        platform = self._current_message_context.get("platform", "craftbot")
         integration_type = self._current_message_context.get("integration_type", "")
         contact_name = self._current_message_context.get("contact_name", "")
         contact_id = self._current_message_context.get("contact_id", "")

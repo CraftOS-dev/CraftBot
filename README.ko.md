@@ -116,7 +116,6 @@ python craftbot.py stop       # CraftBot 중지
 python craftbot.py restart    # CraftBot 재시작
 python craftbot.py status     # 실행 여부 확인, 자동 시작 활성화 여부 확인
 python craftbot.py logs       # 최근 로그 확인
-python craftbot.py uninstall  # 중지, 자동 시작 제거, 패키지 제거
 ```
 
 > [!TIP]
@@ -296,7 +295,6 @@ CraftBot은 모든 Living UI에 내장되어 있으며, **그 상태를 항상 �
 | `restart` | 중지 후 다시 시작 |
 | `status` | 실행 상태 및 자동 시작 상태 표시 |
 | `logs [-n N]` | 마지막 N개의 로그 라인 표시 (기본값: 50) |
-| `uninstall` | 자동 시작 등록 해제 |
 
 **설치 예시:**
 ```bash
@@ -363,7 +361,6 @@ python craftbot.py logs     # 최근 로그 출력 확인
 | `python craftbot.py restart` | CraftBot 중지 후 재시작 |
 | `python craftbot.py status` | CraftBot 실행 여부와 자동 시작 활성화 여부 확인 |
 | `python craftbot.py logs` | 최근 로그 출력 표시 (`-n 100`으로 더 많은 줄 표시) |
-| `python craftbot.py uninstall` | CraftBot 중지, 자동 시작 등록 해제, pip 패키지 제거 및 pip 캐시 정리 |
 
 > [!TIP]
 > `craftbot.py start` 또는 `craftbot.py install` 실행 후 **CraftBot 데스크톱 바로가기**가 자동으로 생성됩니다. 브라우저를 실수로 닫았다면 바로가기를 더블클릭해 다시 열 수 있습니다.

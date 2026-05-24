@@ -116,7 +116,6 @@ python craftbot.py stop       # 停止 CraftBot
 python craftbot.py restart    # 重啟 CraftBot
 python craftbot.py status     # 檢查是否執行中，自啟是否已啟用
 python craftbot.py logs       # 查看最近記錄
-python craftbot.py uninstall  # 停止、移除自啟並卸載套件
 ```
 
 > [!TIP]
@@ -295,7 +294,6 @@ CraftBot 嵌入在每個 Living UI 中，並**感知其狀態**：
 | `restart` | 停止後重新啟動 |
 | `status` | 顯示執行狀態與自動啟動狀態 |
 | `logs [-n N]` | 顯示最後 N 行記錄（預設 50） |
-| `uninstall` | 移除自動啟動註冊 |
 
 **安裝範例：**
 ```bash
@@ -362,7 +360,6 @@ python craftbot.py logs     # 檢視最近的記錄
 | `python craftbot.py restart` | 停止並重新啟動 CraftBot |
 | `python craftbot.py status` | 檢查 CraftBot 是否執行中，以及自動啟動是否啟用 |
 | `python craftbot.py logs` | 顯示最近的記錄（使用 `-n 100` 顯示更多行） |
-| `python craftbot.py uninstall` | 停止 CraftBot、移除自動啟動註冊、解除 pip 套件並清除 pip 快取 |
 
 > [!TIP]
 > 執行 `craftbot.py start` 或 `craftbot.py install` 後，會自動建立 **CraftBot 桌面捷徑**。若不小心關閉了瀏覽器，雙擊捷徑即可重新開啟。

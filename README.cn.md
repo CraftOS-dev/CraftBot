@@ -116,7 +116,6 @@ python craftbot.py stop       # 停止 CraftBot
 python craftbot.py restart    # 重启 CraftBot
 python craftbot.py status     # 检查是否运行，自启是否已启用
 python craftbot.py logs       # 查看最近日志
-python craftbot.py uninstall  # 停止、移除自启并卸载包
 ```
 
 > [!TIP]
@@ -350,7 +349,6 @@ python craftbot.py logs     # 查看最近日志输出
 | `python craftbot.py restart` | 停止并重启 CraftBot |
 | `python craftbot.py status` | 检查 CraftBot 是否在运行，以及自动启动是否已启用 |
 | `python craftbot.py logs` | 显示最近日志（使用 `-n 100` 查看更多行） |
-| `python craftbot.py uninstall` | 停止 CraftBot、注销自启、卸载 pip 包并清理 pip 缓存 |
 
 > [!TIP]
 > 执行 `craftbot.py start` 或 `craftbot.py install` 后，系统会自动创建 **CraftBot 桌面快捷方式**。如果不小心关闭了浏览器，双击快捷方式即可重新打开。
