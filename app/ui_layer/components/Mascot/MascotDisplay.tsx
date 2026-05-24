@@ -33,7 +33,11 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
     resetIdleTimer,
   } = useMascotState()
   const { bubble } = useMascotNarration({ mascotState: state })
-  const [zoom, setZoom] = useState(1)
+  // Default zoom < ZOOM_MAX (1) so the scene starts slightly pulled-back
+  // — gives the mascot more breathing room against the background at
+  // first paint. User can still wheel up to 1.0 if they want the
+  // full-baseline view.
+  const [zoom, setZoom] = useState(0.8)
 
   // Sleeping states (idle = 30-min idle, stopped/error = external).
   // Only 'idle' is recoverable by clicking; the others stay sleeping.

@@ -8,7 +8,7 @@ import { getActivePlaceholder } from '../../utils/taskPlaceholder'
 import styles from './ChatPage.module.css'
 
 // Panel width limits
-const DEFAULT_PANEL_WIDTH = 380
+const DEFAULT_PANEL_WIDTH = 460
 const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 800
 
