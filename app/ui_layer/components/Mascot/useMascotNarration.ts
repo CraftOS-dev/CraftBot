@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWebSocket } from '../../browser/frontend/src/contexts/WebSocketContext'
 import { parseDict } from '../../browser/frontend/src/pages/Tasks/actionRenderers/parse'
+import {
+  getMascotFormatter,
+  toMascotResultStatus,
+  type MascotActionFormat,
+  type MascotActionStatus,
+} from '../../browser/frontend/src/pages/Tasks/actionRenderers/mascotFormatters'
 import type { ActionItem } from '../../browser/frontend/src/types'
 import { MESSAGE_ACTIONS, normalizeActionName } from './mascotEngine'
-import { formatMessage, formatParams, formatResult } from './narrationFormat'
+import { formatMessage } from './narrationFormat'
 import type { MascotState } from './types'
 
 // How long each narration phase holds before transitioning. The spec was
@@ -11,15 +17,36 @@ import type { MascotState } from './types'
 // windows, so the same constant feeds both.
 const PHASE_DURATION_MS = 5000
 
+// Parallel-batch dedupe window. When the agent's loop fires multiple
+// actions roughly simultaneously, they all show up with createdAt
+// timestamps within milliseconds of each other. Without this dedupe,
+// every action goes through the full 5s + 5s narration cycle — so a
+// 5-action parallel batch becomes ~50s of bubble backlog and the
+// mascot falls badly out of sync with reality.
+// When the FSM picks one action, any OTHER unnarrated action whose
+// createdAt sits within this window of the picked one is treated as
+// a sibling and marked as already-narrated (silently skipped). The
+// window is wide enough to catch parallel batches but narrower than
+// a typical LLM-loop-step gap, so genuinely sequential actions don't
+// get folded together.
+// TERRIBLE implementation but there is no easier way to detect
+// parallel actions without revamping the agent base code.
+const PARALLEL_BATCH_MS = 1500
+
 // Action names that are never narrated as a normal running/result pair.
 // task_end is signaled by a celebrate/frustrate body reaction instead.
 const SKIP_ACTION_NAMES: ReadonlySet<string> = new Set(['task_end'])
 
 /** Discriminated union describing what the speech bubble should render.
- *  `null` (returned alongside in the snapshot) means "no bubble at all". */
+ *  `null` (returned alongside in the snapshot) means "no bubble at all".
+ *
+ *  The `action` kind carries a pre-formatted MascotActionFormat — the
+ *  same POJO shape that mascotFormatters.ts (colocated with the Tasks
+ *  panel renderers) produces. Keeping the formatting decisions over
+ *  there means the bubble's per-action display stays in sync with the
+ *  card-sized renderer for the same action. */
 export type NarrationContent =
-  | { kind: 'running'; actionName: string; params: string }
-  | { kind: 'result'; actionName: string; result: string }
+  | { kind: 'action'; format: MascotActionFormat }
   | { kind: 'message'; text: string }
   | { kind: 'thinking' }
   | { kind: 'waiting' }
@@ -138,9 +165,54 @@ function listNarratableActions(actions: ActionItem[]): ActionItem[] {
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
 }
 
-function findNextAction(actions: ActionItem[], narrated: ReadonlySet<string>): ActionItem | null {
-  for (const a of listNarratableActions(actions)) {
-    if (!narrated.has(a.id)) return a
+/** Pick the next action to narrate AND mark its parallel siblings as
+ *  narrated (a side effect on `narratedRef`). The "siblings" are any
+ *  other unnarrated narratable actions whose createdAt is within
+ *  PARALLEL_BATCH_MS of the picked one — they're treated as part of
+ *  the same agent-loop parallel batch and silently skipped, so the
+ *  bubble doesn't fall behind by playing N × 10s for an N-wide batch.
+ *
+ *  send_message family is EXEMPT from sibling-skipping — they're
+ *  user-facing utterances that must be preserved even when fired in
+ *  the same batch as regular actions. The preemption check in the
+ *  FSM effect routes them through the 'message' phase separately.
+ *
+ *  Takes a pre-filtered `narratable` list (from listNarratableActions)
+ *  rather than the raw actions array, so the effect can compute that
+ *  list once and pass it to both this and `findUrgentMessage`. */
+function pickNextActionDeduped(
+  narratable: ActionItem[],
+  narratedRef: { current: Set<string> },
+): ActionItem | null {
+  let picked: ActionItem | null = null
+  for (const a of narratable) {
+    if (!narratedRef.current.has(a.id)) { picked = a; break }
+  }
+  if (!picked) return null
+
+  const pickedT = picked.createdAt ?? 0
+  for (const a of narratable) {
+    if (a.id === picked.id) continue
+    if (narratedRef.current.has(a.id)) continue
+    // Never dedupe a message — those go through the real-time
+    // preemption path and must remain selectable.
+    if (MESSAGE_ACTIONS.has(normalizeActionName(a.name))) continue
+    if ((a.createdAt ?? 0) <= pickedT + PARALLEL_BATCH_MS) {
+      narratedRef.current.add(a.id)
+    }
+  }
+  return picked
+}
+
+/** Look for an unnarrated send_message family action. Returns the
+ *  EARLIEST one (so multiple messages play sequentially in order).
+ *  Used by the FSM effect to preempt the current phase the moment a
+ *  message becomes available — that's what makes message bubbles
+ *  feel real-time instead of queued behind running/result phases. */
+function findUrgentMessage(narratable: ActionItem[], narrated: ReadonlySet<string>): ActionItem | null {
+  for (const a of narratable) {
+    if (narrated.has(a.id)) continue
+    if (MESSAGE_ACTIONS.has(normalizeActionName(a.name))) return a
   }
   return null
 }
@@ -183,6 +255,15 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
   const actionsRef = useRef(actions)
   useEffect(() => { actionsRef.current = actions }, [actions])
 
+  // Prune the narrated set whenever the FSM lands in idle (= the task
+  // wrapped up). Past task action IDs would otherwise accumulate in
+  // narratedRef for the lifetime of the page — they're filtered out
+  // by the terminal-task check in listNarratableActions anyway, so
+  // keeping them around just costs memory.
+  useEffect(() => {
+    if (internal.phase === 'idle') narratedRef.current.clear()
+  }, [internal.phase])
+
   // ── Transition engine ─────────────────────────────────────────────
   //
   // Re-evaluated whenever:
@@ -196,20 +277,49 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
   //   - Schedule a timer for the next deadline (5s minimum on running;
   //     5s display on result/message).
   useEffect(() => {
+    // Compute the narratable candidate list ONCE per effect run, reuse
+    // for both the preemption check and the synchronous phase logic
+    // below. listNarratableActions builds an item-id Map + filter +
+    // sort, so paying for it once instead of three times per effect is
+    // a worthwhile win on long action lists.
+    const narratable = listNarratableActions(actions)
+
+    // ── Real-time send_message preemption ────────────────────────
+    // send_message family bubbles bypass the normal queue. The moment
+    // an unnarrated message appears, the FSM jumps to its 'message'
+    // phase regardless of what was previously being shown. This makes
+    // the bubble behave the same way the 'waiting for your reply'
+    // state override does — chat-style real-time delivery rather than
+    // queued-behind-running/result.
+    //
+    // The in-flight action (if any) is marked as narrated to prevent
+    // it from looping back as the "next" candidate when the message
+    // phase later promotes — its narration is effectively cut short.
+    const urgent = findUrgentMessage(narratable, narratedRef.current)
+    if (urgent && (internal.phase !== 'message' || internal.actionId !== urgent.id)) {
+      if (internal.actionId && internal.actionId !== urgent.id) {
+        narratedRef.current.add(internal.actionId)
+      }
+      setInternal(stateForAction(urgent))
+      return
+    }
+
     // Shared "look for a queued action and either start it or fall back
     // to thinking/idle" helper. Used by every "phase ended, what now?"
     // codepath below. The `whenEmpty` argument decides what to do when
     // there's nothing queued — 'thinking' for between-action gaps,
     // 'idle' for after-task cleanup.
+    //
+    // Recomputes the narratable list from actionsRef because this fires
+    // out of setTimeout callbacks where the closure's `narratable` is
+    // stale; sync callers above can reuse the top-of-effect snapshot.
     const promoteOrFallback = (whenEmpty: 'thinking' | 'idle') => {
       const list = actionsRef.current
-      // Once the task is over we don't queue more narrations — leftover
-      // completed actions are stale and shouldn't keep the bubble alive.
       if (!isTaskActive(list)) {
         setInternal(stateIdle())
         return
       }
-      const next = findNextAction(list, narratedRef.current)
+      const next = pickNextActionDeduped(listNarratableActions(list), narratedRef)
       if (next) {
         setInternal(stateForAction(next))
         return
@@ -228,7 +338,7 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
         // even if unnarrated actions linger (they're stale leftovers
         // from a previous task that already ended).
         if (!isTaskActive(actions)) return
-        const next = findNextAction(actions, narratedRef.current)
+        const next = pickNextActionDeduped(narratable, narratedRef)
         setInternal(next ? stateForAction(next) : stateThinking())
         return
       }
@@ -239,7 +349,7 @@ export function useMascotNarration({ mascotState }: NarrationOptions): Narration
           setInternal(stateIdle())
           return
         }
-        const next = findNextAction(actions, narratedRef.current)
+        const next = pickNextActionDeduped(narratable, narratedRef)
         if (next) setInternal(stateForAction(next))
         return
       }
@@ -318,19 +428,16 @@ function resolveBubble(
     case 'running': {
       const item = actions.find(a => a.id === internal.actionId)
       if (!item) return null
-      return {
-        kind: 'running',
-        actionName: item.name,
-        params: formatParams(parseDict(item.input)),
-      }
+      const formatter = getMascotFormatter(item.name)
+      return { kind: 'action', format: formatter.running(parseDict(item.input)) }
     }
     case 'result': {
       const item = actions.find(a => a.id === internal.actionId)
       if (!item) return null
+      const formatter = getMascotFormatter(item.name)
       return {
-        kind: 'result',
-        actionName: item.name,
-        result: formatResult(item, parseDict(item.output)),
+        kind: 'action',
+        format: formatter.result(parseDict(item.input), parseDict(item.output), toMascotResultStatus(item.status)),
       }
     }
     case 'message': {
@@ -343,3 +450,7 @@ function resolveBubble(
     }
   }
 }
+
+// Re-export so consumers (SpeechBubble) can type their props against
+// the POJO shape without reaching into the renderer package directly.
+export type { MascotActionFormat, MascotActionStatus }

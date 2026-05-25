@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import type { NarrationContent } from './useMascotNarration'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Ban, Check, Loader2, MessageCircle, X } from 'lucide-react'
+import type { MascotActionStatus, NarrationContent } from './useMascotNarration'
 import styles from './Mascot.module.css'
 
 interface Props {
@@ -12,14 +13,14 @@ interface Props {
   side?: 'left' | 'right'
 }
 
-/** Speech bubble visual. Floats beside the mascot (side chosen
- *  dynamically by useMascotBehavior) and follows the wander wrapper's
- *  hop translation.
+/** Floating speech bubble beside the mascot. Renders one of four
+ *  content shapes:
  *
- *  Content swaps fade in/out via a small keyed re-mount: when the kind
- *  or primary text changes, the old node fades out and a fresh one fades
- *  in, so consecutive narration phases read as discrete "speech beats"
- *  instead of one bubble whose text silently changes. */
+ *  - `action`   — formatted by an action-specific formatter from
+ *                 mascotFormatters.ts. Two-line: icon + label + body.
+ *  - `message`  — plain user-facing message text (send_message family).
+ *  - `thinking` — between-actions placeholder while a task is still active.
+ *  - `waiting`  — agent is paused on a user reply (mascot-state override). */
 export function SpeechBubble({ content, side = 'right' }: Props) {
   // Keep the last non-null content around for one fade-out cycle so the
   // bubble doesn't pop out instantly when narration ends. In practice
@@ -36,11 +37,12 @@ export function SpeechBubble({ content, side = 'right' }: Props) {
 
   if (!render) return null
 
-  const { label, body } = bubbleText(render)
   const sideClass = side === 'left' ? styles.bubbleSideLeft : styles.bubbleSideRight
-  // Re-mount key — when content kind or primary text changes, React
-  // unmounts the old node and mounts a new one (fresh fade-in).
-  const swapKey = `${render.kind}:${label ?? ''}:${body.slice(0, 32)}`
+  // Re-mount key — when the bubble's visible content meaningfully
+  // changes, React unmounts the old node and mounts a new one (fresh
+  // fade-in). For action bubbles, the key includes the status icon so
+  // running→completed feels like a beat change.
+  const swapKey = bubbleSwapKey(render)
 
   return (
     <div
@@ -49,33 +51,92 @@ export function SpeechBubble({ content, side = 'right' }: Props) {
       role="status"
       aria-live="polite"
     >
-      {label && <div className={styles.speechBubbleLabel}>{label}</div>}
-      <div className={styles.speechBubbleBody}>{body}</div>
+      {renderContent(render)}
     </div>
   )
 }
 
-/** Map a NarrationContent variant to the displayed `{label, body}` pair.
- *  Pure function — pulled out so the component stays focused on the
- *  React lifecycle + DOM, and the per-kind text shaping has a single
- *  obvious home. */
-function bubbleText(content: NarrationContent): { label: string | null; body: string } {
+// ─────────────────────────────────────────────────────────────────────
+// Per-kind rendering
+// ─────────────────────────────────────────────────────────────────────
+
+function renderContent(content: NarrationContent): ReactNode {
   switch (content.kind) {
-    case 'running':
-      return {
-        label: `Running ${content.actionName}`,
-        body: content.params ? `with ${content.params}` : '',
-      }
-    case 'result':
-      return {
-        label: `${content.actionName} →`,
-        body: content.result,
-      }
+    case 'action': {
+      const { status, label, body, bodyMono } = content.format
+      return (
+        <>
+          <div className={styles.speechBubbleLabel}>
+            <StatusIcon status={status} />
+            <span>{label}</span>
+          </div>
+          {body && (
+            <div
+              className={`${styles.speechBubbleBody} ${bodyMono ? styles.speechBubbleBodyMono : ''}`}
+            >
+              {body}
+            </div>
+          )}
+        </>
+      )
+    }
     case 'message':
-      return { label: null, body: content.text }
+      // No status icon — the message text is its own UI element. Body
+      // takes the full bubble; label slot is unused.
+      return <div className={styles.speechBubbleBody}>{content.text}</div>
     case 'thinking':
-      return { label: null, body: 'Thinking…' }
+      // Spinner + italic "Thinking…" — the dots are appended by the CSS
+      // dot-cycle animation on the inner span. Span wrapper is what
+      // lets the dots sit flush against the text (no flex-gap between).
+      return (
+        <div className={styles.speechBubbleBody}>
+          <Loader2 className={styles.speechBubbleIconSpin} size={13} />
+          <span>Thinking</span>
+        </div>
+      )
     case 'waiting':
-      return { label: null, body: 'Waiting for your reply…' }
+      // MessageCircle is the SAME icon the Tasks panel's StatusIndicator
+      // shows for waiting tasks — keeps the visual language consistent
+      // across the two surfaces. Icon is forced to blue via
+      // .bubbleWaitingIcon; the text is white via the parent class.
+      return (
+        <div className={styles.speechBubbleBody}>
+          <MessageCircle className={styles.bubbleWaitingIcon} size={13} />
+          <span>Waiting for your reply…</span>
+        </div>
+      )
+  }
+}
+
+/** Status icon for the 'action' bubble kind. Same accent color across
+ *  every status — only the GLYPH differentiates (user wanted icon
+ *  hierarchy, not color hierarchy). Loader2 is CSS-animated to spin
+ *  while running. */
+function StatusIcon({ status }: { status: MascotActionStatus }) {
+  switch (status) {
+    case 'running':
+      return <Loader2 className={styles.speechBubbleIconSpin} size={13} />
+    case 'completed':
+      return <Check size={13} />
+    case 'error':
+      return <X size={13} />
+    case 'cancelled':
+      return <Ban size={13} />
+  }
+}
+
+/** Build the React `key` used to remount the bubble on meaningful
+ *  content change — change in kind, status, or primary text triggers
+ *  the fade-in animation so each new "beat" reads as a fresh utterance. */
+function bubbleSwapKey(content: NarrationContent): string {
+  switch (content.kind) {
+    case 'action':
+      return `action:${content.format.status}:${content.format.label}:${content.format.body ?? ''}`
+    case 'message':
+      return `message:${content.text.slice(0, 32)}`
+    case 'thinking':
+      return 'thinking'
+    case 'waiting':
+      return 'waiting'
   }
 }

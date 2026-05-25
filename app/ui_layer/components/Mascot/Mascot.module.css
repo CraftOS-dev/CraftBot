@@ -376,10 +376,23 @@
 
 .speechBubble {
   position: absolute;
-  /* Vertical anchor: top:40% with translateY(-50%) places the bubble
-     center near the face (eyes sit around 46% of the SVG height). */
-  top: 40%;
-  transform: translateY(-50%);
+  /* BOTTOM-anchored — the bubble grows UPWARD as its content gets
+     bigger (more lines, larger font, longer label). The tail is also
+     bottom-anchored (see ::before/::after rules below at `bottom: 14px`),
+     and the tail's CENTER sits ≈25 px above the bubble's bottom edge
+     (14 px bottom inset + 11 px half-triangle-height). So the bubble's
+     bottom edge has to sit 25 px BELOW the desired tail Y to put the
+     tail at the mascot's face. `bottom: 28%` lands the bubble's bottom
+     edge near the mascot's mid-body and the tail at ~33% of zoomLayer
+     height (mascot's forehead/eye region) — which is where the tail
+     used to point before the bottom-anchor change. Decrease this value
+     to move the bubble + tail DOWN; increase to move them UP. NOTE:
+     this value is paired with the tail pseudo-elements' `bottom`
+     values below — if you shift the bubble up by N% of zoomLayer
+     here, decrease the tail's `bottom: 14px / 15px` by the same N% of
+     zoomLayer (in px) to keep the tail's screen Y unchanged. */
+  bottom: 25%;
+  top: auto;
   /* Background + border match the agent chat bubble in ChatPage.module.css
      (.message.agent) so the mascot's speech and the chat panel's agent
      messages read as the same voice/style. Layout is not shared. */
@@ -387,13 +400,13 @@
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md, 10px);
   padding: var(--space-2, 8px) var(--space-3, 12px);
-  min-width: 120px;
-  max-width: 220px;
+  min-width: 140px;
+  max-width: 280px;
   width: max-content;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   color: var(--text-primary);
-  font-size: var(--text-xs, 12px);
-  line-height: 1.4;
+  font-size: var(--text-sm, 14px);
+  line-height: 1.45;
   pointer-events: none;
   /* IMPORTANT: no overflow:hidden / outer max-height on the bubble
      itself. The body element handles its own truncation via
@@ -410,26 +423,34 @@
    Each variant sets its own horizontal anchor + transform-origin + tail
    direction so the swap is self-contained. */
 
+/* Side variants. transform-origin: <side> bottom — so the entrance
+   scale-in animation grows the bubble OUT from the tail corner
+   (bottom-left for right-anchored, bottom-right for left-anchored),
+   matching the bottom-anchored growth direction. */
 .bubbleSideRight {
   left: calc(100% + 10px);
-  transform-origin: left center;
+  transform-origin: left bottom;
 }
 
 .bubbleSideLeft {
   right: calc(100% + 10px);
-  transform-origin: right center;
+  transform-origin: right bottom;
 }
 
 /* Bubble tails — small triangles joining the bubble to the mascot's
    silhouette. Two stacked pseudo-elements (border trick): the outer
    triangle is the bubble border, the inner is the fill stacked on top
    so the join reads as a single tail. The two variants point in
-   opposite directions to match the side anchor. */
+   opposite directions to match the side anchor.
+
+   Vertically the tails sit near the BUBBLE'S BOTTOM (not its center
+   as in earlier versions). That keeps the tail's screen Y fixed as
+   the bubble grows upward — only the top edge moves, the bottom (and
+   the tail attached to it) stays nailed in place. */
 .speechBubble::after,
 .speechBubble::before {
   content: '';
   position: absolute;
-  top: 50%;
   width: 0;
   height: 0;
   pointer-events: none;
@@ -437,10 +458,15 @@
 
 /* Right-anchored: tail on bubble's LEFT, pointing at the mascot on the
    left. Sized at 11/10 so the 1px border outline shows around the fill,
-   making the tail read as a clear pointer rather than a faint notch. */
+   making the tail read as a clear pointer rather than a faint notch.
+
+   Bottom offsets are 1px apart (outer at 14, inner at 15) so the two
+   triangles' VERTICAL CENTERS align — without that offset they'd share
+   a bottom edge and the outer border would only peek out on one side
+   (top), giving the tail an asymmetric outline. */
 .bubbleSideRight::before {
   left: -11px;
-  transform: translateY(-50%);
+  bottom: 6px;
   border-top: 11px solid transparent;
   border-bottom: 11px solid transparent;
   border-right: 11px solid var(--border-primary);
@@ -448,7 +474,7 @@
 
 .bubbleSideRight::after {
   left: -10px;
-  transform: translateY(-50%);
+  bottom: 6px;
   border-top: 10px solid transparent;
   border-bottom: 10px solid transparent;
   border-right: 10px solid var(--bg-tertiary);
@@ -458,7 +484,7 @@
    the right. Mirror of the above. */
 .bubbleSideLeft::before {
   right: -11px;
-  transform: translateY(-50%);
+  bottom: 6px;
   border-top: 11px solid transparent;
   border-bottom: 11px solid transparent;
   border-left: 11px solid var(--border-primary);
@@ -466,51 +492,111 @@
 
 .bubbleSideLeft::after {
   right: -10px;
-  transform: translateY(-50%);
+  bottom: 6px;
   border-top: 10px solid transparent;
   border-bottom: 10px solid transparent;
   border-left: 10px solid var(--bg-tertiary);
 }
 
+/* Label row for action bubbles — status icon (Loader2 / Check / X / Ban
+   from lucide-react) sits inline with the text. Same accent color
+   across every status so the GLYPH carries the meaning, not the color
+   (user pref: icon hierarchy, not color hierarchy). */
 .speechBubbleLabel {
-  font-size: var(--text-xs, 11px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans, system-ui);
+  font-size: var(--text-sm, 14px);
   font-weight: 600;
   color: var(--color-primary, #FF4F18);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   letter-spacing: 0.01em;
 }
 
+/* Loader2 spin animation — drives the "running" status icon while the
+   action is in flight. Pure CSS so it costs nothing in JS. */
+.speechBubbleIconSpin {
+  animation: speechBubbleIconSpin 1s linear infinite;
+}
+
+@keyframes speechBubbleIconSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Body — default sans for natural language (status, counts, hostnames,
+   messages). Switches to mono via .speechBubbleBodyMono for code-like
+   content (paths, commands, regex patterns). */
 .speechBubbleBody {
   color: var(--text-primary);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--text-xs, 12px);
+  font-family: var(--font-sans, system-ui);
+  font-size: var(--text-sm, 14px);
   word-break: break-word;
   white-space: pre-wrap;
   /* Multi-line truncation with ellipsis. -webkit-line-clamp on a
      -webkit-box keeps the layout single-stop and avoids needing JS to
      measure overflow. The em-based max-height is a fallback for any
-     env that doesn't support line-clamp (matches 4 lines at 1.4
-     line-height). */
+     env that doesn't support line-clamp (matches the line-clamp count
+     at 1.45 line-height). Bumped from 4 → 7 lines so the bigger
+     bubble actually has room for more content; the bubble grows
+     UPWARD into the new space (see .speechBubble's `bottom:` anchor). */
   display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 7;
+  line-clamp: 7;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  max-height: 5.6em;
+  max-height: 10.2em;
 }
 
 /* Thinking and waiting use the primary color directly (no label/body
    split) and a slightly italic body so they read as a status cue
    rather than a quoted action invocation. */
-.bubble_thinking .speechBubbleBody,
-.bubble_waiting .speechBubbleBody {
-  font-family: var(--font-sans, system-ui);
-  font-style: italic;
-  color: var(--text-muted, var(--text-primary));
+/* Per-action override: switch the body to monospace when the formatter
+   sets `bodyMono: true` — used for paths, shell commands, regex
+   patterns, anything that reads as code. */
+.speechBubbleBodyMono {
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
-/* Thinking gets a subtle pulsing tail to imply ongoing activity. */
-.bubble_thinking .speechBubbleBody::after {
+/* Thinking + waiting are status-only bubbles (no action attached).
+   Both share a flex layout so the icon sits inline with the text.
+   The line-clamp truncation is unset here — these messages are short
+   enough that they never need to be clamped, and unsetting lets the
+   flex display take precedence. */
+.bubble_thinking .speechBubbleBody,
+.bubble_waiting .speechBubbleBody {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-style: italic;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: none;
+  overflow: visible;
+}
+
+/* Thinking: orange spinner + orange text (matches action-bubble label
+   color, reads as part of the mascot's voice). */
+.bubble_thinking .speechBubbleBody {
+  color: var(--color-primary, #FF4F18);
+}
+
+/* Waiting: blue Reply icon + white text. Different from the thinking
+   palette because waiting-for-user is a different KIND of status —
+   it's prompting the user, not narrating mascot internal state. */
+.bubble_waiting .speechBubbleBody {
+  color: #ffffff;
+}
+
+.bubbleWaitingIcon {
+  color: #4FA8FF;
+  flex-shrink: 0;
+}
+
+/* Animated dots after "Thinking". Scoped to the inner span (not the
+   body) so the dots sit immediately after the text without picking
+   up the flex container's 6px gap between items. */
+.bubble_thinking .speechBubbleBody > span::after {
   content: '';
   display: inline-block;
   animation: speechBubbleThinkingDots 1.4s steps(4, end) infinite;
@@ -524,14 +610,12 @@
   100% { content: ''; }
 }
 
-/* Message bubbles use the regular sans body — these are user-facing
-   messages, not internal action invocations. */
-.bubble_message .speechBubbleBody {
-  font-family: var(--font-sans, system-ui);
-  font-style: normal;
-}
-
+/* Entrance pop. The bubble is now bottom-anchored (no translateY
+   centering), so the keyframe applies plain scale only. transform-
+   origin lives on .bubbleSideRight / .bubbleSideLeft (left bottom /
+   right bottom respectively) so the scale grows OUT FROM the tail
+   corner, matching the visual direction the bubble expands into. */
 @keyframes speechBubbleIn {
-  from { opacity: 0; transform: translateY(-50%) scale(0.7); }
-  to   { opacity: 1; transform: translateY(-50%) scale(1); }
+  from { opacity: 0; transform: scale(0.7); }
+  to   { opacity: 1; transform: scale(1); }
 }
