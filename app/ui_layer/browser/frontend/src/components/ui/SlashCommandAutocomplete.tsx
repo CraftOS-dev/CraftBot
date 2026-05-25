@@ -12,20 +12,6 @@ import {
   selectCommandsHasLoaded,
 } from '../../store/selectors/commandsSettings'
 
-// interface SkillConfig {
-//   name: string
-//   description: string
-//   enabled: boolean
-//   user_invocable: boolean
-//   action_sets: string[]
-//   source: string
-// }
-
-// interface CommandConfig {
-//   name: string
-//   description: string
-// }
-
 type ItemKind = 'command' | 'skill'
 
 interface AutocompleteItem {
@@ -54,7 +40,8 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
     const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
     const skills = useAppSelector(selectEnabledSkillNames);
-    const hasLoaded = useAppSelector(selectSkillsHasLoaded);
+    const skillsHasLoaded = useAppSelector(selectSkillsHasLoaded);
+    
     const commands = useAppSelector(selectCommandNames);
     const commandsHasLoaded = useAppSelector(selectCommandsHasLoaded);
     const { send, isConnected } = useSettingsWebSocket()
@@ -62,9 +49,9 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
   // Fetch only if no one else has loaded the data yet this session.
   useEffect(() => {
     if (!isConnected) return
-    if (!hasLoaded) send('skill_list')
+    if (!skillsHasLoaded) send('skill_list')
     if (!commandsHasLoaded) send('command_list')
-    }, [isConnected, hasLoaded, commandsHasLoaded, send])
+    }, [isConnected, skillsHasLoaded, commandsHasLoaded, send])
 
     const query = input[0] === '/' ? input.slice(1).toLowerCase() : null
 
@@ -75,8 +62,8 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
         const fc = commands.filter((item: string) => item.toLowerCase().includes(query))
         const fs = skills.filter((item: string) => item.toLowerCase().includes(query))
         const flat: AutocompleteItem[] = [
-            ...fc.map<AutocompleteItem>((name: any) => ({ name, kind: 'command' })),
-            ...fs.map<AutocompleteItem>((name: any) => ({ name, kind: 'skill' })),
+            ...fc.map<AutocompleteItem>((name: string) => ({ name, kind: 'command' })),
+            ...fs.map<AutocompleteItem>((name: string) => ({ name, kind: 'skill' })),
         ]
         return { filteredCommands: fc, filteredSkills: fs, flatItems: flat }
     }, [query, commands, skills])
