@@ -1,7 +1,5 @@
 <div align="center">
-    <a href="https://www.youtube.com/watch?v=8GpdW-gJrDA&autoplay=1" target="_blank">
-        <img src="https://img.youtube.com/vi/8GpdW-gJrDA/maxresdefault.jpg" alt="CraftBot Demo Video" width="1280"/>
-    </a>
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
