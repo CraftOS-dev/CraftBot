@@ -1686,6 +1686,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             env_value = data.get("value", "")
             await self._handle_mcp_update_env(name, env_key, env_value)
 
+        # Slash command list (for autocomplete)
+        elif msg_type == "command_list":
+            await self._handle_command_list()
+
         # Skill settings operations
         elif msg_type == "skill_list":
             await self._handle_skill_list()
@@ -5115,6 +5119,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # ─────────────────────────────────────────────────────────────────────
     # Skill Settings Handlers
     # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_command_list(self) -> None:
+        """Get list of registered non-skill slash commands for autocomplete."""
+        try:
+            from app.ui_layer.commands.builtin.skill_invoke import SkillInvokeCommand
+
+            cmds = self._controller.command_registry.list_commands(include_hidden=False)
+            commands = [
+                {"name": c.name.lstrip("/"), "description": c.description}
+                for c in cmds
+                if not isinstance(c, SkillInvokeCommand)
+            ]
+            await self._broadcast({
+                "type": "command_list",
+                "data": {
+                    "success": True,
+                    "commands": commands,
+                },
+            })
+        except Exception as e:
+            await self._broadcast({
+                "type": "command_list",
+                "data": {
+                    "success": False,
+                    "error": str(e),
+                    "commands": [],
+                },
+            })
 
     async def _handle_skill_list(self) -> None:
         """Get list of all skills."""

@@ -11,6 +11,7 @@ import workspaceReducer from './slices/workspaceSlice'
 import mcpSettingsReducer from './slices/mcpSettingsSlice'
 import memorySettingsReducer from './slices/memorySettingsSlice'
 import skillsSettingsReducer from './slices/skillsSettingsSlice'
+import commandsSettingsReducer from './slices/commandsSettingsSlice'
 import proactiveSettingsReducer from './slices/proactiveSettingsSlice'
 import livingUiSettingsReducer from './slices/livingUiSettingsSlice'
 import generalSettingsReducer from './slices/generalSettingsSlice'
@@ -32,6 +33,7 @@ export const store = configureStore({
     mcpSettings: mcpSettingsReducer,
     memorySettings: memorySettingsReducer,
     skillsSettings: skillsSettingsReducer,
+    commandsSettings: commandsSettingsReducer,
     proactiveSettings: proactiveSettingsReducer,
     livingUiSettings: livingUiSettingsReducer,
     generalSettings: generalSettingsReducer,
