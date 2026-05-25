@@ -3625,7 +3625,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 await _err("skill_already_exists")
                 return
             try:
-                from app.tui.skill_settings import get_skill_info
+                from app.ui_layer.settings.skill_settings import get_skill_info
 
                 if get_skill_info(target):
                     await _err("skill_already_exists")

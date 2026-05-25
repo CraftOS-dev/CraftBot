@@ -48,7 +48,7 @@ Source Platform: {source_platform}
 - If the source platform is an external messaging service, you MUST include that platform's action set, for example:
   - Telegram → include 'telegram' action set
   - Slack → include 'slack' action set
-  - CraftBot TUI → no additional action set needed (uses default send_message)
+  - CraftBot CLI → no additional action set needed (uses default send_message)
 </instructions>
 
 <output_format>

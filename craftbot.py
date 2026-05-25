@@ -21,8 +21,7 @@ When running as a frozen EXE (CraftBot.exe with no args), the wizard opens
 automatically. Subcommands work the same as in source mode.
 
 Options passed to 'start' / 'install':
-    --tui                   Run in TUI mode instead of browser
-    --cli                   Run in CLI mode
+    --cli                   Run in CLI mode instead of browser
     --no-open-browser       Don't open browser automatically (default for service)
     --frontend-port PORT    Frontend port (default: 7925)
     --backend-port PORT     Backend port (default: 7926)
@@ -31,7 +30,7 @@ Options passed to 'start' / 'install':
 
 Examples:
     python craftbot.py start                   # Start in background (browser mode)
-    python craftbot.py start --tui             # Start in background (TUI mode)
+    python craftbot.py start --cli             # Start in background (CLI mode)
     python craftbot.py install                 # Auto-start on login (browser mode)
     python craftbot.py install --no-open-browser  # Auto-start without opening browser
     python craftbot.py stop
@@ -294,7 +293,7 @@ def _warn_path_issues() -> None:
 
 def _python_exe() -> str:
     """Return the Python executable to use for the service process."""
-    # On Windows prefer pythonw.exe (no console window) when not in TUI/CLI mode
+    # On Windows prefer pythonw.exe (no console window) when not in CLI mode
     if _PLATFORM == "win32":
         pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
         if os.path.isfile(pythonw):
@@ -365,8 +364,8 @@ def _build_run_args(extra: List[str], service_mode: bool = True) -> List[str]:
     should not pop open a browser without the user asking).
     """
     args = list(extra)
-    # TUI/CLI modes don't use the browser flag
-    if service_mode and "--tui" not in args and "--cli" not in args:
+    # CLI mode doesn't use the browser flag
+    if service_mode and "--cli" not in args:
         if "--no-open-browser" not in args:
             args.append("--no-open-browser")
     return args
@@ -452,7 +451,7 @@ def cmd_start(extra_args: List[str]) -> None:
     # service_mode=False — don't suppress the browser; we open it ourselves below
     run_args = _build_run_args(extra_args, service_mode=False)
     # Always pass --no-open-browser to run.py; craftbot.py handles opening the browser
-    if "--tui" not in run_args and "--cli" not in run_args:
+    if "--cli" not in run_args:
         if "--no-open-browser" not in run_args:
             run_args.append("--no-open-browser")
 
@@ -467,8 +466,8 @@ def cmd_start(extra_args: List[str]) -> None:
         cmd = [installed] + run_args
     else:
         python = _python_exe()
-        # Use plain python.exe for TUI/CLI because pythonw has no console
-        if "--tui" in run_args or "--cli" in run_args:
+        # Use plain python.exe for CLI because pythonw has no console
+        if "--cli" in run_args:
             python = sys.executable
         cmd = [python, RUN_SCRIPT] + run_args
 
@@ -509,15 +508,14 @@ def cmd_start(extra_args: List[str]) -> None:
     )
 
     # Create a desktop shortcut so the user can reopen the browser anytime
-    if "--tui" not in run_args and "--cli" not in run_args:
+    if "--cli" not in run_args:
         if _PLATFORM == "win32":
             _create_desktop_shortcut_windows()
         else:
             _create_desktop_shortcut_unix()
 
     open_browser = (
-        "--tui" not in run_args
-        and "--cli" not in run_args
+        "--cli" not in run_args
         and "--no-open-browser" not in extra_args
     )
     if open_browser:
@@ -1145,7 +1143,7 @@ def _full_install_frozen(
 
     Args:
         target_dir: Directory to extract the agent into.
-        extra_args: User-supplied flags (--tui, --cli, --browser, etc.).
+        extra_args: User-supplied flags (--cli, --browser, etc.).
         progress_cb: Optional download-progress callback (bytes_read, total_or_none).
     """
     if not IS_FROZEN:
@@ -1188,13 +1186,7 @@ def _full_install_frozen(
 
     # 3. Persist install metadata so subsequent commands know where the
     #    installed agent lives.
-    mode = (
-        "tui"
-        if "--tui" in extra_args
-        else "cli"
-        if "--cli" in extra_args
-        else "browser"
-    )
+    mode = "cli" if "--cli" in extra_args else "browser"
     write_install_metadata(agent_exe, mode)
 
     # 4. Copy the icon out of the bundled _MEIPASS dir into the persistent
@@ -1430,7 +1422,7 @@ def cmd_repair(
     is pinned to a newer agent version, and Repair fetches that version.
 
     Args:
-        extra_args: User flags (--tui, --cli, etc.).
+        extra_args: User flags (--cli, etc.).
         progress_cb: Optional download-progress callback (bytes_read, total_or_none).
     """
     if not IS_FROZEN:
@@ -1460,7 +1452,7 @@ def cmd_repair(
     _stop_running_agent_if_alive()
 
     # Re-run the install flow at the existing location with the existing mode
-    mode_flag_map = {"tui": ["--tui"], "cli": ["--cli"], "browser": []}
+    mode_flag_map = {"cli": ["--cli"], "browser": []}
     mode_args = mode_flag_map.get(meta.get("mode", "browser"), [])
     _full_install_frozen(target_dir, mode_args + extra_args, progress_cb=progress_cb)
     print("\n  REPAIR COMPLETE")

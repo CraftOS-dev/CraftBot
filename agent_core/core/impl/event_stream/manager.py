@@ -87,7 +87,7 @@ class EventStreamManager:
         self._on_stream_remove_persist = on_stream_remove_persist
 
         # Conversation history for context injection into tasks
-        # Stores recent user AND agent messages without affecting TUI display
+        # Stores recent user AND agent messages without affecting UI display
         self._conversation_history: List[Event] = []
         self._conversation_history_limit = 50  # Keep last 50 messages
 
@@ -144,7 +144,7 @@ class EventStreamManager:
     def get_all_streams(self) -> list[EventStream]:
         """Get all event streams (main + all task streams).
 
-        Used by the TUI to watch events from all concurrent tasks.
+        Used by the UI to watch events from all concurrent tasks.
 
         Returns:
             List of all event streams, main stream first, then task streams.
@@ -154,7 +154,7 @@ class EventStreamManager:
     def get_all_streams_with_ids(self) -> list[tuple[str, EventStream]]:
         """Get all event streams with their task IDs.
 
-        Used by the TUI to watch events from all concurrent tasks and
+        Used by the UI to watch events from all concurrent tasks and
         correctly associate events with their source tasks.
 
         Returns:
@@ -170,7 +170,7 @@ class EventStreamManager:
         """Record a conversation message for context injection into future tasks.
 
         This stores messages in a separate in-memory list that does NOT affect
-        TUI display. Used to track both user and agent messages for injecting
+        UI display. Used to track both user and agent messages for injecting
         conversation history into new tasks.
 
         Args:

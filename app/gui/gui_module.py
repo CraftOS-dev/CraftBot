@@ -142,7 +142,7 @@ class GUIModule:
         }
 
     def set_tui_footage_callback(self, callback) -> None:
-        """Set the TUI footage callback for screen display."""
+        """Set the footage callback for screen display."""
         self._tui_footage_callback = callback
 
     def switch_to_gui_mode(self) -> None:
@@ -318,14 +318,14 @@ class GUIModule:
             if png_bytes is None:
                 return {"status": "error", "message": "Failed to take screenshot"}
 
-            # Push screenshot to TUI for display
+            # Push screenshot to UI for display
             if self._tui_footage_callback and png_bytes:
                 try:
                     await self._tui_footage_callback(
                         png_bytes, GUIHandler.TARGET_CONTAINER
                     )
                 except Exception as e:
-                    logger.debug(f"[GUI] Failed to push footage to TUI: {e}")
+                    logger.debug(f"[GUI] Failed to push footage to UI: {e}")
 
             # ===================================
             # 3. Get Image Description + Prepare Image for VLM

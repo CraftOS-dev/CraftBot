@@ -256,7 +256,7 @@ class TaskManager:
                            event stream. If provided, logs as "user message"
                            before the task_start event.
             original_platform: Optional platform where the original message came from
-                              (e.g., "CraftBot TUI", "Telegram", "Whatsapp").
+                              (e.g., "CraftBot CLI", "Telegram", "Whatsapp").
 
         Returns:
             The unique task identifier.

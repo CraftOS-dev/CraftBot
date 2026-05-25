@@ -1,7 +1,7 @@
 """Memory settings management for UI layer.
 
 Provides functions for managing memory mode and memory items
-that can be used by any interface adapter (Browser, TUI, CLI).
+that can be used by any interface adapter (Browser, CLI).
 """
 
 import json

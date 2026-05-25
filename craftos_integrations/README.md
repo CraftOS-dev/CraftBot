@@ -600,7 +600,7 @@ craftos_integrations/integrations/
 - `update_config(integration, values: dict) -> (bool, str)` — coerces values per the schema, persists
 - `get_config_schema(integration) -> list[dict] | None` — the `config_fields` list, for rendering a form
 
-### Sync flavors (for TUI / synchronous callers)
+### Sync flavors (for synchronous callers)
 - `list_integrations_sync()`
 - `get_integration_info_sync(integration)`
 - `get_integration_fields(integration)`

@@ -367,7 +367,7 @@ async def connect_interactive(
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Sync wrappers — for sync callers (TUI, etc.) that can't await
+# Sync wrappers — for sync callers that can't await
 # ════════════════════════════════════════════════════════════════════════
 
 
@@ -377,7 +377,7 @@ def _run_sync(coro):
     WARNING: must NOT be called from inside an already-running event loop —
     ``loop.run_until_complete`` will raise ``RuntimeError: This event loop is
     already running``. The ``*_sync`` helpers in this module are intended for
-    purely synchronous call sites (TUI, REPL, scripts). From an async context,
+    purely synchronous call sites (REPL, scripts). From an async context,
     use the async variant directly (``await list_integrations()`` etc.).
     """
     import asyncio as _asyncio

@@ -25,7 +25,7 @@ class InterfaceAdapter(ABC):
     """
     Base class for interface adapters.
 
-    Each interface (CLI, TUI, Browser) extends this to implement
+    Each interface (CLI, Browser) extends this to implement
     the UI components and connect to the controller. Only one adapter
     can be active at a time.
 
@@ -529,7 +529,7 @@ class InterfaceAdapter(ABC):
             asyncio.create_task(self.footage_component.clear())
 
     def _handle_show_menu(self, event: UIEvent) -> None:
-        """Handle show menu event. Override in TUI/Browser adapters."""
+        """Handle show menu event. Override in Browser adapter."""
         pass
 
     def _handle_shutdown(self, event: UIEvent) -> None:

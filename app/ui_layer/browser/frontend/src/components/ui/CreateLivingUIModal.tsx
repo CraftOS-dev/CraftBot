@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { X, Sparkles, Download, Loader2, Package, FolderInput, Upload, Check, Search } from 'lucide-react'
+import { Sparkles, Download, Loader2, Package, FolderInput, Upload, Check, Search } from 'lucide-react'
 import { Button } from './Button'
+import { Modal } from './Modal'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import type { LivingUICreateRequest } from '../../types'
 import styles from './CreateLivingUIModal.module.css'
@@ -301,18 +302,19 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   ]
 
   return (
-    <div className={styles.modalOverlay}>
-      <div className={styles.modalContent}>
-        <div className={styles.modalHeader}>
-          <div className={styles.headerTitle}>
-            <Sparkles size={20} className={styles.headerIcon} />
-            <h3>Add Living UI</h3>
-          </div>
-          <button className={styles.modalClose} onClick={onClose}>
-            <X size={16} />
-          </button>
-        </div>
-
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      size="full"
+      closeOnOverlayClick={false}
+      closeOnEsc={false}
+      title={
+        <>
+          <Sparkles size={20} className={styles.headerIcon} />
+          Add Living UI
+        </>
+      }
+    >
         <div className={styles.tabs}>
           {tabsConfig.map(tab => (
             <button
@@ -628,7 +630,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }

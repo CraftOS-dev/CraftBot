@@ -1,8 +1,7 @@
-# core/tui/skill_settings.py
 """
-Skill Settings Management for TUI.
+Skill Settings Management.
 
-Provides helper functions for skill management commands in the TUI.
+Provides helper functions for skill management commands.
 Similar to mcp_settings.py for MCP server management.
 """
 
@@ -16,7 +15,7 @@ from typing import List, Dict, Tuple, Any, Optional
 from app.logger import logger
 
 # Project root for skills directory
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 SKILLS_DIR = PROJECT_ROOT / "skills"
 
 

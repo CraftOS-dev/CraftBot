@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List
 
 from app.ui_layer.commands.base import Command, CommandResult
-from app.tui.settings import (
+from app.ui_layer.settings.provider_settings import (
     save_settings_to_json,
     get_current_provider,
     get_api_key_for_provider,

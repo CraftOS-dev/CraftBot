@@ -51,7 +51,7 @@ class Event:
 
     def display_text(self) -> Optional[str]:
         """
-        Provide a concise message for TUI display without altering the underlying event.
+        Provide a concise message for UI display without altering the underlying event.
 
         The display text mirrors ``display_message`` if one was supplied during
         logging, allowing callers to present a friendlier or truncated value in

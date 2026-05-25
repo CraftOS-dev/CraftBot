@@ -2,7 +2,7 @@
 """
 Shared utility to write user profile data to USER.md.
 
-Used by all onboarding completion handlers (TUI, CLI, Browser controller)
+Used by all onboarding completion handlers (CLI, Browser controller)
 to populate USER.md with data collected during hard onboarding.
 """
 

@@ -13,7 +13,7 @@ class ChatComponentProtocol(Protocol):
     Protocol for chat display components.
 
     Defines the interface that any chat display implementation must follow.
-    Used by CLI (print), TUI (ConversationLog), and Browser (ChatPanel).
+    Used by CLI (print) and Browser (ChatPanel).
     """
 
     async def append_message(self, message: ChatMessage) -> None:
@@ -49,7 +49,7 @@ class ActionPanelProtocol(Protocol):
     Protocol for action panel components.
 
     Defines the interface for displaying tasks and actions.
-    Used by TUI and Browser interfaces.
+    Used by Browser interface.
     """
 
     async def add_item(self, item: ActionItem) -> None:
@@ -292,7 +292,7 @@ class MenuComponentProtocol(Protocol):
     """
     Protocol for menu components.
 
-    Defines the interface for the main menu (TUI/Browser).
+    Defines the interface for the main menu (Browser).
     """
 
     async def show(self) -> None:
