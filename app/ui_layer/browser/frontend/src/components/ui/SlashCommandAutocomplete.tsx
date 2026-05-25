@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
+import React, { useEffect, useRef, useState, useMemo, useImperativeHandle, forwardRef } from 'react'
 import { useSettingsWebSocket } from '@/pages/Settings/useSettingsWebSocket';
 import { ActivitySquare, Terminal } from 'lucide-react'
 import styles from './SlashCommandAutocomplete.module.css';
@@ -27,6 +27,9 @@ export interface SlashCommandAutocompleteHandle {
    * - When no items are visible: returns false so the caller can do nothing / fall through.
    */
   handleTab: () => boolean
+  handleUpArrow: () => boolean
+  handleDownArrow: () => boolean
+  handleEnter: () => boolean
   isOpen: () => boolean
 }
 
@@ -38,6 +41,7 @@ interface SlashCommandProps {
 export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandle, SlashCommandProps>(
   function SlashCommandAutocomplete({ input, onSelectItem }, ref) {
     const [selectedIndex, setSelectedIndex] = useState<number>(0);
+    const itemRefs = useRef<(HTMLLIElement | null)[]>([])
 
     const skills = useAppSelector(selectEnabledSkillNames);
     const skillsHasLoaded = useAppSelector(selectSkillsHasLoaded);
@@ -68,6 +72,10 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
         return { filteredCommands: fc, filteredSkills: fs, flatItems: flat }
     }, [query, commands, skills])
 
+    useEffect(() => {
+        itemRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' })
+    }, [selectedIndex])
+
     // Reset / clamp the selected index whenever the visible list changes.
     useEffect(() => {
         if (flatItems.length === 0) {
@@ -82,15 +90,27 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
     useImperativeHandle(ref, () => ({
         handleTab: () => {
             if (flatItems.length === 0) return false
-            if (flatItems.length === 1) {
-                onSelectItem(flatItems[0].name)
-                return true
-            }
+            onSelectItem(flatItems[selectedIndex].name)
+            return true
+        },
+        handleUpArrow: () => {
+            if (flatItems.length === 0 || flatItems.length === 1) return false
+            setSelectedIndex(prev => (prev - 1 + flatItems.length) % flatItems.length)
+            return true
+        },
+        handleDownArrow: () => {
+            if (flatItems.length === 0 || flatItems.length === 1) return false
             setSelectedIndex(prev => (prev + 1) % flatItems.length)
             return true
         },
+        handleEnter: () => {
+            if (flatItems.length === 0) return false
+            if (input.toLowerCase() === `/${flatItems[selectedIndex].name}`) return false
+            onSelectItem(flatItems[selectedIndex].name)
+            return true
+        },
         isOpen: () => flatItems.length > 0,
-    }), [flatItems, onSelectItem])
+    }), [flatItems, onSelectItem, selectedIndex])
 
     if (flatItems.length === 0) return null
 
@@ -107,6 +127,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
                             return (
                                 <li
                                     key={`cmd-${item}`}
+                                    ref={el => { itemRefs.current[idx] = el }}
                                     className={`${styles.item}${isSelected ? ` ${styles.itemSelected}` : ''}`}
                                     onClick={() => onSelectItem(item)}
                                     onMouseEnter={() => setSelectedIndex(idx)}
@@ -124,6 +145,7 @@ export const SlashCommandAutocomplete = forwardRef<SlashCommandAutocompleteHandl
                             return (
                                 <li
                                     key={`skill-${item}`}
+                                    ref={el => { itemRefs.current[idx] = el }}
                                     className={`${styles.item}${isSelected ? ` ${styles.itemSelected}` : ''}`}
                                     onClick={() => onSelectItem(item)}
                                     onMouseEnter={() => setSelectedIndex(idx)}

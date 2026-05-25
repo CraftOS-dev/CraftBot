@@ -412,8 +412,23 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         return
       }
     }
+    if (e.key === 'ArrowUp') {
+      if (autocompleteRef.current?.handleUpArrow()) {
+        e.preventDefault()
+        return
+      }
+    }
+    if (e.key === 'ArrowDown') {
+      if (autocompleteRef.current?.handleDownArrow()) {
+        e.preventDefault()
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (autocompleteRef.current?.handleEnter()) {
+        return
+      }
       handleSend()
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const history = inputHistoryRef.current
@@ -430,6 +445,10 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         setInput(history[historyIndexRef.current])
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
+        if (autocompleteRef.current?.handleDownArrow()) {
+          e.preventDefault()
+          return
+        }
         if (historyIndexRef.current === -1) return
         if (historyIndexRef.current < history.length - 1) {
           historyIndexRef.current++
