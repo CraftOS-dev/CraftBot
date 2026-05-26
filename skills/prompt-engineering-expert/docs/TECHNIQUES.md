@@ -13,7 +13,7 @@
 ## 1. Chain-of-Thought (CoT) Prompting
 
 ### What It Is
-Encouraging Claude to break down complex reasoning into explicit steps before providing a final answer.
+Encouraging CraftBot to break down complex reasoning into explicit steps before providing a final answer.
 
 ### When to Use
 - Complex reasoning tasks
@@ -60,7 +60,7 @@ Therefore: You spend $19 total.
 ## 2. Few-Shot Learning
 
 ### What It Is
-Providing examples to guide Claude's behavior without explicit instructions.
+Providing examples to guide CraftBot's behavior without explicit instructions.
 
 ### Types
 
@@ -144,7 +144,7 @@ Using XML tags to structure prompts and guide output format.
 ## 4. Role-Based Prompting
 
 ### What It Is
-Assigning Claude a specific role or expertise to guide behavior.
+Assigning CraftBot a specific role or expertise to guide behavior.
 
 ### Structure
 ```
@@ -191,7 +191,7 @@ Your task: Develop a brand narrative for [product/company].
 ## 5. Prefilling Responses
 
 ### What It Is
-Starting Claude's response to guide format and tone.
+Starting CraftBot's response to guide format and tone.
 
 ### Benefits
 - Ensures correct format
@@ -205,7 +205,7 @@ Starting Claude's response to guide format and tone.
 ```
 Prompt: Analyze this market opportunity.
 
-Claude's response should start:
+CraftBot's response should start:
 "Here's my analysis of this market opportunity:
 
 Market Size: [Analysis]
@@ -217,7 +217,7 @@ Competitive Landscape: [Analysis]"
 ```
 Prompt: Solve this problem.
 
-Claude's response should start:
+CraftBot's response should start:
 "Let me work through this systematically:
 
 1. First, I'll identify the key variables...
@@ -229,7 +229,7 @@ Claude's response should start:
 ```
 Prompt: Create a project plan.
 
-Claude's response should start:
+CraftBot's response should start:
 "Here's the project plan:
 
 Phase 1: Planning

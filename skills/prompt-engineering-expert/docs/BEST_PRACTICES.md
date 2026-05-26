@@ -1,11 +1,11 @@
 # Prompt Engineering Expert - Best Practices Guide
 
-This document synthesizes best practices from Anthropic's official documentation and the Claude Cookbooks to create a comprehensive prompt engineering skill.
+This document synthesizes best practices from Anthropic's official documentation and the CraftBot Cookbooks to create a comprehensive prompt engineering skill.
 
 ## Core Principles for Prompt Engineering
 
 ### 1. Clarity and Directness
-- **Be explicit**: State exactly what you want Claude to do
+- **Be explicit**: State exactly what you want CraftBot to do
 - **Avoid ambiguity**: Use precise language that leaves no room for misinterpretation
 - **Use concrete examples**: Show, don't just tell
 - **Structure logically**: Organize information hierarchically
@@ -17,10 +17,10 @@ This document synthesizes best practices from Anthropic's official documentation
 - **Token efficiency**: Optimize for both quality and cost
 
 ### 3. Appropriate Degrees of Freedom
-- **Define constraints**: Set clear boundaries for what Claude should/shouldn't do
+- **Define constraints**: Set clear boundaries for what CraftBot should/shouldn't do
 - **Specify format**: Be explicit about desired output format
 - **Set scope**: Clearly define what's in and out of scope
-- **Balance flexibility**: Allow room for Claude's reasoning while maintaining control
+- **Balance flexibility**: Allow room for CraftBot's reasoning while maintaining control
 
 ## Advanced Prompt Engineering Techniques
 
@@ -50,14 +50,14 @@ Use XML tags for clarity and parsing:
 ```
 
 ### Role-Based Prompting
-Assign expertise to Claude:
+Assign expertise to CraftBot:
 ```
 "You are an expert prompt engineer with deep knowledge of...
 Your task is to..."
 ```
 
 ### Prefilling
-Start Claude's response to guide format:
+Start CraftBot's response to guide format:
 ```
 "Here's my analysis:
 
@@ -73,9 +73,9 @@ Break complex tasks into sequential prompts:
 ## Custom Instructions & System Prompts
 
 ### System Prompt Design
-- **Define role**: What expertise should Claude embody?
+- **Define role**: What expertise should CraftBot embody?
 - **Set tone**: What communication style is appropriate?
-- **Establish constraints**: What should Claude avoid?
+- **Establish constraints**: What should CraftBot avoid?
 - **Clarify scope**: What's the domain of expertise?
 
 ### Behavioral Guidelines
@@ -194,7 +194,7 @@ skill-name/
 ## Multimodal & Advanced Prompting
 
 ### Vision Prompting
-- Describe what Claude should analyze
+- Describe what CraftBot should analyze
 - Specify output format
 - Provide context about images
 - Ask for specific details
@@ -219,14 +219,14 @@ skill-name/
 3. Establish baseline
 4. Measure improvements
 
-### Develop Iteratively with Claude
+### Develop Iteratively with CraftBot
 1. Start with simple version
 2. Test and gather feedback
 3. Refine based on results
 4. Repeat until satisfied
 
-### Observe How Claude Navigates Skills
-- Watch how Claude discovers content
+### Observe How CraftBot Navigates Skills
+- Watch how CraftBot discovers content
 - Note which sections are used
 - Identify confusing areas
 - Optimize based on usage patterns

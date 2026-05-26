@@ -47,7 +47,7 @@ To capture the ALGORITHMIC essence, express how this philosophy manifests throug
 **CRITICAL GUIDELINES:**
 - **Avoid redundancy**: Each algorithmic aspect should be mentioned once. Avoid repeating concepts about noise theory, particle dynamics, or mathematical principles unless adding new depth.
 - **Emphasize craftsmanship REPEATEDLY**: The philosophy MUST stress multiple times that the final algorithm should appear as though it took countless hours to develop, was refined with care, and comes from someone at the absolute top of their field. This framing is essential - repeat phrases like "meticulously crafted algorithm," "the product of deep computational expertise," "painstaking optimization," "master-level implementation."
-- **Leave creative space**: Be specific about the algorithmic direction, but concise enough that the next Claude has room to make interpretive implementation choices at an extremely high level of craftsmanship.
+- **Leave creative space**: Be specific about the algorithmic direction, but concise enough that the next CraftBot has room to make interpretive implementation choices at an extremely high level of craftsmanship.
 
 The philosophy must guide the next version to express ideas ALGORITHMICALLY, not through static images. Beauty lives in the process, not the final frame.
 
@@ -79,7 +79,7 @@ Algorithmic expression: Randomized circle packing or Voronoi tessellation. Start
 - **ALGORITHMIC PHILOSOPHY**: Creating a computational worldview to be expressed through code
 - **PROCESS OVER PRODUCT**: Always emphasize that beauty emerges from the algorithm's execution - each run is unique
 - **PARAMETRIC EXPRESSION**: Ideas communicate through mathematical relationships, forces, behaviors - not static composition
-- **ARTISTIC FREEDOM**: The next Claude interprets the philosophy algorithmically - provide creative implementation room
+- **ARTISTIC FREEDOM**: The next CraftBot interprets the philosophy algorithmically - provide creative implementation room
 - **PURE GENERATIVE ART**: This is about making LIVING ALGORITHMS, not static images with randomness
 - **EXPERT CRAFTSMANSHIP**: Repeatedly emphasize the final algorithm must feel meticulously crafted, refined through countless iterations, the product of deep expertise by someone at the absolute top of their field in computational aesthetics
 
