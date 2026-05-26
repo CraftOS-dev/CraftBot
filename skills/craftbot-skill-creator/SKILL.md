@@ -47,7 +47,7 @@ Do not write any other files. Do not send any chat message other than the single
 
 You will not interview the user. The source task IS the workflow you are codifying. Read `SKILL_SOURCE_<task_id>.md` once with `read_file`, then answer these four questions for yourself before drafting:
 
-1. **What should this skill enable Claude to do?** Use the `## Task name` as a hint, then walk the `## Action trace` to see what the agent actually accomplished. Generalise: strip the specific subject ("PRs in repo X" → "summarise PRs in a repository"). The skill must be reusable across many invocations.
+1. **What should this skill enable CraftBot to do?** Use the `## Task name` as a hint, then walk the `## Action trace` to see what the agent actually accomplished. Generalise: strip the specific subject ("PRs in repo X" → "summarise PRs in a repository"). The skill must be reusable across many invocations.
 2. **When should this skill trigger?** What user phrases or contexts would lead someone to want this workflow next time? Be concrete in the description (see *Description* below).
 3. **What is the output format?** Look at the final write/output actions in the trace. The skill should specify the same shape so future invocations produce comparable results.
 4. **What is the shortest happy path?** The source agent may have re-queried, backtracked, or self-corrected. Walk the trace and identify the *one* sequence that gets to the outcome. Earlier dead-ends do not belong in the skill body — but a `## Common pitfalls` section can mention them so future runs avoid them too.
@@ -92,7 +92,7 @@ action-sets:
 
 ### Description — make it pushy
 
-Claude tends to *under-trigger* skills it isn't sure about. A bare functional description like "Summarise GitHub PRs" loses to a skill with the same purpose but a more directive description. Aim for two parts: what + when. Use ~50–120 words.
+CraftBot tends to *under-trigger* skills it isn't sure about. A bare functional description like "Summarise GitHub PRs" loses to a skill with the same purpose but a more directive description. Aim for two parts: what + when. Use ~50–120 words.
 
 Bad (too thin, won't trigger):
 
