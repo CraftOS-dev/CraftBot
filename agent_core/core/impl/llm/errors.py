@@ -113,6 +113,7 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
     "moonshot": "Moonshot",
     "minimax": "MiniMax",
     "remote": "Ollama",
+    "bedrock": "AWS Bedrock",
 }
 
 

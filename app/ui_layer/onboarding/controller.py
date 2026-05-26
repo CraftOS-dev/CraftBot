@@ -273,6 +273,12 @@ class OnboardingFlowController:
             from app.ui_layer.settings.provider_settings import save_remote_endpoint
 
             save_remote_endpoint(remote_url)
+        elif provider == "bedrock":
+            # Bedrock has no api_key at the onboarding step (boto3 credential
+            # chain). Still set the active provider so the agent reinitializes
+            # against bedrock — explicit creds (if needed) are entered later
+            # under Settings → Model → AWS Bedrock.
+            save_settings_to_json("bedrock", "")
         elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
             if proxied_via == "openrouter":
                 # User chose to go via OpenRouter — save key as openrouter and set model slug.

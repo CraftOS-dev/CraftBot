@@ -1628,7 +1628,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             api_key = data.get("apiKey")
             base_url = data.get("baseUrl")
             model = data.get("model")
-            await self._handle_model_connection_test(provider, api_key, base_url, model)
+            aws_credentials = data.get("awsCredentials")
+            await self._handle_model_connection_test(
+                provider, api_key, base_url, model, aws_credentials
+            )
 
         elif msg_type == "model_validate_save":
             await self._handle_model_validate_save(data)
@@ -4684,7 +4687,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Step 2: Test connection before saving — only when credentials are changing.
             # Mirror the frontend logic: skip the test when only model/provider name
             # changes so that saving works even if the service (e.g. Ollama) is offline.
-            credentials_changing = bool(api_key or base_url)
+            aws_credentials_in = data.get("awsCredentials")
+            credentials_changing = bool(api_key or base_url or aws_credentials_in)
             if new_provider and credentials_changing:
                 # Determine the API key to test with
                 test_api_key = api_key
@@ -4698,6 +4702,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     provider=new_provider,
                     api_key=test_api_key,
                     base_url=base_url,
+                    aws_credentials=aws_credentials_in,
                 )
                 if not test_result.get("success"):
                     error_msg = test_result.get("error", "Connection test failed")
@@ -4722,6 +4727,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 provider_for_key=provider_for_key,
                 base_url=base_url,
                 provider_for_url=data.get("providerForUrl"),
+                aws_credentials=data.get("awsCredentials"),
             )
 
             # Reinitialize LLM/VLM with new provider settings
@@ -4761,6 +4767,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        aws_credentials: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Test connection to a model provider."""
         try:
@@ -4769,6 +4776,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
+                aws_credentials=aws_credentials,
             )
             await self._broadcast(
                 {

@@ -46,4 +46,12 @@ PROVIDER_CONFIG = {
         base_url_env="OPENROUTER_BASE_URL",
         default_base_url="https://openrouter.ai/api/v1",
     ),
+    "bedrock": ProviderConfig(
+        # Bedrock uses the boto3 credential chain (access_key / secret_key /
+        # session_token) read from settings.json by the factory. There is no
+        # single API key, so api_key_env is left None. base_url_env carries
+        # the AWS region (e.g. "us-east-1") through the factory plumbing.
+        base_url_env="AWS_REGION",
+        default_base_url="us-east-1",
+    ),
 }

@@ -22,6 +22,7 @@ def test_provider_connection(
     base_url: Optional[str] = None,
     timeout: float = 15.0,
     model: Optional[str] = None,
+    aws_credentials: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Test if a provider's API key (and optionally model id) is valid.
 
@@ -74,6 +75,18 @@ def test_provider_connection(
         elif provider in ("moonshot", "minimax"):
             return _test_moonshot_minimax(
                 provider, api_key, cfg.default_base_url, timeout, model
+            )
+        elif provider == "bedrock":
+            # `base_url` carries the AWS region through the existing factory
+            # plumbing. `aws_credentials` (if provided) override what's in
+            # settings.json — used when the user is testing new creds before
+            # save. Otherwise the tester reads via app.config so the boto3
+            # credential chain is respected on EC2/ECS hosts.
+            return _test_bedrock(
+                region=base_url,
+                model=model,
+                timeout=timeout,
+                aws_credentials=aws_credentials,
             )
         else:
             return {
@@ -234,6 +247,7 @@ _DISPLAY = {
     "grok": "Grok (xAI)",
     "openrouter": "OpenRouter",
     "remote": "Ollama",
+    "bedrock": "AWS Bedrock",
 }
 
 
@@ -692,3 +706,96 @@ def _test_grok(
         }
     except Exception as exc:
         return _classified_error_result(exc, "grok", model)
+
+
+# ─── Bedrock ──────────────────────────────────────────────────────────
+
+
+def _test_bedrock(
+    region: Optional[str],
+    model: Optional[str],
+    timeout: float,
+    aws_credentials: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Verify the Bedrock credential chain and (optionally) a specific model.
+
+    Bedrock has no shared "API key"; we exercise the boto3 credential chain
+    (settings.json → env → IAM role / SSO profile) by calling the public
+    `list_foundation_models` endpoint. When `model` is supplied we also do a
+    1-token `converse` call against the model so a typo in the model ID is
+    caught at test time rather than at first real call.
+    """
+    try:
+        import boto3  # type: ignore
+        from botocore.config import Config  # type: ignore
+    except ImportError:
+        return {
+            "success": False,
+            "message": "boto3 is not installed. Run `pip install boto3`.",
+            "provider": "bedrock",
+            "error": "boto3 missing",
+        }
+
+    test_model = _resolve_test_model(
+        "bedrock", model, fallback="us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
+
+    # Caller-supplied creds (from the settings form, pre-save) win over what's
+    # in settings.json. Otherwise fall through app.config which reads settings →
+    # env → IAM role / SSO via the default boto3 chain.
+    aws_region = region
+    access_key = secret_key = session_token = None
+    if aws_credentials:
+        access_key = aws_credentials.get("access_key_id") or None
+        secret_key = aws_credentials.get("secret_access_key") or None
+        session_token = aws_credentials.get("session_token") or None
+        aws_region = aws_credentials.get("region") or aws_region
+    if not (access_key and secret_key):
+        try:
+            from app.config import get_aws_credentials
+
+            creds = get_aws_credentials()
+            access_key = access_key or (creds.get("access_key_id") or None)
+            secret_key = secret_key or (creds.get("secret_access_key") or None)
+            session_token = session_token or (creds.get("session_token") or None)
+            aws_region = aws_region or creds.get("region") or "us-east-1"
+        except Exception:
+            aws_region = aws_region or "us-east-1"
+    else:
+        aws_region = aws_region or "us-east-1"
+
+    try:
+        cfg = Config(
+            retries={"max_attempts": 1, "mode": "standard"},
+            connect_timeout=timeout,
+            read_timeout=timeout,
+        )
+        client_kwargs = {"region_name": aws_region, "config": cfg}
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+            if session_token:
+                client_kwargs["aws_session_token"] = session_token
+
+        if model:
+            # Use bedrock-runtime + Converse for a real round-trip against the
+            # model. If it returns OK we know auth + model + region all work.
+            rt = boto3.client("bedrock-runtime", **client_kwargs)
+            rt.converse(
+                modelId=test_model,
+                messages=[{"role": "user", "content": [{"text": "hi"}]}],
+                inferenceConfig={"maxTokens": 1, "temperature": 0.0},
+            )
+            return _success("bedrock", model)
+
+        # No model → just verify creds via `list_foundation_models` on the
+        # bedrock control-plane client.
+        cp = boto3.client("bedrock", **client_kwargs)
+        cp.list_foundation_models()
+        return _success("bedrock", None)
+    except Exception as exc:
+        # Use the classifier so the chat sees the same rich error as a real
+        # call. Bedrock errors surface as botocore ClientError; the classifier
+        # falls back to UNKNOWN with the raw message preserved, which is still
+        # informative.
+        return _classified_error_result(exc, "bedrock", model)

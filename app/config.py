@@ -109,6 +109,12 @@ def _get_default_settings() -> Dict[str, Any]:
             "google_api_base": "",
             "google_api_version": "",
             "openrouter_base_url": "",
+            "aws_region": "us-east-1",
+        },
+        "aws_credentials": {
+            "access_key_id": "",
+            "secret_access_key": "",
+            "session_token": "",
         },
         "web_search": {
             "google_cse_id": "",
@@ -258,8 +264,43 @@ def get_base_url(provider: str) -> Optional[str]:
     elif provider == "openrouter":
         url = endpoints.get("openrouter_base_url", "")
         return url if url else "https://openrouter.ai/api/v1"
+    elif provider == "bedrock":
+        # For Bedrock the "base URL" slot carries the AWS region.
+        region = endpoints.get("aws_region") or os.environ.get(
+            "AWS_DEFAULT_REGION"
+        ) or os.environ.get("AWS_REGION")
+        return region or "us-east-1"
 
     return None
+
+
+def get_aws_credentials() -> Dict[str, str]:
+    """Get AWS credentials for the Bedrock provider.
+
+    Returns a dict with access_key_id, secret_access_key, session_token, and
+    region. Values fall back from settings.json → env vars → empty string so
+    boto3's default credential chain still works when running on an EC2/ECS
+    host with an IAM role.
+    """
+    settings = get_settings()
+    aws = settings.get("aws_credentials", {}) or {}
+    endpoints = settings.get("endpoints", {}) or {}
+
+    return {
+        "access_key_id": aws.get("access_key_id")
+        or os.environ.get("AWS_ACCESS_KEY_ID", "")
+        or "",
+        "secret_access_key": aws.get("secret_access_key")
+        or os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+        or "",
+        "session_token": aws.get("session_token")
+        or os.environ.get("AWS_SESSION_TOKEN", "")
+        or "",
+        "region": endpoints.get("aws_region")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+        or "us-east-1",
+    }
 
 
 def get_connection_test_model(provider: str) -> Optional[str]:

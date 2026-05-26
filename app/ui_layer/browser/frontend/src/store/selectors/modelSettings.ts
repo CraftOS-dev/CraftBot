@@ -9,6 +9,7 @@ export const selectCurrentVlmModel = (state: RootState) => state.modelSettings.c
 export const selectSlowModeEnabled = (state: RootState) => state.modelSettings.slowModeEnabled
 export const selectOllamaModels = (state: RootState) => state.modelSettings.ollamaModels
 export const selectOllamaAvailable = (state: RootState) => state.modelSettings.ollamaAvailable
+export const selectAwsCredentials = (state: RootState) => state.modelSettings.awsCredentials
 export const selectModelHasLoadedProviders = (state: RootState) => state.modelSettings.hasLoadedProviders
 export const selectModelHasLoadedSettings = (state: RootState) => state.modelSettings.hasLoadedSettings
 export const selectModelHasLoadedSlowMode = (state: RootState) => state.modelSettings.hasLoadedSlowMode

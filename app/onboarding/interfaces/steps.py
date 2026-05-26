@@ -118,6 +118,7 @@ class ProviderStep:
         ("moonshot", "Moonshot", "Moonshot models"),
         ("grok", "Grok (xAI)", "Grok models"),
         ("remote", "Ollama (Local)", "Self-hosted models"),
+        ("bedrock", "AWS Bedrock", "Claude / Llama / Titan via AWS"),
     ]
 
     def get_options(self) -> List[StepOption]:
@@ -164,6 +165,7 @@ class ApiKeyStep:
         "moonshot": "MOONSHOT_API_KEY",
         "grok": "XAI_API_KEY",
         "remote": None,  # Ollama uses a base URL, not an API key
+        "bedrock": None,  # Bedrock uses the boto3 credential chain
     }
 
     def __init__(self, provider: str = "openai"):
@@ -177,6 +179,8 @@ class ApiKeyStep:
     def title(self) -> str:
         if self.provider == "remote":
             return "Connect Ollama"
+        if self.provider == "bedrock":
+            return "Configure AWS Bedrock"
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
             return f"Enter {display} API Key"
@@ -188,6 +192,13 @@ class ApiKeyStep:
             return (
                 "Connect to your local Ollama instance.\n"
                 "If Ollama isn't installed yet, we'll help you set it up."
+            )
+        if self.provider == "bedrock":
+            return (
+                "AWS Bedrock uses the boto3 credential chain. You can either "
+                "leave this blank to use environment variables / IAM role / SSO "
+                "profile already configured on this host, or set explicit "
+                "credentials later under Settings → Model."
             )
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
@@ -211,6 +222,12 @@ class ApiKeyStep:
                 return False, "Please enter a valid URL (e.g. http://localhost:11434)"
             return True, None
 
+        if self.provider == "bedrock":
+            # Bedrock uses the boto3 credential chain — no value is required
+            # at onboarding. The user can plug explicit creds in later from
+            # Settings → Model → AWS Bedrock.
+            return True, None
+
         # Proxied providers submit {api_key, via, or_model?} dict
         if self.provider in self.OPENROUTER_PROXIED and isinstance(value, dict):
             api_key = value.get("api_key", "")
@@ -229,6 +246,8 @@ class ApiKeyStep:
     def get_default(self) -> str:
         if self.provider == "remote":
             return "http://localhost:11434"
+        if self.provider == "bedrock":
+            return ""  # Boto3 credential chain — nothing to prefill
         # Check settings.json for existing key
         from app.config import get_api_key
 

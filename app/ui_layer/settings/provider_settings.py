@@ -22,6 +22,10 @@ PROVIDER_TO_SETTINGS_KEY = {
     "moonshot": "moonshot",
     "grok": "grok",
     "openrouter": "openrouter",
+    # Bedrock has no single API key — credentials live under "aws_credentials"
+    # in settings.json (handled separately from the api_keys map). The entry
+    # here is left so PROVIDER_TO_SETTINGS_KEY.get("bedrock") returns None,
+    # which the save path can detect and route accordingly.
 }
 
 

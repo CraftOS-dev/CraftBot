@@ -99,6 +99,7 @@ class VLMInterface:
         self._gemini_client = ctx["gemini_client"]
         self.remote_url = ctx["remote_url"]
         self._anthropic_client = ctx.get("anthropic_client")
+        self._bedrock_client = ctx.get("bedrock_client")
         self._initialized = ctx.get("initialized", False)
 
         if ctx["byteplus"]:
@@ -173,6 +174,7 @@ class VLMInterface:
             self._gemini_client = ctx["gemini_client"]
             self.remote_url = ctx["remote_url"]
             self._anthropic_client = ctx.get("anthropic_client")
+            self._bedrock_client = ctx.get("bedrock_client")
             self._initialized = ctx.get("initialized", False)
 
             if ctx["byteplus"]:
@@ -270,6 +272,10 @@ class VLMInterface:
                 )
             elif self.provider == "anthropic":
                 response = self._anthropic_describe_bytes(
+                    image_bytes, system_prompt, user_prompt
+                )
+            elif self.provider == "bedrock":
+                response = self._bedrock_describe_bytes(
                     image_bytes, system_prompt, user_prompt
                 )
             else:
@@ -812,6 +818,138 @@ class VLMInterface:
         self._report_usage_async(
             "vlm_anthropic",
             "anthropic",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
+        )
+
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens,
+        }
+
+    # ─────────── Bedrock model capability detection ───────────────────
+
+    _BEDROCK_CACHE_PREFIXES = (
+        "anthropic.",
+        "us.anthropic.",
+        "eu.anthropic.",
+        "ap.anthropic.",
+    )
+
+    def _bedrock_model_supports_caching(self, model: str | None = None) -> bool:
+        """Only Anthropic Claude models on Bedrock accept cachePoint markers."""
+        model_id = model or self.model or ""
+        return any(model_id.startswith(p) for p in self._BEDROCK_CACHE_PREFIXES)
+
+    def _bedrock_describe_bytes(
+        self, image_bytes: bytes, sys: str | None, usr: str
+    ) -> Dict[str, Any]:
+        """AWS Bedrock vision request via the Converse API.
+
+        Converse supports vision for Claude (and Nova / Llama 3.2 vision)
+        models on Bedrock with a unified format. cachePoint is only attached
+        for Claude — other models would reject it.
+        """
+        if not self._bedrock_client:
+            raise RuntimeError("Bedrock client was not initialised.")
+
+        config = get_cache_config()
+
+        image_format = "jpeg"
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            image_format = "png"
+        elif image_bytes[:4] == b"GIF8":
+            image_format = "gif"
+        elif image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+            image_format = "webp"
+
+        message_content = [
+            {"image": {"format": image_format, "source": {"bytes": image_bytes}}},
+            {"text": usr},
+        ]
+
+        converse_kwargs: Dict[str, Any] = {
+            "modelId": self.model,
+            "messages": [{"role": "user", "content": message_content}],
+            "inferenceConfig": {
+                "maxTokens": 2048,
+                "temperature": self.temperature,
+            },
+        }
+
+        if sys:
+            use_cache = (
+                len(sys) >= config.min_cache_tokens
+                and self._bedrock_model_supports_caching()
+            )
+            if use_cache:
+                converse_kwargs["system"] = [
+                    {"text": sys},
+                    {"cachePoint": {"type": "default"}},
+                ]
+            else:
+                converse_kwargs["system"] = [{"text": sys}]
+
+        response = self._bedrock_client.converse(**converse_kwargs)
+
+        output_message = response.get("output", {}).get("message", {})
+        content_blocks = output_message.get("content", []) or []
+        content = "".join(
+            block.get("text", "") for block in content_blocks if "text" in block
+        ).strip()
+
+        usage = response.get("usage", {}) or {}
+        token_count_input = int(usage.get("inputTokens", 0) or 0)
+        token_count_output = int(usage.get("outputTokens", 0) or 0)
+        total_tokens = token_count_input + token_count_output
+        cached_tokens = 0
+
+        if self._bedrock_model_supports_caching():
+            # Official Converse response uses `cacheReadInputTokens` /
+            # `cacheWriteInputTokens` (no "Count" suffix) per the API
+            # reference. The "...TokenCount" variants are tolerated as a
+            # defensive fallback for older SDK builds.
+            cache_read = int(
+                usage.get("cacheReadInputTokens")
+                or usage.get("cacheReadInputTokenCount")
+                or 0
+            )
+            cache_write = int(
+                usage.get("cacheWriteInputTokens")
+                or usage.get("cacheWriteInputTokenCount")
+                or 0
+            )
+            cached_tokens = cache_read + cache_write
+
+            metrics = get_cache_metrics()
+            if cache_read > 0:
+                logger.info(
+                    f"[CACHE] Bedrock VLM cache hit: {cache_read}/{token_count_input} tokens from cache"
+                )
+                metrics.record_hit(
+                    "bedrock",
+                    "cachepoint_vlm",
+                    cached_tokens=cache_read,
+                    total_tokens=token_count_input,
+                )
+            elif cache_write > 0:
+                logger.info(
+                    f"[CACHE] Bedrock VLM cache created: {cache_write} tokens cached"
+                )
+                metrics.record_miss(
+                    "bedrock", "cachepoint_vlm", total_tokens=token_count_input
+                )
+            elif sys and len(sys) >= config.min_cache_tokens:
+                metrics.record_miss(
+                    "bedrock", "cachepoint_vlm", total_tokens=token_count_input
+                )
+
+        self._report_usage_async(
+            "vlm_bedrock",
+            "bedrock",
             self.model,
             token_count_input,
             token_count_output,

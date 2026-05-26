@@ -26,6 +26,7 @@ import {
   selectSlowModeEnabled,
   selectOllamaModels,
   selectOllamaAvailable,
+  selectAwsCredentials,
   selectModelHasLoadedProviders,
   selectModelHasLoadedSettings,
   selectModelHasLoadedSlowMode,
@@ -48,6 +49,7 @@ interface ProviderInfo {
   vlm_model: string | null
   has_vlm: boolean
   supports_catalog?: boolean
+  is_bedrock?: boolean
 }
 
 interface ApiKeyStatus {
@@ -85,6 +87,7 @@ export function ModelSettings() {
   const slowModeEnabled = useAppSelector(selectSlowModeEnabled)
   const ollamaModels = useAppSelector(selectOllamaModels)
   const ollamaAvailable = useAppSelector(selectOllamaAvailable)
+  const awsCredentialsStatus = useAppSelector(selectAwsCredentials)
   const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
   const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
   const hasLoadedSlowMode = useAppSelector(selectModelHasLoadedSlowMode)
@@ -99,6 +102,14 @@ export function ModelSettings() {
   const [newBaseUrl, setNewBaseUrl] = useState('')
   const [newLlmModel, setNewLlmModel] = useState('')
   const [newVlmModel, setNewVlmModel] = useState('')
+
+  // Bedrock-specific form state — AWS credentials don't fit the api_key shape
+  // (multiple fields). All four are blank until the user fills them in;
+  // unchanged values fall through to whatever is already in settings.json.
+  const [newAwsAccessKeyId, setNewAwsAccessKeyId] = useState('')
+  const [newAwsSecretAccessKey, setNewAwsSecretAccessKey] = useState('')
+  const [newAwsSessionToken, setNewAwsSessionToken] = useState('')
+  const [newAwsRegion, setNewAwsRegion] = useState('')
 
   // UI state (transient — local).
   const [isSaving, setIsSaving] = useState(false)
@@ -161,6 +172,10 @@ export function ModelSettings() {
           setNewBaseUrl('')
           setNewLlmModel('')
           setNewVlmModel('')
+          setNewAwsAccessKeyId('')
+          setNewAwsSecretAccessKey('')
+          setNewAwsSessionToken('')
+          setNewAwsRegion('')
           setHasChanges(false)
           showToast('success', 'Settings saved')
         } else {
@@ -180,6 +195,7 @@ export function ModelSettings() {
         if (testBeforeSave && d.success) {
           setTestBeforeSave(false)
           setIsSaving(true)
+          const awsCreds = buildAwsCredentialsPayload()
           send('model_settings_update', {
             llmProvider: provider,
             vlmProvider: provider,
@@ -189,6 +205,7 @@ export function ModelSettings() {
             providerForKey: newApiKey ? provider : undefined,
             baseUrl: newBaseUrl || undefined,
             providerForUrl: newBaseUrl ? provider : undefined,
+            awsCredentials: awsCreds,
           })
         } else if (testBeforeSave && !d.success) {
           setTestBeforeSave(false)
@@ -284,7 +301,7 @@ export function ModelSettings() {
     ]
 
     return () => cleanups.forEach(cleanup => cleanup())
-  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, currentLlmModel, currentVlmModel, showToast])
+  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, currentLlmModel, currentVlmModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, newLlmModel, newVlmModel])
 
   // Load initial data only once when connected, cached across remounts.
   useEffect(() => {
@@ -326,6 +343,10 @@ export function ModelSettings() {
     setNewBaseUrl('')
     setNewLlmModel('')
     setNewVlmModel('')
+    setNewAwsAccessKeyId('')
+    setNewAwsSecretAccessKey('')
+    setNewAwsSessionToken('')
+    setNewAwsRegion('')
     setHasChanges(true)
     // Reset Ollama install state when switching providers
     setOllamaInstallPhase('idle')
@@ -338,6 +359,26 @@ export function ModelSettings() {
     dispatch(setCurrentVlmModel(selectedProvider?.vlm_model || ''))
   }
 
+  // Bedrock helper: pack the form's AWS credential fields into the shape the
+  // backend's update/test endpoints expect. Returns undefined when none of the
+  // bedrock fields have been touched, so the existing flow's "credentials
+  // changing" detection still works for the non-bedrock branches.
+  const buildAwsCredentialsPayload = () => {
+    if (provider !== 'bedrock') return undefined
+    const hasAny =
+      newAwsAccessKeyId.length > 0 ||
+      newAwsSecretAccessKey.length > 0 ||
+      newAwsSessionToken.length > 0 ||
+      newAwsRegion.length > 0
+    if (!hasAny) return undefined
+    const payload: Record<string, string> = {}
+    if (newAwsAccessKeyId) payload.access_key_id = newAwsAccessKeyId
+    if (newAwsSecretAccessKey) payload.secret_access_key = newAwsSecretAccessKey
+    if (newAwsSessionToken) payload.session_token = newAwsSessionToken
+    if (newAwsRegion) payload.region = newAwsRegion
+    return payload
+  }
+
   const handleTestConnection = () => {
     setIsTesting(true)
     // Send the user's actual model so the test exercises it; otherwise a
@@ -347,14 +388,17 @@ export function ModelSettings() {
       apiKey: newApiKey || undefined,
       baseUrl: newBaseUrl || baseUrls[provider],
       model: newLlmModel || currentLlmModel || undefined,
+      awsCredentials: buildAwsCredentialsPayload(),
     })
   }
 
   const handleSave = () => {
     const isChangingApiKey = newApiKey.length > 0
     const isChangingBaseUrl = newBaseUrl.length > 0
+    const awsCreds = buildAwsCredentialsPayload()
+    const isChangingAws = awsCreds !== undefined
 
-    if (isChangingApiKey || isChangingBaseUrl) {
+    if (isChangingApiKey || isChangingBaseUrl || isChangingAws) {
       setTestBeforeSave(true)
       setIsTesting(true)
       send('model_connection_test', {
@@ -362,6 +406,7 @@ export function ModelSettings() {
         apiKey: newApiKey || undefined,
         baseUrl: newBaseUrl || baseUrls[provider],
         model: newLlmModel || currentLlmModel || undefined,
+        awsCredentials: awsCreds,
       })
     } else {
       setIsSaving(true)
@@ -702,8 +747,89 @@ export function ModelSettings() {
             />
           )}
 
-          {/* Base URL */}
-          {currentProvider?.base_url_env && (
+          {/* AWS Bedrock credentials */}
+          {provider === 'bedrock' && currentProvider?.is_bedrock && (
+            <>
+              <div className={styles.formGroup}>
+                <label>
+                  AWS Access Key ID
+                  {awsCredentialsStatus?.has_access_key_id ? (
+                    <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                  ) : (
+                    <Badge variant="warning" style={{ marginLeft: 8 }}>Optional</Badge>
+                  )}
+                </label>
+                {awsCredentialsStatus?.has_access_key_id && (
+                  <div className={styles.maskedKey}>{awsCredentialsStatus.masked_access_key_id}</div>
+                )}
+                <input
+                  type="text"
+                  value={newAwsAccessKeyId}
+                  onChange={(e) => { setNewAwsAccessKeyId(e.target.value); setHasChanges(true) }}
+                  placeholder={
+                    awsCredentialsStatus?.has_access_key_id
+                      ? 'Enter new key ID to replace...'
+                      : 'AKIA...'
+                  }
+                  autoComplete="off"
+                />
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
+                  Leave blank to use the boto3 credential chain (env vars, IAM role,
+                  or SSO profile on the host).
+                </p>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>
+                  AWS Secret Access Key
+                  {awsCredentialsStatus?.has_secret_access_key && (
+                    <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  value={newAwsSecretAccessKey}
+                  onChange={(e) => { setNewAwsSecretAccessKey(e.target.value); setHasChanges(true) }}
+                  placeholder={
+                    awsCredentialsStatus?.has_secret_access_key
+                      ? 'Enter new secret to replace...'
+                      : 'Enter secret access key'
+                  }
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>
+                  AWS Session Token <span style={{ color: 'var(--text-muted, #888)' }}>(optional)</span>
+                </label>
+                <input
+                  type="password"
+                  value={newAwsSessionToken}
+                  onChange={(e) => { setNewAwsSessionToken(e.target.value); setHasChanges(true) }}
+                  placeholder="Only required for temporary STS credentials"
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>AWS Region</label>
+                <input
+                  type="text"
+                  value={newAwsRegion || awsCredentialsStatus?.region || baseUrls['bedrock'] || ''}
+                  onChange={(e) => { setNewAwsRegion(e.target.value); setHasChanges(true) }}
+                  placeholder="us-east-1"
+                />
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
+                  Bedrock model availability and inference profile IDs vary by region —
+                  see the AWS Bedrock model catalog for what's enabled in yours.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Base URL — suppressed for bedrock since region lives in the AWS block above */}
+          {currentProvider?.base_url_env && provider !== 'bedrock' && (
             <div className={styles.formGroup}>
               <label>Server URL</label>
               <input
@@ -720,8 +846,19 @@ export function ModelSettings() {
             <Button
               variant="secondary"
               onClick={handleTestConnection}
-              disabled={isTesting || (provider !== 'remote' && !apiKeys[provider]?.has_key)}
-              title={provider !== 'remote' && !apiKeys[provider]?.has_key ? 'API key required for testing' : ''}
+              disabled={
+                isTesting ||
+                (provider !== 'remote' &&
+                  provider !== 'bedrock' &&
+                  !apiKeys[provider]?.has_key)
+              }
+              title={
+                provider !== 'remote' &&
+                provider !== 'bedrock' &&
+                !apiKeys[provider]?.has_key
+                  ? 'API key required for testing'
+                  : ''
+              }
             >
               {isTesting ? (
                 <>
