@@ -471,6 +471,7 @@ class MetricsCollector:
         # Storage references for historical data
         self._usage_storage = None
         self._task_storage = None
+        self._skill_storage = None
         self._init_storage()
 
     def _init_storage(self) -> None:
@@ -483,6 +484,26 @@ class MetricsCollector:
             self._task_storage = get_task_storage()
         except Exception:
             # Storage may not be available in all contexts
+            pass
+        try:
+            from app.usage.skill_storage import get_skill_storage
+
+            self._skill_storage = get_skill_storage()
+        except Exception:
+            pass
+        self._load_skill_metrics()
+
+    def _load_skill_metrics(self) -> None:
+        """Restore skill invocation counts from persistent storage on startup."""
+        if not self._skill_storage:
+            return
+        try:
+            totals = self._skill_storage.get_skill_totals()
+            with self._lock:
+                for skill_name, count in totals.items():
+                    self._skill_usage[skill_name] = count
+                self._skill_total_invocations = sum(totals.values())
+        except Exception:
             pass
 
     def _get_period_bounds(
@@ -654,6 +675,11 @@ class MetricsCollector:
         with self._lock:
             self._skill_usage[skill_name] += 1
             self._skill_total_invocations += 1
+        if self._skill_storage:
+            try:
+                self._skill_storage.insert_invocation(skill_name)
+            except Exception:
+                pass
 
     def get_top_skills(self, limit: int = 3) -> List[Tuple[str, int]]:
         """Get top N most used skills."""
