@@ -1,4 +1,5 @@
 """Diagnostic environment for the "keyboard input" action."""
+
 from __future__ import annotations
 
 import types
@@ -7,7 +8,9 @@ from typing import Any, List, Mapping, Tuple
 from diagnostic.framework import ActionTestCase, ExecutionResult, PreparedEnv
 
 
-def _build_pyautogui_stub(recorded: List[Tuple[str, Tuple[str, ...]]]) -> types.ModuleType:
+def _build_pyautogui_stub(
+    recorded: List[Tuple[str, Tuple[str, ...]]],
+) -> types.ModuleType:
     module = types.ModuleType("pyautogui")
 
     def press(key: str) -> None:

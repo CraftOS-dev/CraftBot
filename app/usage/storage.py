@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -29,8 +28,8 @@ class UsageEvent:
     """A single usage event for an LLM/VLM operation."""
 
     service_type: str  # "llm_openai", "vlm_anthropic", etc.
-    provider: str      # "openai", "anthropic", "gemini", "byteplus"
-    model: str         # "gpt-4o", "claude-sonnet-4-20250514", etc.
+    provider: str  # "openai", "anthropic", "gemini", "byteplus"
+    model: str  # "gpt-4o", "claude-sonnet-4-20250514", etc.
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -38,7 +37,7 @@ class UsageEvent:
     duration_ms: int = 0
 
     # Optional metadata
-    call_type: Optional[str] = None      # "reasoning", "action_selection", etc.
+    call_type: Optional[str] = None  # "reasoning", "action_selection", etc.
     session_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
@@ -70,6 +69,7 @@ class UsageStorage:
         """
         if db_path is None:
             from app.config import APP_DATA_PATH
+
             usage_dir = Path(APP_DATA_PATH) / ".usage"
             usage_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(usage_dir / "usage.db")
@@ -127,25 +127,30 @@ class UsageStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO usage_events
                 (timestamp, service_type, provider, model, input_tokens,
                  output_tokens, cached_tokens, duration_ms, call_type,
                  session_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                event.timestamp.isoformat() if event.timestamp else datetime.now().isoformat(),
-                event.service_type,
-                event.provider,
-                event.model,
-                event.input_tokens,
-                event.output_tokens,
-                event.cached_tokens,
-                event.duration_ms,
-                event.call_type,
-                event.session_id,
-                json.dumps(event.metadata) if event.metadata else None,
-            ))
+            """,
+                (
+                    event.timestamp.isoformat()
+                    if event.timestamp
+                    else datetime.now().isoformat(),
+                    event.service_type,
+                    event.provider,
+                    event.model,
+                    event.input_tokens,
+                    event.output_tokens,
+                    event.cached_tokens,
+                    event.duration_ms,
+                    event.call_type,
+                    event.session_id,
+                    json.dumps(event.metadata) if event.metadata else None,
+                ),
+            )
             conn.commit()
             return cursor.lastrowid
 
@@ -166,7 +171,9 @@ class UsageStorage:
             cursor = conn.cursor()
             data = [
                 (
-                    e.timestamp.isoformat() if e.timestamp else datetime.now().isoformat(),
+                    e.timestamp.isoformat()
+                    if e.timestamp
+                    else datetime.now().isoformat(),
                     e.service_type,
                     e.provider,
                     e.model,
@@ -180,13 +187,16 @@ class UsageStorage:
                 )
                 for e in events
             ]
-            cursor.executemany("""
+            cursor.executemany(
+                """
                 INSERT INTO usage_events
                 (timestamp, service_type, provider, model, input_tokens,
                  output_tokens, cached_tokens, duration_ms, call_type,
                  session_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, data)
+            """,
+                data,
+            )
             conn.commit()
             return len(events)
 
@@ -404,7 +414,8 @@ class UsageStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     DATE(timestamp) as date,
                     COUNT(*) as total_calls,
@@ -415,7 +426,9 @@ class UsageStorage:
                 WHERE timestamp >= ?
                 GROUP BY DATE(timestamp)
                 ORDER BY date DESC
-            """, (start_date.isoformat(),))
+            """,
+                (start_date.isoformat(),),
+            )
 
             rows = cursor.fetchall()
 
@@ -443,7 +456,8 @@ class UsageStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     id, timestamp, service_type, provider, model,
                     input_tokens, output_tokens, cached_tokens,
@@ -451,7 +465,9 @@ class UsageStorage:
                 FROM usage_events
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
 
             rows = cursor.fetchall()
 
@@ -499,13 +515,24 @@ class UsageStorage:
 
             rows = cursor.fetchall()
 
-            with open(path, 'w', newline='', encoding='utf-8') as f:
+            with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    'id', 'timestamp', 'service_type', 'provider', 'model',
-                    'input_tokens', 'output_tokens', 'cached_tokens',
-                    'duration_ms', 'call_type', 'session_id', 'metadata'
-                ])
+                writer.writerow(
+                    [
+                        "id",
+                        "timestamp",
+                        "service_type",
+                        "provider",
+                        "model",
+                        "input_tokens",
+                        "output_tokens",
+                        "cached_tokens",
+                        "duration_ms",
+                        "call_type",
+                        "session_id",
+                        "metadata",
+                    ]
+                )
                 writer.writerows(rows)
 
             return len(rows)

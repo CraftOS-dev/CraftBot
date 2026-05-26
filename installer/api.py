@@ -9,6 +9,7 @@ Why a thread per action: the JS bridge call is itself async, but blocking
 the bridge thread means progress callbacks would back up. The worker keeps
 the bridge thread free to handle state polls from JS while the install runs.
 """
+
 from __future__ import annotations
 
 import json
@@ -83,7 +84,11 @@ class WizardAPI:
         if not self._window:
             return None
         default = craftbot.default_install_location()
-        initial_dir = os.path.dirname(default) if os.path.isdir(os.path.dirname(default)) else None
+        initial_dir = (
+            os.path.dirname(default)
+            if os.path.isdir(os.path.dirname(default))
+            else None
+        )
         result = self._window.create_file_dialog(
             webview.FOLDER_DIALOG, directory=initial_dir or ""
         )
@@ -218,9 +223,7 @@ class WizardAPI:
                 try:
                     with open(craftbot.LOG_FILE, "rb") as f:
                         f.seek(offset)
-                        chunk = f.read(size - offset).decode(
-                            "utf-8", errors="replace"
-                        )
+                        chunk = f.read(size - offset).decode("utf-8", errors="replace")
                     offset = size
                 except OSError:
                     chunk = ""

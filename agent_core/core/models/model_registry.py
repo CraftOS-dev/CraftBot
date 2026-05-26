@@ -56,4 +56,20 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "anthropic/claude-sonnet-4.5",
         InterfaceType.EMBEDDING: None,
     },
+    "bedrock": {
+        # Default to Claude Haiku 4.5 — best price/performance on Bedrock with
+        # cachePoint support (5-min + 1-hour TTL). The `us.` prefix is the
+        # cross-region inference profile, which is required because Claude 4.x
+        # models reject on-demand invocations against the bare `anthropic.*`
+        # ID ("Invocation of model ID ... with on-demand throughput isn't
+        # supported. Retry your request with the ID or ARN of an inference
+        # profile that contains this model."). The `us.anthropic.` prefix
+        # still matches `_BEDROCK_CACHE_PREFIXES`, so cachePoint is exercised.
+        # Users in EU / APAC regions should change `us.` to `eu.` / `ap.`.
+        # Haiku 4.5 also accepts image content blocks via Converse, so it
+        # doubles as the VLM default. Embedding stays on Titan.
+        InterfaceType.LLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        InterfaceType.VLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        InterfaceType.EMBEDDING: "amazon.titan-embed-text-v2:0",
+    },
 }

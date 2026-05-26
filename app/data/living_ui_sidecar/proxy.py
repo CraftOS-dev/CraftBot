@@ -31,7 +31,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # Setup logging
-LOG_DIR = Path(__file__).parent.parent / "logs" if (Path(__file__).parent.parent / "logs").exists() else Path("logs")
+LOG_DIR = (
+    Path(__file__).parent.parent / "logs"
+    if (Path(__file__).parent.parent / "logs").exists()
+    else Path("logs")
+)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
@@ -46,7 +50,9 @@ logger = logging.getLogger("sidecar")
 
 # Parse args
 parser = argparse.ArgumentParser()
-parser.add_argument("--app-port", type=int, required=True, help="Port of the actual app")
+parser.add_argument(
+    "--app-port", type=int, required=True, help="Port of the actual app"
+)
 parser.add_argument("--proxy-port", type=int, required=True, help="Port for this proxy")
 args, _ = parser.parse_known_args()
 
@@ -116,12 +122,15 @@ CAPTURE_SCRIPT = """
 
 # FastAPI app
 app = FastAPI(title="Living UI Sidecar Proxy")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
 
 http_client = httpx.AsyncClient(base_url=APP_URL, timeout=30, follow_redirects=True)
 
 
 # ── Living UI endpoints (handled by sidecar, not forwarded) ──────────
+
 
 @app.get("/health")
 async def health():
@@ -131,7 +140,11 @@ async def health():
         app_ok = resp.status_code < 500
     except Exception:
         app_ok = False
-    return {"status": "healthy" if app_ok else "degraded", "sidecar": "ok", "app": "ok" if app_ok else "down"}
+    return {
+        "status": "healthy" if app_ok else "degraded",
+        "sidecar": "ok",
+        "app": "ok" if app_ok else "down",
+    }
 
 
 class LogEntry(BaseModel):
@@ -156,7 +169,10 @@ async def capture_logs(data: LogBatch):
 
 # ── Reverse proxy (forwards everything else to the app) ──────────────
 
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+
+@app.api_route(
+    "/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+)
 async def proxy(request: Request, path: str):
     """Forward all requests to the actual app, inject capture script into HTML responses."""
     # Build the proxied URL
@@ -210,5 +226,8 @@ async def proxy(request: Request, path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"Starting sidecar proxy: localhost:{args.proxy_port} → localhost:{args.app_port}")
+
+    logger.info(
+        f"Starting sidecar proxy: localhost:{args.proxy_port} → localhost:{args.app_port}"
+    )
     uvicorn.run(app, host="0.0.0.0", port=args.proxy_port, log_level="warning")

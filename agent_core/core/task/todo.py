@@ -26,6 +26,7 @@ class TodoItem:
                      (e.g., "Running tests")
         id: Unique identifier used as action_id when reporting to chatserver.
     """
+
     content: str
     status: TodoStatus = "pending"
     active_form: Optional[str] = None

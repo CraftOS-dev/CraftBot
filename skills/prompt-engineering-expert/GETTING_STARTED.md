@@ -2,7 +2,7 @@
 
 ## 📦 What You Have
 
-A complete Claude Skill for prompt engineering expertise, located at:
+A complete CraftBot Skill for prompt engineering expertise, located at:
 ```
 ~/Documents/prompt-engineering-expert/
 ```

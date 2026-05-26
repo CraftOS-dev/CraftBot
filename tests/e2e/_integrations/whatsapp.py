@@ -97,7 +97,8 @@ async def recent_messages_in_self_chat(
 
     needle = contains.lower() if contains else None
     return [
-        m for m in messages
+        m
+        for m in messages
         if m.get("from_me", False)
         and (m.get("timestamp") or 0) >= since_ts
         and (not needle or needle in (m.get("body") or "").lower())

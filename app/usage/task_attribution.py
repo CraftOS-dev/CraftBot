@@ -53,19 +53,23 @@ def attribute_usage_to_current_task(event: UsageEventData) -> None:
             return
 
         from app.ui_layer.events import UIEvent, UIEventType
-        bus.emit(UIEvent(
-            type=UIEventType.TASK_TOKEN_UPDATE,
-            data={
-                "task_id": task.id,
-                "input_tokens": task.input_tokens,
-                "output_tokens": task.output_tokens,
-                "cache_tokens": task.cache_tokens,
-            },
-            task_id=task.id,
-        ))
+
+        bus.emit(
+            UIEvent(
+                type=UIEventType.TASK_TOKEN_UPDATE,
+                data={
+                    "task_id": task.id,
+                    "input_tokens": task.input_tokens,
+                    "output_tokens": task.output_tokens,
+                    "cache_tokens": task.cache_tokens,
+                },
+                task_id=task.id,
+            )
+        )
     except Exception as e:
         try:
             from app.logger import logger
+
             logger.warning(f"[TOKEN_ATTR] attribution failed: {e}", exc_info=True)
         except Exception:
             pass

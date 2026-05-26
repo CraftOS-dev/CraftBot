@@ -6,8 +6,11 @@ Onboarding manager singleton for coordinating onboarding lifecycle.
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from agent_core.core.impl.onboarding.state import OnboardingState, load_state, save_state
-from agent_core.core.impl.onboarding.config import DEFAULT_AGENT_NAME
+from agent_core.core.impl.onboarding.state import (
+    OnboardingState,
+    load_state,
+    save_state,
+)
 from agent_core.utils.logger import logger
 
 if TYPE_CHECKING:
@@ -56,7 +59,9 @@ class OnboardingManager:
         """Lazily load state on first access."""
         if self._state is None:
             self._state = load_state()
-            logger.info(f"[ONBOARDING] Manager initialized: hard={self._state.hard_completed}, soft={self._state.soft_completed}")
+            logger.info(
+                f"[ONBOARDING] Manager initialized: hard={self._state.hard_completed}, soft={self._state.soft_completed}"
+            )
         return self._state
 
     def set_agent(self, agent) -> None:
@@ -107,7 +112,7 @@ class OnboardingManager:
             state.agent_name = agent_name
         if agent_profile_picture is not None:
             state.agent_profile_picture = agent_profile_picture
-        
+
         try:
             save_state(state)
             logger.info("[ONBOARDING] Hard onboarding marked complete")

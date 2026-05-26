@@ -11,7 +11,6 @@ Also handles file-based event logging to:
 
 """
 
-
 from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,14 +24,17 @@ from agent_core.utils.logger import logger
 from agent_core.utils.file_utils import rotate_md_file_if_needed
 from agent_core.core.state.base import get_state_or_none
 
+
 # Import memory mode check (deferred to avoid circular imports)
 def _is_memory_enabled() -> bool:
     """Check if memory mode is enabled. Returns True if unknown."""
     try:
         from app.ui_layer.settings.memory_settings import is_memory_enabled
+
         return is_memory_enabled()
     except ImportError:
         return True  # Default to enabled if settings module not available
+
 
 # Task names that should not log to EVENT_UNPROCESSED.md (to prevent infinite loops)
 SKIP_UNPROCESSED_TASK_NAMES = {"Process Memory Events"}
@@ -85,7 +87,7 @@ class EventStreamManager:
         self._on_stream_remove_persist = on_stream_remove_persist
 
         # Conversation history for context injection into tasks
-        # Stores recent user AND agent messages without affecting TUI display
+        # Stores recent user AND agent messages without affecting UI display
         self._conversation_history: List[Event] = []
         self._conversation_history_limit = 50  # Keep last 50 messages
 
@@ -142,7 +144,7 @@ class EventStreamManager:
     def get_all_streams(self) -> list[EventStream]:
         """Get all event streams (main + all task streams).
 
-        Used by the TUI to watch events from all concurrent tasks.
+        Used by the UI to watch events from all concurrent tasks.
 
         Returns:
             List of all event streams, main stream first, then task streams.
@@ -152,7 +154,7 @@ class EventStreamManager:
     def get_all_streams_with_ids(self) -> list[tuple[str, EventStream]]:
         """Get all event streams with their task IDs.
 
-        Used by the TUI to watch events from all concurrent tasks and
+        Used by the UI to watch events from all concurrent tasks and
         correctly associate events with their source tasks.
 
         Returns:
@@ -162,11 +164,13 @@ class EventStreamManager:
         result.extend(self._task_streams.items())
         return result
 
-    def record_conversation_message(self, kind: str, message: str, display_message: Optional[str] = None) -> None:
+    def record_conversation_message(
+        self, kind: str, message: str, display_message: Optional[str] = None
+    ) -> None:
         """Record a conversation message for context injection into future tasks.
 
         This stores messages in a separate in-memory list that does NOT affect
-        TUI display. Used to track both user and agent messages for injecting
+        UI display. Used to track both user and agent messages for injecting
         conversation history into new tasks.
 
         Args:
@@ -184,7 +188,9 @@ class EventStreamManager:
 
         # Trim to limit
         if len(self._conversation_history) > self._conversation_history_limit:
-            self._conversation_history = self._conversation_history[-self._conversation_history_limit:]
+            self._conversation_history = self._conversation_history[
+                -self._conversation_history_limit :
+            ]
 
     def get_recent_conversation_messages(self, limit: int = 20) -> List[Event]:
         """Retrieve recent conversation messages (user AND agent) for context injection.
@@ -254,7 +260,9 @@ class EventStreamManager:
             if state:
                 current_task = state.current_task
                 if current_task and current_task.name in SKIP_UNPROCESSED_TASK_NAMES:
-                    logger.debug(f"[EventStreamManager] Skipping unprocessed logging for task: {current_task.name}")
+                    logger.debug(
+                        f"[EventStreamManager] Skipping unprocessed logging for task: {current_task.name}"
+                    )
                     return True
         except Exception:
             # If we can't check state, fall back to flag only
@@ -308,14 +316,20 @@ class EventStreamManager:
             # Write to EVENT_UNPROCESSED.md unless:
             # 1. Task-level skip is active (memory processing task)
             # 2. Event type is in the skip list (routine events)
-            if not self._should_skip_unprocessed() and not self._should_skip_event_type(kind):
+            if not self._should_skip_unprocessed() and not self._should_skip_event_type(
+                kind
+            ):
                 try:
-                    unprocessed_file = self._agent_file_system_path / "EVENT_UNPROCESSED.md"
+                    unprocessed_file = (
+                        self._agent_file_system_path / "EVENT_UNPROCESSED.md"
+                    )
                     rotate_md_file_if_needed(unprocessed_file)
                     with open(unprocessed_file, "a", encoding="utf-8") as f:
                         f.write(event_line)
                 except Exception as e:
-                    logger.warning(f"[EventStreamManager] Failed to write to EVENT_UNPROCESSED.md: {e}")
+                    logger.warning(
+                        f"[EventStreamManager] Failed to write to EVENT_UNPROCESSED.md: {e}"
+                    )
 
     # ───────────────────────────── utilities ─────────────────────────────
 
@@ -349,7 +363,9 @@ class EventStreamManager:
         Returns:
             Index of the logged event within the target stream's tail.
         """
-        logger.debug(f"Process Started - Logging event to stream: [{severity}] {kind} - {message}")
+        logger.debug(
+            f"Process Started - Logging event to stream: [{severity}] {kind} - {message}"
+        )
         # Use explicit task_id if provided (for concurrent task isolation)
         # Otherwise fall back to get_stream() which uses global STATE
         # CRITICAL: Use `is not None` instead of `if task_id` to handle empty string correctly
@@ -363,8 +379,10 @@ class EventStreamManager:
             # session 0489cf) into whatever task happens to be active (e.g. translate
             # task 15a11d). Only warn if other streams exist (indicates a bug/race).
             if self._task_streams:
-                logger.warning(f"[EVENT_STREAM] Task stream not found for task_id={task_id!r}, falling back to main stream. "
-                              f"Available streams: {list(self._task_streams.keys())}")
+                logger.warning(
+                    f"[EVENT_STREAM] Task stream not found for task_id={task_id!r}, falling back to main stream. "
+                    f"Available streams: {list(self._task_streams.keys())}"
+                )
             stream = self._main_stream
         else:
             stream = self.get_stream()

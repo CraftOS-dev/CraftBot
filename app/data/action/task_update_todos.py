@@ -1,5 +1,6 @@
 from agent_core import action
 
+
 @action(
     name="task_update_todos",
     description=(
@@ -20,27 +21,33 @@ from agent_core import action
     input_schema={
         "todos": {
             "type": "array",
-            "description": "Array of todo objects. Each object MUST have exactly 2 keys: 'content' (string: the task text) and 'status' (string: 'pending'|'in_progress'|'completed'). Example: [{\"content\": \"Do X\", \"status\": \"completed\"}, {\"content\": \"Do Y\", \"status\": \"in_progress\"}]",
-            "required": True
+            "description": 'Array of todo objects. Each object MUST have exactly 2 keys: \'content\' (string: the task text) and \'status\' (string: \'pending\'|\'in_progress\'|\'completed\'). Example: [{"content": "Do X", "status": "completed"}, {"content": "Do Y", "status": "in_progress"}]',
+            "required": True,
         }
     },
     output_schema={
         "status": {
             "type": "string",
             "example": "success",
-            "description": "Indicates if the update was successful"
+            "description": "Indicates if the update was successful",
         }
     },
     test_payload={
         "todos": [
-            {"content": "Acknowledge task and confirm understanding", "status": "completed"},
-            {"content": "Collect: Identify required data sources", "status": "in_progress"},
+            {
+                "content": "Acknowledge task and confirm understanding",
+                "status": "completed",
+            },
+            {
+                "content": "Collect: Identify required data sources",
+                "status": "in_progress",
+            },
             {"content": "Execute: Process the data", "status": "pending"},
             {"content": "Verify: Validate output correctness", "status": "pending"},
-            {"content": "Confirm: Get user approval", "status": "pending"}
+            {"content": "Confirm: Get user approval", "status": "pending"},
         ],
-        "simulated_mode": True
-    }
+        "simulated_mode": True,
+    },
 )
 def update_todos(input_data: dict) -> dict:
     """Update the todo list for the current task."""
@@ -49,6 +56,7 @@ def update_todos(input_data: dict) -> dict:
 
     if not simulated_mode:
         import app.internal_action_interface as iai
+
         result = iai.InternalActionInterface.update_todos(todos)
         status = "success" if result.get("status") in ("ok", "success") else "error"
         return {"status": status}

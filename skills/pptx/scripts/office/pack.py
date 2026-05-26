@@ -23,6 +23,7 @@ import defusedxml.minidom
 
 from validators import DOCXSchemaValidator, PPTXSchemaValidator, RedliningValidator
 
+
 def pack(
     input_directory: str,
     output_file: str,
@@ -78,12 +79,12 @@ def _run_validation(
     validators = []
 
     if suffix == ".docx":
-        author = "Claude"
+        author = "CraftBot"
         if infer_author_func:
             try:
                 author = infer_author_func(unpacked_dir, original_file)
             except ValueError as e:
-                print(f"Warning: {e} Using default author 'Claude'.", file=sys.stderr)
+                print(f"Warning: {e} Using default author 'CraftBot'.", file=sys.stderr)
 
         validators = [
             DOCXSchemaValidator(unpacked_dir, original_file),

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 # Optional provider SDK imports — kept defensive so missing extras don't
@@ -52,15 +52,15 @@ except ImportError:  # pragma: no cover
 
 
 class ErrorCategory(str, Enum):
-    AUTH = "auth"               # 401/403 — bad/missing key, key revoked
-    CREDIT = "credit"           # 402, "insufficient_quota", "credit_balance_too_low"
-    RATE_LIMIT = "rate_limit"   # 429 — transient
-    QUOTA = "quota"             # 429 + monthly/account scope (separable from per-min)
-    MODEL = "model"             # 404, "model_not_found"
-    BAD_REQUEST = "bad_request" # 400 — request malformed (context overflow, etc.)
-    BLOCKED = "blocked"         # safety filter (Gemini/Anthropic)
-    SERVER = "server"           # 5xx, "overloaded_error"
-    CONNECTION = "connection"   # network / timeout / DNS
+    AUTH = "auth"  # 401/403 — bad/missing key, key revoked
+    CREDIT = "credit"  # 402, "insufficient_quota", "credit_balance_too_low"
+    RATE_LIMIT = "rate_limit"  # 429 — transient
+    QUOTA = "quota"  # 429 + monthly/account scope (separable from per-min)
+    MODEL = "model"  # 404, "model_not_found"
+    BAD_REQUEST = "bad_request"  # 400 — request malformed (context overflow, etc.)
+    BLOCKED = "blocked"  # safety filter (Gemini/Anthropic)
+    SERVER = "server"  # 5xx, "overloaded_error"
+    CONNECTION = "connection"  # network / timeout / DNS
     UNKNOWN = "unknown"
 
 
@@ -72,6 +72,7 @@ class ErrorAction:
     "open_settings_model" — handled by the chat component, not by URL nav.
     Exactly one of url/action should be set.
     """
+
     label: str
     url: Optional[str] = None
     action: Optional[str] = None
@@ -80,16 +81,16 @@ class ErrorAction:
 @dataclass
 class LLMErrorInfo:
     category: ErrorCategory
-    title: str                          # e.g. "Rate limited"
-    message: str                        # e.g. "Free-tier limit on Google AI Studio. Wait ~30s or add your own key."
-    provider: str                       # "openrouter", "anthropic", ...
-    upstream: Optional[str] = None      # "Google AI Studio" — present when OR proxies
+    title: str  # e.g. "Rate limited"
+    message: str  # e.g. "Free-tier limit on Google AI Studio. Wait ~30s or add your own key."
+    provider: str  # "openrouter", "anthropic", ...
+    upstream: Optional[str] = None  # "Google AI Studio" — present when OR proxies
     model: Optional[str] = None
     http_status: Optional[int] = None
     retry_after_seconds: Optional[int] = None
     actions: List[ErrorAction] = field(default_factory=list)
-    raw_message: Optional[str] = None   # truncated raw upstream text for "Show details"
-    request_id: Optional[str] = None    # for support tickets
+    raw_message: Optional[str] = None  # truncated raw upstream text for "Show details"
+    request_id: Optional[str] = None  # for support tickets
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -112,6 +113,7 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
     "moonshot": "Moonshot",
     "minimax": "MiniMax",
     "remote": "Ollama",
+    "bedrock": "AWS Bedrock",
 }
 
 
@@ -119,16 +121,16 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
 # real-world errors have an upstream message that's already informative;
 # we lead with that and only append a short action hint.
 _FALLBACK_BODY_BY_CATEGORY: Dict[ErrorCategory, str] = {
-    ErrorCategory.AUTH:        "the API key was rejected",
-    ErrorCategory.CREDIT:      "out of credits",
-    ErrorCategory.RATE_LIMIT:  "rate-limited",
-    ErrorCategory.QUOTA:       "quota exceeded",
-    ErrorCategory.MODEL:       "the selected model is not available",
+    ErrorCategory.AUTH: "the API key was rejected",
+    ErrorCategory.CREDIT: "out of credits",
+    ErrorCategory.RATE_LIMIT: "rate-limited",
+    ErrorCategory.QUOTA: "quota exceeded",
+    ErrorCategory.MODEL: "the selected model is not available",
     ErrorCategory.BAD_REQUEST: "the request was rejected",
-    ErrorCategory.BLOCKED:     "blocked by the provider's safety filter",
-    ErrorCategory.SERVER:      "the provider is unavailable",
-    ErrorCategory.CONNECTION:  "unable to reach the provider",
-    ErrorCategory.UNKNOWN:     "something went wrong",
+    ErrorCategory.BLOCKED: "blocked by the provider's safety filter",
+    ErrorCategory.SERVER: "the provider is unavailable",
+    ErrorCategory.CONNECTION: "unable to reach the provider",
+    ErrorCategory.UNKNOWN: "something went wrong",
 }
 
 
@@ -141,9 +143,7 @@ MSG_CONFIG = "The request was rejected by the provider."
 MSG_SERVICE = "The provider service is unavailable. Try again later."
 MSG_CONNECTION = "Could not reach the provider. Check your network connection."
 MSG_GENERIC = "Something went wrong calling the AI service."
-MSG_CONSECUTIVE_FAILURE = (
-    "Aborted after consecutive failures."
-)
+MSG_CONSECUTIVE_FAILURE = "Aborted after consecutive failures."
 
 
 # ─── Consecutive-failure exception (preserves last classified info) ───
@@ -304,7 +304,11 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     error_type = body_dict.get("type")
 
     upstream: Optional[str] = None
-    metadata = body_dict.get("metadata") if isinstance(body_dict.get("metadata"), dict) else None
+    metadata = (
+        body_dict.get("metadata")
+        if isinstance(body_dict.get("metadata"), dict)
+        else None
+    )
 
     # OpenRouter wraps upstream errors. The upstream's verbatim message is
     # FAR more useful than OR's "Provider returned error" wrapper.
@@ -315,7 +319,9 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
             raw_message = metadata["raw"]
 
     # ── Category resolution ────────────────────────────────────────
-    category = _category_from_openai_exc(exc, status=status, body_dict=body_dict, raw=raw_message)
+    category = _category_from_openai_exc(
+        exc, status=status, body_dict=body_dict, raw=raw_message
+    )
 
     # OpenAI string codes are the gold standard signal where present
     if isinstance(code, str):
@@ -330,12 +336,22 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
         elif code == "invalid_api_key":
             category = ErrorCategory.AUTH
         # Chinese provider credit codes (DeepSeek, MiniMax, Moonshot, Qwen)
-        elif code in ("insufficient_user_quota", "quota_exceeded", "balance_insufficient",
-                      "BillingException", "InsufficientQuota"):
+        elif code in (
+            "insufficient_user_quota",
+            "quota_exceeded",
+            "balance_insufficient",
+            "BillingException",
+            "InsufficientQuota",
+        ):
             category = ErrorCategory.CREDIT
         # Chinese provider content-filter codes
-        elif code in ("content_policy_violation", "content_filter", "output_moderation",
-                      "ContentAuditException", "DataInspectionFailed"):
+        elif code in (
+            "content_policy_violation",
+            "content_filter",
+            "output_moderation",
+            "ContentAuditException",
+            "DataInspectionFailed",
+        ):
             category = ErrorCategory.BLOCKED
 
     # Anthropic-style nested error type can appear when OR proxies Anthropic
@@ -356,7 +372,10 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     # OpenRouter 403 can mean content moderation, not just auth — check body
     if status == 403 and provider == "openrouter":
         raw_lower = raw_message.lower()
-        if any(k in raw_lower for k in ("moderat", "blocked", "policy", "content", "flagged")):
+        if any(
+            k in raw_lower
+            for k in ("moderat", "blocked", "policy", "content", "flagged")
+        ):
             category = ErrorCategory.BLOCKED
 
     # Localised error message detection — Chinese, Japanese, Korean providers
@@ -368,7 +387,9 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     retry_after = _retry_after_seconds(exc)
 
     # ── User-facing message ────────────────────────────────────────
-    message = _compose_message(category, raw_message, provider, upstream, retry_after_seconds=retry_after)
+    message = _compose_message(
+        category, raw_message, provider, upstream, retry_after_seconds=retry_after
+    )
     actions = _default_actions(category, provider, upstream, metadata)
 
     return LLMErrorInfo(
@@ -410,9 +431,15 @@ def _category_from_openai_exc(
         lower = raw.lower()
         if "api key" in lower or "api_key" in lower or "invalid_api_key" in lower:
             return ErrorCategory.AUTH
-        if "context" in lower and ("length" in lower or "too long" in lower or "exceeds" in lower):
+        if "context" in lower and (
+            "length" in lower or "too long" in lower or "exceeds" in lower
+        ):
             return ErrorCategory.BAD_REQUEST
-        if "model" in lower and ("not found" in lower or "not available" in lower or "does not exist" in lower):
+        if "model" in lower and (
+            "not found" in lower
+            or "not available" in lower
+            or "does not exist" in lower
+        ):
             return ErrorCategory.MODEL
         if "blocked" in lower or "safety" in lower or "policy" in lower:
             return ErrorCategory.BLOCKED
@@ -432,11 +459,11 @@ def _category_from_openai_exc(
 
 def _classify_anthropic(exc: Exception, provider: str) -> LLMErrorInfo:
     """Anthropic SDK shape:
-        body = {
-          "type": "error",
-          "error": {"type": "authentication_error" | ..., "message": "..."},
-          "request_id": "..."
-        }
+    body = {
+      "type": "error",
+      "error": {"type": "authentication_error" | ..., "message": "..."},
+      "request_id": "..."
+    }
     """
     if anthropic is None:  # pragma: no cover
         return _fallback_unknown(exc, provider)
@@ -505,7 +532,13 @@ def _classify_anthropic(exc: Exception, provider: str) -> LLMErrorInfo:
     return LLMErrorInfo(
         category=category,
         title=_title_for(category),
-        message=_compose_message(category, raw_message, provider, upstream=None, retry_after_seconds=retry_after),
+        message=_compose_message(
+            category,
+            raw_message,
+            provider,
+            upstream=None,
+            retry_after_seconds=retry_after,
+        ),
         provider=provider,
         upstream=None,
         http_status=status if isinstance(status, int) else None,
@@ -535,7 +568,9 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
     body_dict = _safe_json(text)
 
     err = body_dict.get("error") if isinstance(body_dict.get("error"), dict) else {}
-    raw_message = err.get("message") if isinstance(err.get("message"), str) else str(exc)
+    raw_message = (
+        err.get("message") if isinstance(err.get("message"), str) else str(exc)
+    )
 
     # Detect Gemini specifically by reason field
     reason: Optional[str] = None
@@ -545,7 +580,9 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
             reason = d["reason"]
             break
 
-    inferred_provider = provider or ("gemini" if reason or "generativelanguage" in text else "unknown")
+    inferred_provider = provider or (
+        "gemini" if reason or "generativelanguage" in text else "unknown"
+    )
 
     # Gemini's REST API returns 400 for invalid keys — map by reason field
     if reason == "API_KEY_INVALID":
@@ -569,12 +606,16 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
             except (ValueError, TypeError):
                 retry_after = None
 
-    actions = _default_actions(category, inferred_provider, upstream=None, metadata=None)
+    actions = _default_actions(
+        category, inferred_provider, upstream=None, metadata=None
+    )
 
     return LLMErrorInfo(
         category=category,
         title=_title_for(category),
-        message=_compose_message(category, raw_message, inferred_provider, upstream=None),
+        message=_compose_message(
+            category, raw_message, inferred_provider, upstream=None
+        ),
         provider=inferred_provider,
         upstream=None,
         http_status=status,
@@ -589,7 +630,9 @@ def _classify_httpx_connection(exc: Exception, provider: Optional[str]) -> LLMEr
     return LLMErrorInfo(
         category=ErrorCategory.CONNECTION,
         title=_title_for(ErrorCategory.CONNECTION),
-        message=_compose_message(ErrorCategory.CONNECTION, raw, provider or "unknown", upstream=None),
+        message=_compose_message(
+            ErrorCategory.CONNECTION, raw, provider or "unknown", upstream=None
+        ),
         provider=provider or "unknown",
         raw_message=raw,
     )
@@ -619,7 +662,9 @@ def _classify_gemini_runtime(exc: Exception, provider: str) -> LLMErrorInfo:
 # ─── requests library (legacy callers) ────────────────────────────────
 
 
-def _classify_requests(exc: Exception, provider: Optional[str]) -> Optional[LLMErrorInfo]:
+def _classify_requests(
+    exc: Exception, provider: Optional[str]
+) -> Optional[LLMErrorInfo]:
     if requests is None:  # pragma: no cover
         return None
     if isinstance(exc, requests.exceptions.HTTPError):
@@ -631,21 +676,34 @@ def _classify_requests(exc: Exception, provider: Optional[str]) -> Optional[LLME
             except Exception:
                 body = {}
             err = body.get("error") if isinstance(body.get("error"), dict) else {}
-            raw_message = err.get("message") if isinstance(err.get("message"), str) else response.text
+            raw_message = (
+                err.get("message")
+                if isinstance(err.get("message"), str)
+                else response.text
+            )
             return LLMErrorInfo(
                 category=_category_from_status(status),
                 title=_title_for(_category_from_status(status)),
-                message=_compose_message(_category_from_status(status), raw_message, provider or "unknown", upstream=None),
+                message=_compose_message(
+                    _category_from_status(status),
+                    raw_message,
+                    provider or "unknown",
+                    upstream=None,
+                ),
                 provider=provider or "unknown",
                 http_status=status,
                 raw_message=_truncate(raw_message),
             )
-    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+    if isinstance(
+        exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ):
         raw = _truncate(str(exc))
         return LLMErrorInfo(
             category=ErrorCategory.CONNECTION,
             title=_title_for(ErrorCategory.CONNECTION),
-            message=_compose_message(ErrorCategory.CONNECTION, raw, provider or "unknown", upstream=None),
+            message=_compose_message(
+                ErrorCategory.CONNECTION, raw, provider or "unknown", upstream=None
+            ),
             provider=provider or "unknown",
             raw_message=raw,
         )
@@ -671,7 +729,9 @@ def _category_from_status(status: Optional[int]) -> ErrorCategory:
     if status == 429:
         return ErrorCategory.RATE_LIMIT
     if status == 524:
-        return ErrorCategory.SERVER  # Cloudflare upstream timeout (common on OpenRouter)
+        return (
+            ErrorCategory.SERVER
+        )  # Cloudflare upstream timeout (common on OpenRouter)
     if 500 <= status < 600:
         return ErrorCategory.SERVER
     return ErrorCategory.UNKNOWN
@@ -718,7 +778,11 @@ def _title_for(category: ErrorCategory, *, upstream: Optional[str] = None) -> st
     """Short title — used for logging/metrics and for the leading sentence
     of the user-facing chat message (see `_compose_message`)."""
     base = _CATEGORY_TITLES.get(category, "AI service error")
-    if upstream and category in (ErrorCategory.RATE_LIMIT, ErrorCategory.SERVER, ErrorCategory.BLOCKED):
+    if upstream and category in (
+        ErrorCategory.RATE_LIMIT,
+        ErrorCategory.SERVER,
+        ErrorCategory.BLOCKED,
+    ):
         return f"{base} ({upstream})"
     return base
 
@@ -797,9 +861,17 @@ def _append_hint(
     if category == ErrorCategory.RATE_LIMIT:
         if retry_after:
             return f"{base}. Try again in {retry_after}s."
-        if any(s in raw_lower for s in (
-            "byok", "your own key", "openrouter.ai/settings", "retry", "wait", "try again",
-        )):
+        if any(
+            s in raw_lower
+            for s in (
+                "byok",
+                "your own key",
+                "openrouter.ai/settings",
+                "retry",
+                "wait",
+                "try again",
+            )
+        ):
             return f"{base}."
         return f"{base}. Try again shortly."
 
@@ -849,22 +921,43 @@ def _default_actions(
 
     if category == ErrorCategory.CREDIT:
         if provider == "openrouter":
-            actions.append(ErrorAction(label="Top up credits", url="https://openrouter.ai/credits"))
+            actions.append(
+                ErrorAction(label="Top up credits", url="https://openrouter.ai/credits")
+            )
         elif provider == "openai":
-            actions.append(ErrorAction(label="Manage billing", url="https://platform.openai.com/account/billing"))
+            actions.append(
+                ErrorAction(
+                    label="Manage billing",
+                    url="https://platform.openai.com/account/billing",
+                )
+            )
         elif provider == "anthropic":
-            actions.append(ErrorAction(label="Manage billing", url="https://console.anthropic.com/settings/billing"))
+            actions.append(
+                ErrorAction(
+                    label="Manage billing",
+                    url="https://console.anthropic.com/settings/billing",
+                )
+            )
         actions.append(ErrorAction(label="Open settings", action="open_settings_model"))
 
     elif category == ErrorCategory.RATE_LIMIT:
         if provider == "openrouter" and metadata and metadata.get("is_byok") is False:
             # Free-tier user — point at OR integrations page for BYOK
-            actions.append(ErrorAction(label="Add your own key", url="https://openrouter.ai/settings/integrations"))
+            actions.append(
+                ErrorAction(
+                    label="Add your own key",
+                    url="https://openrouter.ai/settings/integrations",
+                )
+            )
         actions.append(ErrorAction(label="Open settings", action="open_settings_model"))
 
     elif category == ErrorCategory.QUOTA:
         if provider == "openai":
-            actions.append(ErrorAction(label="Manage usage", url="https://platform.openai.com/usage"))
+            actions.append(
+                ErrorAction(
+                    label="Manage usage", url="https://platform.openai.com/usage"
+                )
+            )
 
     return actions
 
@@ -873,7 +966,9 @@ def _has_action(info: LLMErrorInfo, action_value: str) -> bool:
     return any(a.action == action_value for a in info.actions)
 
 
-def _refine_category_from_localised(raw_message: str, current: ErrorCategory) -> ErrorCategory:
+def _refine_category_from_localised(
+    raw_message: str, current: ErrorCategory
+) -> ErrorCategory:
     """Detect category from non-English error text returned by Asian providers.
 
     Covers Chinese (DeepSeek, MiniMax, Moonshot, Qwen, Baidu ERNIE),
@@ -887,53 +982,135 @@ def _refine_category_from_localised(raw_message: str, current: ErrorCategory) ->
     Handles arbitrary UTF-8 safely: Python str containment checks on Unicode
     strings are always safe regardless of script or encoding.
     """
-    if not raw_message or current not in (ErrorCategory.UNKNOWN, ErrorCategory.BAD_REQUEST):
+    if not raw_message or current not in (
+        ErrorCategory.UNKNOWN,
+        ErrorCategory.BAD_REQUEST,
+    ):
         return current
 
     # Normalise: ensure we have a plain str (guards against bytes leaking in)
     try:
-        msg = raw_message if isinstance(raw_message, str) else raw_message.decode("utf-8", errors="replace")
+        msg = (
+            raw_message
+            if isinstance(raw_message, str)
+            else raw_message.decode("utf-8", errors="replace")
+        )
     except Exception:
         return current
 
     # ── Chinese ───────────────────────────────────────────────────────
-    _ZH_BLOCKED = ("违禁", "违规", "内容政策", "不合规", "审核不通过", "违反规定",
-                   "敏感内容", "内容安全", "内容审核", "政治敏感", "黄色信息")
-    _ZH_CREDIT  = ("余额不足", "额度不足", "账户欠费", "账户余额", "充值", "欠费",
-                   "配额不足", "余额不够")
-    _ZH_AUTH    = ("无效的API", "鉴权失败", "认证失败", "密钥无效", "API密钥",
-                   "身份验证", "未授权")
-    _ZH_RATE    = ("频率限制", "请求过多", "限流", "速率限制", "调用频率",
-                   "访问频率", "接口限流")
-    _ZH_CONTEXT = ("超出最大长度", "上下文长度", "tokens超出", "输入过长",
-                   "超过最大token")
+    _ZH_BLOCKED = (
+        "违禁",
+        "违规",
+        "内容政策",
+        "不合规",
+        "审核不通过",
+        "违反规定",
+        "敏感内容",
+        "内容安全",
+        "内容审核",
+        "政治敏感",
+        "黄色信息",
+    )
+    _ZH_CREDIT = (
+        "余额不足",
+        "额度不足",
+        "账户欠费",
+        "账户余额",
+        "充值",
+        "欠费",
+        "配额不足",
+        "余额不够",
+    )
+    _ZH_AUTH = (
+        "无效的API",
+        "鉴权失败",
+        "认证失败",
+        "密钥无效",
+        "API密钥",
+        "身份验证",
+        "未授权",
+    )
+    _ZH_RATE = (
+        "频率限制",
+        "请求过多",
+        "限流",
+        "速率限制",
+        "调用频率",
+        "访问频率",
+        "接口限流",
+    )
+    _ZH_CONTEXT = (
+        "超出最大长度",
+        "上下文长度",
+        "tokens超出",
+        "输入过长",
+        "超过最大token",
+    )
 
     # ── Japanese ──────────────────────────────────────────────────────
-    _JA_BLOCKED = ("禁止されたコンテンツ", "コンテンツポリシー", "不適切なコンテンツ",
-                   "ポリシー違反", "有害なコンテンツ", "安全フィルター")
-    _JA_CREDIT  = ("残高不足", "クレジット不足", "料金超過", "利用上限", "残高が不足",
-                   "クォータ超過")
-    _JA_AUTH    = ("認証エラー", "認証に失敗", "APIキーが無効", "無効なAPIキー",
-                   "認証情報", "アクセス拒否")
-    _JA_RATE    = ("レート制限", "リクエスト制限", "利用制限", "リクエストが多すぎ",
-                   "スロットリング")
-    _JA_CONTEXT = ("トークン数が上限", "コンテキスト長", "入力が長すぎ", "最大トークン",
-                   "トークン超過")
+    _JA_BLOCKED = (
+        "禁止されたコンテンツ",
+        "コンテンツポリシー",
+        "不適切なコンテンツ",
+        "ポリシー違反",
+        "有害なコンテンツ",
+        "安全フィルター",
+    )
+    _JA_CREDIT = (
+        "残高不足",
+        "クレジット不足",
+        "料金超過",
+        "利用上限",
+        "残高が不足",
+        "クォータ超過",
+    )
+    _JA_AUTH = (
+        "認証エラー",
+        "認証に失敗",
+        "APIキーが無効",
+        "無効なAPIキー",
+        "認証情報",
+        "アクセス拒否",
+    )
+    _JA_RATE = (
+        "レート制限",
+        "リクエスト制限",
+        "利用制限",
+        "リクエストが多すぎ",
+        "スロットリング",
+    )
+    _JA_CONTEXT = (
+        "トークン数が上限",
+        "コンテキスト長",
+        "入力が長すぎ",
+        "最大トークン",
+        "トークン超過",
+    )
 
     # ── Korean ────────────────────────────────────────────────────────
-    _KO_BLOCKED = ("콘텐츠 정책 위반", "부적절한 콘텐츠", "금지된 콘텐츠",
-                   "안전 필터", "정책 위반")
-    _KO_CREDIT  = ("잔액 부족", "크레딧 부족", "한도 초과", "요금 미납", "충전 필요")
-    _KO_AUTH    = ("인증 실패", "잘못된 API 키", "유효하지 않은 키", "인증 오류",
-                   "액세스 거부")
-    _KO_RATE    = ("속도 제한", "요청 제한", "너무 많은 요청", "처리율 제한")
-    _KO_CONTEXT = ("토큰 초과", "컨텍스트 길이 초과", "입력이 너무 깁니다",
-                   "최대 토큰")
+    _KO_BLOCKED = (
+        "콘텐츠 정책 위반",
+        "부적절한 콘텐츠",
+        "금지된 콘텐츠",
+        "안전 필터",
+        "정책 위반",
+    )
+    _KO_CREDIT = ("잔액 부족", "크레딧 부족", "한도 초과", "요금 미납", "충전 필요")
+    _KO_AUTH = (
+        "인증 실패",
+        "잘못된 API 키",
+        "유효하지 않은 키",
+        "인증 오류",
+        "액세스 거부",
+    )
+    _KO_RATE = ("속도 제한", "요청 제한", "너무 많은 요청", "처리율 제한")
+    _KO_CONTEXT = ("토큰 초과", "컨텍스트 길이 초과", "입력이 너무 깁니다", "최대 토큰")
 
     _BLOCKED_KWS = _ZH_BLOCKED + _JA_BLOCKED + _KO_BLOCKED
-    _CREDIT_KWS  = _ZH_CREDIT  + _JA_CREDIT  + _KO_CREDIT
-    _AUTH_KWS    = _ZH_AUTH    + _JA_AUTH    + _KO_AUTH
-    _RATE_KWS    = _ZH_RATE    + _JA_RATE    + _KO_RATE
+    _CREDIT_KWS = _ZH_CREDIT + _JA_CREDIT + _KO_CREDIT
+    _AUTH_KWS = _ZH_AUTH + _JA_AUTH + _KO_AUTH
+    _RATE_KWS = _ZH_RATE + _JA_RATE + _KO_RATE
     _CONTEXT_KWS = _ZH_CONTEXT + _JA_CONTEXT + _KO_CONTEXT
 
     for kw in _BLOCKED_KWS:
@@ -960,6 +1137,7 @@ def _safe_json(text: str) -> Dict[str, Any]:
         return {}
     try:
         import json
+
         result = json.loads(text)
         return result if isinstance(result, dict) else {}
     except Exception:

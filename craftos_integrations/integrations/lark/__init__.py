@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Lark integration - bidirectional messaging.
 
 Lark is ByteDance's enterprise messaging platform (the China-region twin
@@ -30,6 +30,7 @@ Auth flow:
      ``/open-apis/auth/v3/tenant_access_token/internal`` endpoint and
      refreshes it before the 2-hour expiry on every send.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -74,6 +75,7 @@ LARK = IntegrationSpec(
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(LARK.name)
 class LarkHandler(IntegrationHandler):
     spec = LARK
@@ -93,16 +95,26 @@ class LarkHandler(IntegrationHandler):
         "Credentials & Basic Info â†’ copy App ID + App Secret and paste them below",
     ]
     fields = [
-        {"key": "app_id", "label": "App ID",
-         "placeholder": "cli_xxxxxxxxxx", "password": False},
-        {"key": "app_secret", "label": "App Secret",
-         "placeholder": "From Credentials tab", "password": True},
+        {
+            "key": "app_id",
+            "label": "App ID",
+            "placeholder": "cli_xxxxxxxxxx",
+            "password": False,
+        },
+        {
+            "key": "app_secret",
+            "label": "App Secret",
+            "placeholder": "From Credentials tab",
+            "password": True,
+        },
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         if len(args) < 2:
-            return False, ("Usage: /lark login <app_id> <app_secret>\n"
-                           "Get from open.larksuite.com/app â†’ your app â†’ Credentials tab.")
+            return False, (
+                "Usage: /lark login <app_id> <app_secret>\n"
+                "Get from open.larksuite.com/app â†’ your app â†’ Credentials tab."
+            )
         app_id, app_secret = args[0], args[1]
 
         token, token_expires_at, err = validate_and_mint_token(app_id, app_secret)
@@ -115,7 +127,8 @@ class LarkHandler(IntegrationHandler):
         bot_name = ""
         bot_open_id = ""
         info = http_request(
-            "GET", f"{LARK_API_BASE}/bot/v3/info",
+            "GET",
+            f"{LARK_API_BASE}/bot/v3/info",
             headers={"Authorization": f"Bearer {token}"},
             expected=(200,),
         )
@@ -124,11 +137,17 @@ class LarkHandler(IntegrationHandler):
             bot_name = bot.get("app_name", "")
             bot_open_id = bot.get("open_id", "")
 
-        save_credential(self.spec.cred_file, LarkCredential(
-            app_id=app_id, app_secret=app_secret,
-            bot_name=bot_name, bot_open_id=bot_open_id,
-            tenant_access_token=token, token_expires_at=token_expires_at,
-        ))
+        save_credential(
+            self.spec.cred_file,
+            LarkCredential(
+                app_id=app_id,
+                app_secret=app_secret,
+                bot_name=bot_name,
+                bot_open_id=bot_open_id,
+                tenant_access_token=token,
+                token_expires_at=token_expires_at,
+            ),
+        )
         label = bot_name or app_id
         return True, f"Lark connected: {label}"
 
@@ -152,6 +171,7 @@ class LarkHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client
 # -----------------------------------------------------------------
+
 
 @register_client
 class LarkClient(BasePlatformClient):
@@ -216,9 +236,7 @@ class LarkClient(BasePlatformClient):
         try:
             import lark_oapi as lark
         except ImportError:
-            raise RuntimeError(
-                "lark-oapi not installed. Run: pip install lark-oapi"
-            )
+            raise RuntimeError("lark-oapi not installed. Run: pip install lark-oapi")
 
         cred = self._load()
         self._message_callback = callback
@@ -237,7 +255,8 @@ class LarkClient(BasePlatformClient):
             loop = self._dispatch_loop
             if loop and not loop.is_closed():
                 asyncio.run_coroutine_threadsafe(
-                    self._dispatch_message(msg, sender), loop,
+                    self._dispatch_message(msg, sender),
+                    loop,
                 )
 
         handler = (
@@ -246,7 +265,8 @@ class LarkClient(BasePlatformClient):
             .build()
         )
         self._ws_client = lark.ws.Client(
-            cred.app_id, cred.app_secret,
+            cred.app_id,
+            cred.app_secret,
             event_handler=handler,
             domain="https://open.larksuite.com",
             auto_reconnect=True,
@@ -260,7 +280,9 @@ class LarkClient(BasePlatformClient):
                 logger.error(f"[LARK] WS client crashed: {e}")
 
         self._ws_thread = threading.Thread(
-            target=_run_ws, name="lark-ws", daemon=True,
+            target=_run_ws,
+            name="lark-ws",
+            daemon=True,
         )
         self._ws_thread.start()
         self._listening = True
@@ -324,27 +346,34 @@ class LarkClient(BasePlatformClient):
         message_id = getattr(msg, "message_id", "") or ""
         chat_type = getattr(msg, "chat_type", "") or ""
 
-        await self._message_callback(PlatformMessage(
-            platform=self.spec.platform_id,
-            sender_id=sender_open_id or "unknown",
-            sender_name=sender_open_id or "Lark user",
-            text=text,
-            channel_id=chat_id,
-            channel_name=f"Lark {chat_type}" if chat_type else "Lark",
-            message_id=message_id,
-            timestamp=ts,
-            raw={
-                "source": "Lark", "integrationType": "lark",
-                "is_self_message": False, "is_group": chat_type == "group",
-                "chat_id": chat_id, "chat_type": chat_type,
-                "message_type": msg_type, "raw_content": raw_content,
-            },
-        ))
+        await self._message_callback(
+            PlatformMessage(
+                platform=self.spec.platform_id,
+                sender_id=sender_open_id or "unknown",
+                sender_name=sender_open_id or "Lark user",
+                text=text,
+                channel_id=chat_id,
+                channel_name=f"Lark {chat_type}" if chat_type else "Lark",
+                message_id=message_id,
+                timestamp=ts,
+                raw={
+                    "source": "Lark",
+                    "integrationType": "lark",
+                    "is_self_message": False,
+                    "is_group": chat_type == "group",
+                    "chat_id": chat_id,
+                    "chat_type": chat_type,
+                    "message_type": msg_type,
+                    "raw_content": raw_content,
+                },
+            )
+        )
 
     # ----- REST methods -----
 
-    def send_text(self, receive_id: str, text: str,
-                  receive_id_type: str = "open_id") -> Result:
+    def send_text(
+        self, receive_id: str, text: str, receive_id_type: str = "open_id"
+    ) -> Result:
         """Send a text message.
 
         ``receive_id_type`` selects how Lark interprets ``receive_id``:
@@ -358,25 +387,34 @@ class LarkClient(BasePlatformClient):
         STRING, not an object. Hence the literal ``\"`` escaping below.
         """
         import json as _json
+
         payload = {
             "receive_id": receive_id,
             "msg_type": "text",
             "content": _json.dumps({"text": text}, ensure_ascii=False),
         }
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/messages",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/messages",
             params={"receive_id_type": receive_id_type},
-            headers=self._headers(), json=payload, expected=(200,),
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def reply_text(self, message_id: str, text: str) -> Result:
         """Threaded reply to an existing message id (om_...)."""
         import json as _json
+
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/messages/{message_id}/reply",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/reply",
             headers=self._headers(),
-            json={"msg_type": "text", "content": _json.dumps({"text": text}, ensure_ascii=False)},
+            json={
+                "msg_type": "text",
+                "content": _json.dumps({"text": text}, ensure_ascii=False),
+            },
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
@@ -388,26 +426,33 @@ class LarkClient(BasePlatformClient):
         for "send a message to alice@company.com" workflows where the
         caller doesn't know the open_id."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/contact/v3/users/batch_get_id",
+            "POST",
+            f"{LARK_API_BASE}/contact/v3/users/batch_get_id",
             params={"user_id_type": "open_id"},
-            headers=self._headers(), json={"emails": [email]}, expected=(200,),
+            headers=self._headers(),
+            json={"emails": [email]},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def list_chats(self, page_size: int = 50) -> Result:
         """List groups the bot is a member of."""
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/chats",
+            "GET",
+            f"{LARK_API_BASE}/im/v1/chats",
             params={"page_size": min(page_size, 100)},
-            headers=self._headers(), expected=(200,),
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def get_bot_info(self) -> Result:
         """Connected bot's own profile (app_name, open_id, etc.)."""
         return http_request(
-            "GET", f"{LARK_API_BASE}/bot/v3/info",
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/bot/v3/info",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("bot", d),
         )
 

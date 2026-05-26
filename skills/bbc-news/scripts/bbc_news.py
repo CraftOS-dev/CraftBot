@@ -2,14 +2,17 @@
 """
 BBC News CLI - Fetch and display BBC News stories from RSS feeds
 """
+
 import argparse
 import sys
-from datetime import datetime
 
 try:
     import feedparser
 except ImportError:
-    print("Error: feedparser library not found. Install with: pip install feedparser", file=sys.stderr)
+    print(
+        "Error: feedparser library not found. Install with: pip install feedparser",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # BBC News RSS feeds
@@ -56,14 +59,17 @@ def fetch_news(section="top", limit=10, format="text"):
 
     if format == "json":
         import json
+
         stories = []
         for entry in entries:
-            stories.append({
-                "title": entry.title,
-                "link": entry.link,
-                "description": entry.get("description", ""),
-                "published": entry.get("published", ""),
-            })
+            stories.append(
+                {
+                    "title": entry.title,
+                    "link": entry.link,
+                    "description": entry.get("description", ""),
+                    "published": entry.get("published", ""),
+                }
+            )
         print(json.dumps(stories, indent=2))
     else:
         # Text format
@@ -77,7 +83,8 @@ def fetch_news(section="top", limit=10, format="text"):
             if hasattr(entry, "description") and entry.description:
                 # Strip HTML tags from description
                 import re
-                desc = re.sub(r'<[^>]+>', '', entry.description)
+
+                desc = re.sub(r"<[^>]+>", "", entry.description)
                 print(f"   {desc}")
             print(f"   🔗 {entry.link}")
             if hasattr(entry, "published"):
@@ -92,21 +99,38 @@ def list_sections():
     print("\nAvailable BBC News sections:")
     print("=" * 40)
     print("\nMain Sections:")
-    main = ["top", "uk", "world", "business", "politics", "health", 
-            "education", "science", "technology", "entertainment"]
+    main = [
+        "top",
+        "uk",
+        "world",
+        "business",
+        "politics",
+        "health",
+        "education",
+        "science",
+        "technology",
+        "entertainment",
+    ]
     for section in main:
         if section in FEEDS:
             print(f"  • {section}")
-    
+
     print("\nUK Regional:")
     regional = ["england", "scotland", "wales", "northern-ireland"]
     for section in regional:
         if section in FEEDS:
             print(f"  • {section}")
-    
+
     print("\nWorld Regions:")
-    world = ["africa", "asia", "australia", "europe", 
-             "latin-america", "middle-east", "us-canada"]
+    world = [
+        "africa",
+        "asia",
+        "australia",
+        "europe",
+        "latin-america",
+        "middle-east",
+        "us-canada",
+    ]
     for section in world:
         if section in FEEDS:
             print(f"  • {section}")
@@ -124,30 +148,27 @@ Examples:
   %(prog)s world --limit 5          # Top 5 world stories
   %(prog)s technology --json        # Technology news in JSON format
   %(prog)s --list                   # List all available sections
-        """
+        """,
     )
     parser.add_argument(
-        "section",
-        nargs="?",
-        default="top",
-        help="News section (default: top)"
+        "section", nargs="?", default="top", help="News section (default: top)"
     )
     parser.add_argument(
-        "-l", "--limit",
+        "-l",
+        "--limit",
         type=int,
         default=10,
-        help="Number of stories to fetch (default: 10)"
+        help="Number of stories to fetch (default: 10)",
     )
     parser.add_argument(
-        "-f", "--format",
+        "-f",
+        "--format",
         choices=["text", "json"],
         default="text",
-        help="Output format (default: text)"
+        help="Output format (default: text)",
     )
     parser.add_argument(
-        "--list",
-        action="store_true",
-        help="List all available sections"
+        "--list", action="store_true", help="List all available sections"
     )
 
     args = parser.parse_args()

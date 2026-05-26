@@ -8,6 +8,7 @@ autoload_integrations() walks the integrations/ subpackage and imports
 every module — that triggers the decorators. Adding a new integration
 is one file drop with no edits here.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -68,9 +69,11 @@ _handler_instances: Dict[str, IntegrationHandler] = {}
 
 def register_handler(name: str):
     """Decorator: @register_handler("slack")."""
+
     def deco(cls: Type[IntegrationHandler]) -> Type[IntegrationHandler]:
         _handler_classes[name] = cls
         return cls
+
     return deco
 
 
@@ -122,13 +125,17 @@ def autoload_integrations(force: bool = False) -> None:
     try:
         from . import integrations as pkg
     except ImportError:
-        logger.info("[REGISTRY] No integrations/ subpackage found — registry stays empty.")
+        logger.info(
+            "[REGISTRY] No integrations/ subpackage found — registry stays empty."
+        )
         _autoloaded = True
         return
 
     pkg_path = getattr(pkg, "__path__", None)
     if not pkg_path:
-        logger.info("[REGISTRY] integrations/ subpackage has no __path__ — registry stays empty.")
+        logger.info(
+            "[REGISTRY] integrations/ subpackage has no __path__ — registry stays empty."
+        )
         _autoloaded = True
         return
 

@@ -11,14 +11,14 @@ class OnboardingInterface(ABC):
     """
     Abstract interface for onboarding implementations.
 
-    Any UI (TUI, browser, future interfaces) can implement this
+    Any UI (browser, CLI, future interfaces) can implement this
     to provide their own onboarding experience while using the
     shared onboarding logic.
 
     Example implementation:
-        class TUIOnboarding(OnboardingInterface):
+        class BrowserOnboarding(OnboardingInterface):
             async def run_hard_onboarding(self) -> Dict[str, Any]:
-                # Show Textual wizard screens
+                # Show wizard screens
                 ...
 
             async def trigger_soft_onboarding(self) -> str:

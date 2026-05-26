@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react'
+import { createContext, useContext, useCallback, useEffect, useRef, ReactNode } from 'react'
 import type {
   FileItem,
   FileListResponse,
@@ -14,13 +14,46 @@ import type {
   FileDownloadResponse,
   WSMessage,
 } from '../types'
-import { getWsUrl } from '../utils/connection'
+import { getSocketClient } from '../store/socket/socketInstance'
+import { useAppDispatch, useAppSelector } from '../store/hooks'
+import {
+  startNavigate,
+  startRefresh,
+  startLoadMore,
+  startSearch,
+  setError as setWorkspaceError,
+  selectFile as selectFileAction,
+  FILE_PAGE_SIZE,
+} from '../store/slices/workspaceSlice'
+import {
+  selectWorkspaceCurrentDirectory,
+  selectWorkspaceFiles,
+  selectWorkspaceLoading,
+  selectWorkspaceLoadingMore,
+  selectWorkspaceError,
+  selectWorkspaceSelectedFile,
+  selectWorkspaceFileContent,
+  selectWorkspaceFileIsBinary,
+  selectWorkspaceTotal,
+  selectWorkspaceHasMore,
+  selectWorkspaceOffset,
+  selectWorkspaceSearch,
+} from '../store/selectors/workspace'
+import { selectConnected } from '../store/selectors/connection'
+
+const client = getSocketClient()
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────
 
-interface WorkspaceState {
+interface PendingOperation<T> {
+  resolve: (value: T) => void
+  reject: (error: Error) => void
+}
+
+interface WorkspaceContextType {
+  // Slice-backed read state (selectors fed in by the provider):
   currentDirectory: string
   files: FileItem[]
   loading: boolean
@@ -34,14 +67,7 @@ interface WorkspaceState {
   hasMore: boolean
   offset: number
   search: string
-}
 
-interface PendingOperation<T> {
-  resolve: (value: T) => void
-  reject: (error: Error) => void
-}
-
-interface WorkspaceContextType extends WorkspaceState {
   // Navigation
   navigateTo: (directory: string) => Promise<void>
   refresh: () => Promise<void>
@@ -63,306 +89,54 @@ interface WorkspaceContextType extends WorkspaceState {
   downloadFile: (path: string) => Promise<Blob | null>
 }
 
-const FILE_PAGE_SIZE = 50
-
-const defaultState: WorkspaceState = {
-  currentDirectory: '',
-  files: [],
-  loading: false,
-  loadingMore: false,
-  error: null,
-  selectedFile: null,
-  fileContent: null,
-  fileIsBinary: false,
-  connected: false,
-  total: 0,
-  hasMore: false,
-  offset: 0,
-  search: '',
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Context
-// ─────────────────────────────────────────────────────────────────────
-
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined)
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<WorkspaceState>(defaultState)
-  const wsRef = useRef<WebSocket | null>(null)
+  const dispatch = useAppDispatch()
   const pendingOpsRef = useRef<Map<string, PendingOperation<unknown>>>(new Map())
-  const reconnectTimeoutRef = useRef<number | null>(null)
-  const isConnectingRef = useRef<boolean>(false)
   const hasInitialLoadRef = useRef<boolean>(false)
-  const reconnectCountRef = useRef<number>(0)
-  const maxReconnectAttemptsRef = useRef<number>(10)
+
+  // Slice-backed state. workspaceSlice owns all file/directory state; this
+  // provider just routes requests and resolves the Promise side of each
+  // request/response operation.
+  const currentDirectory = useAppSelector(selectWorkspaceCurrentDirectory)
+  const files = useAppSelector(selectWorkspaceFiles)
+  const loading = useAppSelector(selectWorkspaceLoading)
+  const loadingMore = useAppSelector(selectWorkspaceLoadingMore)
+  const error = useAppSelector(selectWorkspaceError)
+  const selectedFile = useAppSelector(selectWorkspaceSelectedFile)
+  const fileContent = useAppSelector(selectWorkspaceFileContent)
+  const fileIsBinary = useAppSelector(selectWorkspaceFileIsBinary)
+  const total = useAppSelector(selectWorkspaceTotal)
+  const hasMore = useAppSelector(selectWorkspaceHasMore)
+  const offset = useAppSelector(selectWorkspaceOffset)
+  const search = useAppSelector(selectWorkspaceSearch)
+  const connected = useAppSelector(selectConnected)
 
   // ─────────────────────────────────────────────────────────────────────
-  // Message Handling
+  // Promise correlation
   // ─────────────────────────────────────────────────────────────────────
-
-  const handleMessage = useCallback((msg: WSMessage) => {
-    const resolvePending = <T,>(key: string, data: T) => {
-      const pending = pendingOpsRef.current.get(key)
-      if (pending) {
-        pending.resolve(data)
-        pendingOpsRef.current.delete(key)
-      }
-    }
-
-    switch (msg.type) {
-      case 'file_list': {
-        const data = msg.data as unknown as FileListResponse
-        setState(prev => {
-          // If offset > 0, append (load more). Otherwise replace (fresh load).
-          const isLoadMore = data.offset > 0
-          return {
-            ...prev,
-            files: isLoadMore ? [...prev.files, ...(data.files || [])] : (data.files || []),
-            total: data.total ?? 0,
-            hasMore: data.hasMore ?? false,
-            offset: (data.offset ?? 0) + (data.files?.length ?? 0),
-            loading: false,
-            loadingMore: false,
-            error: data.success ? null : data.error || 'Failed to list files',
-          }
-        })
-        resolvePending('file_list', data)
-        break
-      }
-
-      case 'file_read': {
-        const data = msg.data as unknown as FileReadResponse
-        setState(prev => ({
-          ...prev,
-          fileContent: data.content,
-          fileIsBinary: data.isBinary || false,
-        }))
-        resolvePending('file_read', data)
-        break
-      }
-
-      case 'file_write': {
-        const data = msg.data as unknown as FileWriteResponse
-        resolvePending('file_write', data)
-        break
-      }
-
-      case 'file_create': {
-        const data = msg.data as unknown as FileCreateResponse
-        if (data.success && data.fileInfo) {
-          setState(prev => ({
-            ...prev,
-            files: [...prev.files, data.fileInfo!].sort((a, b) => {
-              if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-              return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-            }),
-          }))
-        }
-        resolvePending('file_create', data)
-        break
-      }
-
-      case 'file_delete': {
-        const data = msg.data as unknown as FileDeleteResponse
-        if (data.success) {
-          setState(prev => ({
-            ...prev,
-            files: prev.files.filter(f => f.path !== data.path),
-            selectedFile: prev.selectedFile?.path === data.path ? null : prev.selectedFile,
-          }))
-        }
-        resolvePending('file_delete', data)
-        break
-      }
-
-      case 'file_rename': {
-        const data = msg.data as unknown as FileRenameResponse
-        if (data.success && data.fileInfo) {
-          setState(prev => ({
-            ...prev,
-            files: prev.files.map(f =>
-              f.path === data.oldPath ? data.fileInfo! : f
-            ).sort((a, b) => {
-              if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-              return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-            }),
-            selectedFile: prev.selectedFile?.path === data.oldPath ? data.fileInfo! : prev.selectedFile,
-          }))
-        }
-        resolvePending('file_rename', data)
-        break
-      }
-
-      case 'file_batch_delete': {
-        const data = msg.data as unknown as FileBatchDeleteResponse
-        const deletedPaths = new Set(
-          data.results.filter(r => r.success).map(r => r.path)
-        )
-        setState(prev => ({
-          ...prev,
-          files: prev.files.filter(f => !deletedPaths.has(f.path)),
-          selectedFile: prev.selectedFile && deletedPaths.has(prev.selectedFile.path)
-            ? null
-            : prev.selectedFile,
-        }))
-        resolvePending('file_batch_delete', data)
-        break
-      }
-
-      case 'file_move': {
-        const data = msg.data as unknown as FileMoveResponse
-        resolvePending('file_move', data)
-        break
-      }
-
-      case 'file_copy': {
-        const data = msg.data as unknown as FileCopyResponse
-        resolvePending('file_copy', data)
-        break
-      }
-
-      case 'file_upload': {
-        const data = msg.data as unknown as FileUploadResponse
-        if (data.success && data.fileInfo) {
-          setState(prev => {
-            const exists = prev.files.some(f => f.path === data.fileInfo!.path)
-            if (exists) {
-              return {
-                ...prev,
-                files: prev.files.map(f =>
-                  f.path === data.fileInfo!.path ? data.fileInfo! : f
-                ),
-              }
-            }
-            return {
-              ...prev,
-              files: [...prev.files, data.fileInfo!].sort((a, b) => {
-                if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-                return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-              }),
-            }
-          })
-        }
-        resolvePending('file_upload', data)
-        break
-      }
-
-      case 'file_download': {
-        const data = msg.data as unknown as FileDownloadResponse
-        resolvePending('file_download', data)
-        break
-      }
-    }
-  }, [])
-
-  // ─────────────────────────────────────────────────────────────────────
-  // WebSocket Connection (reuse existing or create minimal)
-  // ─────────────────────────────────────────────────────────────────────
-
-  const connect = useCallback(() => {
-    if (isConnectingRef.current || wsRef.current?.readyState === WebSocket.OPEN) {
-      return
-    }
-    isConnectingRef.current = true
-
-    if (wsRef.current) {
-      try {
-        wsRef.current.close()
-      } catch (e) {
-        // Connection already closed
-      }
-      wsRef.current = null
-    }
-
-    const wsUrl = getWsUrl()
-
-    try {
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        console.log('[Workspace] WebSocket connected')
-        isConnectingRef.current = false
-        reconnectCountRef.current = 0  // Reset on successful connection
-        setState(prev => ({ ...prev, connected: true }))
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg: WSMessage = JSON.parse(event.data)
-          // Only handle file-related messages
-          if (msg.type.startsWith('file_')) {
-            handleMessage(msg)
-          }
-        } catch (err) {
-          console.error('[Workspace] Failed to parse message:', err)
-        }
-      }
-
-      ws.onclose = () => {
-        console.log('[Workspace] WebSocket disconnected, reconnectCount =', reconnectCountRef.current)
-        isConnectingRef.current = false
-        setState(prev => ({ ...prev, connected: false }))
-
-        // Immediate first retry, then exponential backoff
-        let reconnectDelay = 500
-        if (reconnectCountRef.current > 0) {
-          // Exponential backoff after first disconnect
-          reconnectDelay = Math.min(1000 * Math.pow(1.5, reconnectCountRef.current - 1), 30000)
-        }
-        reconnectCountRef.current += 1
-
-        if (reconnectCountRef.current <= maxReconnectAttemptsRef.current) {
-          console.log(`[Workspace] Reconnecting in ${reconnectDelay}ms (attempt ${reconnectCountRef.current}/${maxReconnectAttemptsRef.current})`)
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            connect()
-          }, reconnectDelay)
-        } else {
-          console.error(`[Workspace] Failed to reconnect after ${maxReconnectAttemptsRef.current} attempts`)
-          setState(prev => ({ ...prev, error: 'Connection lost - please refresh the page' }))
-        }
-      }
-
-      ws.onerror = (err) => {
-        console.error('[Workspace] WebSocket error:', err, '(Error object might be limited on some browsers)')
-        // Note: The onclose handler will be called after onerror on most browsers
-      }
-    } catch (err) {
-      console.error('[Workspace] Failed to create WebSocket:', err)
-      isConnectingRef.current = false
-      // Retry connection
-      reconnectCountRef.current += 1
-      const reconnectDelay = Math.min(1000 * Math.pow(1.5, reconnectCountRef.current), 30000)
-      reconnectTimeoutRef.current = window.setTimeout(() => {
-        connect()
-      }, reconnectDelay)
-    }
-  }, [handleMessage])
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Send Operation Helper
-  // ─────────────────────────────────────────────────────────────────────
+  //
+  // The slice handles state updates from inbound messages, but the legacy
+  // request/response Promise API still needs response correlation. We keep
+  // a per-type pending map here. Responses arrive via onAnyMessage below;
+  // the same response also fires the slice handlers via the registry.
 
   const sendOperation = useCallback(<T,>(
     type: string,
     data: Record<string, unknown>,
-    key: string
+    key: string,
   ): Promise<T> => {
     return new Promise((resolve, reject) => {
-      if (wsRef.current?.readyState !== WebSocket.OPEN) {
+      if (!client.isConnected) {
         reject(new Error('WebSocket not connected'))
         return
       }
-
       pendingOpsRef.current.set(key, {
         resolve: resolve as (value: unknown) => void,
         reject,
       })
-
-      wsRef.current.send(JSON.stringify({ type, ...data }))
-
-      // Timeout after 30 seconds
+      client.send(type, data)
       setTimeout(() => {
         const pending = pendingOpsRef.current.get(key)
         if (pending) {
@@ -378,116 +152,96 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // ─────────────────────────────────────────────────────────────────────
 
   const navigateTo = useCallback(async (directory: string) => {
-    setState(prev => ({
-      ...prev, loading: true, error: null, currentDirectory: directory,
-      files: [], offset: 0, hasMore: false, total: 0, search: '',
-    }))
+    dispatch(startNavigate(directory))
     try {
       await sendOperation<FileListResponse>(
-        'file_list', { directory, offset: 0, limit: FILE_PAGE_SIZE }, 'file_list'
+        'file_list', { directory, offset: 0, limit: FILE_PAGE_SIZE }, 'file_list',
       )
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to navigate',
-      }))
+    } catch (e) {
+      dispatch(setWorkspaceError(e instanceof Error ? e.message : 'Failed to navigate'))
     }
-  }, [sendOperation])
+  }, [dispatch, sendOperation])
 
   const refresh = useCallback(async () => {
-    setState(prev => ({ ...prev, loading: true, error: null, files: [], offset: 0, hasMore: false, total: 0 }))
+    dispatch(startRefresh())
     try {
       await sendOperation<FileListResponse>(
         'file_list',
-        { directory: state.currentDirectory, offset: 0, limit: FILE_PAGE_SIZE, search: state.search },
-        'file_list'
+        { directory: currentDirectory, offset: 0, limit: FILE_PAGE_SIZE, search },
+        'file_list',
       )
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to refresh',
-      }))
+    } catch (e) {
+      dispatch(setWorkspaceError(e instanceof Error ? e.message : 'Failed to refresh'))
     }
-  }, [sendOperation, state.currentDirectory, state.search])
+  }, [dispatch, sendOperation, currentDirectory, search])
 
   const loadMore = useCallback(async () => {
-    if (!state.hasMore || state.loadingMore) return
-    setState(prev => ({ ...prev, loadingMore: true }))
+    if (!hasMore || loadingMore) return
+    dispatch(startLoadMore())
     try {
       await sendOperation<FileListResponse>(
         'file_list',
-        { directory: state.currentDirectory, offset: state.offset, limit: FILE_PAGE_SIZE, search: state.search },
-        'file_list'
+        { directory: currentDirectory, offset, limit: FILE_PAGE_SIZE, search },
+        'file_list',
       )
-    } catch (error) {
-      setState(prev => ({ ...prev, loadingMore: false }))
+    } catch {
+      dispatch(setWorkspaceError(null))
     }
-  }, [sendOperation, state.hasMore, state.loadingMore, state.currentDirectory, state.offset, state.search])
+  }, [dispatch, sendOperation, hasMore, loadingMore, currentDirectory, offset, search])
 
   const setSearch = useCallback((query: string) => {
-    setState(prev => ({ ...prev, search: query, loading: true, files: [], offset: 0, hasMore: false, total: 0 }))
+    dispatch(startSearch(query))
     sendOperation<FileListResponse>(
       'file_list',
-      { directory: state.currentDirectory, offset: 0, limit: FILE_PAGE_SIZE, search: query },
-      'file_list'
+      { directory: currentDirectory, offset: 0, limit: FILE_PAGE_SIZE, search: query },
+      'file_list',
     ).catch(() => {
-      setState(prev => ({ ...prev, loading: false }))
+      dispatch(setWorkspaceError(null))
     })
-  }, [sendOperation, state.currentDirectory])
+  }, [dispatch, sendOperation, currentDirectory])
 
   const selectFile = useCallback((file: FileItem | null) => {
-    setState(prev => ({
-      ...prev,
-      selectedFile: file,
-      fileContent: null,
-      fileIsBinary: false,
-    }))
-  }, [])
+    dispatch(selectFileAction(file))
+  }, [dispatch])
 
   const listDirectory = useCallback(async (directory: string): Promise<FileItem[]> => {
-    // If requesting current directory, return cached files
-    if (directory === state.currentDirectory) {
-      return state.files
-    }
-    // Otherwise fetch from server (using unique key to avoid conflicts)
+    if (directory === currentDirectory) return files
     const key = `file_list_${Date.now()}`
     const response = await sendOperation<FileListResponse>('file_list', { directory }, key)
     return response.success ? response.files : []
-  }, [sendOperation, state.currentDirectory, state.files])
+  }, [sendOperation, currentDirectory, files])
 
-  const readFile = useCallback(async (path: string): Promise<FileReadResponse> => {
-    return sendOperation<FileReadResponse>('file_read', { path }, 'file_read')
-  }, [sendOperation])
+  const readFile = useCallback((path: string) =>
+    sendOperation<FileReadResponse>('file_read', { path }, 'file_read'),
+  [sendOperation])
 
-  const writeFile = useCallback(async (path: string, content: string): Promise<FileWriteResponse> => {
-    return sendOperation<FileWriteResponse>('file_write', { path, content }, 'file_write')
-  }, [sendOperation])
+  const writeFile = useCallback((path: string, content: string) =>
+    sendOperation<FileWriteResponse>('file_write', { path, content }, 'file_write'),
+  [sendOperation])
 
-  const createFile = useCallback(async (path: string, fileType: 'file' | 'directory'): Promise<FileCreateResponse> => {
-    return sendOperation<FileCreateResponse>('file_create', { path, fileType }, 'file_create')
-  }, [sendOperation])
+  const createFile = useCallback((path: string, fileType: 'file' | 'directory') =>
+    sendOperation<FileCreateResponse>('file_create', { path, fileType }, 'file_create'),
+  [sendOperation])
 
-  const deleteFile = useCallback(async (path: string): Promise<FileDeleteResponse> => {
-    return sendOperation<FileDeleteResponse>('file_delete', { path }, 'file_delete')
-  }, [sendOperation])
+  const deleteFile = useCallback((path: string) =>
+    sendOperation<FileDeleteResponse>('file_delete', { path }, 'file_delete'),
+  [sendOperation])
 
-  const renameFile = useCallback(async (oldPath: string, newName: string): Promise<FileRenameResponse> => {
-    return sendOperation<FileRenameResponse>('file_rename', { oldPath, newName }, 'file_rename')
-  }, [sendOperation])
+  const renameFile = useCallback((oldPath: string, newName: string) =>
+    sendOperation<FileRenameResponse>('file_rename', { oldPath, newName }, 'file_rename'),
+  [sendOperation])
 
-  const batchDelete = useCallback(async (paths: string[]): Promise<FileBatchDeleteResponse> => {
-    return sendOperation<FileBatchDeleteResponse>('file_batch_delete', { paths }, 'file_batch_delete')
-  }, [sendOperation])
+  const batchDelete = useCallback((paths: string[]) =>
+    sendOperation<FileBatchDeleteResponse>('file_batch_delete', { paths }, 'file_batch_delete'),
+  [sendOperation])
 
-  const moveFile = useCallback(async (srcPath: string, destPath: string): Promise<FileMoveResponse> => {
-    return sendOperation<FileMoveResponse>('file_move', { srcPath, destPath }, 'file_move')
-  }, [sendOperation])
+  const moveFile = useCallback((srcPath: string, destPath: string) =>
+    sendOperation<FileMoveResponse>('file_move', { srcPath, destPath }, 'file_move'),
+  [sendOperation])
 
-  const copyFile = useCallback(async (srcPath: string, destPath: string): Promise<FileCopyResponse> => {
-    return sendOperation<FileCopyResponse>('file_copy', { srcPath, destPath }, 'file_copy')
-  }, [sendOperation])
+  const copyFile = useCallback((srcPath: string, destPath: string) =>
+    sendOperation<FileCopyResponse>('file_copy', { srcPath, destPath }, 'file_copy'),
+  [sendOperation])
 
   const uploadFile = useCallback(async (path: string, file: File): Promise<FileUploadResponse> => {
     return new Promise((resolve, reject) => {
@@ -496,13 +250,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         try {
           const base64 = (reader.result as string).split(',')[1]
           const response = await sendOperation<FileUploadResponse>(
-            'file_upload',
-            { path, content: base64 },
-            'file_upload'
+            'file_upload', { path, content: base64 }, 'file_upload',
           )
           resolve(response)
-        } catch (error) {
-          reject(error)
+        } catch (e) {
+          reject(e)
         }
       }
       reader.onerror = () => reject(new Error('Failed to read file'))
@@ -513,17 +265,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const downloadFile = useCallback(async (path: string): Promise<Blob | null> => {
     try {
       const response = await sendOperation<FileDownloadResponse>(
-        'file_download',
-        { path },
-        'file_download'
+        'file_download', { path }, 'file_download',
       )
       if (response.success && response.content) {
-        // Decode base64
         const byteString = atob(response.content)
         const bytes = new Uint8Array(byteString.length)
-        for (let i = 0; i < byteString.length; i++) {
-          bytes[i] = byteString.charCodeAt(i)
-        }
+        for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i)
         return new Blob([bytes])
       }
       return null
@@ -537,36 +284,43 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // ─────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    connect()
-
-    return () => {
-      isConnectingRef.current = false
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
+    // Resolve the Promise side of any pending file_* request when its
+    // response arrives. The slice handler (via the registry) updates state
+    // in parallel.
+    const unsub = client.onAnyMessage((msg) => {
+      if (!msg.type.startsWith('file_')) return
+      const pending = pendingOpsRef.current.get(msg.type)
+      if (pending) {
+        pending.resolve((msg as WSMessage).data)
+        pendingOpsRef.current.delete(msg.type)
       }
-      if (wsRef.current) {
-        wsRef.current.close()
-        wsRef.current = null
-      }
-    }
-  }, [connect])
+    })
+    return unsub
+  }, [])
 
-  // Load initial file list when connected
   useEffect(() => {
-    if (state.connected && !hasInitialLoadRef.current) {
+    if (connected && !hasInitialLoadRef.current) {
       hasInitialLoadRef.current = true
       navigateTo('')
     }
-  }, [state.connected, navigateTo])
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────
+  }, [connected, navigateTo])
 
   return (
     <WorkspaceContext.Provider
       value={{
-        ...state,
+        currentDirectory,
+        files,
+        loading,
+        loadingMore,
+        error,
+        selectedFile,
+        fileContent,
+        fileIsBinary,
+        connected,
+        total,
+        hasMore,
+        offset,
+        search,
         navigateTo,
         refresh,
         selectFile,

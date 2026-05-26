@@ -34,6 +34,7 @@ class ActionSetManager:
     Compiles static action lists based on selected action sets, eliminating
     the need for RAG-based action retrieval during task execution.
     """
+
     _instance: Optional["ActionSetManager"] = None
 
     def __new__(cls) -> "ActionSetManager":
@@ -42,9 +43,7 @@ class ActionSetManager:
         return cls._instance
 
     def compile_action_list(
-        self,
-        selected_sets: List[str],
-        mode: str = "CLI"
+        self, selected_sets: List[str], mode: str = "CLI"
     ) -> List[str]:
         """
         Compile a list of action names from selected action sets.
@@ -72,7 +71,9 @@ class ActionSetManager:
 
         for action_name, platform_impls in registry_instance._registry.items():
             # Get the best implementation for current platform
-            impl = platform_impls.get(current_platform) or platform_impls.get(PLATFORM_ALL)
+            impl = platform_impls.get(current_platform) or platform_impls.get(
+                PLATFORM_ALL
+            )
 
             if impl is None:
                 continue
@@ -80,7 +81,7 @@ class ActionSetManager:
             metadata = impl.metadata
 
             # Check if action belongs to any of the required sets
-            action_sets = getattr(metadata, 'action_sets', [])
+            action_sets = getattr(metadata, "action_sets", [])
             if not action_sets:
                 # Actions without action_sets are not included (backward compatibility)
                 # They will be included via RAG fallback if needed
@@ -137,18 +138,19 @@ class ActionSetManager:
 
         # Scan all registered actions to find unique set names
         for action_name, platform_impls in registry_instance._registry.items():
-            impl = platform_impls.get(current_platform) or platform_impls.get(PLATFORM_ALL)
+            impl = platform_impls.get(current_platform) or platform_impls.get(
+                PLATFORM_ALL
+            )
 
             if impl is None:
                 continue
 
-            action_sets = getattr(impl.metadata, 'action_sets', [])
+            action_sets = getattr(impl.metadata, "action_sets", [])
             for set_name in action_sets:
                 if set_name not in discovered_sets:
                     # Use default description if known, otherwise generate one
                     desc = DEFAULT_SET_DESCRIPTIONS.get(
-                        set_name,
-                        f"Custom action set: {set_name}"
+                        set_name, f"Custom action set: {set_name}"
                     )
                     discovered_sets[set_name] = desc
 
@@ -184,12 +186,14 @@ class ActionSetManager:
         actions_in_set: List[str] = []
 
         for action_name, platform_impls in registry_instance._registry.items():
-            impl = platform_impls.get(current_platform) or platform_impls.get(PLATFORM_ALL)
+            impl = platform_impls.get(current_platform) or platform_impls.get(
+                PLATFORM_ALL
+            )
 
             if impl is None:
                 continue
 
-            action_sets = getattr(impl.metadata, 'action_sets', [])
+            action_sets = getattr(impl.metadata, "action_sets", [])
             if set_name in action_sets:
                 actions_in_set.append(action_name)
 

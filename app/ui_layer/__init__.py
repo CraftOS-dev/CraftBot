@@ -2,7 +2,7 @@
 CraftBot UI Layer.
 
 Centralized UI abstraction layer that provides common functionality for
-all interface implementations (CLI, TUI, Browser).
+all interface implementations (CLI, Browser).
 
 Core Components:
 - controller: Central UIController that coordinates all UI operations

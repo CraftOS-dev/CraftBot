@@ -9,23 +9,20 @@ from agent_core import action
         "task_id": {
             "type": "string",
             "description": "ID of the task to remove",
-            "example": "daily_morning_briefing"
+            "example": "daily_morning_briefing",
         }
     },
     output_schema={
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
         "removed": {
             "type": "boolean",
-            "description": "True if task was removed, False if not found"
+            "description": "True if task was removed, False if not found",
         },
-        "message": {
-            "type": "string",
-            "description": "Status message"
-        }
-    }
+        "message": {"type": "string", "description": "Status message"},
+    },
 )
 def recurring_remove(input_data: dict) -> dict:
     """Remove a recurring task."""
@@ -33,10 +30,7 @@ def recurring_remove(input_data: dict) -> dict:
 
     manager = get_proactive_manager()
     if manager is None:
-        return {
-            "status": "error",
-            "error": "Proactive manager not initialized"
-        }
+        return {"status": "error", "error": "Proactive manager not initialized"}
 
     try:
         task_id = input_data.get("task_id")
@@ -54,18 +48,14 @@ def recurring_remove(input_data: dict) -> dict:
             return {
                 "status": "ok",
                 "removed": True,
-                "message": f"Recurring task '{task_name}' (ID: {task_id}) has been removed."
+                "message": f"Recurring task '{task_name}' (ID: {task_id}) has been removed.",
             }
         else:
             return {
                 "status": "error",
                 "removed": False,
-                "message": f"Task not found: {task_id}"
+                "message": f"Task not found: {task_id}",
             }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "removed": False,
-            "error": str(e)
-        }
+        return {"status": "error", "removed": False, "error": str(e)}

@@ -1,5 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Telegram MTProto (user account) integration - handler (phone+code+QR) + client (Telethon listener)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -41,6 +42,7 @@ class TelegramUserCredential:
 @dataclass
 class TelegramUserConfig:
     """Runtime knobs persisted to ``telegram_user_config.json``."""
+
     # When True, only forward messages from the user's own Saved Messages
     # chat (chat_id == own user_id). All DMs from contacts and group/channel
     # chatter are dropped before reaching the agent. Useful when the user
@@ -70,6 +72,7 @@ _pending_telegram_auth: Dict[str, Dict[str, Any]] = {}
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(TELEGRAM_USER.name)
 class TelegramUserHandler(IntegrationHandler):
     spec = TELEGRAM_USER
@@ -89,9 +92,13 @@ class TelegramUserHandler(IntegrationHandler):
 
     config_class = TelegramUserConfig
     config_fields = [
-        {"key": "self_messages_only", "label": "Self-messages only", "type": "checkbox",
-         "help": "Only forward messages from your own Saved Messages chat. "
-                 "Drops DMs from contacts and group/channel messages before they reach the agent."},
+        {
+            "key": "self_messages_only",
+            "label": "Self-messages only",
+            "type": "checkbox",
+            "help": "Only forward messages from your own Saved Messages chat. "
+            "Drops DMs from contacts and group/channel messages before they reach the agent.",
+        },
     ]
 
     @property
@@ -141,11 +148,16 @@ class TelegramUserHandler(IntegrationHandler):
 
             pending = _pending_telegram_auth.get(phone)
             if not pending:
-                return False, f"No pending auth for {phone}. Run /telegram_user login {phone} first."
+                return (
+                    False,
+                    f"No pending auth for {phone}. Run /telegram_user login {phone} first.",
+                )
 
             result = await helpers.complete_auth(
-                api_id=api_id, api_hash=api_hash,
-                phone_number=phone, code=code,
+                api_id=api_id,
+                api_hash=api_hash,
+                phone_number=phone,
+                code=code,
                 phone_code_hash=pending["phone_code_hash"],
                 password=password,
                 pending_session_string=pending["session_string"],
@@ -154,30 +166,43 @@ class TelegramUserHandler(IntegrationHandler):
             if "error" in result:
                 details = result.get("details", {})
                 if details.get("status") == "2fa_required":
-                    return False, "2FA enabled.\nUsage: /telegram_user login <phone> <code> <2fa_password>"
+                    return (
+                        False,
+                        "2FA enabled.\nUsage: /telegram_user login <phone> <code> <2fa_password>",
+                    )
                 if details.get("status") == "invalid_code":
                     return False, "Invalid verification code. Try again."
                 if details.get("status") == "code_expired":
                     _pending_telegram_auth.pop(phone, None)
-                    return False, "Code expired. Run /telegram_user login <phone> again."
+                    return (
+                        False,
+                        "Code expired. Run /telegram_user login <phone> again.",
+                    )
                 return False, f"Auth failed: {result['error']}"
 
             auth = result["result"]
             _pending_telegram_auth.pop(phone, None)
 
-            save_credential(self.spec.cred_file, TelegramUserCredential(
-                session_string=auth["session_string"],
-                api_id=str(api_id),
-                api_hash=api_hash,
-                phone_number=auth.get("phone", phone),
-            ))
+            save_credential(
+                self.spec.cred_file,
+                TelegramUserCredential(
+                    session_string=auth["session_string"],
+                    api_id=str(api_id),
+                    api_hash=api_hash,
+                    phone_number=auth.get("phone", phone),
+                ),
+            )
 
-            account_name = f"{auth.get('first_name', '')} {auth.get('last_name', '')}".strip()
+            account_name = (
+                f"{auth.get('first_name', '')} {auth.get('last_name', '')}".strip()
+            )
             username = f" (@{auth['username']})" if auth.get("username") else ""
             return True, f"Telegram user connected: {account_name}{username}"
 
         # Step 1: send OTP
-        result = await helpers.start_auth(api_id=api_id, api_hash=api_hash, phone_number=phone)
+        result = await helpers.start_auth(
+            api_id=api_id, api_hash=api_hash, phone_number=phone
+        )
         if "error" in result:
             return False, f"Failed to send code: {result['error']}"
 
@@ -213,11 +238,14 @@ class TelegramUserHandler(IntegrationHandler):
             nonlocal qr_file_path, qr_error
             try:
                 import qrcode
+
                 qr = qrcode.QRCode(version=1, box_size=10, border=4)
                 qr.add_data(url)
                 qr.make(fit=True)
                 img = qr.make_image(fill_color="black", back_color="white")
-                qr_file_path = os.path.join(tempfile.gettempdir(), "telegram_qr_login.png")
+                qr_file_path = os.path.join(
+                    tempfile.gettempdir(), "telegram_qr_login.png"
+                )
                 img.save(qr_file_path)
                 if sys.platform == "win32":
                     os.startfile(qr_file_path)
@@ -227,9 +255,12 @@ class TelegramUserHandler(IntegrationHandler):
                 qr_error = str(e)
 
         from . import _telegram_mtproto as helpers
+
         result = await helpers.qr_login(
-            api_id=api_id, api_hash=api_hash,
-            on_qr_url=on_qr_url, timeout=120,
+            api_id=api_id,
+            api_hash=api_hash,
+            on_qr_url=on_qr_url,
+            timeout=120,
         )
 
         if qr_file_path and os.path.exists(qr_file_path):
@@ -243,7 +274,9 @@ class TelegramUserHandler(IntegrationHandler):
             if details.get("status") == "2fa_required":
                 session_str = details.get("session_string", "")
                 if session_str:
-                    _pending_telegram_auth["__qr_2fa__"] = {"session_string": session_str}
+                    _pending_telegram_auth["__qr_2fa__"] = {
+                        "session_string": session_str
+                    }
                 return False, (
                     "QR scan succeeded but 2FA is enabled.\n"
                     "Complete login with: /telegram_user login <phone> <code> <2fa_password>"
@@ -251,13 +284,18 @@ class TelegramUserHandler(IntegrationHandler):
             return False, f"QR login failed: {result['error']}"
 
         auth = result["result"]
-        save_credential(self.spec.cred_file, TelegramUserCredential(
-            session_string=auth["session_string"],
-            api_id=str(api_id),
-            api_hash=api_hash,
-            phone_number=auth.get("phone", ""),
-        ))
-        account_name = f"{auth.get('first_name', '')} {auth.get('last_name', '')}".strip()
+        save_credential(
+            self.spec.cred_file,
+            TelegramUserCredential(
+                session_string=auth["session_string"],
+                api_id=str(api_id),
+                api_hash=api_hash,
+                phone_number=auth.get("phone", ""),
+            ),
+        )
+        account_name = (
+            f"{auth.get('first_name', '')} {auth.get('last_name', '')}".strip()
+        )
         username = f" (@{auth['username']})" if auth.get("username") else ""
         return True, f"Telegram user linked: {account_name}{username}"
 
@@ -266,6 +304,7 @@ class TelegramUserHandler(IntegrationHandler):
             return False, "No Telegram user credentials found."
         try:
             from ...manager import get_external_comms_manager
+
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -285,6 +324,7 @@ class TelegramUserHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client
 # -----------------------------------------------------------------
+
 
 @register_client
 class TelegramUserClient(BasePlatformClient):
@@ -322,11 +362,14 @@ class TelegramUserClient(BasePlatformClient):
         if self._cred is None:
             self._cred = load_credential(self.spec.cred_file, TelegramUserCredential)
         if self._cred is None:
-            raise RuntimeError("No Telegram User credentials. Use /telegram_user login first.")
+            raise RuntimeError(
+                "No Telegram User credentials. Use /telegram_user login first."
+            )
         return self._cred
 
     def _session_params(self):
         from telethon.sessions import StringSession
+
         cred = self._load()
         return StringSession(cred.session_string), int(cred.api_id), cred.api_hash
 
@@ -355,7 +398,9 @@ class TelegramUserClient(BasePlatformClient):
 
         if not await client.is_user_authorized():
             await client.disconnect()
-            raise RuntimeError("Telegram user session expired or revoked. Please re-authenticate.")
+            raise RuntimeError(
+                "Telegram user session expired or revoked. Please re-authenticate."
+            )
 
         me = await client.get_me()
         self._my_user_id = me.id
@@ -378,7 +423,11 @@ class TelegramUserClient(BasePlatformClient):
                     recipient, text, reply_to, result_future = item
                     try:
                         try:
-                            entity = await client.get_entity(int(recipient) if recipient.lstrip('-').isdigit() else recipient)
+                            entity = await client.get_entity(
+                                int(recipient)
+                                if recipient.lstrip("-").isdigit()
+                                else recipient
+                            )
                         except ValueError:
                             entity = await client.get_entity(recipient)
                         msg = await client.send_message(entity, text, reply_to=reply_to)
@@ -395,6 +444,7 @@ class TelegramUserClient(BasePlatformClient):
                     break
                 except Exception:
                     pass
+
         self._send_task = asyncio.create_task(_send_processor())
         self._listening = True
 
@@ -402,7 +452,10 @@ class TelegramUserClient(BasePlatformClient):
         if not self._listening:
             return
         self._listening = False
-        for task in [getattr(self, "_run_task", None), getattr(self, "_send_task", None)]:
+        for task in [
+            getattr(self, "_run_task", None),
+            getattr(self, "_send_task", None),
+        ]:
             if task and not task.done():
                 task.cancel()
         self._run_task = None
@@ -420,9 +473,12 @@ class TelegramUserClient(BasePlatformClient):
         if not msg or not msg.text:
             return
         chat_id = event.chat_id
-        is_saved_messages = (chat_id == self._my_user_id)
+        is_saved_messages = chat_id == self._my_user_id
 
-        cfg = load_config(_telegram_user_config_file(), TelegramUserConfig) or TelegramUserConfig()
+        cfg = (
+            load_config(_telegram_user_config_file(), TelegramUserConfig)
+            or TelegramUserConfig()
+        )
         if cfg.self_messages_only and not is_saved_messages:
             return
 
@@ -443,17 +499,21 @@ class TelegramUserClient(BasePlatformClient):
         channel_name = _get_display_name(chat) if chat else ""
 
         if self._message_callback:
-            await self._message_callback(PlatformMessage(
-                platform=self.spec.platform_id,
-                sender_id=str(sender.id if sender else self._my_user_id),
-                sender_name=sender_name,
-                text=msg.text,
-                channel_id=str(chat_id),
-                channel_name=channel_name if not is_saved_messages else "Saved Messages",
-                message_id=str(msg.id),
-                timestamp=msg.date.astimezone(timezone.utc) if msg.date else None,
-                raw={"is_self_message": is_saved_messages},
-            ))
+            await self._message_callback(
+                PlatformMessage(
+                    platform=self.spec.platform_id,
+                    sender_id=str(sender.id if sender else self._my_user_id),
+                    sender_name=sender_name,
+                    text=msg.text,
+                    channel_id=str(chat_id),
+                    channel_name=channel_name
+                    if not is_saved_messages
+                    else "Saved Messages",
+                    message_id=str(msg.id),
+                    timestamp=msg.date.astimezone(timezone.utc) if msg.date else None,
+                    raw={"is_self_message": is_saved_messages},
+                )
+            )
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
         reply_to: Optional[int] = kwargs.get("reply_to")
@@ -464,68 +524,105 @@ class TelegramUserClient(BasePlatformClient):
             from telethon import TelegramClient
             from telethon.errors import AuthKeyUnregisteredError, FloodWaitError
 
-            if self._send_queue is not None and self._live_client and self._live_client.is_connected():
+            if (
+                self._send_queue is not None
+                and self._live_client
+                and self._live_client.is_connected()
+            ):
                 loop = asyncio.get_event_loop()
                 result_future = loop.create_future()
-                await self._send_queue.put((resolved, prefixed_text, reply_to, result_future))
+                await self._send_queue.put(
+                    (resolved, prefixed_text, reply_to, result_future)
+                )
                 msg = await asyncio.wait_for(result_future, timeout=30)
             else:
                 session, api_id, api_hash = self._session_params()
                 async with TelegramClient(session, api_id, api_hash) as client:
                     try:
-                        entity = await client.get_entity(int(resolved) if resolved.lstrip('-').isdigit() else resolved)
+                        entity = await client.get_entity(
+                            int(resolved)
+                            if resolved.lstrip("-").isdigit()
+                            else resolved
+                        )
                     except ValueError:
                         entity = await client.get_entity(resolved)
-                    msg = await client.send_message(entity, prefixed_text, reply_to=reply_to)
+                    msg = await client.send_message(
+                        entity, prefixed_text, reply_to=reply_to
+                    )
 
                 self._agent_sent_ids.add(str(msg.id))
-                return {"ok": True, "result": {
-                    "message_id": msg.id,
-                    "date": msg.date.isoformat() if msg.date else None,
-                    "chat_id": getattr(msg, "chat_id", None) or resolved,
-                    "text": msg.text,
-                }}
+                return {
+                    "ok": True,
+                    "result": {
+                        "message_id": msg.id,
+                        "date": msg.date.isoformat() if msg.date else None,
+                        "chat_id": getattr(msg, "chat_id", None) or resolved,
+                        "text": msg.text,
+                    },
+                }
 
         except ImportError:
             return {"error": "telethon is not installed", "details": {}}
         except AuthKeyUnregisteredError:
-            return {"error": "Session has expired or been revoked. Please re-authenticate.",
-                    "details": {"status": "session_expired"}}
+            return {
+                "error": "Session has expired or been revoked. Please re-authenticate.",
+                "details": {"status": "session_expired"},
+            }
         except ValueError as e:
-            return {"error": f"Could not find chat: {e}", "details": {"chat_id": str(recipient)}}
+            return {
+                "error": f"Could not find chat: {e}",
+                "details": {"chat_id": str(recipient)},
+            }
         except FloodWaitError as e:
-            return {"error": f"Rate limited. Please wait {e.seconds} seconds.",
-                    "details": {"flood_wait_seconds": e.seconds}}
+            return {
+                "error": f"Rate limited. Please wait {e.seconds} seconds.",
+                "details": {"flood_wait_seconds": e.seconds},
+            }
         except Exception as e:
-            return {"error": f"Failed to send message: {e}", "details": {"exception": type(e).__name__}}
+            return {
+                "error": f"Failed to send message: {e}",
+                "details": {"exception": type(e).__name__},
+            }
 
     # --- API methods ---
     async def get_me(self) -> Dict[str, Any]:
         try:
             from telethon import TelegramClient
             from telethon.errors import AuthKeyUnregisteredError
+
             session, api_id, api_hash = self._session_params()
             async with TelegramClient(session, api_id, api_hash) as client:
                 me = await client.get_me()
-                return {"ok": True, "result": {
-                    "user_id": me.id, "first_name": me.first_name or "",
-                    "last_name": me.last_name or "", "username": me.username or "",
-                    "phone": me.phone or "", "is_bot": me.bot,
-                }}
+                return {
+                    "ok": True,
+                    "result": {
+                        "user_id": me.id,
+                        "first_name": me.first_name or "",
+                        "last_name": me.last_name or "",
+                        "username": me.username or "",
+                        "phone": me.phone or "",
+                        "is_bot": me.bot,
+                    },
+                }
         except ImportError:
             return {"error": "telethon is not installed", "details": {}}
         except AuthKeyUnregisteredError:
-            return {"error": "Session expired. Please re-authenticate.",
-                    "details": {"status": "session_expired"}}
+            return {
+                "error": "Session expired. Please re-authenticate.",
+                "details": {"status": "session_expired"},
+            }
         except Exception as e:
-            return {"error": f"Failed to get user info: {e}",
-                    "details": {"exception": type(e).__name__}}
+            return {
+                "error": f"Failed to get user info: {e}",
+                "details": {"exception": type(e).__name__},
+            }
 
     async def get_dialogs(self, limit: int = 50) -> Dict[str, Any]:
         try:
             from telethon import TelegramClient
             from telethon.errors import AuthKeyUnregisteredError
             from telethon.tl.types import User, Chat, Channel
+
             session, api_id, api_hash = self._session_params()
             async with TelegramClient(session, api_id, api_hash) as client:
                 dialogs = await client.get_dialogs(limit=limit)
@@ -533,56 +630,92 @@ class TelegramUserClient(BasePlatformClient):
                 for dialog in dialogs:
                     entity = dialog.entity
                     info: Dict[str, Any] = {
-                        "id": dialog.id, "name": dialog.name or "",
-                        "unread_count": dialog.unread_count, "is_pinned": dialog.pinned,
+                        "id": dialog.id,
+                        "name": dialog.name or "",
+                        "unread_count": dialog.unread_count,
+                        "is_pinned": dialog.pinned,
                         "is_archived": dialog.archived,
                     }
                     if isinstance(entity, User):
-                        info.update({"type": "private", "username": entity.username or "",
-                                     "phone": entity.phone or "", "is_bot": entity.bot})
+                        info.update(
+                            {
+                                "type": "private",
+                                "username": entity.username or "",
+                                "phone": entity.phone or "",
+                                "is_bot": entity.bot,
+                            }
+                        )
                     elif isinstance(entity, Chat):
-                        info.update({"type": "group",
-                                     "participants_count": getattr(entity, "participants_count", None)})
+                        info.update(
+                            {
+                                "type": "group",
+                                "participants_count": getattr(
+                                    entity, "participants_count", None
+                                ),
+                            }
+                        )
                     elif isinstance(entity, Channel):
-                        info.update({"type": "channel" if entity.broadcast else "supergroup",
-                                     "username": entity.username or "",
-                                     "participants_count": getattr(entity, "participants_count", None)})
+                        info.update(
+                            {
+                                "type": "channel" if entity.broadcast else "supergroup",
+                                "username": entity.username or "",
+                                "participants_count": getattr(
+                                    entity, "participants_count", None
+                                ),
+                            }
+                        )
                     else:
                         info["type"] = "unknown"
                     if dialog.message:
                         info["last_message"] = {
                             "id": dialog.message.id,
-                            "date": dialog.message.date.isoformat() if dialog.message.date else None,
-                            "text": dialog.message.text[:100] if dialog.message.text else "",
+                            "date": dialog.message.date.isoformat()
+                            if dialog.message.date
+                            else None,
+                            "text": dialog.message.text[:100]
+                            if dialog.message.text
+                            else "",
                         }
                     result.append(info)
                 return {"ok": True, "result": {"dialogs": result, "count": len(result)}}
         except ImportError:
             return {"error": "telethon is not installed", "details": {}}
         except AuthKeyUnregisteredError:
-            return {"error": "Session expired.", "details": {"status": "session_expired"}}
+            return {
+                "error": "Session expired.",
+                "details": {"status": "session_expired"},
+            }
         except Exception as e:
-            return {"error": f"Failed to get dialogs: {e}", "details": {"exception": type(e).__name__}}
+            return {
+                "error": f"Failed to get dialogs: {e}",
+                "details": {"exception": type(e).__name__},
+            }
 
-    async def get_messages(self, chat_id: Union[int, str], limit: int = 50,
-                           offset_id: int = 0) -> Dict[str, Any]:
+    async def get_messages(
+        self, chat_id: Union[int, str], limit: int = 50, offset_id: int = 0
+    ) -> Dict[str, Any]:
         try:
             from telethon import TelegramClient
             from telethon.errors import AuthKeyUnregisteredError
+
             session, api_id, api_hash = self._session_params()
             async with TelegramClient(session, api_id, api_hash) as client:
                 entity = await client.get_entity(chat_id)
-                messages = await client.get_messages(entity, limit=limit, offset_id=offset_id)
+                messages = await client.get_messages(
+                    entity, limit=limit, offset_id=offset_id
+                )
                 result = []
                 for msg in messages:
                     info: Dict[str, Any] = {
                         "id": msg.id,
                         "date": msg.date.isoformat() if msg.date else None,
-                        "text": msg.text or "", "out": msg.out,
+                        "text": msg.text or "",
+                        "out": msg.out,
                     }
                     if msg.sender:
                         info["sender"] = {
-                            "id": msg.sender.id, "name": _get_display_name(msg.sender),
+                            "id": msg.sender.id,
+                            "name": _get_display_name(msg.sender),
                             "username": getattr(msg.sender, "username", None) or "",
                         }
                     if msg.media:
@@ -593,53 +726,96 @@ class TelegramUserClient(BasePlatformClient):
                     if msg.forward:
                         info["is_forwarded"] = True
                     result.append(info)
-                return {"ok": True, "result": {
-                    "chat": {"id": entity.id, "name": _get_display_name(entity),
-                             "type": _get_entity_type(entity)},
-                    "messages": result, "count": len(result),
-                }}
+                return {
+                    "ok": True,
+                    "result": {
+                        "chat": {
+                            "id": entity.id,
+                            "name": _get_display_name(entity),
+                            "type": _get_entity_type(entity),
+                        },
+                        "messages": result,
+                        "count": len(result),
+                    },
+                }
         except ImportError:
             return {"error": "telethon is not installed", "details": {}}
         except AuthKeyUnregisteredError:
-            return {"error": "Session expired.", "details": {"status": "session_expired"}}
+            return {
+                "error": "Session expired.",
+                "details": {"status": "session_expired"},
+            }
         except ValueError as e:
-            return {"error": f"Could not find chat: {e}", "details": {"chat_id": str(chat_id)}}
+            return {
+                "error": f"Could not find chat: {e}",
+                "details": {"chat_id": str(chat_id)},
+            }
         except Exception as e:
-            return {"error": f"Failed to get messages: {e}", "details": {"exception": type(e).__name__}}
+            return {
+                "error": f"Failed to get messages: {e}",
+                "details": {"exception": type(e).__name__},
+            }
 
-    async def send_file(self, chat_id: Union[int, str], file_path: str,
-                        caption: Optional[str] = None, reply_to: Optional[int] = None) -> Dict[str, Any]:
+    async def send_file(
+        self,
+        chat_id: Union[int, str],
+        file_path: str,
+        caption: Optional[str] = None,
+        reply_to: Optional[int] = None,
+    ) -> Dict[str, Any]:
         try:
             from telethon import TelegramClient
             from telethon.errors import AuthKeyUnregisteredError, FloodWaitError
+
             session, api_id, api_hash = self._session_params()
             async with TelegramClient(session, api_id, api_hash) as client:
                 entity = await client.get_entity(chat_id)
-                msg = await client.send_file(entity, file_path, caption=caption, reply_to=reply_to)
-                return {"ok": True, "result": {
-                    "message_id": msg.id,
-                    "date": msg.date.isoformat() if msg.date else None,
-                    "chat_id": entity.id, "has_media": True,
-                }}
+                msg = await client.send_file(
+                    entity, file_path, caption=caption, reply_to=reply_to
+                )
+                return {
+                    "ok": True,
+                    "result": {
+                        "message_id": msg.id,
+                        "date": msg.date.isoformat() if msg.date else None,
+                        "chat_id": entity.id,
+                        "has_media": True,
+                    },
+                }
         except ImportError:
             return {"error": "telethon is not installed", "details": {}}
         except AuthKeyUnregisteredError:
-            return {"error": "Session expired.", "details": {"status": "session_expired"}}
+            return {
+                "error": "Session expired.",
+                "details": {"status": "session_expired"},
+            }
         except ValueError as e:
-            return {"error": f"Could not find chat: {e}", "details": {"chat_id": str(chat_id)}}
+            return {
+                "error": f"Could not find chat: {e}",
+                "details": {"chat_id": str(chat_id)},
+            }
         except FileNotFoundError:
-            return {"error": f"File not found: {file_path}", "details": {"file_path": file_path}}
+            return {
+                "error": f"File not found: {file_path}",
+                "details": {"file_path": file_path},
+            }
         except FloodWaitError as e:
-            return {"error": f"Rate limited. Wait {e.seconds}s.",
-                    "details": {"flood_wait_seconds": e.seconds}}
+            return {
+                "error": f"Rate limited. Wait {e.seconds}s.",
+                "details": {"flood_wait_seconds": e.seconds},
+            }
         except Exception as e:
-            return {"error": f"Failed to send file: {e}", "details": {"exception": type(e).__name__}}
+            return {
+                "error": f"Failed to send file: {e}",
+                "details": {"exception": type(e).__name__},
+            }
 
     async def search_contacts(self, query: str, limit: int = 20) -> Dict[str, Any]:
         try:
             from telethon import TelegramClient
             from telethon.errors import AuthKeyUnregisteredError
             from telethon.tl.types import User
+
             session, api_id, api_hash = self._session_params()
             async with TelegramClient(session, api_id, api_hash) as client:
                 dialogs = await client.get_dialogs(limit=100)
@@ -651,7 +827,8 @@ class TelegramUserClient(BasePlatformClient):
                     username = (getattr(entity, "username", "") or "").lower()
                     if query_lower in name or query_lower in username:
                         info: Dict[str, Any] = {
-                            "id": entity.id, "name": _get_display_name(entity),
+                            "id": entity.id,
+                            "name": _get_display_name(entity),
                             "username": getattr(entity, "username", None) or "",
                             "type": _get_entity_type(entity),
                         }
@@ -661,19 +838,28 @@ class TelegramUserClient(BasePlatformClient):
                         contacts.append(info)
                         if len(contacts) >= limit:
                             break
-                return {"ok": True, "result": {"contacts": contacts, "count": len(contacts)}}
+                return {
+                    "ok": True,
+                    "result": {"contacts": contacts, "count": len(contacts)},
+                }
         except ImportError:
             return {"error": "telethon is not installed", "details": {}}
         except AuthKeyUnregisteredError:
-            return {"error": "Session expired.", "details": {"status": "session_expired"}}
+            return {
+                "error": "Session expired.",
+                "details": {"status": "session_expired"},
+            }
         except Exception as e:
-            return {"error": f"Failed to search contacts: {e}",
-                    "details": {"exception": type(e).__name__}}
+            return {
+                "error": f"Failed to search contacts: {e}",
+                "details": {"exception": type(e).__name__},
+            }
 
 
 # -----------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------
+
 
 def _get_display_name(entity) -> str:
     try:

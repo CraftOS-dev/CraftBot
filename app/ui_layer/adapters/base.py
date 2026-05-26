@@ -25,7 +25,7 @@ class InterfaceAdapter(ABC):
     """
     Base class for interface adapters.
 
-    Each interface (CLI, TUI, Browser) extends this to implement
+    Each interface (CLI, Browser) extends this to implement
     the UI components and connect to the controller. Only one adapter
     can be active at a time.
 
@@ -142,6 +142,7 @@ class InterfaceAdapter(ABC):
         # via asyncio.to_thread) can schedule coroutines back onto it.
         try:
             from app.state.agent_state import STATE
+
             STATE.main_loop = asyncio.get_running_loop()
         except Exception:
             pass
@@ -329,10 +330,13 @@ class InterfaceAdapter(ABC):
     def _handle_llm_fatal_error(self, event: UIEvent) -> None:
         """Handle fatal LLM consecutive failure — show retry/change-model options."""
         from app.ui_layer.components.types import ChatMessageOption
+
         session_id = event.data.get("session_id")
         options = [
             ChatMessageOption(label="Retry", value="llm_retry", style="primary"),
-            ChatMessageOption(label="Change Model", value="llm_change_model", style="default"),
+            ChatMessageOption(
+                label="Change Model", value="llm_change_model", style="default"
+            ),
         ]
         asyncio.create_task(
             self._display_chat_message(
@@ -396,9 +400,7 @@ class InterfaceAdapter(ABC):
 
         if self.action_panel:
             status = event.data.get("status", "completed")
-            asyncio.create_task(
-                self.action_panel.update_item(task_id, status)
-            )
+            asyncio.create_task(self.action_panel.update_item(task_id, status))
 
     def _handle_action_start(self, event: UIEvent) -> None:
         """Handle action start event."""
@@ -406,7 +408,9 @@ class InterfaceAdapter(ABC):
             # Use event's task_id if available, otherwise fall back to current task
             # This handles cases where action events go to main stream (task_id="")
             # but should still be associated with the running task
-            task_id = event.data.get("task_id") or self._controller.state.current_task_id
+            task_id = (
+                event.data.get("task_id") or self._controller.state.current_task_id
+            )
             asyncio.create_task(
                 self.action_panel.add_item(
                     ActionItem(
@@ -428,7 +432,11 @@ class InterfaceAdapter(ABC):
             action_id = event.data.get("action_id", "")
             action_name = event.data.get("action_name", "")
             # Use event's task_id if available, otherwise fall back to current task
-            task_id = event.data.get("task_id") or self._controller.state.current_task_id or ""
+            task_id = (
+                event.data.get("task_id")
+                or self._controller.state.current_task_id
+                or ""
+            )
             # Get output and error data
             output = event.data.get("output")
             error_message = event.data.get("error_message")
@@ -465,18 +473,14 @@ class InterfaceAdapter(ABC):
         """Handle waiting for user event - update task status to waiting."""
         task_id = event.data.get("task_id", "")
         if task_id and self.action_panel:
-            asyncio.create_task(
-                self.action_panel.update_item(task_id, "waiting")
-            )
+            asyncio.create_task(self.action_panel.update_item(task_id, "waiting"))
 
     def _handle_task_update(self, event: UIEvent) -> None:
         """Handle task update event - update task status."""
         task_id = event.data.get("task_id", "")
         status = event.data.get("status", "running")
         if task_id and self.action_panel:
-            asyncio.create_task(
-                self.action_panel.update_item(task_id, status)
-            )
+            asyncio.create_task(self.action_panel.update_item(task_id, status))
 
     def _handle_task_token_update(self, event: UIEvent) -> None:
         """Handle per-task token-usage tick - push running totals to the panel.
@@ -504,6 +508,7 @@ class InterfaceAdapter(ABC):
             # Called from a worker thread (typical for LLM result reporting).
             # Schedule onto the main loop captured at adapter start.
             from app.state.agent_state import STATE
+
             main_loop = STATE.main_loop
             if main_loop is not None and not main_loop.is_closed():
                 asyncio.run_coroutine_threadsafe(coro, main_loop)
@@ -524,7 +529,7 @@ class InterfaceAdapter(ABC):
             asyncio.create_task(self.footage_component.clear())
 
     def _handle_show_menu(self, event: UIEvent) -> None:
-        """Handle show menu event. Override in TUI/Browser adapters."""
+        """Handle show menu event. Override in Browser adapter."""
         pass
 
     def _handle_shutdown(self, event: UIEvent) -> None:

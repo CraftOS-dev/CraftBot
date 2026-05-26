@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from typing import TYPE_CHECKING, List, Optional
 
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.themes.base import ThemeAdapter, StyleType
-from app.ui_layer.themes.theme import BaseTheme, CRAFTBOT_LOGO
+from app.ui_layer.themes.theme import BaseTheme
 from app.ui_layer.components.protocols import ChatComponentProtocol
 from app.ui_layer.components.types import ChatMessage
 from app.ui_layer.events import UIEvent, UIEventType
@@ -27,6 +26,7 @@ def _get_formatter():
     global _formatter
     if _formatter is None:
         from app.cli.formatter import CLIFormatter
+
         _formatter = CLIFormatter
     return _formatter
 
@@ -183,8 +183,10 @@ class CLIAdapter(InterfaceAdapter):
 
         # Trigger soft onboarding if needed (after hard onboarding check)
         from app.onboarding import onboarding_manager
+
         if onboarding_manager.needs_soft_onboarding:
             import asyncio
+
             agent = self._controller.agent
             if agent:
                 asyncio.create_task(agent.trigger_soft_onboarding())
@@ -192,6 +194,7 @@ class CLIAdapter(InterfaceAdapter):
         # Print logo and welcome
         _get_formatter().print_logo()
         from app.config import get_app_version
+
         print(f"CraftBot v{get_app_version()}")
         print("Type /help for commands, /exit to quit.\n")
 

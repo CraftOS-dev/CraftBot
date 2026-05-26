@@ -102,19 +102,60 @@ git checkout -b fix/bug-name
 - `WIP`
 - `fixed the thing John mentioned`
 
-Before committing, run the linter:
-```shell
-ruff format .
-ruff check
-```
-Fix any issues, then:
+Before committing, run lint — see [section 5](#5--linting). Then:
 ```shell
 git add .
 git commit -s -m "feat: your descriptive message"
 git push origin your-branch-name
 ```
 
-## 5. 🔀 Pull Requests
+## 5. 🧹 Linting
+
+CraftBot uses [**ruff**](https://docs.astral.sh/ruff/) for both formatting and linting. The same checks run in CI on the `staging` branch (see [`.github/workflows/staging-lint.yml`](.github/workflows/staging-lint.yml)).
+
+Install if you don't have it:
+```shell
+pip install ruff
+```
+
+**Run before every commit:**
+```shell
+ruff format .         # auto-format your code
+ruff check .          # lint
+```
+
+**Auto-fix what ruff can fix:**
+```shell
+ruff check . --fix
+```
+
+**CI smoke test** (catches broken imports and syntax errors that ruff misses):
+```shell
+python -m compileall -q app agent_core agents decorators skills
+```
+
+### Common errors and how to fix them
+
+| Code  | What it means                          | Fix                                                                 |
+|-------|----------------------------------------|---------------------------------------------------------------------|
+| F401  | Unused import                          | Delete it. If it's an `__init__.py` re-export, add to `__all__`.    |
+| F841  | Unused local variable                  | Delete it. If it's the return of a side-effecting call, drop the LHS (`foo()` instead of `x = foo()`). |
+| F821  | Undefined name                         | **Real bug.** Missing import or typo.                               |
+| F402  | Import shadowed by loop variable       | **Real bug.** Rename the loop variable.                             |
+| E402  | Import not at top of file              | Move it up. If ordering is load-bearing (sys.path setup, logging suppression, asyncio shims), add the file to `[lint.per-file-ignores]` in [`.ruff.toml`](.ruff.toml). |
+| E712  | `== True` / `== False` comparison      | Use `if x:` / `if not x:`. For SQLAlchemy filters use `.is_(True)`. |
+| E722  | Bare `except:`                         | Replace with `except Exception:` (still catches everything you want, lets `KeyboardInterrupt`/`SystemExit` propagate). |
+| E741  | Ambiguous variable name (`l`, `I`, `O`)| Rename — e.g. `l` → `line`, `label`, `loop`, depending on context.  |
+
+### About `.ruff.toml`
+
+The repo ships a [`.ruff.toml`](.ruff.toml) that:
+- **Excludes** `app/data/living_ui_template/` — that directory contains Jinja templates with `{{placeholders}}`, not valid Python.
+- **Ignores E402 per-file** for a small set of files (logging setup, asyncio shims, registry init) where import ordering is deliberate.
+
+**Do not** add new entries casually. If you hit E402 in a new file, prefer moving the import; only add the file to the ignore list if the ordering is genuinely load-bearing, and explain why in your commit.
+
+## 6. 🔀 Pull Requests
 
 **Title:** same format as a commit (`feat: …`, `fix: …`). Keep under ~70 chars.
 
@@ -147,7 +188,7 @@ If UI or behavior changed.
 - Click "Compare & Pull Request" and open a PR against `dev`
 - Fill in the PR template with details about your changes
 
-## 6. 🐛 Issues
+## 7. 🐛 Issues
 
 **Bug template:**
 ```markdown
@@ -181,7 +222,7 @@ If UI or behavior changed.
 
 ---
 
-## 7. 🤝 Community Guidelines
+## 8. 🤝 Community Guidelines
 
 - Be respectful and inclusive
 - Help others learn and grow
@@ -189,7 +230,7 @@ If UI or behavior changed.
 - Ask questions when unsure
 - Enjoy building agents
 
-## 8. 📫 To Get Help
+## 9. 📫 To Get Help
 
 - Open an [issue](https://github.com/CraftOS-dev/CraftBot)
 - Join our Discord community

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Google Docs - granular Google integration.
 
 Connect just Docs (without granting Gmail/Calendar/Drive/YouTube scopes)
@@ -15,9 +15,10 @@ user already owns (the narrower ``drive.file`` scope only sees files the
 integration itself created, which is a frequent source of "I can see the
 doc in Drive but the agent can't" complaints).
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from ... import (
     BasePlatformClient,
@@ -65,6 +66,7 @@ GDOCS = IntegrationSpec(
 # Handler - auth flow only
 # -----------------------------------------------------------------
 
+
 @register_handler(GDOCS.name)
 class GoogleDocsHandler(IntegrationHandler):
     spec = GDOCS
@@ -89,6 +91,7 @@ class GoogleDocsHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client - Docs REST methods (no listener)
 # -----------------------------------------------------------------
+
 
 @register_client
 class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
@@ -115,7 +118,8 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
     def create_document(self, title: str) -> Result:
         """Create a new blank Google Doc and return its metadata."""
         return http_request(
-            "POST", f"{DOCS_API_BASE}/documents",
+            "POST",
+            f"{DOCS_API_BASE}/documents",
             headers=self._headers(),
             json={"title": title},
             transform=lambda d: {
@@ -128,8 +132,10 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
     def get_document(self, document_id: str) -> Result:
         """Read a document's full structured content (body + headers/footers)."""
         return http_request(
-            "GET", f"{DOCS_API_BASE}/documents/{document_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{DOCS_API_BASE}/documents/{document_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
     def get_document_text(self, document_id: str) -> Result:
@@ -139,19 +145,22 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
             return result
         doc = result["result"]
         text_parts: List[str] = []
-        for elem in (doc.get("body", {}).get("content", []) or []):
+        for elem in doc.get("body", {}).get("content", []) or []:
             para = elem.get("paragraph")
             if not para:
                 continue
-            for run in (para.get("elements") or []):
+            for run in para.get("elements") or []:
                 tr = run.get("textRun")
                 if tr and tr.get("content"):
                     text_parts.append(tr["content"])
-        return {"ok": True, "result": {
-            "document_id": document_id,
-            "title": doc.get("title", ""),
-            "text": "".join(text_parts),
-        }}
+        return {
+            "ok": True,
+            "result": {
+                "document_id": document_id,
+                "title": doc.get("title", ""),
+                "text": "".join(text_parts),
+            },
+        }
 
     def append_text(self, document_id: str, text: str) -> Result:
         """Append text to the end of a document via batchUpdate."""
@@ -160,35 +169,46 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
         if "error" in result:
             return result
         body = result["result"].get("body", {})
-        end_index = body.get("content", [{}])[-1].get("endIndex", 1) if body.get("content") else 1
+        end_index = (
+            body.get("content", [{}])[-1].get("endIndex", 1)
+            if body.get("content")
+            else 1
+        )
         # Insert just before the trailing newline (endIndex - 1).
         return http_request(
-            "POST", f"{DOCS_API_BASE}/documents/{document_id}:batchUpdate",
+            "POST",
+            f"{DOCS_API_BASE}/documents/{document_id}:batchUpdate",
             headers=self._headers(),
             json={
                 "requests": [
-                    {"insertText": {
-                        "location": {"index": max(1, end_index - 1)},
-                        "text": text,
-                    }},
+                    {
+                        "insertText": {
+                            "location": {"index": max(1, end_index - 1)},
+                            "text": text,
+                        }
+                    },
                 ],
             },
             expected=(200,),
             transform=lambda _d: {"appended": True, "document_id": document_id},
         )
 
-    def replace_text(self, document_id: str, find: str, replace: str,
-                     match_case: bool = False) -> Result:
+    def replace_text(
+        self, document_id: str, find: str, replace: str, match_case: bool = False
+    ) -> Result:
         """Find-and-replace across the entire document body."""
         return http_request(
-            "POST", f"{DOCS_API_BASE}/documents/{document_id}:batchUpdate",
+            "POST",
+            f"{DOCS_API_BASE}/documents/{document_id}:batchUpdate",
             headers=self._headers(),
             json={
                 "requests": [
-                    {"replaceAllText": {
-                        "containsText": {"text": find, "matchCase": match_case},
-                        "replaceText": replace,
-                    }},
+                    {
+                        "replaceAllText": {
+                            "containsText": {"text": find, "matchCase": match_case},
+                            "replaceText": replace,
+                        }
+                    },
                 ],
             },
             expected=(200,),
@@ -205,7 +225,9 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
     def list_documents(self, max_results: int = 50) -> Result:
         """List Google Docs files the user owns or has access to."""
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
+            "GET",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._auth_header(),
             params={
                 "q": "mimeType='application/vnd.google-apps.document' and trashed=false",
                 "pageSize": max_results,
@@ -226,7 +248,9 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
             "and trashed=false"
         )
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
+            "GET",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._auth_header(),
             params={
                 "q": q,
                 "pageSize": max_results,
@@ -240,8 +264,10 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
     def delete_document(self, document_id: str) -> Result:
         """Delete a Google Doc (moves to Drive trash)."""
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/{document_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/{document_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "document_id": document_id},
         )
 

@@ -19,7 +19,6 @@ import re
 import requests
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
 
 from agent_core.decorators import profile, OperationCategory
 from agent_core.core.impl.llm.cache import (
@@ -29,7 +28,10 @@ from agent_core.core.impl.llm.cache import (
     get_cache_config,
     get_cache_metrics,
 )
-from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError, classify_llm_error
+from agent_core.core.impl.llm.errors import (
+    LLMConsecutiveFailureError,
+    classify_llm_error,
+)
 from agent_core.core.hooks import (
     GetTokenCountHook,
     SetTokenCountHook,
@@ -54,10 +56,10 @@ class _EmptyResponse(Exception):
 # Models that do NOT support assistant message prefill
 # These require output_config.format for structured JSON output
 _ANTHROPIC_NO_PREFILL_PATTERNS = (
-    "claude-opus-4",      # Claude Opus 4.x (4.5, 4.6, etc.)
-    "claude-sonnet-4",    # Claude Sonnet 4.x (4.5, 4.6, etc.)
-    "claude-3-7",         # Claude 3.7 Sonnet
-    "claude-3.7",         # Alternative naming
+    "claude-opus-4",  # Claude Opus 4.x (4.5, 4.6, etc.)
+    "claude-sonnet-4",  # Claude Sonnet 4.x (4.5, 4.6, etc.)
+    "claude-3-7",  # Claude 3.7 Sonnet
+    "claude-3.7",  # Alternative naming
 )
 
 
@@ -143,7 +145,6 @@ class LLMInterface:
         # Defer imports to avoid circular dependency
         from app.models.factory import ModelFactory
         from app.models.types import InterfaceType
-        from app.google_gemini_client import GeminiClient
 
         ctx = ModelFactory.create(
             provider=provider,
@@ -162,6 +163,7 @@ class LLMInterface:
         self._gemini_client = ctx["gemini_client"]
         self.remote_url = ctx["remote_url"]
         self._anthropic_client = ctx["anthropic_client"]
+        self._bedrock_client = ctx.get("bedrock_client")
         self._initialized = ctx.get("initialized", False)
 
         # Initialize BytePlus-specific attributes
@@ -169,8 +171,21 @@ class LLMInterface:
         self.byteplus_base_url: Optional[str] = None
         # Store system prompts for lazy session creation (instance variable)
         self._session_system_prompts: Dict[str, str] = {}
-        # Anthropic multi-turn session message history for KV cache accumulation
+        # Multi-turn session message history for KV cache accumulation.
+        # All four providers below benefit from a growing prefix because their
+        # caching is opt-in (cache_control / cachePoint marker on the last
+        # assistant message). The cache eventually self-activates once the
+        # accumulated prefix crosses the provider's minimum-token threshold.
+        # - anthropic: cache_control on last assistant content block
+        # - bedrock:   cachePoint after last assistant content block
+        # - openrouter routing to Claude: extra_body.cache_control applied
+        #   by OR to the last cacheable block (i.e. last assistant message)
+        # - gemini:    growing `contents` array; implicit caching matches
+        #   the longest stable prefix automatically (no marker required)
         self._anthropic_session_messages: Dict[str, List[dict]] = {}
+        self._bedrock_session_messages: Dict[str, List[dict]] = {}
+        self._openrouter_anthropic_session_messages: Dict[str, List[dict]] = {}
+        self._gemini_session_messages: Dict[str, List[dict]] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -219,20 +234,30 @@ class LLMInterface:
         # Read API key and base URL from settings.json if not provided
         if api_key is None or base_url is None:
             from app.config import get_api_key, get_base_url
-            target_api_key = api_key if api_key is not None else get_api_key(target_provider)
-            target_base_url = base_url if base_url is not None else get_base_url(target_provider)
+
+            target_api_key = (
+                api_key if api_key is not None else get_api_key(target_provider)
+            )
+            target_base_url = (
+                base_url if base_url is not None else get_base_url(target_provider)
+            )
         else:
             target_api_key = api_key
             target_base_url = base_url
 
         try:
             from app.config import get_llm_model as _get_llm_model  # type: ignore[import]
+
             target_model = _get_llm_model()
         except Exception:
-            target_model = None  # app context not available (e.g. agent_core standalone)
+            target_model = (
+                None  # app context not available (e.g. agent_core standalone)
+            )
 
         try:
-            logger.info(f"[LLM] Reinitializing with provider: {target_provider}, model: {target_model or 'registry default'}")
+            logger.info(
+                f"[LLM] Reinitializing with provider: {target_provider}, model: {target_model or 'registry default'}"
+            )
             ctx = ModelFactory.create(
                 provider=target_provider,
                 interface=InterfaceType.LLM,
@@ -248,6 +273,7 @@ class LLMInterface:
             self._gemini_client = ctx["gemini_client"]
             self.remote_url = ctx["remote_url"]
             self._anthropic_client = ctx["anthropic_client"]
+            self._bedrock_client = ctx.get("bedrock_client")
             self._initialized = ctx.get("initialized", False)
 
             if ctx["byteplus"]:
@@ -259,13 +285,19 @@ class LLMInterface:
                     base_url=self.byteplus_base_url,
                     model=self.model,
                 )
-                # Reset session system prompts and Anthropic message history
+                # Reset session system prompts and multi-turn message histories
                 self._session_system_prompts = {}
                 self._anthropic_session_messages = {}
+                self._bedrock_session_messages = {}
+                self._openrouter_anthropic_session_messages = {}
+                self._gemini_session_messages = {}
             else:
                 self._byteplus_cache_manager = None
                 self._session_system_prompts = {}
                 self._anthropic_session_messages = {}
+                self._bedrock_session_messages = {}
+                self._openrouter_anthropic_session_messages = {}
+                self._gemini_session_messages = {}
 
             # Reinitialize Gemini cache manager
             if self._gemini_client:
@@ -286,13 +318,17 @@ class LLMInterface:
                 )
                 self._consecutive_failures = 0
 
-            logger.info(f"[LLM] Reinitialized successfully with provider: {self.provider}, model: {self.model}")
+            logger.info(
+                f"[LLM] Reinitialized successfully with provider: {self.provider}, model: {self.model}"
+            )
             return self._initialized
         except EnvironmentError as e:
             logger.warning(f"[LLM] Failed to reinitialize - missing API key: {e}")
             return False
         except Exception as e:
-            logger.error(f"[LLM] Failed to reinitialize - unexpected error: {e}", exc_info=True)
+            logger.error(
+                f"[LLM] Failed to reinitialize - unexpected error: {e}", exc_info=True
+            )
             return False
 
     # ───────────────────────  Usage Reporting  ────────────────────────────
@@ -376,7 +412,14 @@ class LLMInterface:
             logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
 
         try:
-            if self.provider in ("openai", "minimax", "deepseek", "moonshot", "grok", "openrouter"):
+            if self.provider in (
+                "openai",
+                "minimax",
+                "deepseek",
+                "moonshot",
+                "grok",
+                "openrouter",
+            ):
                 response = self._generate_openai(system_prompt, user_prompt)
             elif self.provider == "remote":
                 response = self._generate_ollama(system_prompt, user_prompt)
@@ -386,6 +429,8 @@ class LLMInterface:
                 response = self._generate_byteplus(system_prompt, user_prompt)
             elif self.provider == "anthropic":
                 response = self._generate_anthropic(system_prompt, user_prompt)
+            elif self.provider == "bedrock":
+                response = self._generate_bedrock(system_prompt, user_prompt)
             else:  # pragma: no cover
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
 
@@ -458,7 +503,9 @@ class LLMInterface:
                 # Classify on the way out so the fatal-failure handler can
                 # surface the cause, not just the count.
                 try:
-                    info = classify_llm_error(e, provider=self.provider, model=self.model)
+                    info = classify_llm_error(
+                        e, provider=self.provider, model=self.model
+                    )
                 except Exception:
                     info = None
                 raise LLMConsecutiveFailureError(
@@ -537,20 +584,32 @@ class LLMInterface:
         """
         # Check if caching is supported for this provider
         supports_caching = (
-            (self.provider == "byteplus" and self._byteplus_cache_manager) or
-            (self.provider == "gemini" and self._gemini_cache_manager) or
-            (self.provider in ("openai", "deepseek", "grok", "openrouter") and self.client) or  # OpenAI/DeepSeek/Grok/OpenRouter use automatic caching with prompt_cache_key (and cache_control for Anthropic-routed OpenRouter models)
-            (self.provider == "anthropic" and self._anthropic_client)  # Anthropic uses ephemeral caching with extended TTL
+            (self.provider == "byteplus" and self._byteplus_cache_manager)
+            or (self.provider == "gemini" and self._gemini_cache_manager)
+            or (
+                self.provider in ("openai", "deepseek", "grok", "openrouter")
+                and self.client
+            )  # OpenAI/DeepSeek/Grok/OpenRouter use automatic caching with prompt_cache_key (and cache_control for Anthropic-routed OpenRouter models)
+            or (
+                self.provider == "anthropic" and self._anthropic_client
+            )  # Anthropic uses ephemeral caching with extended TTL
+            or (
+                self.provider == "bedrock" and self._bedrock_client
+            )  # Bedrock uses cachePoint (only Anthropic Claude models on Bedrock support it)
         )
 
         if not supports_caching:
-            logger.debug(f"[SESSION] Session cache not available for provider: {self.provider}")
+            logger.debug(
+                f"[SESSION] Session cache not available for provider: {self.provider}"
+            )
             return None
 
         # Store system prompt for lazy session/cache creation
         session_key = f"{task_id}:{call_type}"
         self._session_system_prompts[session_key] = system_prompt
-        logger.info(f"[SESSION] Registered session for {session_key} (provider: {self.provider})")
+        logger.info(
+            f"[SESSION] Registered session for {session_key} (provider: {self.provider})"
+        )
         return session_key  # Return placeholder ID
 
     def get_session_system_prompt(self, task_id: str, call_type: str) -> Optional[str]:
@@ -575,10 +634,13 @@ class LLMInterface:
             task_id: The task ID.
             call_type: Type of LLM call (use LLMCallType enum values).
         """
-        # Clean up stored system prompt and Anthropic message history
+        # Clean up stored system prompt and multi-turn message histories
         session_key = f"{task_id}:{call_type}"
         system_prompt = self._session_system_prompts.pop(session_key, None)
         self._anthropic_session_messages.pop(session_key, None)
+        self._bedrock_session_messages.pop(session_key, None)
+        self._openrouter_anthropic_session_messages.pop(session_key, None)
+        self._gemini_session_messages.pop(session_key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -596,7 +658,9 @@ class LLMInterface:
             task_id: The task whose sessions should be ended.
         """
         # Get all system prompts for this task before removing
-        keys_to_remove = [k for k in self._session_system_prompts if k.startswith(f"{task_id}:")]
+        keys_to_remove = [
+            k for k in self._session_system_prompts if k.startswith(f"{task_id}:")
+        ]
         prompts_and_types = []
         for key in keys_to_remove:
             system_prompt = self._session_system_prompts.pop(key, None)
@@ -606,10 +670,17 @@ class LLMInterface:
                 if call_type:
                     prompts_and_types.append((system_prompt, call_type))
 
-        # Clean up Anthropic multi-turn message history
-        anthropic_keys = [k for k in self._anthropic_session_messages if k.startswith(f"{task_id}:")]
-        for key in anthropic_keys:
-            self._anthropic_session_messages.pop(key, None)
+        # Clean up multi-turn message histories across all providers that
+        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini).
+        for buffer in (
+            self._anthropic_session_messages,
+            self._bedrock_session_messages,
+            self._openrouter_anthropic_session_messages,
+            self._gemini_session_messages,
+        ):
+            stale = [k for k in buffer if k.startswith(f"{task_id}:")]
+            for key in stale:
+                buffer.pop(key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -642,9 +713,14 @@ class LLMInterface:
                 return True
             if self.provider == "gemini" and self._gemini_cache_manager:
                 return True
-            if self.provider in ("openai", "deepseek", "grok", "openrouter") and self.client:
+            if (
+                self.provider in ("openai", "deepseek", "grok", "openrouter")
+                and self.client
+            ):
                 return True
             if self.provider == "anthropic" and self._anthropic_client:
+                return True
+            if self.provider == "bedrock" and self._bedrock_client:
                 return True
 
         # Check provider-specific actual session existence
@@ -701,23 +777,59 @@ class LLMInterface:
             raise ValueError("`user_prompt` cannot be None.")
 
         if log_response:
-            logger.info(f"[LLM SESSION] task={task_id} call_type={call_type} | user={user_prompt}")
+            logger.info(
+                f"[LLM SESSION] task={task_id} call_type={call_type} | user={user_prompt}"
+            )
 
-        # Handle Gemini with explicit caching (per call_type)
+        # Handle Gemini with multi-turn implicit-cache accumulation.
+        # Gemini's implicit caching (always on for 2.5 models) automatically
+        # matches the longest stable prefix across requests, so by sending a
+        # growing user/model history each call we let the cache cover more of
+        # the input every turn — including content too short to qualify for
+        # the explicit-cache code path (≥1024 tokens). The accumulated buffer
+        # uses Gemini's role names ("user" / "model") and parts schema.
         if self.provider == "gemini" and self._gemini_cache_manager:
-            # Get stored system prompt or use provided one
             session_key = f"{task_id}:{call_type}"
             stored_system_prompt = self._session_system_prompts.get(session_key)
-            effective_system_prompt = system_prompt_for_new_session or stored_system_prompt
+            effective_system_prompt = (
+                system_prompt_for_new_session or stored_system_prompt
+            )
 
             if not effective_system_prompt:
-                raise ValueError(
-                    f"No system prompt for task {task_id}:{call_type}"
+                raise ValueError(f"No system prompt for task {task_id}:{call_type}")
+
+            if session_key not in self._gemini_session_messages:
+                self._gemini_session_messages[session_key] = []
+            history = self._gemini_session_messages[session_key]
+
+            # Build contents = history + new user turn.
+            contents: List[Dict[str, Any]] = []
+            for msg in history:
+                contents.append({"role": msg["role"], "parts": msg["parts"]})
+            contents.append({"role": "user", "parts": [{"text": user_prompt}]})
+
+            logger.debug(
+                f"[GEMINI SESSION] {session_key}: {len(history)} history msgs, "
+                f"sending {len(contents)} total contents"
+            )
+
+            response = self._generate_gemini(
+                effective_system_prompt,
+                user_prompt,
+                call_type=call_type,
+                contents_override=contents,
+            )
+
+            assistant_content = response.get("content", "")
+            if assistant_content and not response.get("error"):
+                history.append({"role": "user", "parts": [{"text": user_prompt}]})
+                history.append(
+                    {"role": "model", "parts": [{"text": assistant_content}]}
                 )
 
-            # Use Gemini with explicit caching (call_type passed for cache keying)
-            response = self._generate_gemini(effective_system_prompt, user_prompt, call_type=call_type)
-            cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
+            cleaned = re.sub(
+                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
+            )
             current_count = self._get_token_count()
             self._set_token_count(current_count + response.get("tokens_used", 0))
             if log_response:
@@ -729,16 +841,73 @@ class LLMInterface:
             # Get stored system prompt or use provided one
             session_key = f"{task_id}:{call_type}"
             stored_system_prompt = self._session_system_prompts.get(session_key)
-            effective_system_prompt = system_prompt_for_new_session or stored_system_prompt
+            effective_system_prompt = (
+                system_prompt_for_new_session or stored_system_prompt
+            )
 
             if not effective_system_prompt:
-                raise ValueError(
-                    f"No system prompt for task {task_id}:{call_type}"
+                raise ValueError(f"No system prompt for task {task_id}:{call_type}")
+
+            # OpenRouter routing to Claude needs multi-turn accumulation because
+            # Anthropic's prompt caching is opt-in and OR's `cache_control` field
+            # gets applied to the LAST cacheable block in the request — which is
+            # the last assistant message when we send full history. Without
+            # accumulation, only the system block can be cached, and short
+            # system prompts silently no-op below the Anthropic 1024-token
+            # minimum. Mirrors the Anthropic-direct path.
+            model_lower_router = (self.model or "").lower()
+            is_openrouter_claude = self.provider == "openrouter" and (
+                model_lower_router.startswith("anthropic/")
+                or "claude" in model_lower_router
+            )
+
+            if is_openrouter_claude:
+                if session_key not in self._openrouter_anthropic_session_messages:
+                    self._openrouter_anthropic_session_messages[session_key] = []
+                history = self._openrouter_anthropic_session_messages[session_key]
+
+                # Build OpenAI-shaped messages: [system, user1, assistant1,
+                # ..., new_user]. OpenRouter applies extra_body.cache_control
+                # to the last cacheable block automatically.
+                or_messages: List[Dict[str, Any]] = [
+                    {"role": "system", "content": effective_system_prompt}
+                ]
+                for msg in history:
+                    or_messages.append(
+                        {"role": msg["role"], "content": msg["content"]}
+                    )
+                or_messages.append({"role": "user", "content": user_prompt})
+
+                logger.debug(
+                    f"[OPENROUTER-CLAUDE SESSION] {session_key}: "
+                    f"{len(history)} history msgs, sending {len(or_messages)} total"
                 )
 
-            # Use OpenAI with call_type for better cache routing via prompt_cache_key
-            response = self._generate_openai(effective_system_prompt, user_prompt, call_type=call_type)
-            cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
+                response = self._generate_openai(
+                    effective_system_prompt,
+                    user_prompt,
+                    call_type=call_type,
+                    messages_override=or_messages,
+                )
+
+                assistant_content = response.get("content", "")
+                if assistant_content and not response.get("error"):
+                    history.append({"role": "user", "content": user_prompt})
+                    history.append(
+                        {"role": "assistant", "content": assistant_content}
+                    )
+            else:
+                # Standard single-turn path. OpenAI/DeepSeek/Grok rely on the
+                # upstream's automatic prefix caching with prompt_cache_key —
+                # they match identical system prefixes across calls without
+                # needing message accumulation client-side.
+                response = self._generate_openai(
+                    effective_system_prompt, user_prompt, call_type=call_type
+                )
+
+            cleaned = re.sub(
+                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
+            )
             current_count = self._get_token_count()
             self._set_token_count(current_count + response.get("tokens_used", 0))
             if log_response:
@@ -749,12 +918,12 @@ class LLMInterface:
         if self.provider == "anthropic" and self._anthropic_client:
             session_key = f"{task_id}:{call_type}"
             stored_system_prompt = self._session_system_prompts.get(session_key)
-            effective_system_prompt = system_prompt_for_new_session or stored_system_prompt
+            effective_system_prompt = (
+                system_prompt_for_new_session or stored_system_prompt
+            )
 
             if not effective_system_prompt:
-                raise ValueError(
-                    f"No system prompt for task {task_id}:{call_type}"
-                )
+                raise ValueError(f"No system prompt for task {task_id}:{call_type}")
 
             # Get or initialize multi-turn message history
             if session_key not in self._anthropic_session_messages:
@@ -789,7 +958,11 @@ class LLMInterface:
                         content = messages[i]["content"]
                         if isinstance(content, str):
                             messages[i]["content"] = [
-                                {"type": "text", "text": content, "cache_control": cache_control}
+                                {
+                                    "type": "text",
+                                    "text": content,
+                                    "cache_control": cache_control,
+                                }
                             ]
                         elif isinstance(content, list):
                             # Add cache_control to the last text block
@@ -809,7 +982,10 @@ class LLMInterface:
 
             # Call Anthropic with the full multi-turn messages
             response = self._generate_anthropic(
-                effective_system_prompt, user_prompt, call_type=call_type, messages=messages
+                effective_system_prompt,
+                user_prompt,
+                call_type=call_type,
+                messages=messages,
             )
 
             # On success, accumulate the user message + assistant response in history
@@ -818,14 +994,113 @@ class LLMInterface:
                 history.append({"role": "user", "content": user_prompt})
                 history.append({"role": "assistant", "content": assistant_content})
 
-            cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
+            cleaned = re.sub(
+                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
+            )
             current_count = self._get_token_count()
             self._set_token_count(current_count + response.get("tokens_used", 0))
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
 
-        # If not BytePlus (and not Gemini/OpenAI/Anthropic which are handled above), fall back to standard
+        # Handle Bedrock with multi-turn cachePoint caching.
+        # Mirrors the Anthropic-direct pattern: accumulate the user/assistant
+        # exchange across calls so the cachePoint sits at the end of a growing
+        # prefix. AWS Bedrock measures the minimum-token threshold against the
+        # tokens BEFORE the cachePoint marker — for models with 4096-token
+        # minimums (Haiku 4.5 / Sonnet 4.5 / Opus 4.5/4.6) a single-turn call
+        # with the cachePoint in the system block is almost always below the
+        # threshold and silently no-ops. Accumulating turns lets the prefix
+        # grow until it crosses the threshold, after which caching activates
+        # and serves all subsequent calls.
+        if self.provider == "bedrock" and self._bedrock_client:
+            session_key = f"{task_id}:{call_type}"
+            stored_system_prompt = self._session_system_prompts.get(session_key)
+            effective_system_prompt = (
+                system_prompt_for_new_session or stored_system_prompt
+            )
+
+            if not effective_system_prompt:
+                raise ValueError(f"No system prompt for task {task_id}:{call_type}")
+
+            # Get or initialize multi-turn message history (Bedrock Converse
+            # content-block format: {"role": ..., "content": [{"text": ...}]}).
+            if session_key not in self._bedrock_session_messages:
+                self._bedrock_session_messages[session_key] = []
+            history = self._bedrock_session_messages[session_key]
+
+            # Build messages: history (strip any prior cachePoint blocks, we
+            # re-place exactly one) + new user message.
+            messages: List[dict] = []
+            for msg in history:
+                content_blocks = [
+                    block for block in msg["content"] if "cachePoint" not in block
+                ]
+                messages.append({"role": msg["role"], "content": content_blocks})
+
+            # Place cachePoint at the end of the LAST assistant content block —
+            # this caches the entire prefix up to (and including) the last
+            # model response. On the first turn there's no history yet, so no
+            # cachePoint is placed in messages and the call falls through to
+            # the system-block cachePoint (which is itself useful when the
+            # system prompt alone already exceeds the threshold).
+            if messages:
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i]["role"] == "assistant":
+                        messages[i]["content"].append(
+                            {"cachePoint": {"type": "default"}}
+                        )
+                        break
+
+            messages.append({"role": "user", "content": [{"text": user_prompt}]})
+
+            # INFO-level diagnostic so we can see what's actually being sent
+            # without enabling debug logging. Remove once cache is confirmed
+            # working.
+            logger.info(
+                f"[BEDROCK SESSION] {session_key}: history={len(history)} msgs, "
+                f"sending {len(messages)} msgs to Converse"
+            )
+
+            response = self._generate_bedrock(
+                effective_system_prompt,
+                user_prompt,
+                call_type=call_type,
+                messages=messages,
+            )
+
+            # On success, accumulate the user message + assistant response in
+            # history (without cachePoint — it's re-placed each call).
+            assistant_content = response.get("content", "")
+            response_has_error = bool(response.get("error"))
+            if assistant_content and not response_has_error:
+                history.append(
+                    {"role": "user", "content": [{"text": user_prompt}]}
+                )
+                history.append(
+                    {"role": "assistant", "content": [{"text": assistant_content}]}
+                )
+                logger.info(
+                    f"[BEDROCK SESSION] {session_key}: appended turn → "
+                    f"history={len(history)} msgs"
+                )
+            else:
+                logger.warning(
+                    f"[BEDROCK SESSION] {session_key}: SKIPPED history append "
+                    f"(content_empty={not assistant_content}, "
+                    f"has_error={response_has_error})"
+                )
+
+            cleaned = re.sub(
+                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
+            )
+            current_count = self._get_token_count()
+            self._set_token_count(current_count + response.get("tokens_used", 0))
+            if log_response:
+                logger.info(f"[LLM RECV] {cleaned}")
+            return cleaned
+
+        # If not BytePlus (and not Gemini/OpenAI/Anthropic/Bedrock which are handled above), fall back to standard
         if self.provider != "byteplus" or not self._byteplus_cache_manager:
             return self._generate_response_sync(
                 system_prompt_for_new_session, user_prompt, log_response=False
@@ -840,16 +1115,18 @@ class LLMInterface:
             # Check if session exists in BytePlus cache manager
             if self._byteplus_cache_manager.has_session(task_id, call_type):
                 # Session exists - use it
-                response = self._generate_byteplus_with_session(task_id, call_type, user_prompt)
+                response = self._generate_byteplus_with_session(
+                    task_id, call_type, user_prompt
+                )
             else:
                 # No session exists - create one and get first response
                 stored_system_prompt = self._session_system_prompts.get(session_key)
-                effective_system_prompt = system_prompt_for_new_session or stored_system_prompt
+                effective_system_prompt = (
+                    system_prompt_for_new_session or stored_system_prompt
+                )
 
                 if not effective_system_prompt:
-                    raise ValueError(
-                        f"No system prompt for task {task_id}:{call_type}"
-                    )
+                    raise ValueError(f"No system prompt for task {task_id}:{call_type}")
 
                 logger.info(f"[SESSION CACHE] Creating new session for {session_key}")
                 result = self._byteplus_cache_manager.create_session_cache(
@@ -861,12 +1138,16 @@ class LLMInterface:
                     max_tokens=self.max_tokens,
                 )
                 # Process the response from session creation
-                response = self._process_session_response(result, task_id, call_type, is_first_call=True)
+                response = self._process_session_response(
+                    result, task_id, call_type, is_first_call=True
+                )
 
         except Exception as e:
             logger.warning(f"[SESSION CACHE] Failed: {e}, falling back to standard")
             stored_system_prompt = self._session_system_prompts.get(session_key)
-            effective_system_prompt = system_prompt_for_new_session or stored_system_prompt
+            effective_system_prompt = (
+                system_prompt_for_new_session or stored_system_prompt
+            )
             return self._generate_response_sync(
                 effective_system_prompt, user_prompt, log_response=False
             )
@@ -880,7 +1161,11 @@ class LLMInterface:
         return cleaned
 
     def _process_session_response(
-        self, result: Dict[str, Any], task_id: str, call_type: str, is_first_call: bool = False
+        self,
+        result: Dict[str, Any],
+        task_id: str,
+        call_type: str,
+        is_first_call: bool = False,
     ) -> Dict[str, Any]:
         """Process response from session cache call and record metrics.
 
@@ -902,14 +1187,23 @@ class LLMInterface:
         usage = result.get("usage") or {}
         token_count_input = int(usage.get("input_tokens", 0))
         token_count_output = int(usage.get("output_tokens", 0))
-        total_tokens = int(usage.get("total_tokens", 0)) or (token_count_input + token_count_output)
+        total_tokens = int(usage.get("total_tokens", 0)) or (
+            token_count_input + token_count_output
+        )
 
         # Log cache info and record metrics
         cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0)
         metrics = get_cache_metrics()
         if cached_tokens and cached_tokens > 0:
-            logger.info(f"[CACHE] BytePlus session cache hit: {cached_tokens}/{token_count_input} tokens cached")
-            metrics.record_hit("byteplus", "session", cached_tokens=cached_tokens, total_tokens=token_count_input)
+            logger.info(
+                f"[CACHE] BytePlus session cache hit: {cached_tokens}/{token_count_input} tokens cached"
+            )
+            metrics.record_hit(
+                "byteplus",
+                "session",
+                cached_tokens=cached_tokens,
+                total_tokens=token_count_input,
+            )
         else:
             # First call in session or cache miss
             metrics.record_miss("byteplus", "session", total_tokens=token_count_input)
@@ -927,14 +1221,15 @@ class LLMInterface:
 
         # Report usage
         self._report_usage_async(
-            "llm_byteplus", "byteplus", self.model,
-            token_count_input, token_count_output, cached_tokens or 0
+            "llm_byteplus",
+            "byteplus",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens or 0,
         )
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
     def _process_prefix_response(
         self, result: Dict[str, Any], session_key: str
@@ -955,19 +1250,30 @@ class LLMInterface:
         usage = result.get("usage") or {}
         token_count_input = int(usage.get("input_tokens", 0))
         token_count_output = int(usage.get("output_tokens", 0))
-        total_tokens = int(usage.get("total_tokens", 0)) or (token_count_input + token_count_output)
+        total_tokens = int(usage.get("total_tokens", 0)) or (
+            token_count_input + token_count_output
+        )
 
         # Log cache info and record metrics
         cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0)
         metrics = get_cache_metrics()
         if cached_tokens and cached_tokens > 0:
-            logger.info(f"[CACHE] BytePlus prefix cache hit: {cached_tokens}/{token_count_input} tokens cached")
-            metrics.record_hit("byteplus", "prefix", cached_tokens=cached_tokens, total_tokens=token_count_input)
+            logger.info(
+                f"[CACHE] BytePlus prefix cache hit: {cached_tokens}/{token_count_input} tokens cached"
+            )
+            metrics.record_hit(
+                "byteplus",
+                "prefix",
+                cached_tokens=cached_tokens,
+                total_tokens=token_count_input,
+            )
         else:
             # First call or cache miss
             metrics.record_miss("byteplus", "prefix", total_tokens=token_count_input)
 
-        logger.info(f"BYTEPLUS PREFIX RESPONSE for {session_key}: input={token_count_input}, cached={cached_tokens}")
+        logger.info(
+            f"BYTEPLUS PREFIX RESPONSE for {session_key}: input={token_count_input}, cached={cached_tokens}"
+        )
 
         self._call_log_to_db(
             f"[PREFIX:{session_key}]",
@@ -978,10 +1284,7 @@ class LLMInterface:
             token_count_output,
         )
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
     def generate_response_with_session(
         self,
@@ -1070,24 +1373,39 @@ class LLMInterface:
             usage = result.get("usage") or {}
             token_count_input = int(usage.get("input_tokens", 0))
             token_count_output = int(usage.get("output_tokens", 0))
-            total_tokens = int(usage.get("total_tokens", 0)) or (token_count_input + token_count_output)
+            total_tokens = int(usage.get("total_tokens", 0)) or (
+                token_count_input + token_count_output
+            )
 
             # Log cache info and record metrics
             # Responses API uses input_tokens_details instead of prompt_tokens_details
-            cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0)
+            cached_tokens = usage.get("input_tokens_details", {}).get(
+                "cached_tokens", 0
+            )
             metrics = get_cache_metrics()
             if cached_tokens and cached_tokens > 0:
-                logger.info(f"[CACHE] BytePlus session cache hit: {cached_tokens}/{token_count_input} tokens cached")
-                metrics.record_hit("byteplus", "session", cached_tokens=cached_tokens, total_tokens=token_count_input)
+                logger.info(
+                    f"[CACHE] BytePlus session cache hit: {cached_tokens}/{token_count_input} tokens cached"
+                )
+                metrics.record_hit(
+                    "byteplus",
+                    "session",
+                    cached_tokens=cached_tokens,
+                    total_tokens=token_count_input,
+                )
             else:
                 # First call in session or growing context
-                metrics.record_miss("byteplus", "session", total_tokens=token_count_input)
+                metrics.record_miss(
+                    "byteplus", "session", total_tokens=token_count_input
+                )
 
             status = "success"
 
-        except BytePlusContextOverflowError as overflow_exc:
+        except BytePlusContextOverflowError:
             # Context exceeded maximum length - reset session and retry with fresh context
-            logger.warning(f"[BYTEPLUS] Context overflow for {session_key}, resetting session and retrying...")
+            logger.warning(
+                f"[BYTEPLUS] Context overflow for {session_key}, resetting session and retrying..."
+            )
 
             # End the overflowed session
             self._byteplus_cache_manager.end_session(task_id, call_type)
@@ -1095,12 +1413,16 @@ class LLMInterface:
             # Get the stored system prompt for this session
             system_prompt = self._session_system_prompts.get(session_key)
             if not system_prompt:
-                exc_obj = ValueError(f"Cannot reset session {session_key}: no system prompt stored")
+                exc_obj = ValueError(
+                    f"Cannot reset session {session_key}: no system prompt stored"
+                )
                 logger.error(str(exc_obj))
             else:
                 try:
                     # Create a fresh session with system prompt and current user prompt
-                    logger.info(f"[BYTEPLUS] Creating fresh session for {session_key} after overflow")
+                    logger.info(
+                        f"[BYTEPLUS] Creating fresh session for {session_key} after overflow"
+                    )
                     result = self._byteplus_cache_manager.create_session_cache(
                         task_id=task_id,
                         call_type=call_type,
@@ -1119,18 +1441,26 @@ class LLMInterface:
                     usage = result.get("usage") or {}
                     token_count_input = int(usage.get("input_tokens", 0))
                     token_count_output = int(usage.get("output_tokens", 0))
-                    total_tokens = int(usage.get("total_tokens", 0)) or (token_count_input + token_count_output)
+                    total_tokens = int(usage.get("total_tokens", 0)) or (
+                        token_count_input + token_count_output
+                    )
 
                     # Record as cache miss (fresh session)
                     metrics = get_cache_metrics()
-                    metrics.record_miss("byteplus", "session_reset", total_tokens=token_count_input)
+                    metrics.record_miss(
+                        "byteplus", "session_reset", total_tokens=token_count_input
+                    )
 
                     status = "success"
-                    logger.info(f"[BYTEPLUS] Successfully recovered from context overflow for {session_key}")
+                    logger.info(
+                        f"[BYTEPLUS] Successfully recovered from context overflow for {session_key}"
+                    )
 
                 except Exception as retry_exc:
                     exc_obj = retry_exc
-                    logger.error(f"Error retrying BytePlus Session API for {session_key} after reset: {retry_exc}")
+                    logger.error(
+                        f"Error retrying BytePlus Session API for {session_key} after reset: {retry_exc}"
+                    )
 
         except Exception as exc:
             exc_obj = exc
@@ -1148,22 +1478,31 @@ class LLMInterface:
         # Report usage
         cached_tokens = 0
         if status == "success":
-            usage = result.get("usage") or {} if 'result' in dir() else {}
-            cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0) if usage else 0
+            usage = result.get("usage") or {} if "result" in dir() else {}
+            cached_tokens = (
+                usage.get("input_tokens_details", {}).get("cached_tokens", 0)
+                if usage
+                else 0
+            )
         self._report_usage_async(
-            "llm_byteplus", "byteplus", self.model,
-            token_count_input, token_count_output, cached_tokens
+            "llm_byteplus",
+            "byteplus",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
     # ───────────────────── Provider‑specific private helpers ─────────────────────
     @profile("llm_openai_call", OperationCategory.LLM)
     def _generate_openai(
-        self, system_prompt: str | None, user_prompt: str, call_type: Optional[str] = None
+        self,
+        system_prompt: str | None,
+        user_prompt: str,
+        call_type: Optional[str] = None,
+        messages_override: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Generate response using OpenAI with automatic prompt caching.
 
@@ -1180,6 +1519,12 @@ class LLMInterface:
             call_type: Optional call type for cache routing (e.g., "reasoning", "action_selection").
                        When provided, generates a prompt_cache_key to improve cache hit rates
                        when alternating between different call types.
+            messages_override: Optional pre-built multi-turn messages list. Used
+                by the OpenRouter-via-Claude session path to send a growing
+                conversation history so the upstream Anthropic model can cache
+                the accumulating prefix via OR's cache_control field. When set,
+                it's sent verbatim — system_prompt is still passed in for cache-
+                key derivation but the request body uses messages_override.
 
         Cache hits are logged when cached_tokens > 0 in the response.
         """
@@ -1192,10 +1537,13 @@ class LLMInterface:
         cache_type = f"automatic_{call_type}" if call_type else "automatic"
 
         try:
-            messages: List[Dict[str, str]] = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": user_prompt})
+            if messages_override is not None:
+                messages: List[Dict[str, Any]] = messages_override
+            else:
+                messages = []
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": user_prompt})
 
             # Build request kwargs
             request_kwargs: Dict[str, Any] = {
@@ -1233,7 +1581,9 @@ class LLMInterface:
             #   it when the slug is Anthropic-routed.
             extra_body: Dict[str, Any] = {}
 
-            long_enough = system_prompt and len(system_prompt) >= config.min_cache_tokens
+            long_enough = (
+                system_prompt and len(system_prompt) >= config.min_cache_tokens
+            )
 
             if self.provider != "grok" and call_type and long_enough:
                 prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
@@ -1247,7 +1597,10 @@ class LLMInterface:
                 # are the only ones requiring opt-in cache_control. Detect by either
                 # the slug prefix or the "claude" substring (some aliases like
                 # "anthropic/claude-3.5-sonnet:beta" still match).
-                if model_lower_for_cache.startswith("anthropic/") or "claude" in model_lower_for_cache:
+                if (
+                    model_lower_for_cache.startswith("anthropic/")
+                    or "claude" in model_lower_for_cache
+                ):
                     cache_control: Dict[str, Any] = {"type": "ephemeral"}
                     if call_type:
                         # 1-hour TTL keeps caches alive across alternating call types
@@ -1272,22 +1625,37 @@ class LLMInterface:
             # - OpenAI:  response.usage.prompt_tokens_details.cached_tokens
             # - Grok (xAI): response.usage.prompt_cache_hit_tokens
             if self.provider == "grok":
-                cached_tokens = getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
+                cached_tokens = (
+                    getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
+                )
             else:
-                prompt_tokens_details = getattr(response.usage, "prompt_tokens_details", None)
+                prompt_tokens_details = getattr(
+                    response.usage, "prompt_tokens_details", None
+                )
                 if prompt_tokens_details:
-                    cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
+                    cached_tokens = (
+                        getattr(prompt_tokens_details, "cached_tokens", 0) or 0
+                    )
 
             # Record cache metrics
             provider_label = self.provider  # "openai", "grok", "deepseek", etc.
             metrics = get_cache_metrics()
             if cached_tokens > 0:
-                logger.info(f"[CACHE] {provider_label} {cache_type} cache hit: {cached_tokens}/{token_count_input} tokens from cache")
-                metrics.record_hit(provider_label, cache_type, cached_tokens=cached_tokens, total_tokens=token_count_input)
+                logger.info(
+                    f"[CACHE] {provider_label} {cache_type} cache hit: {cached_tokens}/{token_count_input} tokens from cache"
+                )
+                metrics.record_hit(
+                    provider_label,
+                    cache_type,
+                    cached_tokens=cached_tokens,
+                    total_tokens=token_count_input,
+                )
             elif system_prompt and len(system_prompt) >= config.min_cache_tokens:
                 # Caching should have been attempted (prompt long enough)
                 # This is a miss - either first call or cache expired
-                metrics.record_miss(provider_label, cache_type, total_tokens=token_count_input)
+                metrics.record_miss(
+                    provider_label, cache_type, total_tokens=token_count_input
+                )
 
             status = "success"
         except Exception as exc:
@@ -1309,15 +1677,19 @@ class LLMInterface:
         # provider attributes to the actual upstream so dashboards split out
         # OpenRouter / DeepSeek / Grok separately.
         self._report_usage_async(
-            "llm_openai", self.provider, self.model,
-            token_count_input, token_count_output, cached_tokens
+            "llm_openai",
+            self.provider,
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
 
         result = {
             "tokens_used": total_tokens or 0,
             "cached_tokens": cached_tokens,
         }
-        
+
         if exc_obj:
             # Include error details for better diagnostics
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
@@ -1339,11 +1711,13 @@ class LLMInterface:
             logger.error(f"[OPENAI_ERROR] {error_str}")
         else:
             result["content"] = content or ""
-        
+
         return result
 
     @profile("llm_ollama_call", OperationCategory.LLM)
-    def _generate_ollama(self, system_prompt: str | None, user_prompt: str) -> Dict[str, Any]:
+    def _generate_ollama(
+        self, system_prompt: str | None, user_prompt: str
+    ) -> Dict[str, Any]:
         token_count_input = token_count_output = 0
         total_tokens = 0
         status = "failed"
@@ -1358,7 +1732,7 @@ class LLMInterface:
                 "format": "json",
                 "options": {
                     "temperature": self.temperature,
-                }
+                },
             }
             if system_prompt:
                 payload["system"] = system_prompt
@@ -1387,10 +1761,9 @@ class LLMInterface:
 
         # Report usage (no caching for Ollama)
         self._report_usage_async(
-            "llm_ollama", "remote", self.model,
-            token_count_input, token_count_output, 0
+            "llm_ollama", "remote", self.model, token_count_input, token_count_output, 0
         )
-        
+
         result = {"tokens_used": total_tokens or 0}
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
@@ -1415,7 +1788,11 @@ class LLMInterface:
 
     @profile("llm_gemini_call", OperationCategory.LLM)
     def _generate_gemini(
-        self, system_prompt: str | None, user_prompt: str, call_type: Optional[str] = None
+        self,
+        system_prompt: str | None,
+        user_prompt: str,
+        call_type: Optional[str] = None,
+        contents_override: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Generate response using Gemini with explicit or implicit caching.
 
@@ -1431,6 +1808,12 @@ class LLMInterface:
             user_prompt: The user prompt for this request.
             call_type: Optional call type for cache keying (e.g., "reasoning", "action_selection").
                        When provided, enables explicit caching per call type.
+            contents_override: Optional pre-built multi-turn `contents` array
+                from the session-cache path. When provided, skips the
+                explicit-cache code path and sends the full conversation
+                history so Gemini's implicit caching catches the growing
+                stable prefix automatically (caching covers more tokens with
+                every turn without us needing to manage a named cache object).
 
         Returns:
             Dict with tokens_used, content, cached_tokens.
@@ -1450,39 +1833,61 @@ class LLMInterface:
             if not self._gemini_client:
                 raise RuntimeError("Gemini client was not initialised.")
 
-            # Use explicit caching when:
-            # 1. call_type is provided
-            # 2. system_prompt is long enough
-            # 3. cache manager is available
-            # Note: GeminiCacheManager will automatically fall back to implicit caching
-            # if the system prompt is below Gemini's 1024 token minimum
-            use_explicit_cache = (
-                call_type
-                and system_prompt
-                and len(system_prompt) >= config.min_cache_tokens
-                and self._gemini_cache_manager
-            )
-
-            if use_explicit_cache:
-                cache_type = f"explicit_{call_type}"
-                logger.debug(f"[GEMINI] Using explicit caching for call_type: {call_type}")
-                result = self._gemini_cache_manager.get_or_create_cache(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    call_type=call_type,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
+            # Multi-turn implicit-cache path takes precedence when provided —
+            # the session-cache dispatcher accumulates history and we want
+            # Gemini's automatic prefix matching to do the work.
+            if contents_override is not None:
+                cache_type = (
+                    f"implicit_{call_type}" if call_type else "implicit"
                 )
-            else:
-                # Fall back to implicit caching (or no caching for short prompts)
-                result = self._gemini_client.generate_text(
+                logger.debug(
+                    f"[GEMINI] Using multi-turn implicit caching "
+                    f"(call_type={call_type}, turns={len(contents_override)})"
+                )
+                result = self._gemini_client.generate_text_multiturn(
                     self.model,
-                    prompt=user_prompt,
+                    contents=contents_override,
                     system_prompt=system_prompt,
                     temperature=self.temperature,
                     max_output_tokens=self.max_tokens,
                     json_mode=True,
                 )
+            else:
+                # Use explicit caching when:
+                # 1. call_type is provided
+                # 2. system_prompt is long enough
+                # 3. cache manager is available
+                # Note: GeminiCacheManager will automatically fall back to implicit
+                # caching if the system prompt is below Gemini's 1024 token minimum
+                use_explicit_cache = (
+                    call_type
+                    and system_prompt
+                    and len(system_prompt) >= config.min_cache_tokens
+                    and self._gemini_cache_manager
+                )
+
+                if use_explicit_cache:
+                    cache_type = f"explicit_{call_type}"
+                    logger.debug(
+                        f"[GEMINI] Using explicit caching for call_type: {call_type}"
+                    )
+                    result = self._gemini_cache_manager.get_or_create_cache(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        call_type=call_type,
+                        temperature=self.temperature,
+                        max_tokens=self.max_tokens,
+                    )
+                else:
+                    # Fall back to implicit caching (or no caching for short prompts)
+                    result = self._gemini_client.generate_text(
+                        self.model,
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        temperature=self.temperature,
+                        max_output_tokens=self.max_tokens,
+                        json_mode=True,
+                    )
 
             # Extract response data
             content = result.get("content", "")
@@ -1494,12 +1899,21 @@ class LLMInterface:
             # Record cache metrics
             metrics = get_cache_metrics()
             if cached_tokens > 0:
-                logger.info(f"[CACHE] Gemini {cache_type} cache hit: {cached_tokens}/{token_count_input} tokens from cache")
-                metrics.record_hit("gemini", cache_type, cached_tokens=cached_tokens, total_tokens=token_count_input)
+                logger.info(
+                    f"[CACHE] Gemini {cache_type} cache hit: {cached_tokens}/{token_count_input} tokens from cache"
+                )
+                metrics.record_hit(
+                    "gemini",
+                    cache_type,
+                    cached_tokens=cached_tokens,
+                    total_tokens=token_count_input,
+                )
             elif system_prompt and len(system_prompt) >= config.min_cache_tokens:
                 # Caching should have been attempted (prompt long enough)
                 # This is a miss - either first call or cache expired
-                metrics.record_miss("gemini", cache_type, total_tokens=token_count_input)
+                metrics.record_miss(
+                    "gemini", cache_type, total_tokens=token_count_input
+                )
 
             status = "success"
         except GeminiAPIError as exc:  # pragma: no cover
@@ -1520,10 +1934,14 @@ class LLMInterface:
 
         # Report usage
         self._report_usage_async(
-            "llm_gemini", "gemini", self.model,
-            token_count_input, token_count_output, cached_tokens
+            "llm_gemini",
+            "gemini",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
-        
+
         result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
@@ -1547,7 +1965,9 @@ class LLMInterface:
         return result
 
     @profile("llm_byteplus_call", OperationCategory.LLM)
-    def _generate_byteplus(self, system_prompt: str | None, user_prompt: str) -> Dict[str, Any]:
+    def _generate_byteplus(
+        self, system_prompt: str | None, user_prompt: str
+    ) -> Dict[str, Any]:
         """Generate response using BytePlus with automatic prefix caching.
 
         Routes to prefix cache or standard API based on context.
@@ -1601,18 +2021,31 @@ class LLMInterface:
             usage = result.get("usage") or {}
             token_count_input = int(usage.get("input_tokens", 0))
             token_count_output = int(usage.get("output_tokens", 0))
-            total_tokens = int(usage.get("total_tokens", 0)) or (token_count_input + token_count_output)
+            total_tokens = int(usage.get("total_tokens", 0)) or (
+                token_count_input + token_count_output
+            )
 
             # Log cache hit info if available and record metrics
             # Responses API uses input_tokens_details instead of prompt_tokens_details
-            cached_tokens = usage.get("input_tokens_details", {}).get("cached_tokens", 0)
+            cached_tokens = usage.get("input_tokens_details", {}).get(
+                "cached_tokens", 0
+            )
             metrics = get_cache_metrics()
             if cached_tokens and cached_tokens > 0:
-                logger.info(f"[CACHE] BytePlus prefix cache hit: {cached_tokens}/{token_count_input} tokens cached")
-                metrics.record_hit("byteplus", "prefix", cached_tokens=cached_tokens, total_tokens=token_count_input)
+                logger.info(
+                    f"[CACHE] BytePlus prefix cache hit: {cached_tokens}/{token_count_input} tokens cached"
+                )
+                metrics.record_hit(
+                    "byteplus",
+                    "prefix",
+                    cached_tokens=cached_tokens,
+                    total_tokens=token_count_input,
+                )
             else:
                 # First call or cache miss
-                metrics.record_miss("byteplus", "prefix", total_tokens=token_count_input)
+                metrics.record_miss(
+                    "byteplus", "prefix", total_tokens=token_count_input
+                )
 
             status = "success"
 
@@ -1633,7 +2066,9 @@ class LLMInterface:
                     usage = result.get("usage") or {}
                     token_count_input = int(usage.get("input_tokens", 0))
                     token_count_output = int(usage.get("output_tokens", 0))
-                    total_tokens = int(usage.get("total_tokens", 0)) or (token_count_input + token_count_output)
+                    total_tokens = int(usage.get("total_tokens", 0)) or (
+                        token_count_input + token_count_output
+                    )
                     status = "success"
                 except Exception as retry_exc:
                     exc_obj = retry_exc
@@ -1657,14 +2092,15 @@ class LLMInterface:
 
         # Report usage
         self._report_usage_async(
-            "llm_byteplus", "byteplus", self.model,
-            token_count_input, token_count_output, cached_tokens or 0
+            "llm_byteplus",
+            "byteplus",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens or 0,
         )
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or ""
-        }
+        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.
@@ -1723,7 +2159,9 @@ class LLMInterface:
 
             # Log the request
             logger.info(f"[BYTEPLUS STANDARD REQUEST] URL: {url}")
-            logger.info(f"[BYTEPLUS STANDARD REQUEST] Model: {self.model}, Temp: {self.temperature}, MaxTokens: {self.max_tokens}")
+            logger.info(
+                f"[BYTEPLUS STANDARD REQUEST] Model: {self.model}, Temp: {self.temperature}, MaxTokens: {self.max_tokens}"
+            )
             logger.info(f"[BYTEPLUS STANDARD REQUEST] Messages count: {len(messages)}")
 
             response = requests.post(url, json=payload, headers=headers, timeout=600)
@@ -1769,10 +2207,14 @@ class LLMInterface:
 
         # Report usage (no caching for standard path)
         self._report_usage_async(
-            "llm_byteplus", "byteplus", self.model,
-            token_count_input, token_count_output, 0
+            "llm_byteplus",
+            "byteplus",
+            self.model,
+            token_count_input,
+            token_count_output,
+            0,
         )
-        
+
         result = {"tokens_used": total_tokens or 0}
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
@@ -1797,7 +2239,9 @@ class LLMInterface:
 
     @profile("llm_anthropic_call", OperationCategory.LLM)
     def _generate_anthropic(
-        self, system_prompt: str | None, user_prompt: str,
+        self,
+        system_prompt: str | None,
+        user_prompt: str,
         call_type: Optional[str] = None,
         messages: Optional[List[dict]] = None,
     ) -> Dict[str, Any]:
@@ -1844,7 +2288,9 @@ class LLMInterface:
             message_kwargs: Dict[str, Any] = {
                 "model": self.model,
                 "max_tokens": 16384,
-                "messages": messages if messages is not None else [
+                "messages": messages
+                if messages is not None
+                else [
                     {"role": "user", "content": user_prompt},
                 ],
             }
@@ -1860,7 +2306,9 @@ class LLMInterface:
                         # Extended TTL: cache writes cost 100% more, reads 90% cheaper
                         # Better for alternating call types where 5-minute TTL might expire
                         cache_control["ttl"] = "1h"
-                        logger.debug(f"[ANTHROPIC] Using 1-hour TTL for call_type: {call_type}")
+                        logger.debug(
+                            f"[ANTHROPIC] Using 1-hour TTL for call_type: {call_type}"
+                        )
 
                     message_kwargs["system"] = [
                         {
@@ -1892,7 +2340,9 @@ class LLMInterface:
             # Total input = input_tokens + cache_creation + cache_read
             base_input = response.usage.input_tokens
             token_count_output = response.usage.output_tokens
-            cache_creation = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            cache_creation = (
+                getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            )
             cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
             token_count_input = base_input + cache_creation + cache_read
             total_tokens = token_count_input + token_count_output
@@ -1901,15 +2351,28 @@ class LLMInterface:
             # Record metrics
             metrics = get_cache_metrics()
             if cache_read > 0:
-                logger.info(f"[CACHE] Anthropic {cache_type} cache hit: {cache_read}/{token_count_input} tokens from cache")
-                metrics.record_hit("anthropic", cache_type, cached_tokens=cache_read, total_tokens=token_count_input)
+                logger.info(
+                    f"[CACHE] Anthropic {cache_type} cache hit: {cache_read}/{token_count_input} tokens from cache"
+                )
+                metrics.record_hit(
+                    "anthropic",
+                    cache_type,
+                    cached_tokens=cache_read,
+                    total_tokens=token_count_input,
+                )
             elif cache_creation > 0:
-                logger.info(f"[CACHE] Anthropic {cache_type} cache created: {cache_creation} tokens cached")
+                logger.info(
+                    f"[CACHE] Anthropic {cache_type} cache created: {cache_creation} tokens cached"
+                )
                 # Cache creation is a "miss" for the current call but sets up future hits
-                metrics.record_miss("anthropic", cache_type, total_tokens=token_count_input)
+                metrics.record_miss(
+                    "anthropic", cache_type, total_tokens=token_count_input
+                )
             elif system_prompt and len(system_prompt) >= config.min_cache_tokens:
                 # Caching was attempted but no cache info returned - unexpected
-                metrics.record_miss("anthropic", cache_type, total_tokens=token_count_input)
+                metrics.record_miss(
+                    "anthropic", cache_type, total_tokens=token_count_input
+                )
 
             status = "success"
 
@@ -1928,10 +2391,14 @@ class LLMInterface:
 
         # Report usage
         self._report_usage_async(
-            "llm_anthropic", "anthropic", self.model,
-            token_count_input, token_count_output, cached_tokens
+            "llm_anthropic",
+            "anthropic",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
         )
-        
+
         result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens}
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
@@ -1950,6 +2417,201 @@ class LLMInterface:
                 pass
             result["content"] = ""
             logger.error(f"[ANTHROPIC_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
+
+    # ─────────── Bedrock model capability detection ───────────────────
+
+    # Bedrock model ID prefixes that support cachePoint prompt caching.
+    # Only Anthropic Claude models on Bedrock currently support this feature —
+    # sending cachePoint to Llama / Titan / Mistral raises ValidationException.
+    _BEDROCK_CACHE_PREFIXES = (
+        "anthropic.",
+        "us.anthropic.",
+        "eu.anthropic.",
+        "ap.anthropic.",
+    )
+
+    def _bedrock_model_supports_caching(self, model: Optional[str] = None) -> bool:
+        """Check if the current Bedrock model supports cachePoint prompt caching."""
+        model_id = model or self.model or ""
+        return any(model_id.startswith(p) for p in self._BEDROCK_CACHE_PREFIXES)
+
+    @profile("llm_bedrock_call", OperationCategory.LLM)
+    def _generate_bedrock(
+        self,
+        system_prompt: str | None,
+        user_prompt: str,
+        call_type: Optional[str] = None,
+        messages: Optional[List[dict]] = None,
+    ) -> Dict[str, Any]:
+        """Generate response via AWS Bedrock Converse API with prompt caching.
+
+        Converse is the unified Bedrock API across Claude / Llama / Titan /
+        Mistral. cachePoint markers are inserted only for models that support
+        it (Anthropic Claude family) — other models would reject the request.
+
+        Args:
+            system_prompt: The system prompt.
+            user_prompt: The user prompt for this request.
+            call_type: Optional call type for cache labelling.
+            messages: Optional pre-built multi-turn messages list. When provided
+                (from the session-cache path), the caller has already placed a
+                `cachePoint` block at the end of the last assistant content —
+                that captures the entire growing prefix. In that mode we do
+                NOT also put a cachePoint in the system block (only one is
+                needed and placing it in messages lets the cache grow with the
+                conversation). When messages is None, falls back to a fresh
+                single-turn call with cachePoint on the system block.
+        """
+        token_count_input = token_count_output = 0
+        total_tokens = 0
+        cached_tokens = 0
+        status = "failed"
+        content: Optional[str] = None
+        exc_obj: Optional[Exception] = None
+        config = get_cache_config()
+        cache_type = f"cachepoint_{call_type}" if call_type else "cachepoint"
+
+        try:
+            if not self._bedrock_client:
+                raise RuntimeError("Bedrock client was not initialised.")
+
+            # Multi-turn path: caller provided pre-built messages with cachePoint
+            # already placed on the last assistant message (if any). Single-turn
+            # path: build a fresh user-only message list.
+            multi_turn = messages is not None
+            converse_messages = messages if multi_turn else [
+                {"role": "user", "content": [{"text": user_prompt}]}
+            ]
+
+            converse_kwargs: Dict[str, Any] = {
+                "modelId": self.model,
+                "messages": converse_messages,
+                "inferenceConfig": {
+                    "temperature": self.temperature,
+                    "maxTokens": self.max_tokens,
+                },
+            }
+
+            if system_prompt:
+                # When messages already carry a cachePoint (multi-turn first
+                # call having a history assistant), don't double up by adding
+                # another in the system block — Bedrock would still accept it
+                # but a redundant checkpoint wastes a slot (max 4 per request).
+                msgs_have_cachepoint = multi_turn and any(
+                    any("cachePoint" in block for block in msg.get("content", []))
+                    for msg in converse_messages
+                )
+                use_system_cache = bool(
+                    call_type
+                    and len(system_prompt) >= config.min_cache_tokens
+                    and self._bedrock_model_supports_caching()
+                    and not msgs_have_cachepoint
+                )
+                if use_system_cache:
+                    converse_kwargs["system"] = [
+                        {"text": system_prompt},
+                        {"cachePoint": {"type": "default"}},
+                    ]
+                else:
+                    converse_kwargs["system"] = [{"text": system_prompt}]
+
+            response = self._bedrock_client.converse(**converse_kwargs)
+
+            output_message = response.get("output", {}).get("message", {})
+            content_blocks = output_message.get("content", []) or []
+            content = "".join(
+                block.get("text", "") for block in content_blocks if "text" in block
+            ).strip()
+
+            usage = response.get("usage", {}) or {}
+            token_count_input = int(usage.get("inputTokens", 0) or 0)
+            token_count_output = int(usage.get("outputTokens", 0) or 0)
+            total_tokens = token_count_input + token_count_output
+
+            if self._bedrock_model_supports_caching():
+                # Official Converse response uses `cacheReadInputTokens` /
+                # `cacheWriteInputTokens` (no "Count" suffix) per the API
+                # reference. The "...TokenCount" variants are tolerated as a
+                # defensive fallback in case older SDK builds expose them.
+                cache_read = int(
+                    usage.get("cacheReadInputTokens")
+                    or usage.get("cacheReadInputTokenCount")
+                    or 0
+                )
+                cache_write = int(
+                    usage.get("cacheWriteInputTokens")
+                    or usage.get("cacheWriteInputTokenCount")
+                    or 0
+                )
+                cached_tokens = cache_read + cache_write
+
+                metrics = get_cache_metrics()
+                if cache_read > 0:
+                    logger.info(
+                        f"[CACHE] Bedrock {cache_type} cache hit: "
+                        f"{cache_read}/{token_count_input} tokens from cache"
+                    )
+                    metrics.record_hit(
+                        "bedrock",
+                        cache_type,
+                        cached_tokens=cache_read,
+                        total_tokens=token_count_input,
+                    )
+                elif cache_write > 0:
+                    logger.info(
+                        f"[CACHE] Bedrock {cache_type} cache created: "
+                        f"{cache_write} tokens cached"
+                    )
+                    metrics.record_miss(
+                        "bedrock", cache_type, total_tokens=token_count_input
+                    )
+                elif system_prompt and len(system_prompt) >= config.min_cache_tokens:
+                    metrics.record_miss(
+                        "bedrock", cache_type, total_tokens=token_count_input
+                    )
+
+            status = "success"
+
+        except Exception as exc:  # pragma: no cover
+            exc_obj = exc
+            logger.error(f"Error calling Bedrock Converse API: {exc}")
+
+        self._call_log_to_db(
+            system_prompt,
+            user_prompt,
+            content if content is not None else str(exc_obj),
+            status,
+            token_count_input,
+            token_count_output,
+        )
+
+        self._report_usage_async(
+            "llm_bedrock",
+            "bedrock",
+            self.model,
+            token_count_input,
+            token_count_output,
+            cached_tokens,
+        )
+
+        result = {
+            "tokens_used": total_tokens or 0,
+            "cached_tokens": cached_tokens,
+        }
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
+            result["content"] = ""
+            logger.error(f"[BEDROCK_ERROR] {error_str}")
         else:
             result["content"] = content or ""
         return result

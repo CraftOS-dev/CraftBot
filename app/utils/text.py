@@ -1,4 +1,5 @@
 """Text / string utilities — generic, dependency-light helpers."""
+
 from __future__ import annotations
 
 from typing import Any, Optional

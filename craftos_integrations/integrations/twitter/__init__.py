@@ -1,5 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Twitter/X integration - handler + client + credential. OAuth 1.0a."""
+
 from __future__ import annotations
 
 import asyncio
@@ -51,6 +52,7 @@ class TwitterCredential:
 class TwitterConfig:
     """Runtime knobs separate from the credential - persisted as
     ``twitter_config.json``."""
+
     watch_tag: str = ""
 
 
@@ -107,6 +109,7 @@ def _oauth1_header(
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(TWITTER.name)
 class TwitterHandler(IntegrationHandler):
     spec = TWITTER
@@ -123,16 +126,40 @@ class TwitterHandler(IntegrationHandler):
         "Scroll down â†’ Generate Access Token + Secret â†’ copy both",
     ]
     fields = [
-        {"key": "api_key", "label": "Consumer Key", "placeholder": "Enter Consumer key", "password": True},
-        {"key": "api_secret", "label": "Consumer Secret", "placeholder": "Enter Consumer secret", "password": True},
-        {"key": "access_token", "label": "Access Token", "placeholder": "Enter access token", "password": True},
-        {"key": "access_token_secret", "label": "Access Token Secret", "placeholder": "Enter access token secret", "password": True},
+        {
+            "key": "api_key",
+            "label": "Consumer Key",
+            "placeholder": "Enter Consumer key",
+            "password": True,
+        },
+        {
+            "key": "api_secret",
+            "label": "Consumer Secret",
+            "placeholder": "Enter Consumer secret",
+            "password": True,
+        },
+        {
+            "key": "access_token",
+            "label": "Access Token",
+            "placeholder": "Enter access token",
+            "password": True,
+        },
+        {
+            "key": "access_token_secret",
+            "label": "Access Token Secret",
+            "placeholder": "Enter access token secret",
+            "password": True,
+        },
     ]
     config_class = TwitterConfig
     config_fields = [
-        {"key": "watch_tag", "label": "Watch tag", "type": "text",
-         "placeholder": "@craftbot",
-         "help": "Trigger keyword in mentions. Leave empty to react to all mentions."},
+        {
+            "key": "watch_tag",
+            "label": "Watch tag",
+            "type": "text",
+            "placeholder": "@craftbot",
+            "help": "Trigger keyword in mentions. Leave empty to react to all mentions.",
+        },
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -142,14 +169,24 @@ class TwitterHandler(IntegrationHandler):
                 "Get these from developer.x.com"
             )
         api_key, api_secret, access_token, access_token_secret = (
-            args[0].strip(), args[1].strip(), args[2].strip(), args[3].strip()
+            args[0].strip(),
+            args[1].strip(),
+            args[2].strip(),
+            args[3].strip(),
         )
 
         url = "https://api.twitter.com/2/users/me"
         params = {"user.fields": "id,name,username"}
-        auth_hdr = _oauth1_header("GET", url, params, api_key, api_secret, access_token, access_token_secret)
-        result = http_request("GET", url, headers={"Authorization": auth_hdr},
-                              params=params, expected=(200,))
+        auth_hdr = _oauth1_header(
+            "GET", url, params, api_key, api_secret, access_token, access_token_secret
+        )
+        result = http_request(
+            "GET",
+            url,
+            headers={"Authorization": auth_hdr},
+            params=params,
+            expected=(200,),
+        )
         if "error" in result:
             return False, (
                 f"Twitter auth failed: {result['error']}. "
@@ -157,21 +194,28 @@ class TwitterHandler(IntegrationHandler):
             )
         data = (result["result"] or {}).get("data", {})
 
-        save_credential(self.spec.cred_file, TwitterCredential(
-            api_key=api_key,
-            api_secret=api_secret,
-            access_token=access_token,
-            access_token_secret=access_token_secret,
-            user_id=data.get("id", ""),
-            username=data.get("username", ""),
-        ))
-        return True, f"Twitter/X connected as @{data.get('username')} ({data.get('name', '')})"
+        save_credential(
+            self.spec.cred_file,
+            TwitterCredential(
+                api_key=api_key,
+                api_secret=api_secret,
+                access_token=access_token,
+                access_token_secret=access_token_secret,
+                user_id=data.get("id", ""),
+                username=data.get("username", ""),
+            ),
+        )
+        return (
+            True,
+            f"Twitter/X connected as @{data.get('username')} ({data.get('name', '')})",
+        )
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
         if not has_credential(self.spec.cred_file):
             return False, "No Twitter credentials found."
         try:
             from ...manager import get_external_comms_manager
+
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -196,6 +240,7 @@ class TwitterHandler(IntegrationHandler):
 # Client
 # -----------------------------------------------------------------
 
+
 @register_client
 class TwitterClient(BasePlatformClient):
     spec = TWITTER
@@ -218,13 +263,19 @@ class TwitterClient(BasePlatformClient):
             raise RuntimeError("No Twitter credentials. Use /twitter login first.")
         return self._cred
 
-    def _auth_header(self, method: str, url: str, params: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def _auth_header(
+        self, method: str, url: str, params: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
         cred = self._load()
         return {
             "Authorization": _oauth1_header(
-                method, url, params or {},
-                cred.api_key, cred.api_secret,
-                cred.access_token, cred.access_token_secret,
+                method,
+                url,
+                params or {},
+                cred.api_key,
+                cred.api_secret,
+                cred.access_token,
+                cred.access_token_secret,
             ),
         }
 
@@ -308,8 +359,13 @@ class TwitterClient(BasePlatformClient):
             return
         url = f"{TWITTER_API}/users/{cred.user_id}/mentions"
         params = {"max_results": "5", "tweet.fields": "created_at,author_id,text"}
-        result = await arequest("GET", url, headers=self._auth_header("GET", url, params),
-                                params=params, expected=(200,))
+        result = await arequest(
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
+        )
         if "error" in result:
             return
         tweets = (result["result"] or {}).get("data", [])
@@ -332,8 +388,13 @@ class TwitterClient(BasePlatformClient):
         if self._since_id:
             params["since_id"] = self._since_id
 
-        result = await arequest("GET", url, headers=self._auth_header("GET", url, params),
-                                params=params, expected=(200,))
+        result = await arequest(
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
+        )
         if "error" in result:
             if "429" in result["error"]:
                 await asyncio.sleep(60)
@@ -359,7 +420,9 @@ class TwitterClient(BasePlatformClient):
         if len(self._seen_ids) > 500:
             self._seen_ids = set(list(self._seen_ids)[-200:])
 
-    async def _dispatch_mention(self, tweet: Dict[str, Any], users_map: Dict[str, Any]) -> None:
+    async def _dispatch_mention(
+        self, tweet: Dict[str, Any], users_map: Dict[str, Any]
+    ) -> None:
         if not self._message_callback:
             return
 
@@ -375,7 +438,7 @@ class TwitterClient(BasePlatformClient):
                 return
             tag_lower = watch_tag.lower()
             idx = text.lower().find(tag_lower)
-            instruction = text[idx + len(watch_tag):].strip() if idx >= 0 else text
+            instruction = text[idx + len(watch_tag) :].strip() if idx >= 0 else text
         else:
             instruction = text
 
@@ -386,27 +449,31 @@ class TwitterClient(BasePlatformClient):
 
         timestamp = None
         try:
-            timestamp = datetime.fromisoformat(tweet.get("created_at", "").replace("Z", "+00:00"))
+            timestamp = datetime.fromisoformat(
+                tweet.get("created_at", "").replace("Z", "+00:00")
+            )
         except Exception:
             pass
 
-        await self._message_callback(PlatformMessage(
-            platform=self.spec.platform_id,
-            sender_id=author_id,
-            sender_name=f"@{author_username}" if author_username else author_name,
-            text=f"@{author_username}: {clean_instruction or text}",
-            channel_id=tweet.get("conversation_id", ""),
-            channel_name="Twitter/X",
-            message_id=tweet.get("id", ""),
-            timestamp=timestamp,
-            raw={
-                "tweet": tweet,
-                "trigger": "mention" if not watch_tag else "mention_tag",
-                "tag": watch_tag,
-                "instruction": clean_instruction or text,
-                "author_username": author_username,
-            },
-        ))
+        await self._message_callback(
+            PlatformMessage(
+                platform=self.spec.platform_id,
+                sender_id=author_id,
+                sender_name=f"@{author_username}" if author_username else author_name,
+                text=f"@{author_username}: {clean_instruction or text}",
+                channel_id=tweet.get("conversation_id", ""),
+                channel_name="Twitter/X",
+                message_id=tweet.get("id", ""),
+                timestamp=timestamp,
+                raw={
+                    "tweet": tweet,
+                    "trigger": "mention" if not watch_tag else "mention_tag",
+                    "tag": watch_tag,
+                    "instruction": clean_instruction or text,
+                    "author_username": author_username,
+                },
+            )
+        )
 
     # ----- API methods -----
 
@@ -414,8 +481,11 @@ class TwitterClient(BasePlatformClient):
         url = f"{TWITTER_API}/users/me"
         params = {"user.fields": "id,name,username,description,public_metrics"}
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", {}),
         )
 
@@ -425,50 +495,78 @@ class TwitterClient(BasePlatformClient):
         if reply_to:
             payload["reply"] = {"in_reply_to_tweet_id": reply_to}
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
             json=payload,
-            transform=lambda d: {"id": d.get("data", {}).get("id"),
-                                  "text": d.get("data", {}).get("text")},
+            transform=lambda d: {
+                "id": d.get("data", {}).get("id"),
+                "text": d.get("data", {}).get("text"),
+            },
         )
 
     async def delete_tweet(self, tweet_id: str) -> Result:
         url = f"{TWITTER_API}/tweets/{tweet_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda _d: {"deleted": True},
         )
 
-    async def get_user_timeline(self, user_id: Optional[str] = None, max_results: int = 10) -> Result:
+    async def get_user_timeline(
+        self, user_id: Optional[str] = None, max_results: int = 10
+    ) -> Result:
         cred = self._load()
         uid = user_id or cred.user_id
         if not uid:
             return {"error": "No user_id available"}
         url = f"{TWITTER_API}/users/{uid}/tweets"
-        params = {"max_results": str(max_results), "tweet.fields": "created_at,public_metrics,text"}
+        params = {
+            "max_results": str(max_results),
+            "tweet.fields": "created_at,public_metrics,text",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def search_tweets(self, query: str, max_results: int = 10) -> Result:
         url = f"{TWITTER_API}/tweets/search/recent"
-        params = {"query": query, "max_results": str(max_results),
-                  "tweet.fields": "created_at,author_id,public_metrics,text",
-                  "expansions": "author_id", "user.fields": "username"}
+        params = {
+            "query": query,
+            "max_results": str(max_results),
+            "tweet.fields": "created_at,author_id,public_metrics,text",
+            "expansions": "author_id",
+            "user.fields": "username",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def like_tweet(self, tweet_id: str) -> Result:
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/likes"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"tweet_id": tweet_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"tweet_id": tweet_id},
+            expected=(200,),
             transform=lambda d: d.get("data", {}),
         )
 
@@ -476,9 +574,14 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/retweets"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"tweet_id": tweet_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"tweet_id": tweet_id},
+            expected=(200,),
             transform=lambda d: d.get("data", {}),
         )
 
@@ -486,8 +589,11 @@ class TwitterClient(BasePlatformClient):
         url = f"{TWITTER_API}/users/by/username/{username}"
         params = {"user.fields": "id,name,username,description,public_metrics"}
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", {}),
         )
 

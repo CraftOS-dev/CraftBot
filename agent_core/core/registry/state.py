@@ -39,6 +39,7 @@ class StateManagerRegistry(ComponentRegistry["StateManagerProtocol"]):
     Note: This is different from StateRegistry which provides access
     to the current state provider (StateSession.get() or STATE).
     """
+
     pass
 
 

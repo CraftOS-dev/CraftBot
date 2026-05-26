@@ -40,7 +40,7 @@ def _is_visible_in_mode(action, GUI_mode: bool) -> bool:
     mode = getattr(action, "mode", None)
     if not mode:  # None, "", or falsy -> visible in both
         return True
-    if mode == 'ALL':
+    if mode == "ALL":
         return True
     m = str(mode).strip().upper()
     if GUI_mode:
@@ -102,8 +102,13 @@ class ActionRouter:
         # Curation (which actions match which integration) lives in the host —
         # the package only reports which platforms are currently connected.
         try:
-            from app.data.action.integrations._routing import get_messaging_actions_for_connected
-            conversation_mode_actions = base_actions + get_messaging_actions_for_connected()
+            from app.data.action.integrations._routing import (
+                get_messaging_actions_for_connected,
+            )
+
+            conversation_mode_actions = (
+                base_actions + get_messaging_actions_for_connected()
+            )
         except Exception as e:
             logger.debug(f"[ACTION] Could not discover messaging actions: {e}")
             conversation_mode_actions = base_actions
@@ -113,13 +118,15 @@ class ActionRouter:
         for action in conversation_mode_actions:
             act = self.action_library.retrieve_action(action_name=action)
             if act:
-                action_candidates.append({
-                    "name": act.name,
-                    "description": act.description,
-                    "type": act.action_type,
-                    "input_schema": act.input_schema,
-                    "output_schema": act.output_schema
-                })
+                action_candidates.append(
+                    {
+                        "name": act.name,
+                        "description": act.description,
+                        "type": act.action_type,
+                        "input_schema": act.input_schema,
+                        "output_schema": act.output_schema,
+                    }
+                )
 
         # Pull just-in-time guidance for any integrations the user named.
         # No-ops to "" when nothing matches; never raises. See the helper
@@ -129,6 +136,7 @@ class ActionRouter:
             from app.data.action.integrations._integration_essentials import (
                 get_essentials_for_message,
             )
+
             # TODO: Is keyword based deterministic search good enough?
             integration_essentials = get_essentials_for_message(query)
             logger.info(
@@ -176,14 +184,22 @@ class ActionRouter:
 
             if not actions:
                 # Empty action list (no format error) - return empty decision
-                return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
+                return [
+                    {
+                        "action_name": "",
+                        "parameters": {},
+                        "reasoning": decision.get("reasoning", ""),
+                    }
+                ]
 
             # Validate and filter parallel actions (GUI_mode=False for conversation)
             validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
 
             if validated_actions:
                 action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(f"[PARALLEL] Conversation mode selected {len(validated_actions)} action(s): {action_names}")
+                logger.info(
+                    f"[PARALLEL] Conversation mode selected {len(validated_actions)} action(s): {action_names}"
+                )
                 return validated_actions
 
             logger.warning(
@@ -223,18 +239,26 @@ class ActionRouter:
         ignore_actions = ["ignore", "task_start"]
 
         # Get compiled action list from task's action sets
-        compiled_actions = self._get_current_task_compiled_actions(session_id=session_id)
+        compiled_actions = self._get_current_task_compiled_actions(
+            session_id=session_id
+        )
 
         # Use static compiled list - NO RAG SEARCH
         action_candidates = self._build_candidates_from_compiled_list(
             compiled_actions, GUI_mode, ignore_actions
         )
-        logger.info(f"ActionRouter using compiled action list: {len(action_candidates)} actions")
+        logger.info(
+            f"ActionRouter using compiled action list: {len(action_candidates)} actions"
+        )
 
         # Build the instruction prompt for the LLM
         task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(query, session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(session_id=session_id)
+        memory_context = self.context_engine.get_memory_context(
+            query, session_id=session_id
+        )
+        event_stream_content = self.context_engine.get_event_stream(
+            session_id=session_id
+        )
 
         # Pull integration essentials the same way conversation-mode does
         # (see select_action). Without this, the task-mode LLM loses sight
@@ -249,6 +273,7 @@ class ActionRouter:
             from app.data.action.integrations._integration_essentials import (
                 get_essentials_for_message,
             )
+
             integration_essentials = get_essentials_for_message(
                 f"{query}\n{task_state}"
             )
@@ -313,14 +338,22 @@ class ActionRouter:
 
             if not actions:
                 # Empty action list (no format error) - return empty decision for backward compatibility
-                return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
+                return [
+                    {
+                        "action_name": "",
+                        "parameters": {},
+                        "reasoning": decision.get("reasoning", ""),
+                    }
+                ]
 
             # Validate and filter parallel actions
             validated_actions = self._validate_parallel_actions(actions, GUI_mode)
 
             if validated_actions:
                 action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(f"[PARALLEL] Selected {len(validated_actions)} action(s): {action_names}")
+                logger.info(
+                    f"[PARALLEL] Selected {len(validated_actions)} action(s): {action_names}"
+                )
                 return validated_actions
 
             logger.warning(
@@ -329,7 +362,9 @@ class ActionRouter:
 
         raise ValueError("Invalid selected action returned by LLM after retries.")
 
-    @profile("action_router_select_action_in_simple_task", OperationCategory.ACTION_ROUTING)
+    @profile(
+        "action_router_select_action_in_simple_task", OperationCategory.ACTION_ROUTING
+    )
     async def select_action_in_simple_task(
         self,
         query: str,
@@ -356,18 +391,26 @@ class ActionRouter:
         ignore_actions = ["ignore", "task_update_todos", "task_start"]
 
         # Get compiled action list from task's action sets
-        compiled_actions = self._get_current_task_compiled_actions(session_id=session_id)
+        compiled_actions = self._get_current_task_compiled_actions(
+            session_id=session_id
+        )
 
         # Use static compiled list - NO RAG SEARCH
         action_candidates = self._build_candidates_from_compiled_list(
             compiled_actions, GUI_mode=False, ignore_actions=ignore_actions
         )
-        logger.info(f"ActionRouter (simple task) using compiled action list: {len(action_candidates)} actions")
+        logger.info(
+            f"ActionRouter (simple task) using compiled action list: {len(action_candidates)} actions"
+        )
 
         # Build the instruction prompt
         task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(query, session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(session_id=session_id)
+        memory_context = self.context_engine.get_memory_context(
+            query, session_id=session_id
+        )
+        event_stream_content = self.context_engine.get_event_stream(
+            session_id=session_id
+        )
 
         # Inject integration essentials so the simple-task LLM still sees
         # integration-specific shortcuts (e.g. WhatsApp's `to: "user"`)
@@ -378,6 +421,7 @@ class ActionRouter:
             from app.data.action.integrations._integration_essentials import (
                 get_essentials_for_message,
             )
+
             integration_essentials = get_essentials_for_message(
                 f"{query}\n{task_state}"
             )
@@ -444,14 +488,22 @@ class ActionRouter:
 
             if not actions:
                 # Empty action list (no format error) - return empty decision
-                return [{"action_name": "", "parameters": {}, "reasoning": decision.get("reasoning", "")}]
+                return [
+                    {
+                        "action_name": "",
+                        "parameters": {},
+                        "reasoning": decision.get("reasoning", ""),
+                    }
+                ]
 
             # Validate and filter parallel actions
             validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
 
             if validated_actions:
                 action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(f"[PARALLEL] Simple task selected {len(validated_actions)} action(s): {action_names}")
+                logger.info(
+                    f"[PARALLEL] Simple task selected {len(validated_actions)} action(s): {action_names}"
+                )
                 return validated_actions
 
             # Actions parsed but not valid (action not found, etc.)
@@ -487,13 +539,21 @@ class ActionRouter:
         Raises:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
-        compiled_actions = self._get_current_task_compiled_actions(session_id=session_id)
-        logger.info(f"ActionRouter (GUI) using compact action space prompt with {len(compiled_actions)} actions")
+        compiled_actions = self._get_current_task_compiled_actions(
+            session_id=session_id
+        )
+        logger.info(
+            f"ActionRouter (GUI) using compact action space prompt with {len(compiled_actions)} actions"
+        )
 
         # Build the instruction prompt for the LLM
         task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(query, session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(session_id=session_id)
+        memory_context = self.context_engine.get_memory_context(
+            query, session_id=session_id
+        )
+        event_stream_content = self.context_engine.get_event_stream(
+            session_id=session_id
+        )
         static_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -544,8 +604,12 @@ class ActionRouter:
                 return decision
 
             selected_action = self.action_library.retrieve_action(selected_action_name)
-            if selected_action is not None and _is_visible_in_mode(selected_action, GUI_mode):
-                decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
+            if selected_action is not None and _is_visible_in_mode(
+                selected_action, GUI_mode
+            ):
+                decision["parameters"] = self._ensure_parameters(
+                    decision.get("parameters")
+                )
                 return decision
 
             logger.warning(
@@ -606,26 +670,41 @@ class ActionRouter:
             try:
                 # Use session cache if we're in a task context AND session is registered
                 if current_task_id and is_task:
-                    has_session = self.llm_interface.has_session_cache(current_task_id, call_type)
+                    has_session = self.llm_interface.has_session_cache(
+                        current_task_id, call_type
+                    )
 
                     if has_session:
                         # Session is registered (complex task) - use session caching
                         # CRITICAL: Use session-specific stream to prevent event leakage
                         from agent_core import get_event_stream_manager
+
                         event_stream_manager = get_event_stream_manager()
                         # Use get_stream_by_id with session_id to get the correct task's stream
                         effective_session_id = session_id or current_task_id
-                        stream = event_stream_manager.get_stream_by_id(effective_session_id) if event_stream_manager else None
-                        has_synced_before = stream.has_session_sync(call_type) if stream else False
+                        stream = (
+                            event_stream_manager.get_stream_by_id(effective_session_id)
+                            if event_stream_manager
+                            else None
+                        )
+                        has_synced_before = (
+                            stream.has_session_sync(call_type) if stream else False
+                        )
 
                         if has_synced_before:
                             # We've made calls before - send only delta events
                             # CRITICAL: Pass session_id to get delta from the correct stream
-                            delta_events, has_delta = self.context_engine.get_event_stream_delta(call_type, session_id=effective_session_id)
+                            delta_events, has_delta = (
+                                self.context_engine.get_event_stream_delta(
+                                    call_type, session_id=effective_session_id
+                                )
+                            )
 
                             if has_delta:
                                 # Send only the new events
-                                logger.info(f"[SESSION CACHE] Sending delta events for {call_type}")
+                                logger.info(
+                                    f"[SESSION CACHE] Sending delta events for {call_type}"
+                                )
                                 raw_response = await self.llm_interface.generate_response_with_session_async(
                                     task_id=current_task_id,
                                     call_type=call_type,
@@ -633,18 +712,28 @@ class ActionRouter:
                                     system_prompt_for_new_session=system_prompt,
                                 )
                                 # Mark events as synced after successful call
-                                self.context_engine.mark_event_stream_synced(call_type, session_id=effective_session_id)
+                                self.context_engine.mark_event_stream_synced(
+                                    call_type, session_id=effective_session_id
+                                )
                             else:
                                 # No new events - this could mean summarization happened
-                                logger.info(f"[SESSION CACHE] No delta events, resetting cache for {call_type}")
-                                self.llm_interface.end_session_cache(current_task_id, call_type)
-                                self.context_engine.reset_event_stream_sync(call_type, session_id=effective_session_id)
+                                logger.info(
+                                    f"[SESSION CACHE] No delta events, resetting cache for {call_type}"
+                                )
+                                self.llm_interface.end_session_cache(
+                                    current_task_id, call_type
+                                )
+                                self.context_engine.reset_event_stream_sync(
+                                    call_type, session_id=effective_session_id
+                                )
                                 # Fall through to first-call path
                                 has_synced_before = False
 
                         if not has_synced_before:
                             # First call with session - send full prompt to establish session
-                            logger.info(f"[SESSION CACHE] Creating new session for {call_type} (first call)")
+                            logger.info(
+                                f"[SESSION CACHE] Creating new session for {call_type} (first call)"
+                            )
                             raw_response = await self.llm_interface.generate_response_with_session_async(
                                 task_id=current_task_id,
                                 call_type=call_type,
@@ -652,41 +741,57 @@ class ActionRouter:
                                 system_prompt_for_new_session=system_prompt,
                             )
                             # Mark events as synced after successful session creation
-                            self.context_engine.mark_event_stream_synced(call_type, session_id=effective_session_id)
+                            self.context_engine.mark_event_stream_synced(
+                                call_type, session_id=effective_session_id
+                            )
                     else:
                         # No session registered (simple task) - use prefix cache / regular response
-                        raw_response = await self.llm_interface.generate_response_async(system_prompt, current_prompt)
+                        raw_response = await self.llm_interface.generate_response_async(
+                            system_prompt, current_prompt
+                        )
                 else:
                     # Not in task context - use regular response
-                    raw_response = await self.llm_interface.generate_response_async(system_prompt, current_prompt)
+                    raw_response = await self.llm_interface.generate_response_async(
+                        system_prompt, current_prompt
+                    )
 
                 # Validate response before parsing
-                if not raw_response or (isinstance(raw_response, str) and not raw_response.strip()):
+                if not raw_response or (
+                    isinstance(raw_response, str) and not raw_response.strip()
+                ):
                     logger.error(
                         f"[ACTION ROUTER] LLM returned empty response on attempt {attempt + 1}. "
                         f"System prompt length: {len(system_prompt)}, User prompt length: {len(current_prompt)}"
                     )
-                
+
                 decision, parse_error = self._parse_action_decision(raw_response)
                 if decision is not None:
                     decision.setdefault("parameters", {})
-                    decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
+                    decision["parameters"] = self._ensure_parameters(
+                        decision.get("parameters")
+                    )
                     return decision
 
                 feedback_error = parse_error or "unknown parsing error"
-                last_error = ValueError(f"Unable to parse action decision on attempt {attempt + 1}: {feedback_error}")
+                last_error = ValueError(
+                    f"Unable to parse action decision on attempt {attempt + 1}: {feedback_error}"
+                )
                 logger.warning(
                     f"Failed to parse LLM decision on attempt {attempt + 1}: "
                     f"{raw_response} | error={feedback_error}"
                 )
-                current_prompt = self._augment_prompt_with_feedback(prompt, attempt + 1, raw_response, feedback_error)
+                current_prompt = self._augment_prompt_with_feedback(
+                    prompt, attempt + 1, raw_response, feedback_error
+                )
             except LLMConsecutiveFailureError:
                 # Fatal: LLM is in a broken state - re-raise immediately, do not retry
                 raise
             except RuntimeError as e:
                 # LLM provider error (empty response, API error, auth failure, etc.)
                 error_msg = str(e)
-                logger.error(f"[ACTION ROUTER] LLM provider error on attempt {attempt + 1}: {error_msg}")
+                logger.error(
+                    f"[ACTION ROUTER] LLM provider error on attempt {attempt + 1}: {error_msg}"
+                )
                 last_error = RuntimeError(
                     f"Unable to generate action decision on attempt {attempt + 1}: {error_msg}. "
                     f"Check LLM configuration, API credentials, and service availability."
@@ -696,53 +801,70 @@ class ActionRouter:
                     raise last_error
                 # Otherwise, retry with more context in the prompt
                 current_prompt = self._augment_prompt_with_feedback(
-                    prompt, attempt + 1,
+                    prompt,
+                    attempt + 1,
                     f"[LLM ERROR] {error_msg}",
-                    "LLM provider failed - retrying"
+                    "LLM provider failed - retrying",
                 )
             except Exception as e:
                 # Unexpected error
-                logger.error(f"[ACTION ROUTER] Unexpected error on attempt {attempt + 1}: {e}", exc_info=True)
-                last_error = RuntimeError(f"Unexpected error in action selection on attempt {attempt + 1}: {e}")
+                logger.error(
+                    f"[ACTION ROUTER] Unexpected error on attempt {attempt + 1}: {e}",
+                    exc_info=True,
+                )
+                last_error = RuntimeError(
+                    f"Unexpected error in action selection on attempt {attempt + 1}: {e}"
+                )
                 if attempt >= max_retries - 1:
                     raise last_error
                 current_prompt = self._augment_prompt_with_feedback(
-                    prompt, attempt + 1,
+                    prompt,
+                    attempt + 1,
                     f"[ERROR] {str(e)}",
-                    "An unexpected error occurred - retrying"
+                    "An unexpected error occurred - retrying",
                 )
 
         if last_error:
             raise last_error
         raise ValueError("Unable to parse LLM decision")
 
-    def _parse_action_decision(self, raw: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def _parse_action_decision(
+        self, raw: str
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         # Check for empty or None response from LLM
         if not raw or (isinstance(raw, str) and not raw.strip()):
-            logger.error(f"LLM returned empty response")
-            return None, "LLM returned an empty response. This may indicate an API error or the model failed to generate output."
-        
+            logger.error("LLM returned empty response")
+            return (
+                None,
+                "LLM returned an empty response. This may indicate an API error or the model failed to generate output.",
+            )
+
         # Normalize Windows/encoding artifacts (BOM, CRLF, etc.)
         # This handles Windows CRLF line endings and encoding issues
         normalized = raw
-        
+
         # Remove BOM if present (Windows encoding artifact)
-        if normalized.startswith('\ufeff'):
+        if normalized.startswith("\ufeff"):
             normalized = normalized[1:]
-        
+
         # Normalize line endings to LF (convert CRLF to LF)
-        normalized = normalized.replace('\r\n', '\n')
-        
+        normalized = normalized.replace("\r\n", "\n")
+
         # Remove any remaining carriage returns
-        normalized = normalized.replace('\r', '')
-        
+        normalized = normalized.replace("\r", "")
+
         # Strip all leading/trailing whitespace
         normalized = normalized.strip()
-        
+
         if not normalized:
-            logger.error(f"Response was empty after normalization. Original: {repr(raw)}")
-            return None, "LLM response was empty or only contained whitespace after normalization."
-        
+            logger.error(
+                f"Response was empty after normalization. Original: {repr(raw)}"
+            )
+            return (
+                None,
+                "LLM response was empty or only contained whitespace after normalization.",
+            )
+
         try:
             parsed = json.loads(normalized)
         except json.JSONDecodeError as json_error:
@@ -750,7 +872,10 @@ class ActionRouter:
                 parsed = ast.literal_eval(normalized)
             except Exception as eval_error:
                 logger.error(f"Unable to parse action decision: {repr(normalized)}")
-                return None, f"json error: {json_error}; literal_eval error: {eval_error}"
+                return (
+                    None,
+                    f"json error: {json_error}; literal_eval error: {eval_error}",
+                )
 
         if not isinstance(parsed, dict):
             logger.error(f"Parsed action decision is not a dict: {repr(normalized)}")
@@ -802,29 +927,29 @@ class ActionRouter:
             raw_response = str(decision)
 
         feedback_block = (
-            f"\n\n{'='*60}\n"
+            f"\n\n{'=' * 60}\n"
             f"⚠️ OUTPUT FORMAT ERROR (Attempt {attempt}/3)\n"
-            f"{'='*60}\n\n"
+            f"{'=' * 60}\n\n"
             f"{format_error}\n\n"
             f"YOUR INCORRECT RESPONSE:\n"
             f"```json\n{raw_response}\n```\n\n"
             f"CORRECT FORMAT REQUIRED:\n"
             f"```json\n"
-            f'{{\n'
+            f"{{\n"
             f'  "reasoning": "<your reasoning here>",\n'
             f'  "actions": [\n'
-            f'    {{\n'
+            f"    {{\n"
             f'      "action_name": "<action from available actions>",\n'
             f'      "parameters": {{\n'
             f'        "<param_name>": <value>\n'
-            f'      }}\n'
-            f'    }}\n'
-            f'  ]\n'
-            f'}}\n'
+            f"      }}\n"
+            f"    }}\n"
+            f"  ]\n"
+            f"}}\n"
             f"```\n\n"
             f"⚠️ This is attempt {attempt} of 3. If you fail again, the task will be ABORTED.\n"
             f"Return ONLY the corrected JSON object with the exact format shown above.\n"
-            f"{'='*60}\n"
+            f"{'=' * 60}\n"
         )
         return base_prompt + feedback_block
 
@@ -845,7 +970,7 @@ class ActionRouter:
             return (
                 "WRONG FORMAT: You returned a 'response' key instead of the required GUI action format. "
                 "Do NOT respond conversationally. You MUST return a JSON with 'action_name' and 'parameters' fields. "
-                "Example: {\"action_name\": \"send_message\", \"parameters\": {\"message\": \"...\"}}"
+                'Example: {"action_name": "send_message", "parameters": {"message": "..."}}'
             )
 
         # Check for "action" key instead of "action_name"
@@ -853,21 +978,21 @@ class ActionRouter:
             action_value = decision.get("action", "")
             return (
                 f"WRONG FORMAT: You used 'action' instead of 'action_name'. "
-                f"Correct your response to: {{\"action_name\": \"{action_value}\", \"parameters\": {{...}}}}"
+                f'Correct your response to: {{"action_name": "{action_value}", "parameters": {{...}}}}'
             )
 
         # Check for "actions" array (non-GUI format used in GUI mode)
         if "actions" in decision and "action_name" not in decision:
             return (
                 "WRONG FORMAT: You used 'actions' array format, but GUI mode expects single action format. "
-                "Use: {\"action_name\": \"...\", \"parameters\": {...}} (without the actions array)"
+                'Use: {"action_name": "...", "parameters": {...}} (without the actions array)'
             )
 
         # Check for "args" instead of "parameters"
         if "args" in decision and "parameters" not in decision:
             return (
                 "WRONG FORMAT: You used 'args' instead of 'parameters'. "
-                "Correct your response to: {\"action_name\": \"...\", \"parameters\": {...}}"
+                'Correct your response to: {"action_name": "...", "parameters": {...}}'
             )
 
         return None
@@ -888,24 +1013,24 @@ class ActionRouter:
             raw_response = str(decision)
 
         feedback_block = (
-            f"\n\n{'='*60}\n"
+            f"\n\n{'=' * 60}\n"
             f"⚠️ OUTPUT FORMAT ERROR (Attempt {attempt}/3)\n"
-            f"{'='*60}\n\n"
+            f"{'=' * 60}\n\n"
             f"{format_error}\n\n"
             f"YOUR INCORRECT RESPONSE:\n"
             f"```json\n{raw_response}\n```\n\n"
             f"CORRECT FORMAT REQUIRED (GUI mode - single action):\n"
             f"```json\n"
-            f'{{\n'
+            f"{{\n"
             f'  "action_name": "<action from action space>",\n'
             f'  "parameters": {{\n'
             f'    "<param_name>": <value>\n'
-            f'  }}\n'
-            f'}}\n'
+            f"  }}\n"
+            f"}}\n"
             f"```\n\n"
             f"⚠️ This is attempt {attempt} of 3. If you fail again, the task will be ABORTED.\n"
             f"Return ONLY the corrected JSON object with the exact format shown above.\n"
-            f"{'='*60}\n"
+            f"{'=' * 60}\n"
         )
         return base_prompt + feedback_block
 
@@ -923,7 +1048,9 @@ class ActionRouter:
                 if isinstance(param_def, dict):
                     ptype = param_def.get("type", "any")
                     desc = param_def.get("description", "")
-                    is_optional = "default" in desc.lower() or "optional" in desc.lower()
+                    is_optional = (
+                        "default" in desc.lower() or "optional" in desc.lower()
+                    )
                     req = "optional" if is_optional else "required"
                     params[param_name] = f"{ptype}, {req} - {desc}"
                 else:
@@ -932,7 +1059,7 @@ class ActionRouter:
             entry = {
                 "name": c.get("name"),
                 "description": c.get("description", ""),
-                "params": params
+                "params": params,
             }
             compact.append(entry)
 
@@ -989,7 +1116,9 @@ class ActionRouter:
 
                     if action.get("action_name"):
                         action["reasoning"] = reasoning
-                        action["parameters"] = self._ensure_parameters(action.get("parameters"))
+                        action["parameters"] = self._ensure_parameters(
+                            action.get("parameters")
+                        )
                         actions.append(action)
 
             if not actions:
@@ -1013,7 +1142,7 @@ class ActionRouter:
             return (
                 "WRONG FORMAT: You returned a 'response' key instead of the required format. "
                 "Do NOT respond conversationally. You MUST return a JSON with 'reasoning' and 'actions' fields. "
-                "Example: {\"reasoning\": \"...\", \"actions\": [{\"action_name\": \"send_message\", \"parameters\": {\"message\": \"...\"}}]}"
+                'Example: {"reasoning": "...", "actions": [{"action_name": "send_message", "parameters": {"message": "..."}}]}'
             )
 
         # Check for "action" key instead of "actions" array
@@ -1023,14 +1152,14 @@ class ActionRouter:
             return (
                 f"WRONG FORMAT: You used 'action' key instead of 'actions' array. "
                 f"The correct format uses 'actions' (plural) as an array. "
-                f"Correct your response to: {{\"reasoning\": \"...\", \"actions\": [{{\"action_name\": \"{action_value}\", \"parameters\": {args_value}}}]}}"
+                f'Correct your response to: {{"reasoning": "...", "actions": [{{"action_name": "{action_value}", "parameters": {args_value}}}]}}'
             )
 
         # Check for "args" at top level (wrong structure)
         if "args" in decision and "actions" not in decision:
             return (
                 "WRONG FORMAT: You used 'args' at the top level. "
-                "The correct format is: {\"reasoning\": \"...\", \"actions\": [{\"action_name\": \"...\", \"parameters\": {...}}]}. "
+                'The correct format is: {"reasoning": "...", "actions": [{"action_name": "...", "parameters": {...}}]}. '
                 "'parameters' should be inside each action item, not at the top level."
             )
 
@@ -1039,19 +1168,21 @@ class ActionRouter:
             msg = decision.get("message", "")
             return (
                 f"WRONG FORMAT: You tried to send a message directly. "
-                f"Use the proper action format: {{\"reasoning\": \"...\", \"actions\": [{{\"action_name\": \"send_message\", \"parameters\": {{\"message\": \"{msg[:50]}...\"}}}}]}}"
+                f'Use the proper action format: {{"reasoning": "...", "actions": [{{"action_name": "send_message", "parameters": {{"message": "{msg[:50]}..."}}}}]}}'
             )
 
         # Check if actions exists but is not a list
         if "actions" in decision and not isinstance(decision["actions"], list):
             return (
                 "WRONG FORMAT: 'actions' must be an array/list, not a single object. "
-                "Even for a single action, wrap it in an array: {\"reasoning\": \"...\", \"actions\": [{...}]}"
+                'Even for a single action, wrap it in an array: {"reasoning": "...", "actions": [{...}]}'
             )
 
         return None
 
-    def _detect_action_item_error(self, action: Dict[str, Any], idx: int) -> Optional[str]:
+    def _detect_action_item_error(
+        self, action: Dict[str, Any], idx: int
+    ) -> Optional[str]:
         """
         Detect format errors within an action item.
 
@@ -1063,14 +1194,14 @@ class ActionRouter:
             action_value = action.get("action", "")
             return (
                 f"WRONG FORMAT in action item {idx}: You used 'action' instead of 'action_name'. "
-                f"The correct key is 'action_name'. Example: {{\"action_name\": \"{action_value}\", \"parameters\": {{...}}}}"
+                f'The correct key is \'action_name\'. Example: {{"action_name": "{action_value}", "parameters": {{...}}}}'
             )
 
         # Check for "args" instead of "parameters"
         if "args" in action and "parameters" not in action:
             return (
                 f"WRONG FORMAT in action item {idx}: You used 'args' instead of 'parameters'. "
-                f"The correct key is 'parameters'. Example: {{\"action_name\": \"...\", \"parameters\": {{...}}}}"
+                f'The correct key is \'parameters\'. Example: {{"action_name": "...", "parameters": {{...}}}}'
             )
 
         # Check for "name" instead of "action_name"
@@ -1078,15 +1209,13 @@ class ActionRouter:
             name_value = action.get("name", "")
             return (
                 f"WRONG FORMAT in action item {idx}: You used 'name' instead of 'action_name'. "
-                f"The correct key is 'action_name'. Example: {{\"action_name\": \"{name_value}\", \"parameters\": {{...}}}}"
+                f'The correct key is \'action_name\'. Example: {{"action_name": "{name_value}", "parameters": {{...}}}}'
             )
 
         return None
 
     def _validate_parallel_actions(
-        self,
-        actions: List[Dict[str, Any]],
-        GUI_mode: bool
+        self, actions: List[Dict[str, Any]], GUI_mode: bool
     ) -> List[Dict[str, Any]]:
         """
         Validate and filter parallel actions.
@@ -1122,7 +1251,7 @@ class ActionRouter:
                     break
 
         if non_parallel_action and len(actions) > 1:
-            non_parallel_name = non_parallel_action.get('action_name')
+            non_parallel_name = non_parallel_action.get("action_name")
             logger.warning(
                 f"[PARALLEL] Non-parallelizable action detected in batch of {len(actions)}. "
                 f"Using non-parallelizable action: {non_parallel_name}"
@@ -1150,9 +1279,13 @@ class ActionRouter:
             else:
                 # Mark as error instead of silently dropping
                 dropped_action = action.copy()
-                dropped_action["_error"] = f"Action '{action_name}' not found or not visible in current mode"
+                dropped_action["_error"] = (
+                    f"Action '{action_name}' not found or not visible in current mode"
+                )
                 dropped_actions.append(dropped_action)
-                logger.warning(f"[PARALLEL] Action '{action_name}' not found or not visible, marking as error")
+                logger.warning(
+                    f"[PARALLEL] Action '{action_name}' not found or not visible, marking as error"
+                )
 
         # Append dropped actions with error status so they get logged
         validated.extend(dropped_actions)
@@ -1163,7 +1296,7 @@ class ActionRouter:
         self,
         compiled_actions: List[str],
         GUI_mode: bool,
-        ignore_actions: Optional[List[str]] = None
+        ignore_actions: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Build action candidate list from pre-compiled action names.
@@ -1182,17 +1315,21 @@ class ActionRouter:
             if not _is_visible_in_mode(act, GUI_mode):
                 continue
 
-            candidates.append({
-                "name": act.name,
-                "description": act.description,
-                "type": act.action_type,
-                "input_schema": act.input_schema,
-                "output_schema": act.output_schema
-            })
+            candidates.append(
+                {
+                    "name": act.name,
+                    "description": act.description,
+                    "type": act.action_type,
+                    "input_schema": act.input_schema,
+                    "output_schema": act.output_schema,
+                }
+            )
 
         return candidates
 
-    def _get_current_task_compiled_actions(self, session_id: Optional[str] = None) -> List[str]:
+    def _get_current_task_compiled_actions(
+        self, session_id: Optional[str] = None
+    ) -> List[str]:
         """
         Get the compiled action list from the current task.
 
@@ -1207,10 +1344,12 @@ class ActionRouter:
             # CRITICAL: Log warning when falling back to global state
             # This could indicate a race condition in concurrent task execution
             if session_id:
-                logger.warning(f"[ACTION_ROUTER] Session not found for session_id={session_id!r}, "
-                             f"falling back to global STATE. This may cause context leakage in concurrent tasks!")
+                logger.warning(
+                    f"[ACTION_ROUTER] Session not found for session_id={session_id!r}, "
+                    f"falling back to global STATE. This may cause context leakage in concurrent tasks!"
+                )
             task = get_state().current_task
 
-        if task and hasattr(task, 'compiled_actions') and task.compiled_actions:
+        if task and hasattr(task, "compiled_actions") and task.compiled_actions:
             return task.compiled_actions
         return []

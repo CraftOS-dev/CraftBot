@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Gmail - granular Google integration.
 
 A user can connect just Gmail (without granting Calendar/Drive/YouTube
@@ -12,6 +12,7 @@ Structure mirrors any single-purpose integration in this package — see
 ``../_google_common.py`` and are shared with the other per-service
 integrations (calendar / drive / docs / youtube).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -65,6 +66,7 @@ GMAIL = IntegrationSpec(
 @dataclass
 class GmailConfig:
     """Runtime knobs persisted to ``gmail_config.json``."""
+
     # When True (default), every new INBOX message is forwarded to the
     # agent as a PlatformMessage. When False, the listener still polls
     # Gmail history (so send/read REST methods stay live) but does not
@@ -83,6 +85,7 @@ def _gmail_config_file() -> str:
 # Handler - auth flow only
 # -----------------------------------------------------------------
 
+
 @register_handler(GMAIL.name)
 class GmailHandler(IntegrationHandler):
     spec = GMAIL
@@ -94,9 +97,13 @@ class GmailHandler(IntegrationHandler):
 
     config_class = GmailConfig
     config_fields = [
-        {"key": "process_incoming", "label": "Auto-process incoming emails", "type": "checkbox",
-         "help": "When on, every new INBOX message is forwarded to the agent. "
-                 "Turn off to keep Gmail send-only - the agent ignores incoming mail."},
+        {
+            "key": "process_incoming",
+            "label": "Auto-process incoming emails",
+            "type": "checkbox",
+            "help": "When on, every new INBOX message is forwarded to the agent. "
+            "Turn off to keep Gmail send-only - the agent ignores incoming mail.",
+        },
     ]
 
     oauth = make_google_oauth(GMAIL_SCOPES)
@@ -114,6 +121,7 @@ class GmailHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client - Gmail listener + REST methods
 # -----------------------------------------------------------------
+
 
 @register_client
 class GmailClient(GoogleApiClientMixin, BasePlatformClient):
@@ -135,7 +143,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         self._connected = True
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        return self.send_email(to=recipient, subject=kwargs.get("subject", ""), body=text)
+        return self.send_email(
+            to=recipient, subject=kwargs.get("subject", ""), body=text
+        )
 
     @property
     def supports_listening(self) -> bool:
@@ -150,7 +160,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         try:
             profile = await self._async_get_profile()
             self._history_id = profile.get("historyId")
-            logger.info(f"[GMAIL] profile: {profile.get('emailAddress')}, historyId: {self._history_id}")
+            logger.info(
+                f"[GMAIL] profile: {profile.get('emailAddress')}, historyId: {self._history_id}"
+            )
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Gmail: {e}")
 
@@ -172,8 +184,12 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
     # ----- Listener internals -----
 
     async def _async_get_profile(self) -> Dict[str, Any]:
-        result = await arequest("GET", f"{GMAIL_API_BASE}/users/me/profile",
-                                headers=self._auth_header(), expected=(200,))
+        result = await arequest(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/profile",
+            headers=self._auth_header(),
+            expected=(200,),
+        )
         if "error" in result:
             raise RuntimeError(f"Gmail profile {result['error']}")
         return result["result"]
@@ -200,9 +216,14 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         if not self._history_id:
             return
         result = await arequest(
-            "GET", f"{GMAIL_API_BASE}/users/me/history",
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/history",
             headers=self._auth_header(),
-            params={"startHistoryId": self._history_id, "historyTypes": "messageAdded", "labelId": "INBOX"},
+            params={
+                "startHistoryId": self._history_id,
+                "historyTypes": "messageAdded",
+                "labelId": "INBOX",
+            },
             expected=(200,),
         )
         if "error" in result:
@@ -221,7 +242,11 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             for added in record.get("messagesAdded", []):
                 msg = added.get("message", {})
                 msg_id = msg.get("id", "")
-                if msg_id and "INBOX" in msg.get("labelIds", []) and msg_id not in self._seen_message_ids:
+                if (
+                    msg_id
+                    and "INBOX" in msg.get("labelIds", [])
+                    and msg_id not in self._seen_message_ids
+                ):
                     new_msg_ids.append(msg_id)
                     self._seen_message_ids.add(msg_id)
 
@@ -240,17 +265,24 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             return
 
         result = await arequest(
-            "GET", f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
             headers=self._auth_header(),
-            params=[("format", "metadata"), ("metadataHeaders", "From"),
-                    ("metadataHeaders", "Subject"), ("metadataHeaders", "Date")],
+            params=[
+                ("format", "metadata"),
+                ("metadataHeaders", "From"),
+                ("metadataHeaders", "Subject"),
+                ("metadataHeaders", "Date"),
+            ],
             expected=(200,),
         )
         if "error" in result:
             return
 
         msg = result["result"]
-        headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
+        headers = {
+            h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])
+        }
         from_header = headers.get("From", "")
         subject = headers.get("Subject", "(no subject)")
         snippet = msg.get("snippet", "")
@@ -269,6 +301,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         timestamp = None
         try:
             from email.utils import parsedate_to_datetime
+
             timestamp = parsedate_to_datetime(headers.get("Date", ""))
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
@@ -278,22 +311,29 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         text = f"Subject: {subject}\n{snippet}" if snippet else f"Subject: {subject}"
 
         if self._message_callback:
-            await self._message_callback(PlatformMessage(
-                platform=self.spec.platform_id,
-                sender_id=sender_email,
-                sender_name=sender_name or sender_email,
-                text=text,
-                channel_id=msg.get("threadId", ""),
-                message_id=msg_id,
-                timestamp=timestamp,
-                raw=msg,
-            ))
+            await self._message_callback(
+                PlatformMessage(
+                    platform=self.spec.platform_id,
+                    sender_id=sender_email,
+                    sender_name=sender_name or sender_email,
+                    text=text,
+                    channel_id=msg.get("threadId", ""),
+                    message_id=msg_id,
+                    timestamp=timestamp,
+                    raw=msg,
+                )
+            )
 
     # ----- REST methods -----
 
     @staticmethod
-    def _encode_email(to_email: str, from_email: str, subject: str, body: str,
-                      attachments: Optional[List[str]] = None) -> str:
+    def _encode_email(
+        to_email: str,
+        from_email: str,
+        subject: str,
+        body: str,
+        attachments: Optional[List[str]] = None,
+    ) -> str:
         msg = MIMEMultipart()
         msg["to"] = to_email
         msg["from"] = from_email
@@ -312,20 +352,31 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                     part = MIMEBase(maintype, subtype)
                     part.set_payload(f.read())
                     encoders.encode_base64(part)
-                    part.add_header("Content-Disposition", f'attachment; filename="{os.path.basename(file_path)}"')
+                    part.add_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{os.path.basename(file_path)}"',
+                    )
                     msg.attach(part)
 
         return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
-    def send_email(self, to: str, subject: str, body: str,
-                   from_email: Optional[str] = None,
-                   attachments: Optional[List[str]] = None) -> Result:
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        from_email: Optional[str] = None,
+        attachments: Optional[List[str]] = None,
+    ) -> Result:
         cred = self._load()
         sender = from_email or cred.email
         raw = self._encode_email(to, sender, subject, body, attachments)
         return http_request(
-            "POST", f"{GMAIL_API_BASE}/users/me/messages/send",
-            headers=self._headers(), json={"raw": raw}, expected=(200,),
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/send",
+            headers=self._headers(),
+            json={"raw": raw},
+            expected=(200,),
         )
 
     def list_emails(self, n: int = 5, unread_only: bool = True) -> Result:
@@ -333,8 +384,11 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         if unread_only:
             params["q"] = "is:unread"
         return http_request(
-            "GET", f"{GMAIL_API_BASE}/users/me/messages",
-            headers=self._auth_header(), params=params, expected=(200,),
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("messages", []),
         )
 
@@ -343,12 +397,18 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
 
         def _shape(msg):
             email_info: Dict[str, Any] = {
-                "id": msg.get("id"), "snippet": msg.get("snippet", ""),
-                "headers": {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])},
+                "id": msg.get("id"),
+                "snippet": msg.get("snippet", ""),
+                "headers": {
+                    h["name"]: h["value"]
+                    for h in msg.get("payload", {}).get("headers", [])
+                },
             }
             if full_body and "parts" in msg.get("payload", {}):
                 for part in msg["payload"]["parts"]:
-                    if part.get("mimeType") == "text/plain" and "data" in part.get("body", {}):
+                    if part.get("mimeType") == "text/plain" and "data" in part.get(
+                        "body", {}
+                    ):
                         email_info["body"] = base64.urlsafe_b64decode(
                             part["body"]["data"].encode("ASCII")
                         ).decode("utf-8")
@@ -356,10 +416,15 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             return email_info
 
         return http_request(
-            "GET", f"{GMAIL_API_BASE}/users/me/messages/{message_id}",
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}",
             headers=self._auth_header(),
-            params={"format": format_type, "metadataHeaders": ["From", "To", "Subject", "Date"]},
-            expected=(200,), transform=_shape,
+            params={
+                "format": format_type,
+                "metadataHeaders": ["From", "To", "Subject", "Date"],
+            },
+            expected=(200,),
+            transform=_shape,
         )
 
     def read_top_emails(self, n: int = 5, full_body: bool = False) -> Result:
@@ -369,7 +434,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
         emails: List[Dict[str, Any]] = []
         for msg in listing.get("result", []):
             detail = self.get_email(msg["id"], full_body=full_body)
-            emails.append(detail.get("result", detail) if "error" not in detail else detail)
+            emails.append(
+                detail.get("result", detail) if "error" not in detail else detail
+            )
         return {"ok": True, "result": emails}
 
     # ----- Messages: search / modify / trash / untrash / delete / batch -----

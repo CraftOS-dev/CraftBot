@@ -53,8 +53,8 @@ _EMBEDDED_CREDENTIALS: dict[str, dict[str, list[str]]] = {
     },
     "telegram": {
         "api_id": ["MzQyNDc4MTc="],
-        "api_hash": ["N2Q5ZjkzN2ZkNzAzYTI0NTkyMDQzNGM2YjU5MDE4OGE="]
-    }
+        "api_hash": ["N2Q5ZjkzN2ZkNzAzYTI0NTkyMDQzNGM2YjU5MDE4OGE="],
+    },
 }
 
 

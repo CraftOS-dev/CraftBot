@@ -1,5 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Outlook integration - Microsoft Graph + OAuth (PKCE)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -56,6 +57,7 @@ OUTLOOK = IntegrationSpec(
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(OUTLOOK.name)
 class OutlookHandler(IntegrationHandler):
     spec = OUTLOOK
@@ -84,13 +86,16 @@ class OutlookHandler(IntegrationHandler):
         info = result.get("userinfo", {})
         user_email = info.get("mail") or info.get("userPrincipalName", "")
 
-        save_credential(self.spec.cred_file, OutlookCredential(
-            access_token=result["access_token"],
-            refresh_token=result.get("refresh_token", ""),
-            token_expiry=time.time() + result.get("expires_in", 3600),
-            client_id=ConfigStore.get_oauth("OUTLOOK_CLIENT_ID"),
-            email=user_email,
-        ))
+        save_credential(
+            self.spec.cred_file,
+            OutlookCredential(
+                access_token=result["access_token"],
+                refresh_token=result.get("refresh_token", ""),
+                token_expiry=time.time() + result.get("expires_in", 3600),
+                client_id=ConfigStore.get_oauth("OUTLOOK_CLIENT_ID"),
+                email=user_email,
+            ),
+        )
         return True, f"Outlook connected as {user_email}"
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
@@ -110,6 +115,7 @@ class OutlookHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client
 # -----------------------------------------------------------------
+
 
 @register_client
 class OutlookClient(BasePlatformClient):
@@ -145,12 +151,17 @@ class OutlookClient(BasePlatformClient):
         cred = self._load()
         if not all([cred.client_id, cred.refresh_token]):
             return None
-        result = http_request("POST", MS_TOKEN_URL, data={
-            "client_id": cred.client_id,
-            "refresh_token": cred.refresh_token,
-            "grant_type": "refresh_token",
-            "scope": OUTLOOK_SCOPES,
-        }, expected=(200,))
+        result = http_request(
+            "POST",
+            MS_TOKEN_URL,
+            data={
+                "client_id": cred.client_id,
+                "refresh_token": cred.refresh_token,
+                "grant_type": "refresh_token",
+                "scope": OUTLOOK_SCOPES,
+            },
+            expected=(200,),
+        )
         if "error" in result:
             return None
         data = result["result"]
@@ -162,7 +173,10 @@ class OutlookClient(BasePlatformClient):
         return cred.access_token
 
     def _headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self._ensure_token()}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self._ensure_token()}",
+            "Content-Type": "application/json",
+        }
 
     def _auth_header(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self._ensure_token()}"}
@@ -170,11 +184,15 @@ class OutlookClient(BasePlatformClient):
     async def connect(self) -> None:
         cred = self._load()
         if not cred.access_token:
-            raise RuntimeError("Outlook credentials need to be updated. Run /outlook logout then /outlook login.")
+            raise RuntimeError(
+                "Outlook credentials need to be updated. Run /outlook logout then /outlook login."
+            )
         self._connected = True
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        return self.send_email(to=recipient, subject=kwargs.get("subject", ""), body=text)
+        return self.send_email(
+            to=recipient, subject=kwargs.get("subject", ""), body=text
+        )
 
     @property
     def supports_listening(self) -> bool:
@@ -210,7 +228,9 @@ class OutlookClient(BasePlatformClient):
         self._poll_task = None
 
     async def _async_get_profile(self) -> Dict[str, Any]:
-        result = await arequest("GET", f"{GRAPH_API_BASE}/me", headers=self._auth_header(), expected=(200,))
+        result = await arequest(
+            "GET", f"{GRAPH_API_BASE}/me", headers=self._auth_header(), expected=(200,)
+        )
         if "error" in result:
             raise RuntimeError(f"Graph /me {result['error']}")
         return result["result"]
@@ -233,7 +253,8 @@ class OutlookClient(BasePlatformClient):
         if not self._last_poll_time:
             return
         result = await arequest(
-            "GET", f"{GRAPH_API_BASE}/me/messages",
+            "GET",
+            f"{GRAPH_API_BASE}/me/messages",
             headers=self._auth_header(),
             params={
                 "$filter": f"receivedDateTime ge {self._last_poll_time}",
@@ -281,25 +302,35 @@ class OutlookClient(BasePlatformClient):
 
         timestamp = None
         try:
-            timestamp = datetime.fromisoformat(msg.get("receivedDateTime", "").replace("Z", "+00:00"))
+            timestamp = datetime.fromisoformat(
+                msg.get("receivedDateTime", "").replace("Z", "+00:00")
+            )
         except Exception:
             pass
 
         if self._message_callback:
-            await self._message_callback(PlatformMessage(
-                platform=self.spec.platform_id,
-                sender_id=sender_email,
-                sender_name=sender_name,
-                text=text,
-                channel_id=msg.get("conversationId", ""),
-                message_id=msg.get("id", ""),
-                timestamp=timestamp,
-                raw=msg,
-            ))
+            await self._message_callback(
+                PlatformMessage(
+                    platform=self.spec.platform_id,
+                    sender_id=sender_email,
+                    sender_name=sender_name,
+                    text=text,
+                    channel_id=msg.get("conversationId", ""),
+                    message_id=msg.get("id", ""),
+                    timestamp=timestamp,
+                    raw=msg,
+                )
+            )
 
     # --- Email API ---
-    def send_email(self, to: str, subject: str, body: str, cc: Optional[str] = None,
-                   html: bool = False) -> Result:
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        cc: Optional[str] = None,
+        html: bool = False,
+    ) -> Result:
         content_type = "HTML" if html else "Text"
         message: Dict[str, Any] = {
             "subject": subject,
@@ -307,18 +338,24 @@ class OutlookClient(BasePlatformClient):
             "toRecipients": [{"emailAddress": {"address": to}}],
         }
         if cc:
-            message["ccRecipients"] = [{"emailAddress": {"address": addr.strip()}} for addr in cc.split(",")]
+            message["ccRecipients"] = [
+                {"emailAddress": {"address": addr.strip()}} for addr in cc.split(",")
+            ]
         return http_request(
-            "POST", f"{GRAPH_API_BASE}/me/sendMail",
+            "POST",
+            f"{GRAPH_API_BASE}/me/sendMail",
             headers=self._headers(),
             json={"message": message, "saveToSentItems": True},
             expected=(202,),
             transform=lambda _d: {"sent": True, "to": to, "subject": subject},
         )
 
-    def list_emails(self, n: int = 10, unread_only: bool = False, folder: str = "inbox") -> Result:
+    def list_emails(
+        self, n: int = 10, unread_only: bool = False, folder: str = "inbox"
+    ) -> Result:
         params: Dict[str, Any] = {
-            "$top": n, "$orderby": "receivedDateTime desc",
+            "$top": n,
+            "$orderby": "receivedDateTime desc",
             "$select": "id,from,subject,receivedDateTime,isRead,bodyPreview",
         }
         if unread_only:
@@ -328,20 +365,25 @@ class OutlookClient(BasePlatformClient):
             emails = []
             for msg in d.get("value", []):
                 from_obj = msg.get("from", {}).get("emailAddress", {})
-                emails.append({
-                    "id": msg.get("id"),
-                    "from": f"{from_obj.get('name', '')} <{from_obj.get('address', '')}>",
-                    "subject": msg.get("subject", ""),
-                    "date": msg.get("receivedDateTime", ""),
-                    "is_read": msg.get("isRead", False),
-                    "preview": msg.get("bodyPreview", ""),
-                })
+                emails.append(
+                    {
+                        "id": msg.get("id"),
+                        "from": f"{from_obj.get('name', '')} <{from_obj.get('address', '')}>",
+                        "subject": msg.get("subject", ""),
+                        "date": msg.get("receivedDateTime", ""),
+                        "is_read": msg.get("isRead", False),
+                        "preview": msg.get("bodyPreview", ""),
+                    }
+                )
             return {"emails": emails, "count": len(emails)}
 
         return http_request(
-            "GET", f"{GRAPH_API_BASE}/me/mailFolders/{folder}/messages",
-            headers=self._auth_header(), params=params,
-            expected=(200,), transform=_shape,
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder}/messages",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
+            transform=_shape,
         )
 
     def get_email(self, message_id: str) -> Result:
@@ -361,30 +403,44 @@ class OutlookClient(BasePlatformClient):
             }
 
         return http_request(
-            "GET", f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            "GET",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
             headers=self._auth_header(),
-            params={"$select": "id,from,toRecipients,subject,body,receivedDateTime,conversationId"},
-            expected=(200,), transform=_shape,
+            params={
+                "$select": "id,from,toRecipients,subject,body,receivedDateTime,conversationId"
+            },
+            expected=(200,),
+            transform=_shape,
         )
 
     def mark_as_read(self, message_id: str) -> Result:
         return http_request(
-            "PATCH", f"{GRAPH_API_BASE}/me/messages/{message_id}",
-            headers=self._headers(), json={"isRead": True},
-            expected=(200,), transform=lambda _d: {},
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            headers=self._headers(),
+            json={"isRead": True},
+            expected=(200,),
+            transform=lambda _d: {},
         )
 
     def list_folders(self) -> Result:
         return http_request(
-            "GET", f"{GRAPH_API_BASE}/me/mailFolders",
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailFolders",
             headers=self._auth_header(),
             params={"$select": "id,displayName,totalItemCount,unreadItemCount"},
             expected=(200,),
-            transform=lambda d: {"folders": [
-                {"id": f.get("id"), "name": f.get("displayName"),
-                 "total": f.get("totalItemCount"), "unread": f.get("unreadItemCount")}
-                for f in d.get("value", [])
-            ]},
+            transform=lambda d: {
+                "folders": [
+                    {
+                        "id": f.get("id"),
+                        "name": f.get("displayName"),
+                        "total": f.get("totalItemCount"),
+                        "unread": f.get("unreadItemCount"),
+                    }
+                    for f in d.get("value", [])
+                ]
+            },
         )
 
     def read_top_emails(self, n: int = 5, full_body: bool = False) -> Result:
@@ -397,7 +453,9 @@ class OutlookClient(BasePlatformClient):
         detailed = []
         for e_info in emails_summary:
             detail = self.get_email(e_info["id"])
-            detailed.append(detail.get("result", e_info) if "error" not in detail else e_info)
+            detailed.append(
+                detail.get("result", e_info) if "error" not in detail else e_info
+            )
         return {"ok": True, "result": detailed}
 
     # ----- Helper: build a Recipient list payload -----

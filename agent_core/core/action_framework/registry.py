@@ -5,6 +5,7 @@ Action framework registry for registering and discovering actions.
 The registry uses a singleton pattern to hold all discovered actions
 and provides platform-aware action lookup.
 """
+
 import functools
 import platform as platform_lib
 from typing import List, Dict, Any, Optional, Callable, Union
@@ -41,8 +42,8 @@ def _strip_decorator(source_code: str) -> str:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 # AST lineno is 1-based, gives the line where 'def' or 'async def' starts
                 func_line = node.lineno - 1  # Convert to 0-based index
-                lines = source_code.split('\n')
-                return '\n'.join(lines[func_line:])
+                lines = source_code.split("\n")
+                return "\n".join(lines[func_line:])
 
         # No function found, return original
         return source_code
@@ -54,6 +55,7 @@ def _strip_decorator(source_code: str) -> str:
 @dataclass
 class ActionMetadata:
     """Holds configuration data defining the action contract."""
+
     name: str
     description: str = ""
     mode: str = "ALL"
@@ -82,18 +84,20 @@ class ActionMetadata:
             'mouse_click' -> 'Mouse click'
             'web_search' -> 'Web search'
         """
-        return self.name.replace('_', ' ').capitalize()
+        return self.name.replace("_", " ").capitalize()
 
 
 @dataclass
 class RegisteredAction:
     """Combines the actual Python callable with its metadata."""
+
     handler: Callable[..., Dict[str, Any]]
     metadata: ActionMetadata
 
 
 class ActionRegistry:
     """Singleton registry to hold all discovered actions."""
+
     _instance = None
 
     # Storage Structure:
@@ -123,12 +127,16 @@ class ActionRegistry:
             platform_key = platform.lower()
 
             if platform_key in self._registry[name]:
-                logger.warning(f"Overwriting existing action implementation for '{name}' on platform '{platform_key}'")
+                logger.warning(
+                    f"Overwriting existing action implementation for '{name}' on platform '{platform_key}'"
+                )
 
             self._registry[name][platform_key] = action_def
             logger.debug(f"Registered '{name}' for platform: '{platform_key}'")
 
-    def get_action_implementation(self, name: str, target_platform: Optional[str] = None) -> Optional[RegisteredAction]:
+    def get_action_implementation(
+        self, name: str, target_platform: Optional[str] = None
+    ) -> Optional[RegisteredAction]:
         """
         Retrieves the best fit action implementation.
         1. Looks for exact platform match (e.g., 'linux').
@@ -156,7 +164,9 @@ class ActionRegistry:
         # 3. No suitable implementation found
         return None
 
-    def get_testable_actions(self, target_platform: Optional[str] = None) -> List[RegisteredAction]:
+    def get_testable_actions(
+        self, target_platform: Optional[str] = None
+    ) -> List[RegisteredAction]:
         """
         Returns a list of unique action implementations that run on the current OS
         AND have valid test_payload data configured for simulation.
@@ -178,7 +188,9 @@ class ActionRegistry:
                 is_simulated = payload.get("simulated_mode", True)
 
                 if is_simulated is False:
-                    logger.debug(f"Skipping test for action '{impl.metadata.name}' because simulated_mode is False.")
+                    logger.debug(
+                        f"Skipping test for action '{impl.metadata.name}' because simulated_mode is False."
+                    )
                     continue
 
                 testable_actions.append(impl)
@@ -223,7 +235,7 @@ class ActionRegistry:
 
         # 1. Extract source code for the main implementation
         # Check for stored source code first (used by MCP handlers which are dynamically created)
-        if hasattr(main_impl.handler, '_mcp_source_code'):
+        if hasattr(main_impl.handler, "_mcp_source_code"):
             main_code_str = main_impl.handler._mcp_source_code
         else:
             try:
@@ -231,7 +243,9 @@ class ActionRegistry:
                 dedented_code = textwrap.dedent(raw_code)
                 main_code_str = _strip_decorator(dedented_code)
             except Exception as e:
-                logger.error(f"Could not extract source for action '{logical_name}': {e}")
+                logger.error(
+                    f"Could not extract source for action '{logical_name}': {e}"
+                )
                 main_code_str = f"# Error extracting source code: {e}"
 
         # 2. Build the base JSON structure with required hardcoded fields
@@ -257,7 +271,7 @@ class ActionRegistry:
             if impl == main_impl:
                 continue
 
-            if hasattr(impl.handler, '_mcp_source_code'):
+            if hasattr(impl.handler, "_mcp_source_code"):
                 override_code_str = impl.handler._mcp_source_code
             else:
                 try:
@@ -265,7 +279,9 @@ class ActionRegistry:
                     override_dedented = textwrap.dedent(override_raw)
                     override_code_str = _strip_decorator(override_dedented)
                 except Exception as e:
-                    logger.warning(f"Could not extract override source for {logical_name} on {platform_key}: {e}")
+                    logger.warning(
+                        f"Could not extract override source for {logical_name} on {platform_key}: {e}"
+                    )
                     continue
 
             action_json["platform_overrides"][platform_key] = {
@@ -309,7 +325,9 @@ def install_all_action_requirements():
         logger.info("No action requirements to install.")
         return
 
-    logger.info(f"Checking {len(all_requirements)} unique requirements from registered actions...")
+    logger.info(
+        f"Checking {len(all_requirements)} unique requirements from registered actions..."
+    )
 
     # Check which packages need to be installed
     packages_to_install = []
@@ -324,7 +342,9 @@ def install_all_action_requirements():
         logger.info("All action requirements are already satisfied.")
         return
 
-    logger.info(f"Installing {len(packages_to_install)} missing packages: {packages_to_install}")
+    logger.info(
+        f"Installing {len(packages_to_install)} missing packages: {packages_to_install}"
+    )
 
     # Install all missing packages in one pip call for efficiency
     try:
@@ -332,7 +352,7 @@ def install_all_action_requirements():
             [sys.executable, "-m", "pip", "install", "--quiet"] + packages_to_install,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
         )
         if result.returncode == 0:
             logger.info(f"Successfully installed packages: {packages_to_install}")
@@ -344,16 +364,23 @@ def install_all_action_requirements():
                         [sys.executable, "-m", "pip", "install", "--quiet", pkg],
                         capture_output=True,
                         text=True,
-                        timeout=120
+                        timeout=120,
                     )
                     if pkg_result.returncode == 0:
                         logger.info(f"Installed: {pkg}")
                     else:
                         stderr_lower = pkg_result.stderr.lower()
-                        if "no matching distribution" in stderr_lower or "could not find" in stderr_lower:
-                            logger.debug(f"Package '{pkg}' not found on PyPI (may be a class/module name)")
+                        if (
+                            "no matching distribution" in stderr_lower
+                            or "could not find" in stderr_lower
+                        ):
+                            logger.debug(
+                                f"Package '{pkg}' not found on PyPI (may be a class/module name)"
+                            )
                         else:
-                            logger.warning(f"Could not install '{pkg}': {pkg_result.stderr.strip()[:100]}")
+                            logger.warning(
+                                f"Could not install '{pkg}': {pkg_result.stderr.strip()[:100]}"
+                            )
                 except Exception as e:
                     logger.warning(f"Error installing '{pkg}': {e}")
     except subprocess.TimeoutExpired:
@@ -425,10 +452,7 @@ def action(
         )
 
         # 2. Create the full registration object
-        action_definition = RegisteredAction(
-            handler=func,
-            metadata=metadata
-        )
+        action_definition = RegisteredAction(handler=func, metadata=metadata)
 
         # 3. Register immediately with the singleton instance upon import
         registry_instance.register(action_definition)
@@ -437,5 +461,7 @@ def action(
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator_factory

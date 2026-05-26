@@ -515,7 +515,7 @@ export function OnboardingPage() {
 
   const handleSkip = useCallback(() => skipOnboardingStep(), [skipOnboardingStep])
 
-  // Ctrl+S to skip optional steps (matches TUI behavior)
+  // Ctrl+S to skip optional steps
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
