@@ -9,26 +9,20 @@ Run this before the app directory, using 'python -m app.main'
 """
 
 # ============================================================================
-# CRITICAL: Suppress console logging and terminal escape sequences BEFORE imports
-# This prevents log messages from corrupting the Textual TUI display.
+# CRITICAL: Suppress console logging BEFORE imports
 # Must be done before any module calls logging.basicConfig()
 # ============================================================================
 import os as _os
 import warnings as _warnings
-import sys as _sys
-
-# Suppress Kitty graphics protocol detection (prevents garbage output like "Gi=...")
-# This tells Textual not to query for Kitty graphics support
-_os.environ.setdefault("KITTEN_NO_GRAPHICS", "1")
-_os.environ.setdefault("TEXTUAL_SCREENSHOT", "0")
 
 # Suppress all Python warnings during startup (DeprecationWarning, RuntimeWarning, etc.)
-_warnings.filterwarnings('ignore')
+_warnings.filterwarnings("ignore")
 
 # Suppress library-specific warnings
 _os.environ.setdefault("PYTHONWARNINGS", "ignore")
 
 import logging
+
 
 def _suppress_console_logging_early() -> None:
     """
@@ -44,18 +38,18 @@ def _suppress_console_logging_early() -> None:
         root_logger.addHandler(logging.NullHandler())
     # Set a high level to minimize processing
     root_logger.setLevel(logging.CRITICAL)
-    
+
     # Also suppress warnings from specific noisy libraries
     logging.getLogger("urllib3").setLevel(logging.CRITICAL)
     logging.getLogger("asyncio").setLevel(logging.CRITICAL)
     logging.getLogger("websockets").setLevel(logging.CRITICAL)
+
 
 _suppress_console_logging_early()
 # ============================================================================
 
 import argparse
 import asyncio
-import sys
 
 # Register agent_core state provider and config before importing AgentBase
 # This ensures shared code can access state via get_state()
@@ -68,7 +62,14 @@ StateRegistry.register(lambda: STATE)
 ConfigRegistry.register_workspace_root(str(get_project_root()))
 
 # Import settings reader (reads directly from settings.json)
-from app.config import get_llm_provider, get_vlm_provider, get_api_key, get_base_url, get_llm_model, get_vlm_model
+from app.config import (
+    get_llm_provider,
+    get_vlm_provider,
+    get_api_key,
+    get_base_url,
+    get_llm_model,
+    get_vlm_model,
+)
 from app.agent_base import AgentBase
 
 
@@ -85,7 +86,7 @@ def _parse_cli_args() -> dict:
     parser.add_argument(
         "--cli",
         action="store_true",
-        help="Run in CLI mode instead of TUI",
+        help="Run in CLI mode (terminal command-line interface)",
     )
     parser.add_argument(
         "--browser",
@@ -129,18 +130,18 @@ def _initial_settings() -> tuple:
     # Remote (Ollama) doesn't require API key
     has_key = bool(api_key) or provider == "remote"
 
-
     return provider, api_key, base_url, model, vlm_prov, vlm_mod, has_key
 
 
 async def main_async() -> None:
     # Parse CLI arguments
     cli_args = _parse_cli_args()
-    cli_mode = cli_args.get("cli", False)
     browser_mode = cli_args.get("browser", False)
 
     # Get settings from settings.json
-    provider, api_key, base_url, model, vlm_prov, vlm_mod, has_valid_key = _initial_settings()
+    provider, api_key, base_url, model, vlm_prov, vlm_mod, has_valid_key = (
+        _initial_settings()
+    )
 
     # CLI args override settings.json if provided
     if cli_args.get("provider"):
@@ -155,7 +156,7 @@ async def main_async() -> None:
         has_valid_key = True
 
     # Use deferred initialization if no valid API key is configured yet
-    # This allows the TUI/CLI to start so first-time users can configure settings
+    # This allows the CLI to start so first-time users can configure settings
     agent = AgentBase(
         data_dir="app/data",
         chroma_path="./chroma_db",
@@ -170,17 +171,21 @@ async def main_async() -> None:
 
     # Initialize onboarding manager with agent reference
     from app.onboarding import onboarding_manager
+
     onboarding_manager.set_agent(agent)
 
-    # Determine interface mode: browser > cli > tui (default)
+    # Determine interface mode: browser if requested, otherwise CLI
     if browser_mode:
         interface_mode = "browser"
-    elif cli_mode:
-        interface_mode = "cli"
     else:
-        interface_mode = "tui"
+        interface_mode = "cli"
 
-    await agent.run(provider=provider, api_key=api_key, base_url=base_url, interface_mode=interface_mode)
+    await agent.run(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        interface_mode=interface_mode,
+    )
 
 
 def main() -> None:

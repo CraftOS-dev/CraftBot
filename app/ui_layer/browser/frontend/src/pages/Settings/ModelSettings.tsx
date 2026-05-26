@@ -8,6 +8,28 @@ import { Button, Badge } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import {
+  setProvider as setModelProvider,
+  setCurrentLlmModel,
+  setCurrentVlmModel,
+  setSlowModeEnabled,
+  setOllamaModels,
+} from '../../store/slices/modelSettingsSlice'
+import {
+  selectModelProviders,
+  selectModelProvider,
+  selectApiKeys,
+  selectBaseUrls,
+  selectCurrentLlmModel as selectCurrentLlmModelSel,
+  selectCurrentVlmModel as selectCurrentVlmModelSel,
+  selectSlowModeEnabled,
+  selectOllamaModels,
+  selectOllamaAvailable,
+  selectModelHasLoadedProviders,
+  selectModelHasLoadedSettings,
+  selectModelHasLoadedSlowMode,
+} from '../../store/selectors/modelSettings'
 import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
   OpenRouterModelPicker,
@@ -50,41 +72,43 @@ interface SuggestedModel {
 export function ModelSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
-
-  // Provider list state
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const dispatch = useAppDispatch()
   const hasInitialized = useRef(false)
 
-  // Current settings state
-  const [provider, setProvider] = useState('anthropic')
-  const [apiKeys, setApiKeys] = useState<Record<string, ApiKeyStatus>>({})
-  const [baseUrls, setBaseUrls] = useState<Record<string, string>>({})
-  const [currentLlmModel, setCurrentLlmModel] = useState('')
-  const [currentVlmModel, setCurrentVlmModel] = useState('')
+  // Slice-backed (modelSettingsSlice) — cached across tab remounts.
+  const providers = useAppSelector(selectModelProviders)
+  const provider = useAppSelector(selectModelProvider)
+  const apiKeys = useAppSelector(selectApiKeys)
+  const baseUrls = useAppSelector(selectBaseUrls)
+  const currentLlmModel = useAppSelector(selectCurrentLlmModelSel)
+  const currentVlmModel = useAppSelector(selectCurrentVlmModelSel)
+  const slowModeEnabled = useAppSelector(selectSlowModeEnabled)
+  const ollamaModels = useAppSelector(selectOllamaModels)
+  const ollamaAvailable = useAppSelector(selectOllamaAvailable)
+  const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
+  const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
+  const hasLoadedSlowMode = useAppSelector(selectModelHasLoadedSlowMode)
+  const isLoading = !hasLoadedProviders
+  const isLoadingSlowMode = !hasLoadedSlowMode
 
-  // Form state
+  // Local setters (write-through to slice for any code that used to call setX directly).
+  const setProvider = (p: string) => dispatch(setModelProvider(p))
+
+  // Form state (transient — local).
   const [newApiKey, setNewApiKey] = useState('')
   const [newBaseUrl, setNewBaseUrl] = useState('')
   const [newLlmModel, setNewLlmModel] = useState('')
   const [newVlmModel, setNewVlmModel] = useState('')
 
-  // Slow mode state
-  const [slowModeEnabled, setSlowModeEnabled] = useState(false)
-  const [isLoadingSlowMode, setIsLoadingSlowMode] = useState(true)
-
-  // UI state
+  // UI state (transient — local).
   const [isSaving, setIsSaving] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testBeforeSave, setTestBeforeSave] = useState(false)
 
-  // Ollama model list state
-  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  // Ollama list loading flag (transient). Models + availability are slice-backed.
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
-  // null = not yet checked, true = running, false = not installed / not reachable
-  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null)
 
   // Ollama auto-install state
   const [ollamaInstallPhase, setOllamaInstallPhase] = useState<'idle' | 'installing' | 'error'>('idle')
@@ -115,57 +139,24 @@ export function ModelSettings() {
     return `${(n / 1024).toFixed(0)} KB`
   }
 
-  // Set up message handlers
+  // Side-effect message handlers (toasts, loading flag flips, follow-up
+  // sends). Slice-owned state is updated by modelSettingsSlice via the
+  // registry — those duplicate paths are removed here.
   useEffect(() => {
     if (!isConnected) return
 
     const cleanups = [
-      onMessage('model_providers_get', (data: unknown) => {
-        const d = data as { success: boolean; providers: ProviderInfo[] }
-        if (d.success && d.providers) {
-          setProviders(d.providers)
-        }
-        setIsLoading(false)
-      }),
-      onMessage('model_settings_get', (data: unknown) => {
-        const d = data as {
-          success: boolean
-          llm_provider: string
-          llm_model: string | null
-          vlm_model: string | null
-          api_keys: Record<string, ApiKeyStatus>
-          base_urls: Record<string, string>
-        }
-        if (d.success && !hasInitialized.current) {
-          setProvider(d.llm_provider || 'anthropic')
-          setApiKeys(d.api_keys || {})
-          setBaseUrls(d.base_urls || {})
-
-          const currentProv = providers.find(p => p.id === (d.llm_provider || 'anthropic'))
-          setCurrentLlmModel(d.llm_model || currentProv?.llm_model || '')
-          setCurrentVlmModel(d.vlm_model || currentProv?.vlm_model || '')
+      onMessage('model_settings_get', () => {
+        if (!hasInitialized.current) {
           setNewLlmModel('')
           setNewVlmModel('')
           hasInitialized.current = true
         }
       }),
       onMessage('model_settings_update', (data: unknown) => {
-        const d = data as {
-          success: boolean
-          llm_provider?: string
-          llm_model?: string | null
-          vlm_model?: string | null
-          api_keys?: Record<string, ApiKeyStatus>
-          base_urls?: Record<string, string>
-          error?: string
-        }
+        const d = data as { success: boolean; error?: string }
         setIsSaving(false)
         if (d.success) {
-          if (d.llm_provider) setProvider(d.llm_provider)
-          if (d.api_keys) setApiKeys(d.api_keys)
-          if (d.base_urls) setBaseUrls(d.base_urls)
-          if (d.llm_model !== undefined) setCurrentLlmModel(d.llm_model || '')
-          if (d.vlm_model !== undefined) setCurrentVlmModel(d.vlm_model || '')
           setNewApiKey('')
           setNewBaseUrl('')
           setNewLlmModel('')
@@ -204,11 +195,9 @@ export function ModelSettings() {
         }
       }),
       onMessage('ollama_models_get', (data: unknown) => {
-        const d = data as { success: boolean; models: string[]; error?: string }
+        const d = data as { success: boolean; models: string[] }
         setOllamaModelsLoading(false)
-        setOllamaAvailable(d.success)
         if (d.success && d.models && d.models.length > 0) {
-          setOllamaModels(d.models)
           // Auto-select first available model if current selection isn't installed
           setNewLlmModel(prev => {
             const effective = prev || currentLlmModel
@@ -226,8 +215,6 @@ export function ModelSettings() {
             }
             return prev
           })
-        } else {
-          setOllamaModels([])
         }
       }),
       onMessage('local_llm_suggested_models', (data: unknown) => {
@@ -253,7 +240,7 @@ export function ModelSettings() {
           send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
           // Auto-switch to remote provider with the pulled model and save immediately
           // so chat/tasks start using the local model without requiring manual save
-          setProvider('remote')
+          dispatch(setModelProvider('remote'))
           setNewLlmModel(pulledModel)
           setIsSaving(true)
           send('model_settings_update', {
@@ -269,17 +256,9 @@ export function ModelSettings() {
           showToast('error', d.error || 'Model download failed')
         }
       }),
-      onMessage('slow_mode_get', (data: unknown) => {
-        const d = data as { success: boolean; enabled: boolean; tpm_limit: number }
-        setIsLoadingSlowMode(false)
-        if (d.success) {
-          setSlowModeEnabled(d.enabled)
-        }
-      }),
       onMessage('slow_mode_set', (data: unknown) => {
         const d = data as { success: boolean; enabled: boolean; error?: string }
         if (d.success) {
-          setSlowModeEnabled(d.enabled)
           showToast('success', `Slow mode ${d.enabled ? 'enabled' : 'disabled'}`)
         } else {
           showToast('error', d.error || 'Failed to update slow mode')
@@ -296,7 +275,6 @@ export function ModelSettings() {
           setOllamaInstallLog([])
           // Re-check if Ollama is now reachable
           setOllamaModelsLoading(true)
-          setOllamaAvailable(null)
           send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
         } else {
           setOllamaInstallPhase('error')
@@ -306,24 +284,22 @@ export function ModelSettings() {
     ]
 
     return () => cleanups.forEach(cleanup => cleanup())
-  }, [isConnected, onMessage, send, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel])
+  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, currentLlmModel, currentVlmModel, showToast])
 
-  // Load initial data only once when connected
+  // Load initial data only once when connected, cached across remounts.
   useEffect(() => {
-    if (!isConnected || hasInitialized.current) return
-
-    send('model_providers_get')
-    send('model_settings_get')
-    send('slow_mode_get')
-  }, [isConnected, send])
+    if (!isConnected) return
+    if (!hasLoadedProviders) send('model_providers_get')
+    if (!hasLoadedSettings) send('model_settings_get')
+    if (!hasLoadedSlowMode) send('slow_mode_get')
+  }, [isConnected, send, hasLoadedProviders, hasLoadedSettings, hasLoadedSlowMode])
 
   // Fetch Ollama models whenever the active provider is 'remote'
   useEffect(() => {
     if (!isConnected || provider !== 'remote') return
     setOllamaModelsLoading(true)
-    setOllamaAvailable(null)
     send('ollama_models_get', { baseUrl: baseUrls['remote'] || undefined })
-  }, [provider, isConnected])
+  }, [provider, isConnected, send, baseUrls])
 
   const currentProvider = providers.find(p => p.id === provider)
   const hasKey = apiKeys[provider]?.has_key || newApiKey.length > 0
@@ -337,12 +313,12 @@ export function ModelSettings() {
     if (hasInitialized.current) return
     const selectedProvider = providers.find(p => p.id === provider)
     if (selectedProvider && !newLlmModel && !currentLlmModel) {
-      setCurrentLlmModel(selectedProvider.llm_model || '')
+      dispatch(setCurrentLlmModel(selectedProvider.llm_model || ''))
     }
     if (selectedProvider && !newVlmModel && !currentVlmModel) {
-      setCurrentVlmModel(selectedProvider.vlm_model || '')
+      dispatch(setCurrentVlmModel(selectedProvider.vlm_model || ''))
     }
-  }, [provider, providers])
+  }, [provider, providers, newLlmModel, newVlmModel, currentLlmModel, currentVlmModel, dispatch])
 
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider)
@@ -358,8 +334,8 @@ export function ModelSettings() {
     // Immediately set model to registry default for new provider so the field
     // shows a sensible value before the user types anything.
     const selectedProvider = providers.find(p => p.id === newProvider)
-    setCurrentLlmModel(selectedProvider?.llm_model || '')
-    setCurrentVlmModel(selectedProvider?.vlm_model || '')
+    dispatch(setCurrentLlmModel(selectedProvider?.llm_model || ''))
+    dispatch(setCurrentVlmModel(selectedProvider?.vlm_model || ''))
   }
 
   const handleTestConnection = () => {
@@ -504,7 +480,7 @@ export function ModelSettings() {
                               className={styles.retryOllamaBtn}
                               onClick={() => {
                                 setOllamaModelsLoading(true)
-                                setOllamaAvailable(null)
+                                dispatch(setOllamaModels({ models: [], available: false }))
                                 send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
                               }}
                             >
@@ -792,7 +768,7 @@ export function ModelSettings() {
               className={styles.toggle}
               checked={slowModeEnabled}
               onChange={(e) => {
-                setSlowModeEnabled(e.target.checked)
+                dispatch(setSlowModeEnabled(e.target.checked))
                 send('slow_mode_set', { enabled: e.target.checked })
               }}
               disabled={isLoadingSlowMode}

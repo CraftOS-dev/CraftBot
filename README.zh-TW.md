@@ -59,7 +59,7 @@ CraftBot 正在等待你的指令，立刻建立屬於你自己的 CraftBot 吧�
 - **跨平台** — 完整支援 Windows、macOS 與 Linux，並提供對應的平台程式碼與 Docker 容器化。
 
 > [!IMPORTANT]
-> **GUI 模式已停用。** CraftBot 不再支援 GUI（桌面自動化）模式。請改用 Browser、TUI 或 CLI 模式。
+> **GUI 模式已停用。** CraftBot 不再支援 GUI（桌面自動化）模式。請改用 Browser 或 CLI 模式。
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -171,7 +171,7 @@ python run.py
 首次執行時會引導你完成 API 金鑰設定與偏好設定。
 
 > [!NOTE]
-> 若尚未安裝 Node.js，安裝程式會提供逐步指引。你也可以完全略過瀏覽器模式，直接使用 TUI 模式——無需 Node.js：`python run.py --tui`
+> 若尚未安裝 Node.js，安裝程式會提供逐步指引。你也可以完全略過瀏覽器模式，直接使用 CLI 模式——無需 Node.js：`python run.py --cli`
 
 ### 立即能做什麼？
 - 用自然語言與代理人對話
@@ -190,10 +190,9 @@ CraftBot 支援多種 UI 模式，可依個人偏好選擇：
 | 模式 | 指令 | 需求 | 適用情境 |
 |------|---------|--------------|----------|
 | **Browser** | `python run.py` | Node.js 18+ | 現代化網頁介面，最易使用 |
-| **TUI** | `python run.py --tui` | 無 | 終端機 UI，無須額外相依套件 |
 | **CLI** | `python run.py --cli` | 無 | 命令列，輕量化 |
 
-**Browser 模式**為預設與建議選項。若沒有 Node.js，安裝程式會提供安裝指引，或你可改用 **TUI 模式**。
+**Browser 模式**為預設與建議選項。若沒有 Node.js，安裝程式會提供安裝指引，或你可改用 **CLI 模式**。
 
 ---
 
@@ -258,7 +257,6 @@ CraftBot 嵌入在每個 Living UI 中，並**感知其狀態**：
 | **Task Manager** | 管理任務定義，支援簡單與複雜任務模式、待辦清單建立，以及多步驟流程追蹤。 |
 | **Skill Manager** | 載入並將可插拔技能注入到代理人情境中。 |
 | **MCP Adapter** | Model Context Protocol 整合，將 MCP 工具轉換為原生動作。 |
-| **TUI Interface** | 以 Textual 框架打造的終端機使用者介面，提供互動式命令列操作。 |
 
 ---
 
@@ -285,7 +283,6 @@ CraftBot 嵌入在每個 Living UI 中，並**感知其狀態**：
 | 旗標 | 說明 |
 |------|-------------|
 | （無） | 以 **Browser** 模式執行（建議，需 Node.js） |
-| `--tui` | 以 **Terminal UI** 模式執行（無需額外相依） |
 | `--cli` | 以 **CLI** 模式執行（輕量） |
 
 ### craftbot.py
@@ -315,9 +312,6 @@ python install.py --conda
 # Browser 模式（預設，需 Node.js）
 python run.py
 
-# TUI 模式（無需 Node.js）
-python run.py --tui
-
 # CLI 模式（輕量）
 python run.py --cli
 
@@ -332,9 +326,6 @@ conda run -n craftbot python run.py
 ```bash
 # Browser 模式（預設，需 Node.js）
 python run.py
-
-# TUI 模式（無需 Node.js）
-python run.py --tui
 
 # CLI 模式（輕量）
 python run.py --cli
@@ -377,7 +368,7 @@ python craftbot.py logs     # 檢視最近的記錄
 > 執行 `craftbot.py start` 或 `craftbot.py install` 後，會自動建立 **CraftBot 桌面捷徑**。若不小心關閉了瀏覽器，雙擊捷徑即可重新開啟。
 
 > [!NOTE]
-> **安裝：** 若相依套件缺失，安裝程式會提供清楚的指引。若找不到 Node.js，會提示你安裝或切換至 TUI 模式。安裝程式會自動偵測 GPU 是否可用，必要時會自動回退至 CPU 模式。
+> **安裝：** 若相依套件缺失，安裝程式會提供清楚的指引。若找不到 Node.js，會提示你安裝或切換至 CLI 模式。安裝程式會自動偵測 GPU 是否可用，必要時會自動回退至 CPU 模式。
 
 > [!TIP]
 > **首次設定：** CraftBot 會引導你完成初始化流程，包含設定 API 金鑰、代理人名稱、MCP 與技能。
@@ -395,9 +386,9 @@ python craftbot.py logs     # 檢視最近的記錄
 2. 安裝完成後重新啟動終端機
 3. 再次執行 `python run.py`
 
-**替代方案：** 改用 TUI 模式（不需 Node.js）：
+**替代方案：** 改用 CLI 模式（不需 Node.js）：
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### 相依套件安裝失敗

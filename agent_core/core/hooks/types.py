@@ -17,7 +17,7 @@ All hooks are optional - if not provided, the component operates in
 local-only mode (suitable for CraftBot).
 """
 
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Dict, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agent_core import Task, TodoItem, Action
@@ -78,7 +78,9 @@ Args:
 Used by CraftBot to POST action start to chatserver.
 """
 
-OnActionEndHook = Callable[[str, "Action", Optional[Dict[str, Any]], str], Awaitable[None]]
+OnActionEndHook = Callable[
+    [str, "Action", Optional[Dict[str, Any]], str], Awaitable[None]
+]
 """
 Called when an action finishes executing.
 
@@ -232,6 +234,7 @@ CraftBot uses session.set_agent_property("token_count", count).
 # Usage Reporting Hooks (CraftBot only)
 # =============================================================================
 
+
 class UsageEventData:
     """Data class for usage event reporting."""
 
@@ -271,11 +274,11 @@ CraftBot does not use this hook (set to None).
 LogToDbHook = Callable[
     [
         Optional[str],  # system_prompt
-        str,            # user_prompt
-        str,            # output
-        str,            # status ("success" or "failed")
-        int,            # token_count_input
-        int,            # token_count_output
+        str,  # user_prompt
+        str,  # output
+        str,  # status ("success" or "failed")
+        int,  # token_count_input
+        int,  # token_count_output
     ],
     None,
 ]

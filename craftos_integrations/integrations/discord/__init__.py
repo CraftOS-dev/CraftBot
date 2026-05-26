@@ -1,5 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Discord integration - bot + user account + voice (lazy)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -66,6 +67,7 @@ class DiscordConfig:
       every message is classified as third-party (current default).
     * If any list has entries, users matching neither list are dropped.
     """
+
     # When True, the bot only forwards messages where it was @-mentioned.
     # Default False = the bot processes every message it can see in any
     # channel/guild it's a member of.
@@ -105,6 +107,7 @@ def _discord_config_file() -> str:
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(DISCORD.name)
 class DiscordHandler(IntegrationHandler):
     spec = DISCORD
@@ -120,33 +123,58 @@ class DiscordHandler(IntegrationHandler):
         "Paste the bot token into the field below",
     ]
     fields = [
-        {"key": "bot_token", "label": "Bot Token", "placeholder": "Enter bot token", "password": True},
+        {
+            "key": "bot_token",
+            "label": "Bot Token",
+            "placeholder": "Enter bot token",
+            "password": True,
+        },
     ]
 
     config_class = DiscordConfig
     config_fields = [
-        {"key": "mention_only", "label": "Only when @-mentioned", "type": "checkbox",
-         "help": "When on, the bot only forwards messages where it's directly @-mentioned. "
-                 "When off, every message in every channel the bot can see is considered."},
-        {"key": "third_party_usernames", "label": "Third-party users", "type": "list",
-         "placeholder": "alice, bob.s",
-         "help": "Their messages reach the agent as external incoming messages. "
-                 "Comma-separated Discord usernames/display names, case-insensitive. "
-                 "Leave empty to skip this sub-check."},
-        {"key": "third_party_role_names", "label": "Third-party roles", "type": "list",
-         "placeholder": "Member, Contributor",
-         "help": "Same as Third-party users, but matched on Discord role names in the "
-                 "message's guild. DMs ignore this list. Leave empty to skip."},
-        {"key": "self_usernames", "label": "Self users", "type": "list",
-         "placeholder": "ahmad",
-         "help": "Their messages are treated as if you (the bot owner) sent them - used "
-                 "for trusted admins who can drive the bot like its owner. Self matches "
-                 "win over third-party matches. Leave empty to skip."},
-        {"key": "self_role_names", "label": "Self roles", "type": "list",
-         "placeholder": "Admin, Owner",
-         "help": "Same as Self users, but matched on role names. DMs ignore this list. "
-                 "Leave empty to skip. Note: if all four allow lists are empty, the filter "
-                 "is fully open and every message is treated as third-party (default)."},
+        {
+            "key": "mention_only",
+            "label": "Only when @-mentioned",
+            "type": "checkbox",
+            "help": "When on, the bot only forwards messages where it's directly @-mentioned. "
+            "When off, every message in every channel the bot can see is considered.",
+        },
+        {
+            "key": "third_party_usernames",
+            "label": "Third-party users",
+            "type": "list",
+            "placeholder": "alice, bob.s",
+            "help": "Their messages reach the agent as external incoming messages. "
+            "Comma-separated Discord usernames/display names, case-insensitive. "
+            "Leave empty to skip this sub-check.",
+        },
+        {
+            "key": "third_party_role_names",
+            "label": "Third-party roles",
+            "type": "list",
+            "placeholder": "Member, Contributor",
+            "help": "Same as Third-party users, but matched on Discord role names in the "
+            "message's guild. DMs ignore this list. Leave empty to skip.",
+        },
+        {
+            "key": "self_usernames",
+            "label": "Self users",
+            "type": "list",
+            "placeholder": "ahmad",
+            "help": "Their messages are treated as if you (the bot owner) sent them - used "
+            "for trusted admins who can drive the bot like its owner. Self matches "
+            "win over third-party matches. Leave empty to skip.",
+        },
+        {
+            "key": "self_role_names",
+            "label": "Self roles",
+            "type": "list",
+            "placeholder": "Admin, Owner",
+            "help": "Same as Self users, but matched on role names. DMs ignore this list. "
+            "Leave empty to skip. Note: if all four allow lists are empty, the filter "
+            "is fully open and every message is treated as third-party (default).",
+        },
     ]
 
     @property
@@ -169,11 +197,14 @@ class DiscordHandler(IntegrationHandler):
         except Exception as e:
             return False, f"Discord connection error: {e}"
 
-        save_credential(self.spec.cred_file, DiscordCredential(
-            bot_token=bot_token,
-            bot_id=str(data.get("id") or ""),
-            bot_username=data.get("username") or "",
-        ))
+        save_credential(
+            self.spec.cred_file,
+            DiscordCredential(
+                bot_token=bot_token,
+                bot_id=str(data.get("id") or ""),
+                bot_username=data.get("username") or "",
+            ),
+        )
         return True, f"Discord bot connected: {data.get('username')} ({data.get('id')})"
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
@@ -181,6 +212,7 @@ class DiscordHandler(IntegrationHandler):
             return False, "No Discord credentials found."
         try:
             from ...manager import get_external_comms_manager
+
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -207,9 +239,11 @@ class DiscordHandler(IntegrationHandler):
 # Client
 # -----------------------------------------------------------------
 
+
 @register_client
 class DiscordClient(BasePlatformClient):
     """Unified Discord client exposing bot, user, and voice operations."""
+
     spec = DISCORD
     PLATFORM_ID = DISCORD.platform_id
 
@@ -253,7 +287,10 @@ class DiscordClient(BasePlatformClient):
         return cred.user_token
 
     def _bot_headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bot {self._bot_token()}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bot {self._bot_token()}",
+            "Content-Type": "application/json",
+        }
 
     def _user_headers(self) -> Dict[str, str]:
         return {"Authorization": self._user_token(), "Content-Type": "application/json"}
@@ -310,6 +347,7 @@ class DiscordClient(BasePlatformClient):
 
     async def _gateway_loop(self) -> None:
         import websockets
+
         while self._listening:
             try:
                 async with websockets.connect(
@@ -352,14 +390,22 @@ class DiscordClient(BasePlatformClient):
         if op == 10:
             self._heartbeat_interval = d["heartbeat_interval"] / 1000.0
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(ws))
-            await ws.send(json.dumps({
-                "op": 2,
-                "d": {
-                    "token": self._bot_token(),
-                    "intents": GATEWAY_INTENTS,
-                    "properties": {"os": "windows", "browser": "craftosbot", "device": "craftosbot"},
-                },
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "op": 2,
+                        "d": {
+                            "token": self._bot_token(),
+                            "intents": GATEWAY_INTENTS,
+                            "properties": {
+                                "os": "windows",
+                                "browser": "craftosbot",
+                                "device": "craftosbot",
+                            },
+                        },
+                    }
+                )
+            )
         elif op == 0:
             if t == "READY":
                 asyncio.get_running_loop().call_later(2.0, self._mark_catchup_done)
@@ -417,10 +463,12 @@ class DiscordClient(BasePlatformClient):
         # Resolve role names lazily - only fetch if any role list is set.
         # Cached 10 min per guild, async helper takes a thread off the event loop.
         user_role_names: set = set()
-        any_role_list = (cfg.self_role_names or cfg.third_party_role_names)
+        any_role_list = cfg.self_role_names or cfg.third_party_role_names
         if any_role_list and guild_id and role_ids:
             role_map = await self._resolve_guild_role_names(str(guild_id))
-            user_role_names = {role_map.get(rid, "") for rid in role_ids if role_map.get(rid)}
+            user_role_names = {
+                role_map.get(rid, "") for rid in role_ids if role_map.get(rid)
+            }
 
         def _matches(usernames: list, role_names: list) -> bool:
             uns = {u.lower().strip() for u in (usernames or []) if u.strip()}
@@ -456,17 +504,19 @@ class DiscordClient(BasePlatformClient):
             pass
 
         if self._message_callback:
-            await self._message_callback(PlatformMessage(
-                platform=self.spec.platform_id,
-                sender_id=author.get("id", ""),
-                sender_name=author_name,
-                text=content,
-                channel_id=channel_id,
-                channel_name=channel_name,
-                message_id=d.get("id", ""),
-                timestamp=ts,
-                raw={"guild_id": guild_id, "is_self_message": is_self_message},
-            ))
+            await self._message_callback(
+                PlatformMessage(
+                    platform=self.spec.platform_id,
+                    sender_id=author.get("id", ""),
+                    sender_name=author_name,
+                    text=content,
+                    channel_id=channel_id,
+                    channel_name=channel_name,
+                    message_id=d.get("id", ""),
+                    timestamp=ts,
+                    raw={"guild_id": guild_id, "is_self_message": is_self_message},
+                )
+            )
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
         return self.bot_send_message(channel_id=recipient, content=text, **kwargs)
@@ -474,25 +524,31 @@ class DiscordClient(BasePlatformClient):
     # ----- Bot REST API -----
     def get_bot_user(self) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/@me",
+            "GET",
+            f"{DISCORD_API_BASE}/users/@me",
             headers=self._bot_headers(),
             transform=lambda d: {
-                "id": d.get("id"), "username": d.get("username"),
-                "discriminator": d.get("discriminator"), "avatar": d.get("avatar"),
+                "id": d.get("id"),
+                "username": d.get("username"),
+                "discriminator": d.get("discriminator"),
+                "avatar": d.get("avatar"),
                 "bot": d.get("bot", True),
             },
         )
 
     def get_bot_guilds(self, limit: int = 100) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/@me/guilds",
-            headers=self._bot_headers(), params={"limit": limit},
+            "GET",
+            f"{DISCORD_API_BASE}/users/@me/guilds",
+            headers=self._bot_headers(),
+            params={"limit": limit},
             transform=lambda d: {"guilds": d},
         )
 
     def get_guild_channels(self, guild_id: str) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/channels",
+            "GET",
+            f"{DISCORD_API_BASE}/guilds/{guild_id}/channels",
             headers=self._bot_headers(),
             transform=lambda channels: {
                 "all_channels": channels,
@@ -504,8 +560,10 @@ class DiscordClient(BasePlatformClient):
 
     def get_guild_roles(self, guild_id: str) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/roles",
-            headers=self._bot_headers(), expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/guilds/{guild_id}/roles",
+            headers=self._bot_headers(),
+            expected=(200,),
             transform=lambda roles: {"roles": roles},
         )
 
@@ -523,9 +581,16 @@ class DiscordClient(BasePlatformClient):
             return cached[0]
         try:
             result = await asyncio.to_thread(self.get_guild_roles, guild_id)
-            roles = result.get("result", {}).get("roles", []) if "error" not in result else []
-            mapping = {str(r.get("id")): (r.get("name") or "").lower()
-                       for r in roles if isinstance(r, dict)}
+            roles = (
+                result.get("result", {}).get("roles", [])
+                if "error" not in result
+                else []
+            )
+            mapping = {
+                str(r.get("id")): (r.get("name") or "").lower()
+                for r in roles
+                if isinstance(r, dict)
+            }
         except Exception as e:
             logger.debug(f"[DISCORD] role lookup for {guild_id} failed: {e}")
             mapping = {}
@@ -534,46 +599,68 @@ class DiscordClient(BasePlatformClient):
 
     def get_channel(self, channel_id: str) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/channels/{channel_id}",
+            "GET",
+            f"{DISCORD_API_BASE}/channels/{channel_id}",
             headers=self._bot_headers(),
         )
 
-    def bot_send_message(self, channel_id: str, content: str,
-                         embed: Optional[Dict[str, Any]] = None,
-                         reply_to: Optional[str] = None) -> Result:
+    def bot_send_message(
+        self,
+        channel_id: str,
+        content: str,
+        embed: Optional[Dict[str, Any]] = None,
+        reply_to: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {"content": content}
         if embed:
             payload["embeds"] = [embed]
         if reply_to:
             payload["message_reference"] = {"message_id": reply_to}
         return http_request(
-            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
-            headers=self._bot_headers(), json=payload,
+            "POST",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
+            headers=self._bot_headers(),
+            json=payload,
             transform=lambda d: {
-                "message_id": d.get("id"), "channel_id": d.get("channel_id"),
-                "content": d.get("content"), "timestamp": d.get("timestamp"),
+                "message_id": d.get("id"),
+                "channel_id": d.get("channel_id"),
+                "content": d.get("content"),
+                "timestamp": d.get("timestamp"),
             },
         )
 
-    def get_messages(self, channel_id: str, limit: int = 50,
-                     before: Optional[str] = None, after: Optional[str] = None) -> Result:
+    def get_messages(
+        self,
+        channel_id: str,
+        limit: int = 50,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+    ) -> Result:
         params: Dict[str, Any] = {"limit": min(limit, 100)}
         if before:
             params["before"] = before
         if after:
             params["after"] = after
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
-            headers=self._bot_headers(), params=params, expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
+            headers=self._bot_headers(),
+            params=params,
+            expected=(200,),
             transform=lambda messages: {
                 "messages": [
-                    {"id": m.get("id"), "content": m.get("content"),
-                     "author": {"id": m.get("author", {}).get("id"),
-                                "username": m.get("author", {}).get("username"),
-                                "bot": m.get("author", {}).get("bot", False)},
-                     "timestamp": m.get("timestamp"),
-                     "attachments": m.get("attachments", []),
-                     "embeds": m.get("embeds", [])}
+                    {
+                        "id": m.get("id"),
+                        "content": m.get("content"),
+                        "author": {
+                            "id": m.get("author", {}).get("id"),
+                            "username": m.get("author", {}).get("username"),
+                            "bot": m.get("author", {}).get("bot", False),
+                        },
+                        "timestamp": m.get("timestamp"),
+                        "attachments": m.get("attachments", []),
+                        "embeds": m.get("embeds", []),
+                    }
                     for m in messages
                 ],
                 "count": len(messages),
@@ -582,29 +669,38 @@ class DiscordClient(BasePlatformClient):
 
     def edit_message(self, channel_id: str, message_id: str, content: str) -> Result:
         return http_request(
-            "PATCH", f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}",
-            headers=self._bot_headers(), json={"content": content}, expected=(200,),
+            "PATCH",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}",
+            headers=self._bot_headers(),
+            json={"content": content},
+            expected=(200,),
         )
 
     def delete_message(self, channel_id: str, message_id: str) -> Result:
         return http_request(
-            "DELETE", f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}",
-            headers=self._bot_headers(), expected=(204,),
+            "DELETE",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}",
+            headers=self._bot_headers(),
+            expected=(204,),
             transform=lambda _: {"deleted": True},
         )
 
     def create_dm_channel(self, recipient_id: str) -> Result:
         return http_request(
-            "POST", f"{DISCORD_API_BASE}/users/@me/channels",
-            headers=self._bot_headers(), json={"recipient_id": recipient_id},
+            "POST",
+            f"{DISCORD_API_BASE}/users/@me/channels",
+            headers=self._bot_headers(),
+            json={"recipient_id": recipient_id},
             transform=lambda d: {
-                "channel_id": d.get("id"), "type": d.get("type"),
+                "channel_id": d.get("id"),
+                "type": d.get("type"),
                 "recipients": d.get("recipients", []),
             },
         )
 
-    def send_dm(self, recipient_id: str, content: str,
-                embed: Optional[Dict[str, Any]] = None) -> Result:
+    def send_dm(
+        self, recipient_id: str, content: str, embed: Optional[Dict[str, Any]] = None
+    ) -> Result:
         dm_result = self.create_dm_channel(recipient_id)
         if "error" in dm_result:
             return dm_result
@@ -612,20 +708,27 @@ class DiscordClient(BasePlatformClient):
 
     def get_user(self, user_id: str) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/{user_id}",
-            headers=self._bot_headers(), expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/users/{user_id}",
+            headers=self._bot_headers(),
+            expected=(200,),
         )
 
     def get_guild_member(self, guild_id: str, user_id: str) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/{user_id}",
-            headers=self._bot_headers(), expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/guilds/{guild_id}/members/{user_id}",
+            headers=self._bot_headers(),
+            expected=(200,),
         )
 
     def list_guild_members(self, guild_id: str, limit: int = 100) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/members",
-            headers=self._bot_headers(), params={"limit": min(limit, 1000)}, expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/guilds/{guild_id}/members",
+            headers=self._bot_headers(),
+            params={"limit": min(limit, 1000)},
+            expected=(200,),
             transform=lambda members: {"members": members},
         )
 
@@ -634,76 +737,109 @@ class DiscordClient(BasePlatformClient):
         return http_request(
             "PUT",
             f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_emoji}/@me",
-            headers=self._bot_headers(), expected=(204,),
+            headers=self._bot_headers(),
+            expected=(204,),
             transform=lambda _: {"added": True, "emoji": emoji},
         )
 
     # ----- User-account methods -----
     def user_get_current_user(self) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/@me",
-            headers=self._user_headers(), expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/users/@me",
+            headers=self._user_headers(),
+            expected=(200,),
             transform=lambda d: {
-                "id": d.get("id"), "username": d.get("username"),
-                "discriminator": d.get("discriminator"), "email": d.get("email"),
+                "id": d.get("id"),
+                "username": d.get("username"),
+                "discriminator": d.get("discriminator"),
+                "email": d.get("email"),
                 "avatar": d.get("avatar"),
             },
         )
 
     def user_get_guilds(self, limit: int = 100) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/@me/guilds",
-            headers=self._user_headers(), params={"limit": limit}, expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/users/@me/guilds",
+            headers=self._user_headers(),
+            params={"limit": limit},
+            expected=(200,),
             transform=lambda d: {"guilds": d},
         )
 
     def user_get_dm_channels(self) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/@me/channels",
-            headers=self._user_headers(), expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/users/@me/channels",
+            headers=self._user_headers(),
+            expected=(200,),
             transform=lambda channels: {
                 "dm_channels": [
-                    {"id": c.get("id"), "type": c.get("type"),
-                     "recipients": [{"id": rec.get("id"), "username": rec.get("username")}
-                                    for rec in c.get("recipients", [])],
-                     "last_message_id": c.get("last_message_id")}
+                    {
+                        "id": c.get("id"),
+                        "type": c.get("type"),
+                        "recipients": [
+                            {"id": rec.get("id"), "username": rec.get("username")}
+                            for rec in c.get("recipients", [])
+                        ],
+                        "last_message_id": c.get("last_message_id"),
+                    }
                     for c in channels
                 ],
                 "count": len(channels),
             },
         )
 
-    def user_send_message(self, channel_id: str, content: str,
-                          reply_to: Optional[str] = None) -> Result:
+    def user_send_message(
+        self, channel_id: str, content: str, reply_to: Optional[str] = None
+    ) -> Result:
         payload: Dict[str, Any] = {"content": content}
         if reply_to:
             payload["message_reference"] = {"message_id": reply_to}
         return http_request(
-            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
-            headers=self._user_headers(), json=payload,
+            "POST",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
+            headers=self._user_headers(),
+            json=payload,
             transform=lambda d: {
-                "message_id": d.get("id"), "channel_id": d.get("channel_id"),
-                "content": d.get("content"), "timestamp": d.get("timestamp"),
+                "message_id": d.get("id"),
+                "channel_id": d.get("channel_id"),
+                "content": d.get("content"),
+                "timestamp": d.get("timestamp"),
             },
         )
 
-    def user_get_messages(self, channel_id: str, limit: int = 50,
-                          before: Optional[str] = None, after: Optional[str] = None) -> Result:
+    def user_get_messages(
+        self,
+        channel_id: str,
+        limit: int = 50,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+    ) -> Result:
         params: Dict[str, Any] = {"limit": min(limit, 100)}
         if before:
             params["before"] = before
         if after:
             params["after"] = after
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
-            headers=self._user_headers(), params=params, expected=(200,),
+            "GET",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages",
+            headers=self._user_headers(),
+            params=params,
+            expected=(200,),
             transform=lambda messages: {
                 "messages": [
-                    {"id": m.get("id"), "content": m.get("content"),
-                     "author": {"id": m.get("author", {}).get("id"),
-                                "username": m.get("author", {}).get("username")},
-                     "timestamp": m.get("timestamp"),
-                     "attachments": m.get("attachments", [])}
+                    {
+                        "id": m.get("id"),
+                        "content": m.get("content"),
+                        "author": {
+                            "id": m.get("author", {}).get("id"),
+                            "username": m.get("author", {}).get("username"),
+                        },
+                        "timestamp": m.get("timestamp"),
+                        "attachments": m.get("attachments", []),
+                    }
                     for m in messages
                 ],
                 "count": len(messages),
@@ -712,8 +848,10 @@ class DiscordClient(BasePlatformClient):
 
     def user_send_dm(self, recipient_id: str, content: str) -> Result:
         result = http_request(
-            "POST", f"{DISCORD_API_BASE}/users/@me/channels",
-            headers=self._user_headers(), json={"recipient_id": recipient_id},
+            "POST",
+            f"{DISCORD_API_BASE}/users/@me/channels",
+            headers=self._user_headers(),
+            json={"recipient_id": recipient_id},
         )
         if "error" in result:
             return result
@@ -724,23 +862,34 @@ class DiscordClient(BasePlatformClient):
         def _shape(relationships):
             friends = [r for r in relationships if r.get("type") == 1]
             return {
-                "friends": [{"id": r.get("id"),
-                             "username": r.get("user", {}).get("username")} for r in friends],
+                "friends": [
+                    {"id": r.get("id"), "username": r.get("user", {}).get("username")}
+                    for r in friends
+                ],
                 "blocked": [r for r in relationships if r.get("type") == 2],
                 "incoming_requests": [r for r in relationships if r.get("type") == 3],
                 "outgoing_requests": [r for r in relationships if r.get("type") == 4],
                 "total_friends": len(friends),
             }
+
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/users/@me/relationships",
-            headers=self._user_headers(), expected=(200,), transform=_shape,
+            "GET",
+            f"{DISCORD_API_BASE}/users/@me/relationships",
+            headers=self._user_headers(),
+            expected=(200,),
+            transform=_shape,
         )
 
-    def user_search_guild_messages(self, guild_id: str, query: str, limit: int = 25) -> Result:
+    def user_search_guild_messages(
+        self, guild_id: str, query: str, limit: int = 25
+    ) -> Result:
         return http_request(
-            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/messages/search",
+            "GET",
+            f"{DISCORD_API_BASE}/guilds/{guild_id}/messages/search",
             headers=self._user_headers(),
-            params={"content": query, "limit": limit}, expected=(200,), timeout=30,
+            params={"content": query, "limit": limit},
+            expected=(200,),
+            timeout=30,
             transform=lambda d: {
                 "total_results": d.get("total_results"),
                 "messages": d.get("messages", []),
@@ -756,16 +905,24 @@ class DiscordClient(BasePlatformClient):
         """
         if self._voice_mgr is None:
             from . import _discord_voice
+
             self._voice_mgr = _discord_voice.DiscordVoiceManager(self._bot_token())
         if not getattr(self._voice_mgr, "_running", False):
             await self._voice_mgr.start()
         return self._voice_mgr
 
-    async def join_voice(self, guild_id: str, channel_id: str,
-                         self_deaf: bool = False, self_mute: bool = False) -> Result:
+    async def join_voice(
+        self,
+        guild_id: str,
+        channel_id: str,
+        self_deaf: bool = False,
+        self_mute: bool = False,
+    ) -> Result:
         try:
             mgr = await self._voice_manager()
-            return await mgr.join_voice(guild_id, channel_id, self_deaf=self_deaf, self_mute=self_mute)
+            return await mgr.join_voice(
+                guild_id, channel_id, self_deaf=self_deaf, self_mute=self_mute
+            )
         except ImportError as e:
             return {"error": f"Voice dependencies not installed: {e}"}
         except Exception as e:
@@ -780,11 +937,18 @@ class DiscordClient(BasePlatformClient):
         except Exception as e:
             return {"error": str(e)}
 
-    async def speak_tts(self, guild_id: str, text: str,
-                        tts_provider: str = "openai", voice: str = "alloy") -> Result:
+    async def speak_tts(
+        self,
+        guild_id: str,
+        text: str,
+        tts_provider: str = "openai",
+        voice: str = "alloy",
+    ) -> Result:
         try:
             mgr = await self._voice_manager()
-            return await mgr.speak_text(guild_id, text, tts_provider=tts_provider, voice=voice)
+            return await mgr.speak_text(
+                guild_id, text, tts_provider=tts_provider, voice=voice
+            )
         except ImportError as e:
             return {"error": f"Voice dependencies not installed: {e}"}
         except Exception as e:

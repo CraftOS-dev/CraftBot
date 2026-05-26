@@ -27,6 +27,7 @@ class OnboardingState:
         agent_profile_picture: Extension of the user-uploaded agent profile
             picture (e.g. "png", "jpg"). None means the bundled default is used.
     """
+
     hard_completed: bool = False
     soft_completed: bool = False
     hard_completed_at: Optional[str] = None
@@ -96,7 +97,9 @@ def load_state(state_file: Optional[Path] = None) -> OnboardingState:
     try:
         data = json.loads(state_file.read_text(encoding="utf-8"))
         state = OnboardingState.from_dict(data)
-        logger.debug(f"[ONBOARDING] Loaded state: hard={state.hard_completed}, soft={state.soft_completed}")
+        logger.debug(
+            f"[ONBOARDING] Loaded state: hard={state.hard_completed}, soft={state.soft_completed}"
+        )
         return state
     except Exception as e:
         logger.warning(f"[ONBOARDING] Failed to load state: {e}, returning fresh state")
@@ -123,10 +126,11 @@ def save_state(state: OnboardingState, state_file: Optional[Path] = None) -> Non
 
         # Write state as formatted JSON
         state_file.write_text(
-            json.dumps(state.to_dict(), indent=2, ensure_ascii=False),
-            encoding="utf-8"
+            json.dumps(state.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        logger.debug(f"[ONBOARDING] Saved state: hard={state.hard_completed}, soft={state.soft_completed}")
+        logger.debug(
+            f"[ONBOARDING] Saved state: hard={state.hard_completed}, soft={state.soft_completed}"
+        )
     except Exception as e:
         logger.error(f"[ONBOARDING] Failed to save state: {e}")
         raise

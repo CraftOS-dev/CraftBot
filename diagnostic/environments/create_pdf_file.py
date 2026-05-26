@@ -1,4 +1,5 @@
 """Diagnostic environment for the "create pdf file" action."""
+
 from __future__ import annotations
 
 import types

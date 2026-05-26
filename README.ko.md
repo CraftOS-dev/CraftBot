@@ -59,7 +59,7 @@ CraftBot이 당신의 명령을 기다리고 있습니다. 지금 나만의 Craf
 - **크로스 플랫폼** — 플랫폼별 코드 변형 및 Docker 컨테이너화를 통해 Windows, macOS, Linux를 완벽하게 지원합니다.
 
 > [!IMPORTANT]
-> **GUI 모드는 더 이상 지원되지 않습니다.** CraftBot은 GUI(데스크톱 자동화) 모드를 더 이상 지원하지 않습니다. 대신 Browser, TUI 또는 CLI 모드를 사용하세요.
+> **GUI 모드는 더 이상 지원되지 않습니다.** CraftBot은 GUI(데스크톱 자동화) 모드를 더 이상 지원하지 않습니다. 대신 Browser 또는 CLI 모드를 사용하세요.
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -171,7 +171,7 @@ python run.py
 첫 실행 시 API 키 설정 과정을 안내해 줍니다.
 
 > [!NOTE]
-> Node.js가 설치되어 있지 않다면 설치 프로그램이 단계별로 안내해 줍니다. TUI 모드를 사용하면 브라우저 모드를 완전히 건너뛸 수도 있습니다 — Node.js 불필요: `python run.py --tui`
+> Node.js가 설치되어 있지 않다면 설치 프로그램이 단계별로 안내해 줍니다. CLI 모드를 사용하면 브라우저 모드를 완전히 건너뛸 수도 있습니다 — Node.js 불필요: `python run.py --cli`
 
 ### 바로 할 수 있는 일
 - 에이전트와 자연스럽게 대화
@@ -190,10 +190,9 @@ CraftBot은 여러 UI 모드를 지원합니다. 선호에 따라 선택하세�
 | 모드 | 명령어 | 요구 사항 | 적합한 용도 |
 |------|---------|--------------|----------|
 | **Browser** | `python run.py` | Node.js 18+ | 최신 웹 인터페이스, 가장 사용하기 쉬움 |
-| **TUI** | `python run.py --tui` | 없음 | 터미널 UI, 별도 의존성 불필요 |
 | **CLI** | `python run.py --cli` | 없음 | 커맨드라인, 경량 |
 
-**브라우저 모드**가 기본이자 권장 모드입니다. Node.js가 없는 경우 설치 프로그램이 설치 안내를 제공하거나, 대신 **TUI 모드**를 사용할 수 있습니다.
+**브라우저 모드**가 기본이자 권장 모드입니다. Node.js가 없는 경우 설치 프로그램이 설치 안내를 제공하거나, 대신 **CLI 모드**를 사용할 수 있습니다.
 
 ---
 
@@ -259,7 +258,6 @@ CraftBot은 모든 Living UI에 내장되어 있으며, **그 상태를 항상 �
 | **Task Manager** | 작업 정의를 관리하며 단순/복잡 작업 모드, 할 일 생성, 다단계 워크플로우 추적을 가능하게 합니다. |
 | **Skill Manager** | 플러그형 스킬을 로드하여 에이전트 컨텍스트에 주입합니다. |
 | **MCP Adapter** | MCP 도구를 네이티브 액션으로 변환하는 Model Context Protocol 통합. |
-| **TUI Interface** | 대화형 커맨드라인 조작을 위해 Textual 프레임워크로 구축된 터미널 사용자 인터페이스. |
 
 ---
 
@@ -286,7 +284,6 @@ CraftBot은 모든 Living UI에 내장되어 있으며, **그 상태를 항상 �
 | 플래그 | 설명 |
 |------|-------------|
 | (없음) | **Browser** 모드로 실행 (권장, Node.js 필요) |
-| `--tui` | **터미널 UI** 모드로 실행 (의존성 불필요) |
 | `--cli` | **CLI** 모드로 실행 (경량) |
 
 ### craftbot.py
@@ -316,9 +313,6 @@ python install.py --conda
 # Browser 모드 (기본, Node.js 필요)
 python run.py
 
-# TUI 모드 (Node.js 불필요)
-python run.py --tui
-
 # CLI 모드 (경량)
 python run.py --cli
 
@@ -333,9 +327,6 @@ conda run -n craftbot python run.py
 ```bash
 # Browser 모드 (기본, Node.js 필요)
 python run.py
-
-# TUI 모드 (Node.js 불필요)
-python run.py --tui
 
 # CLI 모드 (경량)
 python run.py --cli
@@ -378,7 +369,7 @@ python craftbot.py logs     # 최근 로그 출력 확인
 > `craftbot.py start` 또는 `craftbot.py install` 실행 후 **CraftBot 데스크톱 바로가기**가 자동으로 생성됩니다. 브라우저를 실수로 닫았다면 바로가기를 더블클릭해 다시 열 수 있습니다.
 
 > [!NOTE]
-> **설치:** 의존성이 누락된 경우 설치 프로그램이 명확한 안내를 제공합니다. Node.js가 없으면 설치 여부를 묻거나 TUI 모드로 전환할 수 있습니다. GPU 가용성을 자동으로 감지하고 필요한 경우 CPU 전용 모드로 대체합니다.
+> **설치:** 의존성이 누락된 경우 설치 프로그램이 명확한 안내를 제공합니다. Node.js가 없으면 설치 여부를 묻거나 CLI 모드로 전환할 수 있습니다. GPU 가용성을 자동으로 감지하고 필요한 경우 CPU 전용 모드로 대체합니다.
 
 > [!TIP]
 > **첫 실행 설정:** CraftBot은 API 키, 에이전트 이름, MCP, 스킬 설정을 위한 온보딩 과정을 안내합니다.
@@ -396,9 +387,9 @@ python craftbot.py logs     # 최근 로그 출력 확인
 2. 설치 후 터미널 재시작
 3. `python run.py`를 다시 실행
 
-**대안:** TUI 모드를 사용하세요 (Node.js 불필요):
+**대안:** CLI 모드를 사용하세요 (Node.js 불필요):
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### 의존성 설치 실패

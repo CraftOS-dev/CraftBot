@@ -6,7 +6,6 @@ Can run as a daemon or be called periodically via cron.
 """
 
 import json
-import os
 import sys
 import time
 import signal
@@ -29,7 +28,6 @@ from main import (
     save_openclaw_config,
     ensure_config_structure,
     format_model_for_openclaw,
-    OPENCLAW_CONFIG_PATH
 )
 
 
@@ -84,22 +82,19 @@ def test_model(api_key: str, model_id: str) -> tuple[bool, Optional[str]]:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://github.com/Shaivpidadi/FreeRide",
-        "X-Title": "FreeRide Health Check"
+        "X-Title": "FreeRide Health Check",
     }
 
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": "Hi"}],
         "max_tokens": 5,
-        "stream": False
+        "stream": False,
     }
 
     try:
         response = requests.post(
-            OPENROUTER_CHAT_URL,
-            headers=headers,
-            json=payload,
-            timeout=30
+            OPENROUTER_CHAT_URL, headers=headers, json=payload, timeout=30
         )
 
         if response.status_code == 200:
@@ -113,11 +108,13 @@ def test_model(api_key: str, model_id: str) -> tuple[bool, Optional[str]]:
 
     except requests.Timeout:
         return False, "timeout"
-    except requests.RequestException as e:
+    except requests.RequestException:
         return False, "request_error"
 
 
-def get_next_available_model(api_key: str, state: dict, exclude_model: str = None) -> Optional[str]:
+def get_next_available_model(
+    api_key: str, state: dict, exclude_model: str = None
+) -> Optional[str]:
     """Get the next best model that isn't rate limited."""
     models = get_free_models(api_key)
 
@@ -152,14 +149,16 @@ def rotate_to_next_model(api_key: str, state: dict, reason: str = "manual"):
     """Rotate to the next available model."""
     config = load_openclaw_config()
     config = ensure_config_structure(config)
-    current = config.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    current = (
+        config.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    )
 
     # Extract base model ID from OpenClaw format
     current_base = None
     if current:
         # openrouter/provider/model:free -> provider/model:free
         if current.startswith("openrouter/"):
-            current_base = current[len("openrouter/"):]
+            current_base = current[len("openrouter/") :]
         else:
             current_base = current
 
@@ -179,7 +178,9 @@ def rotate_to_next_model(api_key: str, state: dict, reason: str = "manual"):
     config["agents"]["defaults"]["model"]["primary"] = formatted_primary
 
     # Add to models allowlist
-    formatted_for_list = format_model_for_openclaw(next_model, with_provider_prefix=False)
+    formatted_for_list = format_model_for_openclaw(
+        next_model, with_provider_prefix=False
+    )
     config["agents"]["defaults"]["models"][formatted_for_list] = {}
 
     # Rebuild fallbacks from remaining models (using correct format: no provider prefix)
@@ -223,7 +224,9 @@ def rotate_to_next_model(api_key: str, state: dict, reason: str = "manual"):
 def check_and_rotate(api_key: str, state: dict) -> bool:
     """Check current model and rotate if needed."""
     config = load_openclaw_config()
-    current = config.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    current = (
+        config.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    )
 
     if not current:
         print("No primary model configured. Running initial setup...")
@@ -231,7 +234,7 @@ def check_and_rotate(api_key: str, state: dict) -> bool:
 
     # Extract base model ID
     if current.startswith("openrouter/"):
-        current_base = current[len("openrouter/"):]
+        current_base = current[len("openrouter/") :]
     else:
         current_base = current
 
@@ -244,7 +247,7 @@ def check_and_rotate(api_key: str, state: dict) -> bool:
     success, error = test_model(api_key, current_base)
 
     if success:
-        print(f"  Status: OK")
+        print("  Status: OK")
         return False  # No rotation needed
     else:
         print(f"  Status: {error}")
@@ -262,7 +265,9 @@ def cleanup_old_rate_limits(state: dict):
     for model_id, limited_at_str in rate_limited.items():
         try:
             limited_at = datetime.fromisoformat(limited_at_str)
-            if current_time - limited_at > timedelta(minutes=RATE_LIMIT_COOLDOWN_MINUTES):
+            if current_time - limited_at > timedelta(
+                minutes=RATE_LIMIT_COOLDOWN_MINUTES
+            ):
                 expired.append(model_id)
         except (ValueError, TypeError):
             expired.append(model_id)
@@ -294,13 +299,14 @@ def run_daemon():
         print("Error: OPENROUTER_API_KEY not set")
         sys.exit(1)
 
-    print(f"FreeRide Watcher started")
+    print("FreeRide Watcher started")
     print(f"Check interval: {CHECK_INTERVAL_SECONDS}s")
     print(f"Rate limit cooldown: {RATE_LIMIT_COOLDOWN_MINUTES}m")
     print("-" * 50)
 
     # Handle graceful shutdown
     running = True
+
     def signal_handler(signum, frame):
         nonlocal running
         print("\nShutting down watcher...")
@@ -332,16 +338,20 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="freeride-watcher",
-        description="FreeRide Watcher - Monitor and auto-rotate free AI models"
+        description="FreeRide Watcher - Monitor and auto-rotate free AI models",
     )
-    parser.add_argument("--daemon", "-d", action="store_true",
-                       help="Run as continuous daemon")
-    parser.add_argument("--rotate", "-r", action="store_true",
-                       help="Force rotate to next model")
-    parser.add_argument("--status", "-s", action="store_true",
-                       help="Show watcher status")
-    parser.add_argument("--clear-cooldowns", action="store_true",
-                       help="Clear all rate limit cooldowns")
+    parser.add_argument(
+        "--daemon", "-d", action="store_true", help="Run as continuous daemon"
+    )
+    parser.add_argument(
+        "--rotate", "-r", action="store_true", help="Force rotate to next model"
+    )
+    parser.add_argument(
+        "--status", "-s", action="store_true", help="Show watcher status"
+    )
+    parser.add_argument(
+        "--clear-cooldowns", action="store_true", help="Clear all rate limit cooldowns"
+    )
 
     args = parser.parse_args()
 
@@ -352,7 +362,7 @@ def main():
         print(f"Total rotations: {state.get('rotation_count', 0)}")
         print(f"Last rotation: {state.get('last_rotation', 'Never')}")
         print(f"Last reason: {state.get('last_rotation_reason', 'N/A')}")
-        print(f"\nModels in cooldown:")
+        print("\nModels in cooldown:")
         for model, limited_at in state.get("rate_limited_models", {}).items():
             print(f"  - {model} (since {limited_at})")
         if not state.get("rate_limited_models"):

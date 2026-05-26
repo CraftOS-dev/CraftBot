@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
@@ -51,7 +51,7 @@ class Event:
 
     def display_text(self) -> Optional[str]:
         """
-        Provide a concise message for TUI display without altering the underlying event.
+        Provide a concise message for UI display without altering the underlying event.
 
         The display text mirrors ``display_message`` if one was supplied during
         logging, allowing callers to present a friendlier or truncated value in
@@ -151,7 +151,6 @@ class EventRecord:
             Compact string representation
         """
         t = self.ts.strftime("%H:%M:%S")
-        sev = self.event.severity
         k = self.event.kind
         msg = self.event.message
         suffix = f" x{self.repeat_count}" if self.repeat_count > 1 else ""

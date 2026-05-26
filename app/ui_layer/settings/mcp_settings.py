@@ -1,9 +1,9 @@
-"""MCP settings management for the TUI interface."""
+"""MCP settings management."""
+
 from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from app.config import APP_CONFIG_PATH
@@ -71,18 +71,21 @@ def list_mcp_servers() -> List[Dict[str, Any]]:
         if platform_blocked:
             logger.debug(
                 "MCP server %s has platform-specific paths — skipping on %s",
-                server.name, sys.platform,
+                server.name,
+                sys.platform,
             )
-        servers.append({
-            "name": server.name,
-            "description": server.description,
-            "enabled": server.enabled,
-            "transport": server.transport,
-            "command": server.command,
-            "action_set": server.resolved_action_set_name,
-            "env": server.env,
-            "platform_blocked": platform_blocked,
-        })
+        servers.append(
+            {
+                "name": server.name,
+                "description": server.description,
+                "enabled": server.enabled,
+                "transport": server.transport,
+                "command": server.command,
+                "action_set": server.resolved_action_set_name,
+                "env": server.env,
+                "platform_blocked": platform_blocked,
+            }
+        )
     return servers
 
 

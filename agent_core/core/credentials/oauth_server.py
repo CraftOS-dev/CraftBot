@@ -54,9 +54,11 @@ def _generate_self_signed_cert() -> Tuple[str, str]:
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+        ]
+    )
 
     now = datetime.now(timezone.utc)
     cert = (
@@ -68,10 +70,12 @@ def _generate_self_signed_cert() -> Tuple[str, str]:
         .not_valid_before(now)
         .not_valid_after(now + timedelta(days=365))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName("localhost"),
-                x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-            ]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+                ]
+            ),
             critical=False,
         )
         .sign(key, hashes.SHA256())
@@ -115,6 +119,7 @@ def _make_callback_handler(result_holder: Dict[str, Any]):
 
     This avoids class-level state that would be shared across OAuth flows.
     """
+
     class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         """Handler for OAuth callback requests."""
 
@@ -129,7 +134,11 @@ def _make_callback_handler(result_holder: Dict[str, Any]):
             if expected_state and returned_state != expected_state:
                 result_holder["error"] = "OAuth state mismatch — possible CSRF attack"
                 result_holder["code"] = None
-                logger.warning("[OAUTH] State mismatch: expected %s, got %s", expected_state, returned_state)
+                logger.warning(
+                    "[OAUTH] State mismatch: expected %s, got %s",
+                    expected_state,
+                    returned_state,
+                )
             else:
                 result_holder["code"] = params.get("code", [None])[0]
 
@@ -143,10 +152,10 @@ def _make_callback_handler(result_holder: Dict[str, Any]):
                     b"<h2>Authorization successful!</h2><p>You can close this tab.</p>"
                 )
             else:
-                safe_error = html.escape(str(result_holder.get('error') or 'Unknown error'))
-                self.wfile.write(
-                    f"<h2>Failed</h2><p>{safe_error}</p>".encode()
+                safe_error = html.escape(
+                    str(result_holder.get("error") or "Unknown error")
                 )
+                self.wfile.write(f"<h2>Failed</h2><p>{safe_error}</p>".encode())
 
         def log_message(self, format, *args):
             """Suppress default HTTP server logging."""
@@ -220,7 +229,12 @@ def run_oauth_flow(
     expected_state = auth_params.get("state", [None])[0]
 
     # Use instance-level result holder instead of class-level state
-    result_holder: Dict[str, Any] = {"code": None, "state": None, "error": None, "expected_state": expected_state}
+    result_holder: Dict[str, Any] = {
+        "code": None,
+        "state": None,
+        "error": None,
+        "expected_state": expected_state,
+    }
     handler_class = _make_callback_handler(result_holder)
 
     try:
@@ -244,13 +258,15 @@ def run_oauth_flow(
             _cleanup_files(cert_path or "", key_path or "")
 
     scheme = "https" if use_https else "http"
-    logger.info(f"[OAUTH] {scheme.upper()} server listening on {scheme}://127.0.0.1:{port}")
+    logger.info(
+        f"[OAUTH] {scheme.upper()} server listening on {scheme}://127.0.0.1:{port}"
+    )
 
     deadline = time.time() + timeout
     thread = threading.Thread(
         target=_serve_until_code,
         args=(server, deadline, result_holder, cancel_event),
-        daemon=True
+        daemon=True,
     )
     thread.start()
 

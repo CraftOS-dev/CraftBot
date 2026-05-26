@@ -6,7 +6,7 @@ Re-exports LLMInterface from agent_core with CraftBot-specific hooks
 for state access (using STATE singleton) and usage reporting.
 """
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from agent_core.core.impl.llm import LLMInterface as _LLMInterface
 from agent_core.core.hooks.types import UsageEventData
@@ -26,6 +26,7 @@ def _set_token_count(count: int) -> None:
 async def _report_usage(event: UsageEventData) -> None:
     """Report usage to local storage via UsageReporter."""
     from app.usage import get_usage_reporter
+
     await get_usage_reporter().report(event)
 
 
@@ -79,15 +80,22 @@ class LLMInterface(_LLMInterface):
         land on the task that actually made the LLM call.
         """
         from app.usage.task_attribution import attribute_usage_to_current_task
-        attribute_usage_to_current_task(UsageEventData(
-            service_type=service_type,
-            provider=provider,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cached_tokens=cached_tokens,
-        ))
+
+        attribute_usage_to_current_task(
+            UsageEventData(
+                service_type=service_type,
+                provider=provider,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+            )
+        )
         super()._report_usage_async(
-            service_type, provider, model,
-            input_tokens, output_tokens, cached_tokens,
+            service_type,
+            provider,
+            model,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
         )

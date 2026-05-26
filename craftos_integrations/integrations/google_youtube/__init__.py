@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """YouTube - granular Google integration.
 
 Connect just YouTube (without granting Gmail/Calendar/Drive/Docs scopes)
@@ -13,9 +13,10 @@ Scopes used:
 The YouTube Data API v3 is the only surface used; everything goes through
 ``https://www.googleapis.com/youtube/v3``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from ... import (
     BasePlatformClient,
@@ -53,6 +54,7 @@ YOUTUBE = IntegrationSpec(
 # Handler - auth flow only
 # -----------------------------------------------------------------
 
+
 @register_handler(YOUTUBE.name)
 class YouTubeHandler(IntegrationHandler):
     spec = YOUTUBE
@@ -77,6 +79,7 @@ class YouTubeHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client - YouTube REST methods (no listener)
 # -----------------------------------------------------------------
+
 
 @register_client
 class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
@@ -103,18 +106,21 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def get_my_channel(self) -> Result:
         """Return the authenticated user's channel (id, title, stats)."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/channels",
+            "GET",
+            f"{YOUTUBE_API_BASE}/channels",
             headers=self._auth_header(),
             params={"part": "snippet,statistics,contentDetails", "mine": "true"},
             expected=(200,),
             transform=lambda d: (d.get("items") or [None])[0],
         )
 
-    def search(self, query: str, max_results: int = 25,
-               type_filter: str = "video") -> Result:
+    def search(
+        self, query: str, max_results: int = 25, type_filter: str = "video"
+    ) -> Result:
         """Search YouTube. ``type_filter`` is one of ``video|channel|playlist``."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/search",
+            "GET",
+            f"{YOUTUBE_API_BASE}/search",
             headers=self._auth_header(),
             params={
                 "part": "snippet",
@@ -129,7 +135,8 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def get_video(self, video_id: str) -> Result:
         """Full metadata for a single video (snippet + stats + content details)."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/videos",
+            "GET",
+            f"{YOUTUBE_API_BASE}/videos",
             headers=self._auth_header(),
             params={"part": "snippet,statistics,contentDetails", "id": video_id},
             expected=(200,),
@@ -139,7 +146,8 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def list_my_subscriptions(self, max_results: int = 50) -> Result:
         """Channels the authenticated user is subscribed to."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/subscriptions",
+            "GET",
+            f"{YOUTUBE_API_BASE}/subscriptions",
             headers=self._auth_header(),
             params={
                 "part": "snippet",
@@ -154,9 +162,14 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def list_my_playlists(self, max_results: int = 50) -> Result:
         """Playlists owned by the authenticated user."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/playlists",
+            "GET",
+            f"{YOUTUBE_API_BASE}/playlists",
             headers=self._auth_header(),
-            params={"part": "snippet,contentDetails", "mine": "true", "maxResults": max_results},
+            params={
+                "part": "snippet,contentDetails",
+                "mine": "true",
+                "maxResults": max_results,
+            },
             expected=(200,),
             transform=lambda d: d.get("items", []),
         )
@@ -164,9 +177,14 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def list_playlist_items(self, playlist_id: str, max_results: int = 50) -> Result:
         """Videos in a playlist."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/playlistItems",
+            "GET",
+            f"{YOUTUBE_API_BASE}/playlistItems",
             headers=self._auth_header(),
-            params={"part": "snippet", "playlistId": playlist_id, "maxResults": max_results},
+            params={
+                "part": "snippet",
+                "playlistId": playlist_id,
+                "maxResults": max_results,
+            },
             expected=(200,),
             transform=lambda d: d.get("items", []),
         )
@@ -174,10 +192,15 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def subscribe(self, channel_id: str) -> Result:
         """Subscribe the authenticated user to a channel."""
         return http_request(
-            "POST", f"{YOUTUBE_API_BASE}/subscriptions",
+            "POST",
+            f"{YOUTUBE_API_BASE}/subscriptions",
             headers=self._headers(),
             params={"part": "snippet"},
-            json={"snippet": {"resourceId": {"kind": "youtube#channel", "channelId": channel_id}}},
+            json={
+                "snippet": {
+                    "resourceId": {"kind": "youtube#channel", "channelId": channel_id}
+                }
+            },
         )
 
     def unsubscribe(self, subscription_id: str) -> Result:
@@ -185,18 +208,23 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
         ``list_my_subscriptions`` (NOT the channel id - it's the subscription
         relationship's own id)."""
         return http_request(
-            "DELETE", f"{YOUTUBE_API_BASE}/subscriptions",
+            "DELETE",
+            f"{YOUTUBE_API_BASE}/subscriptions",
             headers=self._auth_header(),
             params={"id": subscription_id},
             expected=(204,),
-            transform=lambda _d: {"unsubscribed": True, "subscription_id": subscription_id},
+            transform=lambda _d: {
+                "unsubscribed": True,
+                "subscription_id": subscription_id,
+            },
         )
 
     def rate_video(self, video_id: str, rating: str) -> Result:
         """Like / dislike / clear rating. ``rating`` is one of
         ``like|dislike|none``."""
         return http_request(
-            "POST", f"{YOUTUBE_API_BASE}/videos/rate",
+            "POST",
+            f"{YOUTUBE_API_BASE}/videos/rate",
             headers=self._auth_header(),
             params={"id": video_id, "rating": rating},
             expected=(204,),
@@ -206,7 +234,8 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def post_comment(self, video_id: str, text: str) -> Result:
         """Post a top-level comment on a video."""
         return http_request(
-            "POST", f"{YOUTUBE_API_BASE}/commentThreads",
+            "POST",
+            f"{YOUTUBE_API_BASE}/commentThreads",
             headers=self._headers(),
             params={"part": "snippet"},
             json={
@@ -220,7 +249,8 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
     def get_video_comments(self, video_id: str, max_results: int = 50) -> Result:
         """Top-level comments on a video, most-recent first."""
         return http_request(
-            "GET", f"{YOUTUBE_API_BASE}/commentThreads",
+            "GET",
+            f"{YOUTUBE_API_BASE}/commentThreads",
             headers=self._auth_header(),
             params={
                 "part": "snippet",

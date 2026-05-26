@@ -15,7 +15,7 @@ APIs:
 """
 
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import re
 import time
 from pathlib import Path
@@ -82,13 +82,19 @@ class EventStream:
         self.temp_dir = temp_dir
 
         MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION = 2000
-        if tail_keep_after_summarize_tokens + MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION > summarize_at_tokens:
+        if (
+            tail_keep_after_summarize_tokens
+            + MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION
+            > summarize_at_tokens
+        ):
             logger.warning(
                 f"[EventStream] Value for tail_keep_after_summarize_tokens ({tail_keep_after_summarize_tokens}) "
                 f"is too large relative to summarize_at_tokens ({summarize_at_tokens}). "
                 f"Resetting tail_keep_after_summarize_tokens to {summarize_at_tokens - MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION}"
             )
-            self.tail_keep_after_summarize_tokens = summarize_at_tokens - MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION
+            self.tail_keep_after_summarize_tokens = (
+                summarize_at_tokens - MINIMUM_BUFFER_TOKENS_BEFORE_NEXT_SUMMARIZATION
+            )
 
         self._lock = threading.RLock()
         self._total_tokens: int = 0
@@ -131,7 +137,9 @@ class EventStream:
             severity = "INFO"
         msg = self._externalize_message(message.strip(), action_name=action_name)
         display = display_message.strip() if display_message is not None else None
-        ev = Event(message=msg, kind=kind.strip(), severity=severity, display_message=display)
+        ev = Event(
+            message=msg, kind=kind.strip(), severity=severity, display_message=display
+        )
         rec = EventRecord(event=ev)
 
         with self._lock:
@@ -154,7 +162,9 @@ class EventStream:
 
     # ───────────────────── summarization & pruning ───────────────────────
 
-    def _externalize_message(self, message: str, *, action_name: str | None = None) -> str:
+    def _externalize_message(
+        self, message: str, *, action_name: str | None = None
+    ) -> str:
         """Persist overly long messages to a temp file and return a pointer event."""
         if len(message) <= MAX_EVENT_INLINE_CHARS or self.temp_dir is None:
             return message
@@ -168,13 +178,14 @@ class EventStream:
             suffix = "action"
 
             if action_name:
-                suffix = re.sub(r"[^A-Za-z0-9._-]", "_", action_name).strip("._-") or "action"
+                suffix = (
+                    re.sub(r"[^A-Za-z0-9._-]", "_", action_name).strip("._-")
+                    or "action"
+                )
             file_path = self.temp_dir / f"event_{suffix}_{ts}.txt"
             file_path.write_text(message, encoding="utf-8")
             keywords = ", ".join(self._extract_keywords(message)) or "n/a"
-            return (
-                f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'stream_read' to read the content line by line in file."
-            )
+            return f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'stream_read' to read the content line by line in file."
         except Exception:
             logger.exception(
                 "[EventStream] Failed to externalize long event message "
@@ -192,7 +203,9 @@ class EventStream:
         if self._total_tokens < self.summarize_at_tokens:
             return
 
-        logger.debug(f"[EventStream] Triggering summarization: {self._total_tokens} tokens >= {self.summarize_at_tokens} threshold")
+        logger.debug(
+            f"[EventStream] Triggering summarization: {self._total_tokens} tokens >= {self.summarize_at_tokens} threshold"
+        )
         self.summarize_by_LLM()
 
     def _find_token_cutoff(self, events: List[EventRecord], keep_tokens: int) -> int:
@@ -212,7 +225,10 @@ class EventStream:
         keep_count = 0
         for rec in reversed(events):
             event_tokens = get_cached_token_count(rec)
-            if tokens_from_end + event_tokens > keep_tokens and keep_count >= MIN_KEEP_RECENT_EVENTS:
+            if (
+                tokens_from_end + event_tokens > keep_tokens
+                and keep_count >= MIN_KEEP_RECENT_EVENTS
+            ):
                 break
             tokens_from_end += event_tokens
             keep_count += 1
@@ -224,7 +240,11 @@ class EventStream:
             "find_token_cutoff",
             duration_ms,
             OperationCategory.OTHER,
-            {"event_count": len(events), "events_processed": len(events), "cutoff": cutoff},
+            {
+                "event_count": len(events),
+                "events_processed": len(events),
+                "cutoff": cutoff,
+            },
         )
         return cutoff
 
@@ -242,7 +262,9 @@ class EventStream:
             return
 
         # Find cutoff based on tokens to keep
-        cutoff = self._find_token_cutoff(self.tail_events, self.tail_keep_after_summarize_tokens)
+        cutoff = self._find_token_cutoff(
+            self.tail_events, self.tail_keep_after_summarize_tokens
+        )
 
         if cutoff <= 0:
             # Nothing old enough to summarize
@@ -259,7 +281,9 @@ class EventStream:
         previous_summary = self.head_summary or "(none)"
 
         prompt = EVENT_STREAM_SUMMARIZATION_PROMPT.format(
-            window=window, previous_summary=previous_summary, compact_lines=compact_lines
+            window=window,
+            previous_summary=previous_summary,
+            compact_lines=compact_lines,
         )
 
         try:
@@ -271,16 +295,24 @@ class EventStream:
                     f"[EventStream] Skipping LLM summarization: LLM has {current_failures} "
                     f"consecutive failures (max={max_failures}). Falling back to prune."
                 )
-                raise RuntimeError("LLM in consecutive failure state, skip summarization")
+                raise RuntimeError(
+                    "LLM in consecutive failure state, skip summarization"
+                )
 
-            logger.info(f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)")
+            logger.info(
+                f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)"
+            )
             llm_output = self.llm.generate_response(user_prompt=prompt)
             new_summary = (llm_output or "").strip()
 
-            logger.debug(f"[EVENT STREAM SUMMARIZATION] llm_output_len={len(llm_output or '')}")
+            logger.debug(
+                f"[EVENT STREAM SUMMARIZATION] llm_output_len={len(llm_output or '')}"
+            )
 
             if not new_summary:
-                logger.warning("[EVENT STREAM SUMMARIZATION] LLM returned empty summary; not updating.")
+                logger.warning(
+                    "[EVENT STREAM SUMMARIZATION] LLM returned empty summary; not updating."
+                )
                 return
 
             # Apply summary and prune events
@@ -292,7 +324,9 @@ class EventStream:
 
             # Reset all session sync points - event indices are now invalid
             self._session_sync_points.clear()
-            logger.info(f"[EventStream] Summarization complete. Tokens: {self._total_tokens}")
+            logger.info(
+                f"[EventStream] Summarization complete. Tokens: {self._total_tokens}"
+            )
 
         except Exception:
             logger.exception(
@@ -332,7 +366,6 @@ class EventStream:
             if len(keywords) >= top_n:
                 break
         return keywords
-
 
     # ───────────────────────── prompt accessors ──────────────────────────
 
@@ -395,7 +428,9 @@ class EventStream:
         with self._lock:
             # Store the current tail length as the sync point
             self._session_sync_points[call_type] = len(self.tail_events)
-            logger.debug(f"[EventStream] Session sync point for {call_type}: {self._session_sync_points[call_type]}")
+            logger.debug(
+                f"[EventStream] Session sync point for {call_type}: {self._session_sync_points[call_type]}"
+            )
 
     def get_delta_events(self, call_type: str) -> Tuple[str, bool]:
         """
@@ -419,7 +454,9 @@ class EventStream:
             # If sync_point is greater than current tail length, summarization occurred
             if sync_point > len(self.tail_events):
                 # Return None to signal that cache needs to be invalidated
-                logger.info(f"[EventStream] Summarization detected for {call_type}, cache invalidation needed")
+                logger.info(
+                    f"[EventStream] Summarization detected for {call_type}, cache invalidation needed"
+                )
                 return "", False
 
             # Get events since sync point

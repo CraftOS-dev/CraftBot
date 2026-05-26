@@ -5,6 +5,7 @@ with hyphenated names (e.g. 'unicode17-0-0'). PyInstaller's FrozenImporter
 cannot handle these, so we install a meta-path finder that loads them from
 the filesystem (they are included via our companion hook as data files).
 """
+
 import sys
 import os
 import importlib
@@ -19,7 +20,9 @@ class _RichUnicodeDataFinder(importlib.abc.MetaPathFinder):
         base = getattr(sys, "_MEIPASS", None)
         if base is None:
             return None
-        filepath = os.path.join(base, "rich", "_unicode_data", fullname.rsplit(".", 1)[-1] + ".py")
+        filepath = os.path.join(
+            base, "rich", "_unicode_data", fullname.rsplit(".", 1)[-1] + ".py"
+        )
         if os.path.isfile(filepath):
             return self
         return None
@@ -28,7 +31,9 @@ class _RichUnicodeDataFinder(importlib.abc.MetaPathFinder):
         if fullname in sys.modules:
             return sys.modules[fullname]
         base = sys._MEIPASS
-        filepath = os.path.join(base, "rich", "_unicode_data", fullname.rsplit(".", 1)[-1] + ".py")
+        filepath = os.path.join(
+            base, "rich", "_unicode_data", fullname.rsplit(".", 1)[-1] + ".py"
+        )
         spec = importlib.util.spec_from_file_location(fullname, filepath)
         mod = importlib.util.module_from_spec(spec)
         sys.modules[fullname] = mod

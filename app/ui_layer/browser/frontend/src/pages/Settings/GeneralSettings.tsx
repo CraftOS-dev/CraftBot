@@ -20,6 +20,20 @@ import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { useAppSelector, useAppDispatch } from '../../store/hooks'
+import { resetUpdateCheck } from '../../store/slices/generalSettingsSlice'
+import {
+  selectUserMd,
+  selectAgentMd,
+  selectSoulMd,
+  selectHasLoadedUserMd,
+  selectHasLoadedAgentMd,
+  selectHasLoadedSoulMd,
+  selectUpdateChecked,
+  selectUpdateAvailable,
+  selectLatestVersion,
+} from '../../store/selectors/generalSettings'
+import { selectVersion } from '../../store/selectors/connection'
 
 // Theme application helper
 function applyTheme(theme: string) {
@@ -49,7 +63,9 @@ function getInitialAgentName(): string {
 
 export function GeneralSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
-  const { version, agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
+  const version = useAppSelector(selectVersion)
+  const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
@@ -84,13 +100,42 @@ export function GeneralSettings() {
     setHasCustomPicture(agentProfilePictureHasCustom)
   }, [agentProfilePictureHasCustom])
 
-  // Agent file states
+  // Agent files: server-canonical "original" content lives in
+  // generalSettingsSlice (cached across tab remounts). The in-progress
+  // editor draft stays local so typing doesn't dispatch on every keystroke.
+  const sliceUserMd = useAppSelector(selectUserMd)
+  const sliceAgentMd = useAppSelector(selectAgentMd)
+  const sliceSoulMd = useAppSelector(selectSoulMd)
+  const hasLoadedUserMd = useAppSelector(selectHasLoadedUserMd)
+  const hasLoadedAgentMd = useAppSelector(selectHasLoadedAgentMd)
+  const hasLoadedSoulMd = useAppSelector(selectHasLoadedSoulMd)
   const [userMdContent, setUserMdContent] = useState('')
   const [originalUserMdContent, setOriginalUserMdContent] = useState('')
   const [agentMdContent, setAgentMdContent] = useState('')
   const [originalAgentMdContent, setOriginalAgentMdContent] = useState('')
   const [soulMdContent, setSoulMdContent] = useState('')
   const [originalSoulMdContent, setOriginalSoulMdContent] = useState('')
+
+  // Hydrate local drafts from slice on first load (and any time the slice
+  // refreshes, e.g. after restore-from-default).
+  useEffect(() => {
+    if (hasLoadedUserMd) {
+      setUserMdContent(sliceUserMd)
+      setOriginalUserMdContent(sliceUserMd)
+    }
+  }, [hasLoadedUserMd, sliceUserMd])
+  useEffect(() => {
+    if (hasLoadedAgentMd) {
+      setAgentMdContent(sliceAgentMd)
+      setOriginalAgentMdContent(sliceAgentMd)
+    }
+  }, [hasLoadedAgentMd, sliceAgentMd])
+  useEffect(() => {
+    if (hasLoadedSoulMd) {
+      setSoulMdContent(sliceSoulMd)
+      setOriginalSoulMdContent(sliceSoulMd)
+    }
+  }, [hasLoadedSoulMd, sliceSoulMd])
   // Refs to track current content for closure-safe callbacks
   const userMdContentRef = useRef(userMdContent)
   const agentMdContentRef = useRef(agentMdContent)
@@ -112,13 +157,13 @@ export function GeneralSettings() {
   const [soulMdSaveStatus, setSoulMdSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
-  // Update state
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(true) // starts true — auto-check on mount
-  const [updateAvailable, setUpdateAvailable] = useState(false)
-  const [latestVersion, setLatestVersion] = useState('')
+  // Update state: result is cached in slice; in-progress flow is local.
+  const updateAvailable = useAppSelector(selectUpdateAvailable)
+  const latestVersion = useAppSelector(selectLatestVersion)
+  const updateCheckDone = useAppSelector(selectUpdateChecked)
+  const isCheckingUpdate = !updateCheckDone
   const [isUpdating, setIsUpdating] = useState(false)
   const [updateMessages, setUpdateMessages] = useState<string[]>([])
-  const [updateCheckDone, setUpdateCheckDone] = useState(false)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -233,26 +278,12 @@ export function GeneralSettings() {
         }, 3000)
       }),
       onMessage('agent_file_read', (data: unknown) => {
-        const d = data as { filename: string; content: string; success: boolean }
-        if (d.filename === 'USER.md') {
-          setIsLoadingUserMd(false)
-          if (d.success) {
-            setUserMdContent(d.content)
-            setOriginalUserMdContent(d.content)
-          }
-        } else if (d.filename === 'AGENT.md') {
-          setIsLoadingAgentMd(false)
-          if (d.success) {
-            setAgentMdContent(d.content)
-            setOriginalAgentMdContent(d.content)
-          }
-        } else if (d.filename === 'SOUL.md') {
-          setIsLoadingSoulMd(false)
-          if (d.success) {
-            setSoulMdContent(d.content)
-            setOriginalSoulMdContent(d.content)
-          }
-        }
+        // Content goes to the slice; we only need to flip the per-file
+        // loading flag locally.
+        const d = data as { filename: string; success: boolean }
+        if (d.filename === 'USER.md') setIsLoadingUserMd(false)
+        else if (d.filename === 'AGENT.md') setIsLoadingAgentMd(false)
+        else if (d.filename === 'SOUL.md') setIsLoadingSoulMd(false)
       }),
       onMessage('agent_file_write', (data: unknown) => {
         const d = data as { filename: string; success: boolean }
@@ -279,40 +310,29 @@ export function GeneralSettings() {
           setTimeout(() => setSoulMdSaveStatus('idle'), 3000)
         }
       }),
-      onMessage('update_check_result', (data: unknown) => {
-        const d = data as { updateAvailable: boolean; currentVersion: string; latestVersion: string; error?: string }
-        setIsCheckingUpdate(false)
-        setUpdateCheckDone(true)
-        setUpdateAvailable(d.updateAvailable)
-        setLatestVersion(d.latestVersion)
-      }),
+      // update_check_result is handled by generalSettingsSlice via the registry.
       onMessage('update_progress', (data: unknown) => {
         const d = data as { message: string }
         setUpdateMessages(prev => [...prev, d.message])
       }),
       onMessage('agent_file_restore', (data: unknown) => {
-        const d = data as { filename: string; content: string; success: boolean }
+        // Content goes to the slice; we only flip local flags + show toast.
+        const d = data as { filename: string; success: boolean }
         if (d.filename === 'USER.md') {
           setIsRestoringUserMd(false)
           if (d.success) {
-            setUserMdContent(d.content)
-            setOriginalUserMdContent(d.content)
             setUserMdSaveStatus('success')
             setTimeout(() => setUserMdSaveStatus('idle'), 3000)
           }
         } else if (d.filename === 'AGENT.md') {
           setIsRestoringAgentMd(false)
           if (d.success) {
-            setAgentMdContent(d.content)
-            setOriginalAgentMdContent(d.content)
             setAgentMdSaveStatus('success')
             setTimeout(() => setAgentMdSaveStatus('idle'), 3000)
           }
         } else if (d.filename === 'SOUL.md') {
           setIsRestoringSoulMd(false)
           if (d.success) {
-            setSoulMdContent(d.content)
-            setOriginalSoulMdContent(d.content)
             setSoulMdSaveStatus('success')
             setTimeout(() => setSoulMdSaveStatus('idle'), 3000)
           }
@@ -322,25 +342,30 @@ export function GeneralSettings() {
 
     // Request initial data
     send('settings_get')
-    // Auto-check for updates
-    send('check_update')
+    // Auto-check for updates (only on first mount of this session)
+    if (!updateCheckDone) send('check_update')
 
     return () => {
       cleanups.forEach(cleanup => cleanup())
     }
   }, [isConnected, send, onMessage])
 
-  // Load advanced files when section is opened
+  // Load advanced files when section is opened (cached after first load).
   useEffect(() => {
-    if (showAdvanced && isConnected) {
+    if (!showAdvanced || !isConnected) return
+    if (!hasLoadedUserMd) {
       setIsLoadingUserMd(true)
-      setIsLoadingAgentMd(true)
-      setIsLoadingSoulMd(true)
       send('agent_file_read', { filename: 'USER.md' })
+    }
+    if (!hasLoadedAgentMd) {
+      setIsLoadingAgentMd(true)
       send('agent_file_read', { filename: 'AGENT.md' })
+    }
+    if (!hasLoadedSoulMd) {
+      setIsLoadingSoulMd(true)
       send('agent_file_read', { filename: 'SOUL.md' })
     }
-  }, [showAdvanced, isConnected, send])
+  }, [showAdvanced, isConnected, send, hasLoadedUserMd, hasLoadedAgentMd, hasLoadedSoulMd])
 
   const handleSaveSettings = () => {
     setIsSaving(true)
@@ -482,9 +507,7 @@ export function GeneralSettings() {
   }
 
   const handleCheckUpdate = () => {
-    setIsCheckingUpdate(true)
-    setUpdateCheckDone(false)
-    setUpdateAvailable(false)
+    dispatch(resetUpdateCheck())
     setUpdateMessages([])
     send('check_update')
   }

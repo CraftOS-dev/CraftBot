@@ -5,6 +5,8 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator } from '../ui/StatusIndicator'
 import { useDerivedAgentStatus } from '../../hooks'
+import { useAppSelector } from '../../store/hooks'
+import { selectVersion } from '../../store/selectors/connection'
 import styles from './TopBar.module.css'
 
 // Simple Discord icon component since lucide-react doesn't have it
@@ -19,7 +21,8 @@ function DiscordIcon() {
 
 export function TopBar() {
   const { theme, toggleTheme } = useTheme()
-  const { connected, actions, messages, version } = useWebSocket()
+  const { connected, actions, messages } = useWebSocket()
+  const version = useAppSelector(selectVersion)
 
   // Derive agent status from actions and messages
   const derivedStatus = useDerivedAgentStatus({

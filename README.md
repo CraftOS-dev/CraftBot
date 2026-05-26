@@ -24,6 +24,9 @@
 [![SPONSORED BY E2B FOR STARTUPS](https://img.shields.io/badge/SPONSORED%20BY-E2B%20FOR%20STARTUPS-ff8800?style=for-the-badge)](https://e2b.dev/startups)
 
 <a href="https://www.producthunt.com/products/craftbot?embed=true&amp;utm_source=badge-top-post-badge&amp;utm_medium=badge&amp;utm_campaign=badge-craftbot" target="_blank" rel="noopener noreferrer"><img alt="CraftBot - Self-hosted proactive AI assistant that lives locally | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1110300&amp;theme=dark&amp;period=daily&amp;t=1776679679509"></a>
+
+<a href="https://theresanaiforthat.com/ai/craftbot/?ref=featured&v=10277523" target="_blank" rel="nofollow"><img width="300" src="https://media.theresanaiforthat.com/featured-on-taaft.png?width=600"></a>
+
 </div>
 
 <p align="center">
@@ -37,7 +40,7 @@ CraftBot is your Personal AI Assistant that lives inside your machine and works 
 
 It autonomously interprets tasks, plans actions, and executes them to achieve your goals.
 It learns your preferences and objectives, proactively helping you plan and initiate tasks to achieve your life goals.
-MCPs and Skills, and external App integrations are supported. 
+MCPs and Skills, and external App integrations are supported. It can also create, evolve and operate its own SaaS tools for automation and collaboration.
 
 CraftBot awaits your orders. Set up your own CraftBot now.
 
@@ -59,7 +62,7 @@ CraftBot awaits your orders. Set up your own CraftBot now.
 - **Cross-Platform** — Full support for Windows, macOS, and Linux with platform-specific code variants and Docker containerization.
 
 > [!IMPORTANT]
-> **GUI mode is deprecated.** CraftBot no longer supports GUI (desktop automation) mode. Please use Browser, TUI, or CLI mode instead.
+> **GUI mode is deprecated.** CraftBot no longer supports GUI (desktop automation) mode. Please use Browser or CLI mode instead.
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -173,7 +176,7 @@ python run.py
 The first run will guide you through setting up your API keys and preferences.
 
 > [!NOTE]
-> If Node.js is not installed, the installer will provide step-by-step instructions. You can also skip browser mode entirely and use TUI mode — no Node.js required: `python run.py --tui`
+> If Node.js is not installed, the installer will provide step-by-step instructions. You can also skip browser mode entirely and use CLI mode — no Node.js required: `python run.py --cli`
 
 ---
 
@@ -194,10 +197,9 @@ CraftBot supports multiple UI modes. Choose based on your preference:
 | Mode | Command | Requirements | Best For |
 |------|---------|--------------|----------|
 | **Browser** | `python run.py` | Node.js 18+ | Modern web interface, easiest to use |
-| **TUI** | `python run.py --tui` | None | Terminal UI, no dependencies needed |
 | **CLI** | `python run.py --cli` | None | Command-line, lightweight |
 
-**Browser mode** is the default and recommended. If you don't have Node.js, the installer will provide installation instructions or you can use **TUI mode** instead.
+**Browser mode** is the default and recommended. If you don't have Node.js, the installer will provide installation instructions or you can use **CLI mode** instead.
 
 ---
 
@@ -262,7 +264,6 @@ REST API, and trigger actions on your behalf.
 | **Task Manager** | Manages task definitions, enable simple and complex tasks bode, create todos, and multi-step workflow tracking. |
 | **Skill Manager** | Loads and injects pluggable skills into the agent context. |
 | **MCP Adapter** | Model Context Protocol integration that converts MCP tools into native actions. |
-| **TUI Interface** | Terminal user interface built with Textual framework for interactive command-line operation. |
 
 ---
 
@@ -316,18 +317,14 @@ python install.py --conda
 | Flag | Description |
 |------|-------------|
 | (none) | Run in **Browser** mode (recommended, requires Node.js) |
-| `--tui` | Run in **Terminal UI** mode (no dependencies needed) |
-| `--cli` | Run in **CLI** mode (lightweight) |
+| `--cli` | Run in **CLI** mode (lightweight, no Node.js required) |
 
 **Windows (PowerShell):**
 ```powershell
 # Browser mode (default, requires Node.js)
 python run.py
 
-# TUI mode (no Node.js required)
-python run.py --tui
-
-# CLI mode (lightweight)
+# CLI mode (no Node.js required)
 python run.py --cli
 
 # With conda environment
@@ -340,7 +337,6 @@ conda run -n craftbot python run.py
 **Linux/macOS (Bash):**
 ```bash
 python run.py          # Browser mode
-python run.py --tui    # TUI mode
 python run.py --cli    # CLI mode
 
 # With conda environment
@@ -348,7 +344,7 @@ conda run -n craftbot python run.py
 ```
 
 > [!NOTE]
-> **Installation:** The installer now provides clear guidance if dependencies are missing. If Node.js is not found, you'll be prompted to install it or can switch to TUI mode. Installation automatically detects GPU availability and falls back to CPU-only mode if needed.
+> **Installation:** The installer now provides clear guidance if dependencies are missing. If Node.js is not found, you'll be prompted to install it or can switch to CLI mode. Installation automatically detects GPU availability and falls back to CPU-only mode if needed.
 
 > [!TIP]
 > **First-time setup:** CraftBot will guide you through an onboarding sequence to configure API keys, the agent's name, MCPs, and Skills.
@@ -366,9 +362,9 @@ If you see **"npm not found in PATH"** when running `python run.py`:
 2. Install and restart your terminal
 3. Run `python run.py` again
 
-**Alternative:** Use TUI mode instead (no Node.js needed):
+**Alternative:** Use CLI mode instead (no Node.js needed):
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### Installation Fails with Dependencies

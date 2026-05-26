@@ -11,6 +11,7 @@ sys.platform — replaces the if win/elif darwin/else trinity that appears
 in `_full_install_frozen`, `cmd_uninstall`, `cmd_install`, `cmd_repair`,
 `_remove_desktop_shortcut`, and `_is_installed`.
 """
+
 from __future__ import annotations
 
 import sys

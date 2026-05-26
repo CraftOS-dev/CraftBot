@@ -20,6 +20,7 @@ from agent_core.core.impl.onboarding import (
     SOFT_ONBOARDING_QUESTIONS,
 )
 
+
 # For backward compatibility, expose ONBOARDING_CONFIG_FILE as a property
 # that calls the function (since it depends on workspace root)
 def _get_config_file():

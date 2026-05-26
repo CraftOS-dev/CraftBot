@@ -2,6 +2,7 @@
 """
 Registry for TriggerQueue.
 """
+
 from typing import Optional
 
 from agent_core.core.registry.base import ComponentRegistry
@@ -10,6 +11,7 @@ from agent_core.core.protocols.trigger import TriggerQueueProtocol
 
 class TriggerQueueRegistry(ComponentRegistry[TriggerQueueProtocol]):
     """Registry for accessing the TriggerQueue instance."""
+
     pass
 
 

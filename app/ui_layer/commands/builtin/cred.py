@@ -101,7 +101,9 @@ Examples:
                     connected_count += 1
                     accounts = parse_status_accounts(status_msg)
                     if accounts:
-                        account_label = ", ".join(a.get("display") or a.get("id", "") for a in accounts)
+                        account_label = ", ".join(
+                            a.get("display") or a.get("id", "") for a in accounts
+                        )
                         lines.append(f"  [+] {display} ({account_label})")
                     else:
                         lines.append(f"  [+] {display}")

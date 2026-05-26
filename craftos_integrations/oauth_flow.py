@@ -14,6 +14,7 @@ Two pieces:
      full OAuth dance: build URL, run callback server, exchange tokens,
      optionally fetch userinfo. Returns a dict with tokens + userinfo.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,6 +45,7 @@ logger = get_logger(__name__)
 # Localhost callback server (ported from agent_core.oauth_server)
 # ════════════════════════════════════════════════════════════════════════
 
+
 def _generate_self_signed_cert() -> Tuple[str, str]:
     from cryptography import x509
     from cryptography.x509.oid import NameOID
@@ -55,15 +57,19 @@ def _generate_self_signed_cert() -> Tuple[str, str]:
     now = datetime.now(timezone.utc)
     cert = (
         x509.CertificateBuilder()
-        .subject_name(subject).issuer_name(issuer)
+        .subject_name(subject)
+        .issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now).not_valid_after(now + timedelta(days=365))
+        .not_valid_before(now)
+        .not_valid_after(now + timedelta(days=365))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName("localhost"),
-                x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-            ]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+                ]
+            ),
             critical=False,
         )
         .sign(key, hashes.SHA256())
@@ -77,10 +83,13 @@ def _generate_self_signed_cert() -> Tuple[str, str]:
     cert_fd, cert_path = tempfile.mkstemp(suffix=".pem", prefix="oauth_cert_")
     key_fd, key_path = tempfile.mkstemp(suffix=".pem", prefix="oauth_key_")
     try:
-        os.write(cert_fd, cert_pem); os.close(cert_fd)
-        os.write(key_fd, key_pem); os.close(key_fd)
+        os.write(cert_fd, cert_pem)
+        os.close(cert_fd)
+        os.write(key_fd, key_pem)
+        os.close(key_fd)
     except Exception:
-        os.close(cert_fd); os.close(key_fd)
+        os.close(cert_fd)
+        os.close(key_fd)
         _cleanup_files(cert_path, key_path)
         raise
     return cert_path, key_path
@@ -112,7 +121,9 @@ def _make_callback_handler(result_holder: Dict[str, Any]):
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             if result_holder["code"]:
-                self.wfile.write(b"<h2>Authorization successful!</h2><p>You can close this tab.</p>")
+                self.wfile.write(
+                    b"<h2>Authorization successful!</h2><p>You can close this tab.</p>"
+                )
             else:
                 safe = html.escape(str(result_holder.get("error") or "Unknown error"))
                 self.wfile.write(f"<h2>Failed</h2><p>{safe}</p>".encode())
@@ -154,7 +165,9 @@ def _run_oauth_flow_sync(
 
     expected_state = parse_qs(urlparse(auth_url).query).get("state", [None])[0]
     result_holder: Dict[str, Any] = {
-        "code": None, "state": None, "error": None,
+        "code": None,
+        "state": None,
+        "error": None,
         "expected_state": expected_state,
     }
     handler_class = _make_callback_handler(result_holder)
@@ -179,7 +192,9 @@ def _run_oauth_flow_sync(
             _cleanup_files(cert_path or "", key_path or "")
 
     scheme = "https" if use_https else "http"
-    logger.info(f"[OAUTH] {scheme.upper()} server listening on {scheme}://127.0.0.1:{port}")
+    logger.info(
+        f"[OAUTH] {scheme.upper()} server listening on {scheme}://127.0.0.1:{port}"
+    )
 
     deadline = time.time() + timeout
     thread = threading.Thread(
@@ -228,8 +243,11 @@ async def run_localhost_callback(
 
     def run_flow():
         return _run_oauth_flow_sync(
-            auth_url=auth_url, port=port, timeout=timeout,
-            use_https=use_https, cancel_event=cancel_event,
+            auth_url=auth_url,
+            port=port,
+            timeout=timeout,
+            use_https=use_https,
+            cancel_event=cancel_event,
         )
 
     try:
@@ -239,7 +257,9 @@ async def run_localhost_callback(
         raise
 
 
-async def get_oauth_runner(auth_url: str, *, use_https: bool = False) -> Tuple[Optional[str], Optional[str]]:
+async def get_oauth_runner(
+    auth_url: str, *, use_https: bool = False
+) -> Tuple[Optional[str], Optional[str]]:
     """Resolve and call the configured oauth_runner (or the default)."""
     runner = ConfigStore.oauth_runner or run_localhost_callback
     return await runner(auth_url, use_https=use_https)
@@ -340,9 +360,11 @@ class OAuthFlow:
 
         if self.use_pkce:
             verifier = secrets.token_urlsafe(64)[:128]
-            challenge = base64.urlsafe_b64encode(
-                hashlib.sha256(verifier.encode()).digest()
-            ).decode().rstrip("=")
+            challenge = (
+                base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+                .decode()
+                .rstrip("=")
+            )
             params["code_challenge"] = challenge
             params["code_challenge_method"] = "S256"
             ctx["code_verifier"] = verifier
@@ -379,16 +401,26 @@ class OAuthFlow:
         if self.token_request_json:
             headers.setdefault("Content-Type", "application/json")
             result = http_request(
-                "POST", self.token_url, json=token_data, headers=headers,
-                timeout=30.0, expected=(200,),
+                "POST",
+                self.token_url,
+                json=token_data,
+                headers=headers,
+                timeout=30.0,
+                expected=(200,),
             )
         else:
             result = http_request(
-                "POST", self.token_url, data=token_data, headers=headers,
-                timeout=30.0, expected=(200,),
+                "POST",
+                self.token_url,
+                data=token_data,
+                headers=headers,
+                timeout=30.0,
+                expected=(200,),
             )
         if "error" in result:
-            return {"error": f"Token exchange failed: {result.get('details') or result['error']}"}
+            return {
+                "error": f"Token exchange failed: {result.get('details') or result['error']}"
+            }
         return result["result"] or {}
 
     def _fetch_userinfo_sync(self, access_token: str) -> Dict[str, Any]:
@@ -398,8 +430,11 @@ class OAuthFlow:
         headers = {"Authorization": f"Bearer {access_token}"}
         headers.update(self.userinfo_extra_headers)
         result = http_request(
-            "GET", self.userinfo_url, headers=headers,
-            timeout=30.0, expected=(200,),
+            "GET",
+            self.userinfo_url,
+            headers=headers,
+            timeout=30.0,
+            expected=(200,),
         )
         if "error" in result:
             logger.warning(f"[OAUTH] userinfo fetch failed: {result['error']}")
@@ -432,7 +467,8 @@ class OAuthFlow:
             access_token = tokens.get("access_token", "")
             userinfo = (
                 await asyncio.to_thread(self._fetch_userinfo_sync, access_token)
-                if access_token else {}
+                if access_token
+                else {}
             )
 
             return {

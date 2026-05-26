@@ -1,0 +1,168 @@
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { register } from '../socket/messageRegistry'
+
+export interface ProviderInfo {
+  id: string
+  name: string
+  requires_api_key: boolean
+  api_key_env?: string
+  base_url_env?: string
+  llm_model: string | null
+  vlm_model: string | null
+  has_vlm: boolean
+  supports_catalog?: boolean
+}
+
+export interface ApiKeyStatus {
+  has_key: boolean
+  masked_key: string
+}
+
+interface ModelSettingsState {
+  providers: ProviderInfo[]
+  provider: string
+  apiKeys: Record<string, ApiKeyStatus>
+  baseUrls: Record<string, string>
+  currentLlmModel: string
+  currentVlmModel: string
+  slowModeEnabled: boolean
+  ollamaModels: string[]
+  ollamaAvailable: boolean | null
+  hasLoadedProviders: boolean
+  hasLoadedSettings: boolean
+  hasLoadedSlowMode: boolean
+}
+
+const initialState: ModelSettingsState = {
+  providers: [],
+  provider: 'anthropic',
+  apiKeys: {},
+  baseUrls: {},
+  currentLlmModel: '',
+  currentVlmModel: '',
+  slowModeEnabled: false,
+  ollamaModels: [],
+  ollamaAvailable: null,
+  hasLoadedProviders: false,
+  hasLoadedSettings: false,
+  hasLoadedSlowMode: false,
+}
+
+const modelSettingsSlice = createSlice({
+  name: 'modelSettings',
+  initialState,
+  reducers: {
+    setProviders(state, action: PayloadAction<ProviderInfo[]>) {
+      state.providers = action.payload
+      state.hasLoadedProviders = true
+    },
+    setSettings(state, action: PayloadAction<{
+      provider: string
+      llmModel: string
+      vlmModel: string
+      apiKeys: Record<string, ApiKeyStatus>
+      baseUrls: Record<string, string>
+    }>) {
+      state.provider = action.payload.provider
+      state.currentLlmModel = action.payload.llmModel
+      state.currentVlmModel = action.payload.vlmModel
+      state.apiKeys = action.payload.apiKeys
+      state.baseUrls = action.payload.baseUrls
+      state.hasLoadedSettings = true
+    },
+    setProvider(state, action: PayloadAction<string>) {
+      state.provider = action.payload
+    },
+    setCurrentLlmModel(state, action: PayloadAction<string>) {
+      state.currentLlmModel = action.payload
+    },
+    setCurrentVlmModel(state, action: PayloadAction<string>) {
+      state.currentVlmModel = action.payload
+    },
+    setApiKeys(state, action: PayloadAction<Record<string, ApiKeyStatus>>) {
+      state.apiKeys = action.payload
+    },
+    setBaseUrls(state, action: PayloadAction<Record<string, string>>) {
+      state.baseUrls = action.payload
+    },
+    setSlowModeEnabled(state, action: PayloadAction<boolean>) {
+      state.slowModeEnabled = action.payload
+      state.hasLoadedSlowMode = true
+    },
+    setOllamaModels(state, action: PayloadAction<{ models: string[]; available: boolean }>) {
+      state.ollamaModels = action.payload.models
+      state.ollamaAvailable = action.payload.available
+    },
+  },
+})
+
+export const {
+  setProviders,
+  setSettings,
+  setProvider,
+  setCurrentLlmModel,
+  setCurrentVlmModel,
+  setApiKeys,
+  setBaseUrls,
+  setSlowModeEnabled,
+  setOllamaModels,
+} = modelSettingsSlice.actions
+
+export default modelSettingsSlice.reducer
+
+register('model_providers_get', (data, dispatch) => {
+  const d = data as { success: boolean; providers: ProviderInfo[] }
+  if (d.success && d.providers) dispatch(setProviders(d.providers))
+})
+
+register('model_settings_get', (data, dispatch) => {
+  const d = data as {
+    success: boolean
+    llm_provider: string
+    llm_model: string | null
+    vlm_model: string | null
+    api_keys: Record<string, ApiKeyStatus>
+    base_urls: Record<string, string>
+  }
+  if (d.success) {
+    dispatch(setSettings({
+      provider: d.llm_provider || 'anthropic',
+      llmModel: d.llm_model || '',
+      vlmModel: d.vlm_model || '',
+      apiKeys: d.api_keys || {},
+      baseUrls: d.base_urls || {},
+    }))
+  }
+})
+
+register('model_settings_update', (data, dispatch) => {
+  const d = data as {
+    success: boolean
+    llm_provider?: string
+    llm_model?: string | null
+    vlm_model?: string | null
+    api_keys?: Record<string, ApiKeyStatus>
+    base_urls?: Record<string, string>
+  }
+  if (!d.success) return
+  if (d.llm_provider) dispatch(setProvider(d.llm_provider))
+  if (d.api_keys) dispatch(setApiKeys(d.api_keys))
+  if (d.base_urls) dispatch(setBaseUrls(d.base_urls))
+  if (d.llm_model !== undefined) dispatch(setCurrentLlmModel(d.llm_model || ''))
+  if (d.vlm_model !== undefined) dispatch(setCurrentVlmModel(d.vlm_model || ''))
+})
+
+register('slow_mode_get', (data, dispatch) => {
+  const d = data as { success: boolean; enabled: boolean }
+  if (d.success) dispatch(setSlowModeEnabled(d.enabled))
+})
+
+register('slow_mode_set', (data, dispatch) => {
+  const d = data as { success: boolean; enabled: boolean }
+  if (d.success) dispatch(setSlowModeEnabled(d.enabled))
+})
+
+register('ollama_models_get', (data, dispatch) => {
+  const d = data as { success: boolean; models: string[] }
+  dispatch(setOllamaModels({ models: d.success ? (d.models || []) : [], available: d.success }))
+})

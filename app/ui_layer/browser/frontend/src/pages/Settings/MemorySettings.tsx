@@ -15,15 +15,14 @@ import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
-
-// Types
-interface MemoryItem {
-  id: string
-  timestamp: string
-  category: string
-  content: string
-  raw: string
-}
+import { useAppSelector } from '../../store/hooks'
+import {
+  selectMemoryEnabled,
+  selectMemoryItems,
+  selectMemoryHasLoadedMode,
+  selectMemoryHasLoadedItems,
+} from '../../store/selectors/memorySettings'
+import type { MemoryItem } from '../../store/slices/memorySettingsSlice'
 
 // Memory Item Form Modal Component
 interface MemoryItemFormModalProps {
@@ -99,53 +98,34 @@ export function MemorySettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
 
-  // Memory mode state
-  const [memoryEnabled, setMemoryEnabled] = useState(true)
-  const [isLoadingMode, setIsLoadingMode] = useState(true)
+  // Slice-backed: cached across remounts.
+  const memoryEnabled = useAppSelector(selectMemoryEnabled)
+  const items = useAppSelector(selectMemoryItems)
+  const hasLoadedMode = useAppSelector(selectMemoryHasLoadedMode)
+  const hasLoadedItems = useAppSelector(selectMemoryHasLoadedItems)
+  const isLoadingMode = !hasLoadedMode
+  const isLoadingItems = !hasLoadedItems
 
-  // Memory items state
-  const [items, setItems] = useState<MemoryItem[]>([])
-  const [isLoadingItems, setIsLoadingItems] = useState(true)
-
-  // UI state
+  // UI state (transient)
   const [showItemForm, setShowItemForm] = useState(false)
   const [editingItem, setEditingItem] = useState<MemoryItem | null>(null)
   const [isResetting, setIsResetting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
-
-  // Sort state
   const [sortOrder, setSortOrder] = useState<'latest' | 'oldest'>('latest')
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Load data when connected
+  // Side-effect handlers (toasts, modal close). List/enabled state itself
+  // is owned by memorySettingsSlice via the registry.
   useEffect(() => {
     if (!isConnected) return
 
     const cleanups = [
-      onMessage('memory_mode_get', (data: unknown) => {
-        const d = data as { success: boolean; enabled: boolean }
-        setIsLoadingMode(false)
-        if (d.success) {
-          setMemoryEnabled(d.enabled)
-        }
-      }),
       onMessage('memory_mode_set', (data: unknown) => {
         const d = data as { success: boolean; enabled: boolean; error?: string }
-        if (d.success) {
-          setMemoryEnabled(d.enabled)
-          showToast('success', `Memory ${d.enabled ? 'enabled' : 'disabled'}`)
-        } else {
-          showToast('error', d.error || 'Failed to update memory mode')
-        }
-      }),
-      onMessage('memory_items_get', (data: unknown) => {
-        const d = data as { success: boolean; items: MemoryItem[] }
-        setIsLoadingItems(false)
-        if (d.success) {
-          setItems(d.items || [])
-        }
+        if (d.success) showToast('success', `Memory ${d.enabled ? 'enabled' : 'disabled'}`)
+        else showToast('error', d.error || 'Failed to update memory mode')
       }),
       onMessage('memory_item_add', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
@@ -191,22 +171,18 @@ export function MemorySettings() {
       onMessage('memory_process_trigger', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
         setIsProcessing(false)
-        if (d.success) {
-          showToast('success', d.message || 'Memory processing started')
-        } else {
-          showToast('error', d.error || 'Failed to start memory processing')
-        }
+        if (d.success) showToast('success', d.message || 'Memory processing started')
+        else showToast('error', d.error || 'Failed to start memory processing')
       }),
     ]
 
-    send('memory_mode_get')
-    send('memory_items_get')
+    if (!hasLoadedMode) send('memory_mode_get')
+    if (!hasLoadedItems) send('memory_items_get')
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage])
+  }, [isConnected, send, onMessage, hasLoadedMode, hasLoadedItems, showToast])
 
   const handleToggleMemory = (enabled: boolean) => {
-    setMemoryEnabled(enabled)
     send('memory_mode_set', { enabled })
   }
 

@@ -1,86 +1,5 @@
-/* Create Living UI Modal — full-screen marketplace overlay */
-.modalOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-  padding: var(--space-4);
-  animation: fadeIn 0.15s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.modalContent {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  width: 95vw;
-  max-width: 1400px;
-  height: 95vh;
-  max-height: 95vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: slideUp 0.15s ease-out;
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.modalHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-primary);
-  flex-shrink: 0;
-}
-
-.headerTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
 .headerIcon {
   color: var(--color-primary);
-}
-
-.modalHeader h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.modalClose {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.modalClose:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }
 
 /* Tabs */
@@ -351,6 +270,11 @@
   animation: spin 1s linear infinite;
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Configure-app panel (when customizable fields exist) */
 .configBody {
   flex: 1;
@@ -571,16 +495,6 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .modalOverlay {
-    padding: 0;
-  }
-  .modalContent {
-    width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
-    border-radius: 0;
-    border: none;
-  }
   .appsGrid {
     grid-template-columns: 1fr;
   }

@@ -23,6 +23,7 @@ class AppState(Base):
 
     The agent should extend this with custom models for complex data needs.
     """
+
     __tablename__ = "app_state"
 
     id = Column(Integer, primary_key=True, default=1)
@@ -51,6 +52,7 @@ class AppState(Base):
 # Example models for reference - Agent should customize these
 # ============================================================================
 
+
 class UISnapshot(Base):
     """
     UI state snapshot for agent observation.
@@ -58,6 +60,7 @@ class UISnapshot(Base):
     Frontend periodically posts UI state here.
     Agent can GET this to observe the UI without WebSocket.
     """
+
     __tablename__ = "ui_snapshot"
 
     id = Column(Integer, primary_key=True, default=1)
@@ -88,6 +91,7 @@ class UIScreenshot(Base):
     Frontend captures and posts screenshot here.
     Agent can GET this to see the UI visually.
     """
+
     __tablename__ = "ui_screenshot"
 
     id = Column(Integer, primary_key=True, default=1)
@@ -111,6 +115,7 @@ class Item(Base):
 
     Customize or replace this model based on your Living UI needs.
     """
+
     __tablename__ = "items"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -118,7 +123,9 @@ class Item(Base):
     description = Column(Text, nullable=True)
     completed = Column(Boolean, default=False)
     order = Column(Integer, default=0)
-    extra_data = Column(JSON, default=dict)  # Flexible extra data (avoid 'metadata' - reserved in SQLAlchemy)
+    extra_data = Column(
+        JSON, default=dict
+    )  # Flexible extra data (avoid 'metadata' - reserved in SQLAlchemy)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

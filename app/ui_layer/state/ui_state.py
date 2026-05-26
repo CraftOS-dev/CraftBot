@@ -44,7 +44,7 @@ class UIState:
     Unified UI state shared across all interfaces.
 
     This is the single source of truth for UI state. All interfaces
-    (CLI, TUI, Browser) read from this state and receive updates
+    (CLI, Browser) read from this state and receive updates
     when it changes.
 
     Attributes:
@@ -54,7 +54,7 @@ class UIState:
         current_task_name: Display name of the current task
         action_items: All tasks and actions by ID
         action_order: Order in which to display action items
-        selected_task_id: Task selected for detail view (TUI/Browser)
+        selected_task_id: Task selected for detail view (Browser)
         show_menu: Whether to show the menu screen
         show_settings: Whether to show settings panel
         settings_tab: Current settings tab
@@ -101,8 +101,7 @@ class UIState:
         return [
             item
             for item_id in self.action_order
-            if (item := self.action_items.get(item_id))
-            and item.item_type == "task"
+            if (item := self.action_items.get(item_id)) and item.item_type == "task"
         ]
 
     def get_actions_for_task(self, task_id: str) -> List[ActionItemState]:
@@ -117,6 +116,4 @@ class UIState:
 
     def has_running_items(self) -> bool:
         """Check if there are any running tasks or actions."""
-        return any(
-            item.status == "running" for item in self.action_items.values()
-        )
+        return any(item.status == "running" for item in self.action_items.values())

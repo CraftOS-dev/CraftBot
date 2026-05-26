@@ -19,7 +19,6 @@ import {
   Clipboard,
   FolderPlus,
   FilePlus,
-  X,
   Check,
   AlertCircle,
   Loader2,
@@ -27,8 +26,10 @@ import {
   Info,
   Search,
 } from 'lucide-react'
-import { IconButton, Button, Badge } from '../../components/ui'
+import { IconButton, Button, Badge, ConfirmModal, Modal, ModalBody, ModalFooter } from '../../components/ui'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
+import { useToast } from '../../contexts/ToastContext'
+import { useConfirmModal } from '../../hooks'
 import type { FileItem } from '../../types'
 import styles from './WorkspacePage.module.css'
 
@@ -118,6 +119,9 @@ export function WorkspacePage() {
     loadingMore,
     search,
   } = useWorkspace()
+
+  const { showToast } = useToast()
+  const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
   // Selection state
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
@@ -332,25 +336,41 @@ export function WorkspacePage() {
     }
   }, [editingFile, editName, editExt, renameFile])
 
-  const handleDelete = useCallback(async (paths: string[]) => {
+  const handleDelete = useCallback((paths: string[]) => {
     if (paths.length === 0) return
 
-    const confirmed = window.confirm(
-      paths.length === 1
-        ? `Delete "${paths[0].split('/').pop()}"?`
-        : `Delete ${paths.length} items?`
-    )
+    const isSingle = paths.length === 1
+    const singleName = isSingle ? paths[0].split('/').pop() : ''
 
-    if (!confirmed) return
+    confirm({
+      title: isSingle ? 'Delete Item' : 'Delete Items',
+      message: isSingle
+        ? `Delete "${singleName}"? This cannot be undone.`
+        : `Delete ${paths.length} items? This cannot be undone.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    }, async () => {
+      if (isSingle) {
+        const response = await deleteFile(paths[0])
+        if (!response.success) {
+          showToast('error', `Failed to delete "${singleName}": ${response.error ?? 'unknown error'}`)
+        }
+      } else {
+        const response = await batchDelete(paths)
+        const failed = response.results.filter(r => !r.success)
+        if (failed.length > 0) {
+          const firstError = failed[0].error ?? 'unknown error'
+          const succeeded = response.results.length - failed.length
+          const message = succeeded === 0
+            ? `Failed to delete ${failed.length} item${failed.length > 1 ? 's' : ''}: ${firstError}`
+            : `Deleted ${succeeded} of ${response.results.length}. ${failed.length} failed: ${firstError}`
+          showToast('error', message)
+        }
+      }
 
-    if (paths.length === 1) {
-      await deleteFile(paths[0])
-    } else {
-      await batchDelete(paths)
-    }
-
-    setSelectedFiles(new Set())
-  }, [deleteFile, batchDelete])
+      setSelectedFiles(new Set())
+    })
+  }, [deleteFile, batchDelete, showToast, confirm])
 
   const handleCopy = useCallback((paths: string[]) => {
     setClipboard({ action: 'copy', paths })
@@ -747,43 +767,35 @@ export function WorkspacePage() {
   }
 
   const renderCreateDialog = () => {
-    if (!showCreateDialog) return null
-
     return (
-      <div className={styles.dialogOverlay} onClick={() => setShowCreateDialog(null)}>
-        <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.dialogHeader}>
-            <h3>Create {showCreateDialog === 'directory' ? 'Folder' : 'File'}</h3>
-            <IconButton
-              icon={<X size={16} />}
-              size="sm"
-              onClick={() => setShowCreateDialog(null)}
-            />
-          </div>
-          <div className={styles.dialogContent}>
-            <input
-              ref={createInputRef}
-              type="text"
-              className={styles.dialogInput}
-              placeholder={`Enter ${showCreateDialog} name...`}
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateSubmit()
-                if (e.key === 'Escape') setShowCreateDialog(null)
-              }}
-            />
-          </div>
-          <div className={styles.dialogFooter}>
-            <Button variant="secondary" size="sm" onClick={() => setShowCreateDialog(null)}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleCreateSubmit}>
-              Create
-            </Button>
-          </div>
-        </div>
-      </div>
+      <Modal
+        isOpen={showCreateDialog !== null}
+        onClose={() => setShowCreateDialog(null)}
+        title={`Create ${showCreateDialog === 'directory' ? 'Folder' : 'File'}`}
+        size="sm"
+      >
+        <ModalBody>
+          <input
+            ref={createInputRef}
+            type="text"
+            className={styles.dialogInput}
+            placeholder={`Enter ${showCreateDialog} name...`}
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateSubmit()
+            }}
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="secondary" size="sm" onClick={() => setShowCreateDialog(null)}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleCreateSubmit}>
+            Create
+          </Button>
+        </ModalFooter>
+      </Modal>
     )
   }
 
@@ -1151,6 +1163,9 @@ export function WorkspacePage() {
 
       {/* Create Dialog */}
       {renderCreateDialog()}
+
+      {/* Confirm Modal */}
+      <ConfirmModal {...confirmModalProps} />
     </div>
   )
 }

@@ -7,7 +7,6 @@ Both the /update command and browser adapter handlers call into this module.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import subprocess
 import sys
@@ -18,6 +17,7 @@ from typing import Awaitable, Callable, Optional, Tuple
 # ---------------------------------------------------------------------------
 # Version helpers
 # ---------------------------------------------------------------------------
+
 
 def parse_version(version_str: str) -> Tuple[int, ...]:
     """Parse 'X.Y.Z' into an (X, Y, Z) integer tuple."""
@@ -38,9 +38,7 @@ def is_newer(remote: str, local: str) -> bool:
 # ---------------------------------------------------------------------------
 
 GITHUB_REPO = "CraftOS-dev/CraftBot"
-GITHUB_LATEST_RELEASE_URL = (
-    f"https://api.github.com/repos/{GITHUB_REPO}/tags"
-)
+GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
 
 
 async def check_for_update() -> Tuple[bool, str, str]:
@@ -156,6 +154,7 @@ async def perform_update(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 async def _run_git(cmd: list, cwd: str) -> Tuple[bytes, bytes]:
     """Run a git command asynchronously; raise on non-zero exit."""
     proc = await asyncio.create_subprocess_exec(
@@ -166,6 +165,11 @@ async def _run_git(cmd: list, cwd: str) -> Tuple[bytes, bytes]:
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"{' '.join(cmd)} failed (exit {proc.returncode}): {err[:500]}")
+        err = (
+            stderr.decode("utf-8", errors="replace").strip()
+            or stdout.decode("utf-8", errors="replace").strip()
+        )
+        raise RuntimeError(
+            f"{' '.join(cmd)} failed (exit {proc.returncode}): {err[:500]}"
+        )
     return stdout, stderr

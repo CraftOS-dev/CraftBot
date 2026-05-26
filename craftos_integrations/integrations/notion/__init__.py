@@ -1,5 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Notion integration - handler (token + OAuth invite) + client."""
+
 from __future__ import annotations
 
 import json as _json
@@ -27,15 +28,20 @@ NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 
 
-def _notion_call(method: str, path: str, headers: Dict[str, str], **kw) -> Dict[str, Any]:
+def _notion_call(
+    method: str, path: str, headers: Dict[str, str], **kw
+) -> Dict[str, Any]:
     """Notion API call. Returns raw response on 200, ``{error: <notion-body>}`` otherwise.
 
     Layers on top of ``request`` and re-parses ``details`` (string) back into Notion's
     JSON error body so callers can read ``result["error"]["code"]`` etc.
     """
     result = http_request(
-        method, f"{NOTION_API_BASE}{path}",
-        headers=headers, expected=(200,), **kw,
+        method,
+        f"{NOTION_API_BASE}{path}",
+        headers=headers,
+        expected=(200,),
+        **kw,
     )
     if "error" not in result:
         return result["result"]
@@ -65,6 +71,7 @@ NOTION = IntegrationSpec(
 # Handler
 # -----------------------------------------------------------------
 
+
 @register_handler(NOTION.name)
 class NotionHandler(IntegrationHandler):
     spec = NOTION
@@ -79,7 +86,12 @@ class NotionHandler(IntegrationHandler):
         "In Notion, share each page/database you want CraftBot to access with the integration",
     ]
     fields = [
-        {"key": "token", "label": "Integration Token", "placeholder": "secret_...", "password": True},
+        {
+            "key": "token",
+            "label": "Integration Token",
+            "placeholder": "secret_...",
+            "password": True,
+        },
     ]
 
     oauth = OAuthFlow(
@@ -114,7 +126,8 @@ class NotionHandler(IntegrationHandler):
         token = args[0]
 
         data = _notion_call(
-            "GET", "/users/me",
+            "GET",
+            "/users/me",
             {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION},
         )
         if "error" in data:
@@ -139,6 +152,7 @@ class NotionHandler(IntegrationHandler):
 # -----------------------------------------------------------------
 # Client
 # -----------------------------------------------------------------
+
 
 @register_client
 class NotionClient(BasePlatformClient):
@@ -174,7 +188,9 @@ class NotionClient(BasePlatformClient):
     async def send_message(self, recipient: str, text: str, **kwargs) -> Dict[str, Any]:
         return {"ok": False, "error": "Notion does not support messaging"}
 
-    def search(self, query: str, filter_type: Optional[str] = None, page_size: int = 100) -> List[Dict[str, Any]]:
+    def search(
+        self, query: str, filter_type: Optional[str] = None, page_size: int = 100
+    ) -> List[Dict[str, Any]]:
         payload: Dict[str, Any] = {"query": query, "page_size": page_size}
         if filter_type in ("page", "database"):
             payload["filter"] = {"property": "object", "value": filter_type}
@@ -201,7 +217,9 @@ class NotionClient(BasePlatformClient):
             payload["filter"] = filter_obj
         if sorts:
             payload["sorts"] = sorts
-        return _notion_call("POST", f"/databases/{database_id}/query", self._headers(), json=payload)
+        return _notion_call(
+            "POST", f"/databases/{database_id}/query", self._headers(), json=payload
+        )
 
     def create_page(
         self,
@@ -210,19 +228,39 @@ class NotionClient(BasePlatformClient):
         properties: Dict[str, Any],
         children: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {"parent": {parent_type: parent_id}, "properties": properties}
+        payload: Dict[str, Any] = {
+            "parent": {parent_type: parent_id},
+            "properties": properties,
+        }
         if children:
             payload["children"] = children
         return _notion_call("POST", "/pages", self._headers(), json=payload)
 
     def update_page(self, page_id: str, properties: Dict[str, Any]) -> Dict[str, Any]:
-        return _notion_call("PATCH", f"/pages/{page_id}", self._headers(), json={"properties": properties})
+        return _notion_call(
+            "PATCH",
+            f"/pages/{page_id}",
+            self._headers(),
+            json={"properties": properties},
+        )
 
     def get_block_children(self, block_id: str, page_size: int = 100) -> Dict[str, Any]:
-        return _notion_call("GET", f"/blocks/{block_id}/children", self._headers(), params={"page_size": page_size})
+        return _notion_call(
+            "GET",
+            f"/blocks/{block_id}/children",
+            self._headers(),
+            params={"page_size": page_size},
+        )
 
-    def append_block_children(self, block_id: str, children: List[Dict[str, Any]]) -> Dict[str, Any]:
-        return _notion_call("PATCH", f"/blocks/{block_id}/children", self._headers(), json={"children": children})
+    def append_block_children(
+        self, block_id: str, children: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        return _notion_call(
+            "PATCH",
+            f"/blocks/{block_id}/children",
+            self._headers(),
+            json={"children": children},
+        )
 
     def delete_block(self, block_id: str) -> Dict[str, Any]:
         return _notion_call("DELETE", f"/blocks/{block_id}", self._headers())

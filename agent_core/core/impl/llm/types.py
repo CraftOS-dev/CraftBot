@@ -16,6 +16,7 @@ class LLMCallType(str, Enum):
     different prompt structures (reasoning vs action selection) don't
     pollute each other's KV cache.
     """
+
     REASONING = "reasoning"
     ACTION_SELECTION = "action_selection"
     GUI_REASONING = "gui_reasoning"

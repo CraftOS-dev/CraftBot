@@ -16,17 +16,18 @@ import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
-
-interface LivingUIProject {
-  id: string
-  name: string
-  status: string
-  port: number | null
-  backendPort: number | null
-  path: string
-  autoLaunch: boolean
-  logCleanup: boolean
-}
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import {
+  setGlobalConfig as setSliceGlobalConfig,
+  updateProjectSetting,
+  type LivingUISettingsProject as LivingUIProject,
+} from '../../store/slices/livingUiSettingsSlice'
+import {
+  selectLivingUiSettingsProjects,
+  selectLivingUiSettingsHasLoadedProjects,
+  selectLivingUiGlobalConfig,
+  selectLivingUiHasLoadedGlobalConfig,
+} from '../../store/selectors/livingUiSettings'
 
 interface ParsedRule {
   enabled: boolean
@@ -101,14 +102,20 @@ function rebuildConfig(rawLines: string[], changes: Map<number, string>): string
 
 export function LivingUISettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
-  const [projects, setProjects] = useState<LivingUIProject[]>([])
-  const [loading, setLoading] = useState(true)
-  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
+  const dispatch = useAppDispatch()
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  const [globalConfig, setGlobalConfig] = useState('')
-  const [originalConfig, setOriginalConfig] = useState('')
-  const [globalLoading, setGlobalLoading] = useState(true)
+  // Slice-backed: cached across remounts.
+  const projects = useAppSelector(selectLivingUiSettingsProjects)
+  const hasLoadedProjects = useAppSelector(selectLivingUiSettingsHasLoadedProjects)
+  const originalConfig = useAppSelector(selectLivingUiGlobalConfig)
+  const hasLoadedGlobalConfig = useAppSelector(selectLivingUiHasLoadedGlobalConfig)
+  const loading = !hasLoadedProjects
+  const globalLoading = !hasLoadedGlobalConfig
+
+  // Transient UI state.
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
+  const [globalConfig, setLocalGlobalConfig] = useState('')
   const [globalSaving, setGlobalSaving] = useState(false)
   const [globalSaveStatus, setGlobalSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [newRule, setNewRule] = useState('')
@@ -118,35 +125,34 @@ export function LivingUISettings() {
   const globalConfigRef = useRef(globalConfig)
   globalConfigRef.current = globalConfig
 
+  // Sync local editable copy to the slice's source-of-truth whenever the
+  // server-known content changes (initial load or post-restore refetch).
+  useEffect(() => {
+    setLocalGlobalConfig(originalConfig)
+  }, [originalConfig])
+
   const isGlobalDirty = globalConfig !== originalConfig
 
-  // Load projects
+  // Fire-once fetches. Slice owns the data; we just trigger requests when
+  // not yet loaded.
   useEffect(() => {
-    const cleanup = onMessage('living_ui_settings_get', (data: any) => {
-      if (data.success !== undefined) setProjects(data.projects || [])
-      setLoading(false)
-    })
-    if (isConnected) send('living_ui_settings_get')
-    return cleanup
-  }, [isConnected, send, onMessage])
+    if (!isConnected) return
+    if (!hasLoadedProjects) send('living_ui_settings_get')
+    if (!hasLoadedGlobalConfig) send('agent_file_read', { filename: 'GLOBAL_LIVING_UI.md' })
+  }, [isConnected, send, hasLoadedProjects, hasLoadedGlobalConfig])
 
-  // Load global config
+  // Side-effect handlers — toasts, success animations, modal close, action
+  // completion. List/config state itself flows through the slice registry.
   useEffect(() => {
     const cleanups = [
-      onMessage('agent_file_read', (data: any) => {
-        const d = data as { filename: string; content: string; success: boolean }
-        if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-          setGlobalConfig(d.content)
-          setOriginalConfig(d.content)
-          setGlobalLoading(false)
-        }
-      }),
-      onMessage('agent_file_write', (data: any) => {
+      onMessage('agent_file_write', (data: unknown) => {
         const d = data as { filename: string; success: boolean }
         if (d.filename === 'GLOBAL_LIVING_UI.md') {
           setGlobalSaving(false)
           if (d.success) {
-            setOriginalConfig(globalConfigRef.current)
+            // Persist the just-saved content as the new server-known baseline
+            // so isDirty flips back to false.
+            dispatch(setSliceGlobalConfig(globalConfigRef.current))
             setGlobalSaveStatus('success')
             setTimeout(() => setGlobalSaveStatus('idle'), 2000)
           } else {
@@ -155,23 +161,22 @@ export function LivingUISettings() {
           }
         }
       }),
-      onMessage('agent_file_restore', (data: any) => {
+      onMessage('agent_file_restore', (data: unknown) => {
         const d = data as { filename: string; content: string; success: boolean }
         if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-          setGlobalConfig(d.content)
-          setOriginalConfig(d.content)
+          // Slice handler already updated originalConfig; clear local edits.
           setLineChanges(new Map())
         }
       }),
     ]
-    if (isConnected) send('agent_file_read', { filename: 'GLOBAL_LIVING_UI.md' })
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage])
+  }, [onMessage, dispatch])
 
   useEffect(() => {
-    const handleActionComplete = (data: any) => {
+    const handleActionComplete = (data: unknown) => {
+      const d = data as { success: boolean }
       setActionInProgress(null)
-      if (data.success) send('living_ui_settings_get')
+      if (d.success) send('living_ui_settings_get')
     }
     const cleanups = [
       onMessage('living_ui_launch', handleActionComplete),
@@ -182,8 +187,11 @@ export function LivingUISettings() {
   }, [send, onMessage])
 
   useEffect(() => {
-    const cleanup = onMessage('living_ui_project_setting_update', (data: any) => {
-      if (data.success) send('living_ui_settings_get')
+    const cleanup = onMessage('living_ui_project_setting_update', (data: unknown) => {
+      const d = data as { success: boolean }
+      // Refetch to reconcile with authoritative state (response doesn't
+      // carry the updated project payload).
+      if (d.success) send('living_ui_settings_get')
     })
     return cleanup
   }, [send, onMessage])
@@ -192,19 +200,19 @@ export function LivingUISettings() {
     const newChanges = new Map<number, string>(lineChanges)
     newChanges.set(lineIndex, String(enabled))
     setLineChanges(newChanges)
-    setGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
+    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
   }
 
   const handlePrefChange = (lineIndex: number, value: string) => {
     const newChanges = new Map<number, string>(lineChanges)
     newChanges.set(lineIndex, value)
     setLineChanges(newChanges)
-    setGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
+    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
   }
 
   const handleAddRule = () => {
     if (!newRule.trim()) return
-    setGlobalConfig(prev => prev.trimEnd() + '\n- [x] ' + newRule.trim() + '\n')
+    setLocalGlobalConfig(prev => prev.trimEnd() + '\n- [x] ' + newRule.trim() + '\n')
     setNewRule('')
   }
 
@@ -212,7 +220,7 @@ export function LivingUISettings() {
   const handleDeleteRule = (lineIndex: number) => {
     const lines = globalConfig.split('\n')
     lines.splice(lineIndex, 1)
-    setGlobalConfig(lines.join('\n'))
+    setLocalGlobalConfig(lines.join('\n'))
   }
 
   const handleSaveGlobal = () => {
@@ -591,9 +599,12 @@ export function LivingUISettings() {
                 onLaunch={() => handleLaunch(project.id)}
                 onStop={() => handleStop(project.id)}
                 onDelete={() => handleDelete(project)}
-                onToggleSetting={(setting, value) =>
+                onToggleSetting={(setting, value) => {
+                  // Optimistic so the toggle flips immediately; the refetch
+                  // triggered by the response reconciles authoritative state.
+                  dispatch(updateProjectSetting({ projectId: project.id, setting, value }))
                   send('living_ui_project_setting_update', { projectId: project.id, setting, value })
-                }
+                }}
                 send={send}
                 onMessage={onMessage}
               />

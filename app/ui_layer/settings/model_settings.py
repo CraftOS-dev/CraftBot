@@ -9,16 +9,13 @@ Provides functions for managing model configuration including:
 All settings are stored in settings.json (not .env).
 """
 
-import os
 import json
-from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 import httpx
 
 from app.config import SETTINGS_CONFIG_PATH
 from app.models import (
-    PROVIDER_CONFIG,
     MODEL_REGISTRY,
     InterfaceType,
     test_provider_connection,
@@ -150,6 +147,7 @@ def _mask_api_key(api_key: str) -> str:
 # Provider and Model Information
 # ─────────────────────────────────────────────────────────────────────
 
+
 def get_available_providers() -> Dict[str, Any]:
     """Get list of available providers with their information.
 
@@ -166,17 +164,19 @@ def get_available_providers() -> Dict[str, Any]:
             llm_model = provider_models.get(InterfaceType.LLM)
             vlm_model = provider_models.get(InterfaceType.VLM)
 
-            providers.append({
-                "id": provider_id,
-                "name": info["name"],
-                "requires_api_key": info.get("requires_api_key", True),
-                "api_key_env": info.get("api_key_env"),
-                "base_url_env": info.get("base_url_env"),
-                "llm_model": llm_model,
-                "vlm_model": vlm_model,
-                "has_vlm": vlm_model is not None,
-                "supports_catalog": info.get("supports_catalog", False),
-            })
+            providers.append(
+                {
+                    "id": provider_id,
+                    "name": info["name"],
+                    "requires_api_key": info.get("requires_api_key", True),
+                    "api_key_env": info.get("api_key_env"),
+                    "base_url_env": info.get("base_url_env"),
+                    "llm_model": llm_model,
+                    "vlm_model": vlm_model,
+                    "has_vlm": vlm_model is not None,
+                    "supports_catalog": info.get("supports_catalog", False),
+                }
+            )
 
         return {
             "success": True,
@@ -192,6 +192,7 @@ def get_available_providers() -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────
 # Model Settings
 # ─────────────────────────────────────────────────────────────────────
+
 
 def get_model_settings() -> Dict[str, Any]:
     """Get current model settings.
@@ -238,8 +239,10 @@ def get_model_settings() -> Dict[str, Any]:
         if endpoints_settings.get("byteplus_base_url"):
             base_urls["byteplus"] = endpoints_settings["byteplus_base_url"]
 
-        # Support both the GUI key ("remote_model_url") and the TUI key ("remote")
-        remote_url = endpoints_settings.get("remote_model_url") or endpoints_settings.get("remote")
+        # Support both the legacy "remote_model_url" key and "remote" key
+        remote_url = endpoints_settings.get(
+            "remote_model_url"
+        ) or endpoints_settings.get("remote")
         if remote_url:
             base_urls["remote"] = remote_url
 
@@ -344,7 +347,12 @@ def update_model_settings(
                 settings["endpoints"]["openrouter_base_url"] = base_url
 
         # Clear remote URL when switching away from remote so stale values don't persist
-        if llm_provider and llm_provider != "remote" and old_llm_provider == "remote" and not provider_for_url:
+        if (
+            llm_provider
+            and llm_provider != "remote"
+            and old_llm_provider == "remote"
+            and not provider_for_url
+        ):
             settings["endpoints"]["remote_model_url"] = ""
 
         # Save settings.json
@@ -356,6 +364,7 @@ def update_model_settings(
 
         # Reload settings cache so changes take effect
         from app.config import reload_settings
+
         reload_settings()
 
         # Return updated settings
@@ -523,6 +532,7 @@ def validate_can_save(
 # Slow Mode Settings
 # ─────────────────────────────────────────────────────────────────────
 
+
 def get_slow_mode_settings() -> Dict[str, Any]:
     """Get slow mode settings."""
     settings = _load_settings()
@@ -545,9 +555,11 @@ def set_slow_mode(enabled: bool, tpm_limit: Optional[int] = None) -> Dict[str, A
 
     if _save_settings(settings):
         from app.config import reload_settings
+
         reload_settings()
         # Reset the rate limiter window on setting change
         from app.rate_limiter import get_rate_limiter
+
         get_rate_limiter().reset()
         return {
             "success": True,

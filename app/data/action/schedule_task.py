@@ -30,12 +30,12 @@ from agent_core import action
         "name": {
             "type": "string",
             "description": "Human-readable name for the schedule/task",
-            "example": "Morning Briefing"
+            "example": "Morning Briefing",
         },
         "instruction": {
             "type": "string",
             "description": "What the agent should do when this schedule fires",
-            "example": "Prepare and send the daily morning briefing"
+            "example": "Prepare and send the daily morning briefing",
         },
         "schedule": {
             "type": "string",
@@ -52,57 +52,57 @@ from agent_core import action
                 "Times must include am/pm (e.g. '9am', '3:30pm'). "
                 "Do NOT use 'daily', 'weekly', 'every weekday', 'every morning', or other freeform text."
             ),
-            "example": "every day at 9am"
+            "example": "every day at 9am",
         },
         "priority": {
             "type": "integer",
             "description": "Trigger priority (lower = higher priority). Default is 50.",
-            "example": 50
+            "example": 50,
         },
         "mode": {
             "type": "string",
             "description": "Task mode: 'simple' for quick tasks, 'complex' for multi-step tasks. Default is 'simple'.",
-            "example": "complex"
+            "example": "complex",
         },
         "enabled": {
             "type": "boolean",
             "description": "Whether to enable the schedule immediately. Default is true. Ignored for 'immediate' schedules.",
-            "example": True
+            "example": True,
         },
         "action_sets": {
             "type": "array",
             "description": "Action sets to enable for the task. If empty, will be auto-selected by LLM.",
-            "example": ["file_operations", "web_research"]
+            "example": ["file_operations", "web_research"],
         },
         "skills": {
             "type": "array",
             "description": "Skills to load for the task.",
-            "example": ["day-planner"]
+            "example": ["day-planner"],
         },
         "payload": {
             "type": "object",
             "description": "Additional payload data to pass to the task.",
-            "example": {"source": "proactive", "task_id": "daily_morning_briefing"}
-        }
+            "example": {"source": "proactive", "task_id": "daily_morning_briefing"},
+        },
     },
     output_schema={
         "schedule_id": {
             "type": "string",
-            "description": "The ID of the created schedule (for immediate tasks, this is the session_id)"
+            "description": "The ID of the created schedule (for immediate tasks, this is the session_id)",
         },
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
         "recurring": {
             "type": "boolean",
-            "description": "True for recurring tasks, False for one-time tasks"
+            "description": "True for recurring tasks, False for one-time tasks",
         },
         "scheduled_for": {
             "type": "string",
-            "description": "'immediate' or next fire time in ISO format"
-        }
-    }
+            "description": "'immediate' or next fire time in ISO format",
+        },
+    },
 )
 async def schedule_task(input_data: dict) -> dict:
     """Add a new scheduled task or queue an immediate trigger."""
@@ -115,10 +115,7 @@ async def schedule_task(input_data: dict) -> dict:
 
     scheduler = iai.InternalActionInterface.scheduler
     if scheduler is None:
-        return {
-            "status": "error",
-            "error": "Scheduler not initialized"
-        }
+        return {"status": "error", "error": "Scheduler not initialized"}
 
     try:
         name = input_data.get("name")
@@ -141,6 +138,7 @@ async def schedule_task(input_data: dict) -> dict:
         # Validate schedule expression before doing anything
         if schedule_expr.lower() != "immediate":
             from app.scheduler.parser import ScheduleParser, ScheduleParseError
+
             try:
                 ScheduleParser.parse(schedule_expr)
             except ScheduleParseError as e:
@@ -151,7 +149,7 @@ async def schedule_task(input_data: dict) -> dict:
                         "Supported formats: 'at 3pm', 'tomorrow at 9am', 'in 2 hours', 'in 30 minutes', "
                         "'every day at 7am', 'every monday at 9am', 'every 3 hours', 'every 30 minutes', "
                         "or a cron expression like '0 7 * * *'."
-                    )
+                    ),
                 }
 
         # Handle immediate execution
@@ -163,7 +161,7 @@ async def schedule_task(input_data: dict) -> dict:
                 mode=mode,
                 action_sets=action_sets,
                 skills=skills,
-                payload=payload
+                payload=payload,
             )
 
             session_id = f"immediate_{uuid.uuid4().hex[:8]}_{int(time.time())}"
@@ -176,9 +174,9 @@ async def schedule_task(input_data: dict) -> dict:
                 "mode": mode,
                 "action_sets": action_sets,
                 "skills": skills,
-                **payload
+                **payload,
             }
-            
+
             # TODO: Should not have to create additional trigger (create using queue_immediate_trigger)
             # Workaround for now
             trigger = Trigger(
@@ -194,7 +192,7 @@ async def schedule_task(input_data: dict) -> dict:
                 return {"status": "error", "error": "Trigger queue not initialized"}
 
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(trigger_queue.put(trigger))
             except RuntimeError:
                 asyncio.run(trigger_queue.put(trigger))
@@ -204,11 +202,12 @@ async def schedule_task(input_data: dict) -> dict:
                 "schedule_id": session_id,
                 "name": name,
                 "scheduled_for": "immediate",
-                "message": f"Task '{name}' queued for immediate execution (session: {session_id})"
+                "message": f"Task '{name}' queued for immediate execution (session: {session_id})",
             }
 
         # Parse schedule to determine if it's recurring or one-time
         from app.scheduler.parser import ScheduleParser
+
         parsed = ScheduleParser.parse(schedule_expr)
         is_recurring = parsed.schedule_type != "once"
 
@@ -239,11 +238,8 @@ async def schedule_task(input_data: dict) -> dict:
             "name": name,
             "recurring": is_recurring,
             "scheduled_for": next_run or "unknown",
-            "message": f"{task_type.capitalize()} task '{name}' scheduled with ID: {schedule_id}"
+            "message": f"{task_type.capitalize()} task '{name}' scheduled with ID: {schedule_id}",
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

@@ -17,12 +17,12 @@ from agent_core.utils.logger import logger
 class SkillMetadata:
     """Metadata parsed from SKILL.md frontmatter."""
 
-    name: str                                           # Required: Unique identifier
-    description: str = ""                               # Required: Brief description for LLM selection
-    argument_hint: str = ""                             # Usage hint for invocation
-    user_invocable: bool = True                         # Can user invoke via /<name>?
-    allowed_tools: List[str] = field(default_factory=list)    # Restrict available actions
-    action_sets: List[str] = field(default_factory=list)      # Action sets to auto-include
+    name: str  # Required: Unique identifier
+    description: str = ""  # Required: Brief description for LLM selection
+    argument_hint: str = ""  # Usage hint for invocation
+    user_invocable: bool = True  # Can user invoke via /<name>?
+    allowed_tools: List[str] = field(default_factory=list)  # Restrict available actions
+    action_sets: List[str] = field(default_factory=list)  # Action sets to auto-include
 
     def __post_init__(self):
         """Validate metadata after initialization."""
@@ -60,9 +60,9 @@ class Skill:
     """Full skill definition including instructions."""
 
     metadata: SkillMetadata
-    instructions: str                                   # Markdown content after frontmatter
-    source_path: Path                                   # Path to SKILL.md file
-    directory: Path                                     # Skill directory (for supporting files)
+    instructions: str  # Markdown content after frontmatter
+    source_path: Path  # Path to SKILL.md file
+    directory: Path  # Skill directory (for supporting files)
     enabled: bool = True
 
     @property

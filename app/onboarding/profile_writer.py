@@ -2,7 +2,7 @@
 """
 Shared utility to write user profile data to USER.md.
 
-Used by all onboarding completion handlers (TUI, CLI, Browser controller)
+Used by all onboarding completion handlers (CLI, Browser controller)
 to populate USER.md with data collected during hard onboarding.
 """
 
@@ -76,11 +76,15 @@ def write_profile_to_user_md(profile_data: Dict[str, Any]) -> bool:
             content = _replace_field(content, "Preferred Tone", tone)
 
         if messaging_platform:
-            content = _replace_field(content, "Preferred Messaging Platform", messaging_platform)
+            content = _replace_field(
+                content, "Preferred Messaging Platform", messaging_platform
+            )
 
         # --- Agent Interaction section ---
         if proactivity:
-            content = _replace_field(content, "Prefer Proactive Assistance", proactivity)
+            content = _replace_field(
+                content, "Prefer Proactive Assistance", proactivity
+            )
 
         if isinstance(approval, list) and approval:
             approval_str = _format_approval(approval)
@@ -100,8 +104,8 @@ def _replace_field(content: str, field_name: str, value: str) -> str:
 
     Matches patterns like: - **Field Name:** <anything until end of line>
     """
-    pattern = rf'(\*\*{re.escape(field_name)}:\*\*\s*).*'
-    replacement = rf'\1{value}'
+    pattern = rf"(\*\*{re.escape(field_name)}:\*\*\s*).*"
+    replacement = rf"\1{value}"
     return re.sub(pattern, replacement, content)
 
 
@@ -126,6 +130,7 @@ def _infer_timezone() -> str:
     """Infer timezone from system using tzlocal."""
     try:
         from tzlocal import get_localzone
+
         tz = get_localzone()
         return str(tz)
     except Exception:
@@ -160,7 +165,7 @@ def read_preferred_messaging_platform() -> str:
             return DEFAULT_PREFERRED_PLATFORM
 
         content = user_md_path.read_text(encoding="utf-8")
-        match = re.search(r'\*\*Preferred Messaging Platform:\*\*\s*(.*)', content)
+        match = re.search(r"\*\*Preferred Messaging Platform:\*\*\s*(.*)", content)
         if not match:
             return DEFAULT_PREFERRED_PLATFORM
 

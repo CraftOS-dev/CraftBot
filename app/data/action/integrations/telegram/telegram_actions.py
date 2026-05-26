@@ -5,14 +5,27 @@ from agent_core import action
 # Bot API actions
 # =====================================================================
 
+
 @action(
     name="send_telegram_bot_message",
     description="Send a text message to a Telegram chat via bot. Use this ONLY when replying to Telegram Bot messages.",
     action_sets=["telegram_bot"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Telegram chat ID or @username.", "example": "123456789"},
-        "text": {"type": "string", "description": "Message text to send.", "example": "Hello!"},
-        "parse_mode": {"type": "string", "description": "Optional parse mode: HTML or Markdown.", "example": "HTML"},
+        "chat_id": {
+            "type": "string",
+            "description": "Telegram chat ID or @username.",
+            "example": "123456789",
+        },
+        "text": {
+            "type": "string",
+            "description": "Message text to send.",
+            "example": "Hello!",
+        },
+        "parse_mode": {
+            "type": "string",
+            "description": "Optional parse mode: HTML or Markdown.",
+            "example": "HTML",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -20,10 +33,15 @@ from agent_core import action
     },
 )
 async def send_telegram_bot_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import record_outgoing_message, run_client
+    from app.data.action.integrations._helpers import (
+        record_outgoing_message,
+        run_client,
+    )
+
     record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
     return await run_client(
-        "telegram_bot", "send_message",
+        "telegram_bot",
+        "send_message",
         recipient=input_data["chat_id"],
         text=input_data["text"],
         parse_mode=input_data.get("parse_mode"),
@@ -35,16 +53,30 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
     description="Send a photo to a Telegram chat via bot.",
     action_sets=["telegram_bot"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Telegram chat ID.", "example": "123456789"},
-        "photo": {"type": "string", "description": "URL or file_id of the photo.", "example": "https://example.com/photo.jpg"},
-        "caption": {"type": "string", "description": "Optional photo caption.", "example": "Check this out"},
+        "chat_id": {
+            "type": "string",
+            "description": "Telegram chat ID.",
+            "example": "123456789",
+        },
+        "photo": {
+            "type": "string",
+            "description": "URL or file_id of the photo.",
+            "example": "https://example.com/photo.jpg",
+        },
+        "caption": {
+            "type": "string",
+            "description": "Optional photo caption.",
+            "example": "Check this out",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def send_telegram_photo(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_bot", "send_photo",
+        "telegram_bot",
+        "send_photo",
         chat_id=input_data["chat_id"],
         photo=input_data["photo"],
         caption=input_data.get("caption"),
@@ -56,8 +88,16 @@ async def send_telegram_photo(input_data: dict) -> dict:
     description="Get incoming updates (messages) for the Telegram bot.",
     action_sets=["telegram_bot"],
     input_schema={
-        "limit": {"type": "integer", "description": "Max number of updates to retrieve.", "example": 10},
-        "offset": {"type": "integer", "description": "Update offset for pagination.", "example": 0},
+        "limit": {
+            "type": "integer",
+            "description": "Max number of updates to retrieve.",
+            "example": 10,
+        },
+        "offset": {
+            "type": "integer",
+            "description": "Update offset for pagination.",
+            "example": 0,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -66,8 +106,10 @@ async def send_telegram_photo(input_data: dict) -> dict:
 )
 async def get_telegram_updates(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_bot", "get_updates",
+        "telegram_bot",
+        "get_updates",
         offset=input_data.get("offset"),
         limit=input_data.get("limit", 100),
     )
@@ -78,12 +120,17 @@ async def get_telegram_updates(input_data: dict) -> dict:
     description="Get information about a Telegram chat via bot.",
     action_sets=["telegram_bot"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Chat ID or @username.", "example": "123456789"},
+        "chat_id": {
+            "type": "string",
+            "description": "Chat ID or @username.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_telegram_chat(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client("telegram_bot", "get_chat", chat_id=input_data["chat_id"])
 
 
@@ -92,12 +139,17 @@ async def get_telegram_chat(input_data: dict) -> dict:
     description="Search for a Telegram contact by name from bot's recent chat history.",
     action_sets=["telegram_bot"],
     input_schema={
-        "name": {"type": "string", "description": "Contact name to search for.", "example": "John"},
+        "name": {
+            "type": "string",
+            "description": "Contact name to search for.",
+            "example": "John",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def search_telegram_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client("telegram_bot", "search_contact", name=input_data["name"])
 
 
@@ -107,15 +159,25 @@ async def search_telegram_contact(input_data: dict) -> dict:
     action_sets=["telegram_bot"],
     input_schema={
         "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "document": {"type": "string", "description": "File ID or URL.", "example": "https://example.com/doc.pdf"},
-        "caption": {"type": "string", "description": "Caption.", "example": "Here is the file"},
+        "document": {
+            "type": "string",
+            "description": "File ID or URL.",
+            "example": "https://example.com/doc.pdf",
+        },
+        "caption": {
+            "type": "string",
+            "description": "Caption.",
+            "example": "Here is the file",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def send_telegram_document(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_bot", "send_document",
+        "telegram_bot",
+        "send_document",
         chat_id=input_data["chat_id"],
         document=input_data["document"],
         caption=input_data.get("caption"),
@@ -128,15 +190,21 @@ async def send_telegram_document(input_data: dict) -> dict:
     action_sets=["telegram_bot"],
     input_schema={
         "chat_id": {"type": "string", "description": "Dest Chat ID.", "example": "123"},
-        "from_chat_id": {"type": "string", "description": "Source Chat ID.", "example": "456"},
+        "from_chat_id": {
+            "type": "string",
+            "description": "Source Chat ID.",
+            "example": "456",
+        },
         "message_id": {"type": "integer", "description": "Message ID.", "example": 1},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def forward_telegram_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_bot", "forward_message",
+        "telegram_bot",
+        "forward_message",
         chat_id=input_data["chat_id"],
         from_chat_id=input_data["from_chat_id"],
         message_id=input_data["message_id"],
@@ -152,6 +220,7 @@ async def forward_telegram_message(input_data: dict) -> dict:
 )
 async def get_telegram_bot_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client("telegram_bot", "get_me")
 
 
@@ -166,14 +235,18 @@ async def get_telegram_bot_info(input_data: dict) -> dict:
 )
 async def get_telegram_chat_members_count(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_bot", "get_chat_members_count", chat_id=input_data["chat_id"],
+        "telegram_bot",
+        "get_chat_members_count",
+        chat_id=input_data["chat_id"],
     )
 
 
 # =====================================================================
 # MTProto (user account) actions
 # =====================================================================
+
 
 @action(
     name="get_telegram_chats",
@@ -186,8 +259,11 @@ async def get_telegram_chat_members_count(input_data: dict) -> dict:
 )
 async def get_telegram_chats(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_user", "get_dialogs", limit=input_data.get("limit", 50),
+        "telegram_user",
+        "get_dialogs",
+        limit=input_data.get("limit", 50),
     )
 
 
@@ -203,8 +279,10 @@ async def get_telegram_chats(input_data: dict) -> dict:
 )
 async def read_telegram_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_user", "get_messages",
+        "telegram_user",
+        "get_messages",
         chat_id=input_data["chat_id"],
         limit=input_data.get("limit", 50),
     )
@@ -215,16 +293,25 @@ async def read_telegram_messages(input_data: dict) -> dict:
     description="Send a text message via Telegram user account. IMPORTANT: Use @username (e.g., '@emadtavana7') NOT numeric ID. Use 'self' or 'user' to message the owner's Saved Messages.",
     action_sets=["telegram_user"],
     input_schema={
-        "chat_id": {"type": "string", "description": "Recipient: @username (preferred), phone number, or 'self' for Saved Messages. Do NOT use numeric IDs.", "example": "@emadtavana7"},
+        "chat_id": {
+            "type": "string",
+            "description": "Recipient: @username (preferred), phone number, or 'self' for Saved Messages. Do NOT use numeric IDs.",
+            "example": "@emadtavana7",
+        },
         "text": {"type": "string", "description": "Text.", "example": "Hi"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def send_telegram_user_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import record_outgoing_message, run_client
+    from app.data.action.integrations._helpers import (
+        record_outgoing_message,
+        run_client,
+    )
+
     record_outgoing_message("Telegram", input_data["chat_id"], input_data["text"])
     return await run_client(
-        "telegram_user", "send_message",
+        "telegram_user",
+        "send_message",
         recipient=input_data["chat_id"],
         text=input_data["text"],
     )
@@ -236,14 +323,20 @@ async def send_telegram_user_message(input_data: dict) -> dict:
     action_sets=["telegram_user"],
     input_schema={
         "chat_id": {"type": "string", "description": "Chat ID.", "example": "123"},
-        "file_path": {"type": "string", "description": "Path.", "example": "/path/to/file"},
+        "file_path": {
+            "type": "string",
+            "description": "Path.",
+            "example": "/path/to/file",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def send_telegram_user_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_user", "send_file",
+        "telegram_user",
+        "send_file",
         chat_id=input_data["chat_id"],
         file_path=input_data["file_path"],
     )
@@ -260,8 +353,11 @@ async def send_telegram_user_file(input_data: dict) -> dict:
 )
 async def search_telegram_user_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "telegram_user", "search_contacts", query=input_data["query"],
+        "telegram_user",
+        "search_contacts",
+        query=input_data["query"],
     )
 
 
@@ -274,4 +370,5 @@ async def search_telegram_user_contacts(input_data: dict) -> dict:
 )
 async def get_telegram_user_account_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client("telegram_user", "get_me")

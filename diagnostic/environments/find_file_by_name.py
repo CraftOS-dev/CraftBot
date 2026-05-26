@@ -1,4 +1,5 @@
 """Diagnostic environment for the "find file by name" action."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,7 +23,9 @@ def prepare_find_file_by_name(tmp_path: Path, action: Mapping[str, Any]) -> Prep
 
     pattern = str(project_dir / "**" / "report*.md")
 
-    expected_matches = sorted(str(path.resolve()) for path in files if path.suffix == ".md")
+    expected_matches = sorted(
+        str(path.resolve()) for path in files if path.suffix == ".md"
+    )
 
     return PreparedEnv(
         input_overrides={

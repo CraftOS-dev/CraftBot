@@ -46,6 +46,7 @@ class SessionStorage:
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
             from app.config import APP_DATA_PATH
+
             usage_dir = Path(APP_DATA_PATH) / ".usage"
             usage_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(usage_dir / "sessions.db")
@@ -135,9 +136,7 @@ class SessionStorage:
         """Return all active tasks, filtering out stale ones."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT task_id, task_json, updated_at FROM active_tasks"
-            )
+            cursor.execute("SELECT task_id, task_json, updated_at FROM active_tasks")
             rows = cursor.fetchall()
 
         now = datetime.now(timezone.utc)
@@ -161,19 +160,25 @@ class SessionStorage:
             except (ValueError, TypeError):
                 pass  # If we can't parse the timestamp, include the task
 
-            results.append({
-                "task_id": task_id,
-                "task_json": task_json,
-                "updated_at": updated_at,
-            })
+            results.append(
+                {
+                    "task_id": task_id,
+                    "task_json": task_json,
+                    "updated_at": updated_at,
+                }
+            )
 
         # Clean up stale tasks
         if stale_ids:
             with sqlite3.connect(self._db_path) as conn:
                 for tid in stale_ids:
                     conn.execute("DELETE FROM active_tasks WHERE task_id = ?", (tid,))
-                    conn.execute("DELETE FROM event_records WHERE stream_id = ?", (tid,))
-                    conn.execute("DELETE FROM event_streams WHERE stream_id = ?", (tid,))
+                    conn.execute(
+                        "DELETE FROM event_records WHERE stream_id = ?", (tid,)
+                    )
+                    conn.execute(
+                        "DELETE FROM event_streams WHERE stream_id = ?", (tid,)
+                    )
                 conn.commit()
             logger.info(f"[SessionStorage] Cleaned up {len(stale_ids)} stale tasks")
 
@@ -198,9 +203,7 @@ class SessionStorage:
             )
 
             # Replace all event records for this stream
-            conn.execute(
-                "DELETE FROM event_records WHERE stream_id = ?", (stream_id,)
-            )
+            conn.execute("DELETE FROM event_records WHERE stream_id = ?", (stream_id,))
 
             for position, record in enumerate(stream.tail_events):
                 event_json = json.dumps(record.to_dict(), default=str)

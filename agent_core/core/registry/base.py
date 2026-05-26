@@ -18,7 +18,7 @@ Usage:
     task_manager = TaskManagerRegistry.get()
 """
 
-from typing import Callable, Generic, Optional, TypeVar, TYPE_CHECKING
+from typing import Callable, Generic, Optional, TypeVar
 
 T = TypeVar("T")
 

@@ -36,6 +36,7 @@ class Task:
         token_count: Per-task token counter
         chatserver_action_id: UUID for the task-level action on chatserver (CraftBot)
     """
+
     id: str
     name: str
     instruction: str
