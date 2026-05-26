@@ -144,22 +144,41 @@
   padding-right: var(--space-2);
 }
 
+/* Embedded IntegrationsSettings panel — the panel ships its own inner
+   max-height scroll for the integrations list, but inside the onboarding
+   card the available height is smaller, so we let the whole panel scroll
+   here and disable the inner scroll (uses a global selector to reach into
+   the foreign CSS-module class). */
+.integrationsPanel {
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.integrationsPanel :global([class*="integrationsList"]) {
+  max-height: none;
+  overflow: visible;
+}
+
 /* Scrollbar styling */
-.optionsList::-webkit-scrollbar {
+.optionsList::-webkit-scrollbar,
+.integrationsPanel::-webkit-scrollbar {
   width: 6px;
 }
 
-.optionsList::-webkit-scrollbar-track {
+.optionsList::-webkit-scrollbar-track,
+.integrationsPanel::-webkit-scrollbar-track {
   background: var(--bg-tertiary);
   border-radius: var(--radius-full);
 }
 
-.optionsList::-webkit-scrollbar-thumb {
+.optionsList::-webkit-scrollbar-thumb,
+.integrationsPanel::-webkit-scrollbar-thumb {
   background: var(--border-secondary);
   border-radius: var(--radius-full);
 }
 
-.optionsList::-webkit-scrollbar-thumb:hover {
+.optionsList::-webkit-scrollbar-thumb:hover,
+.integrationsPanel::-webkit-scrollbar-thumb:hover {
   background: var(--border-hover);
 }
 
