@@ -155,19 +155,7 @@ def generate_image(input_data: dict) -> dict:
         elif saved_provider in ("openai", "gemini"):
             provider = saved_provider
         else:
-            return {
-                "status": "error",
-                "image_paths": [],
-                "prompt_used": "",
-                "resolution": "",
-                "message": (
-                    "Both an OpenAI API key and a Gemini API key are configured. "
-                    "Ask the user which provider they'd like to use for image generation: "
-                    "'OpenAI' (Images 2.0 / gpt-image-2) or 'Gemini' (Nano Banana 2 / gemini-3.1-flash-image-preview). "
-                    "Then call generate_image again with provider_preference set to 'openai' or 'gemini'. "
-                    "The choice will be remembered for future calls."
-                ),
-            }
+            provider = "gemini"
 
     api_key = openai_key if provider == "openai" else gemini_key
 
