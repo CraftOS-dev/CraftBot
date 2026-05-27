@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply, Plus } from 'lucide-react'
+import { ChevronRight, XCircle, ArrowLeft, Reply, Plus, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import { useSkillCreator } from './useSkillCreator'
 import { getActivePlaceholder, type ActivePlaceholder } from '../../utils/taskPlaceholder'
+import { useTaskListAutoScroll } from '../../hooks'
 import { getActionRenderer, parseIO } from './actionRenderers/renderers'
 import styles from './TasksPage.module.css'
 
@@ -566,14 +567,26 @@ export function TasksPage() {
   const [isResizing, setIsResizing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const listContentRef = useRef<HTMLDivElement>(null)
   // Tracks whether the user is currently following along near the bottom of
   // the transcript. Updated by the scroll listener; consulted by auto-follow.
-  // Same pattern as the chat panel's wasNearBottomRef.
+  // Same pattern as the chat panel's wasNearBottomRef. (The list on the left
+  // has its own copy of this state hidden inside useTaskListAutoScroll.)
   const wasNearBottomRef = useRef(true)
   // A counter we bump every second to re-render live durations for running items.
   const [, forceTick] = useState(0)
 
   const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
+
+  // Scroll behavior + scroll-to-top pagination for the All Tasks list.
+  // Same hook as ChatPage's Tasks & Actions sidebar so the two behave
+  // identically: initial jump to latest, auto-follow only while near the
+  // bottom, and anchor-preserving prepend when older tasks load.
+  useTaskListAutoScroll(listContentRef, tasks.length, {
+    hasMore: hasMoreActions,
+    loading: loadingOlderActions,
+    loadMore: loadOlderActions,
+  })
 
   const selectedTask = useMemo(
     () => tasks.find(t => t.id === selectedTaskId) ?? null,
@@ -759,14 +772,24 @@ export function TasksPage() {
 
   return (
     <div className={`${styles.tasksPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
-      {/* Task List - Left Side (resizable) */}
+      {/* Task List - Left Side (resizable)
+          Row rendering is its own implementation (drives a detail panel with
+          scroll-target nav, action-count badges, action + reasoning
+          children — ChatPage's sidebar is a stripped-down live view).
+          Scroll + pagination behavior is shared via useTaskListAutoScroll
+          so the two stay in sync. */}
       <div className={`${styles.taskList} ${mobileShowDetail ? styles.mobileHidden : ''}`} style={{ width: panelWidth, flexShrink: 0 }}>
         <div className={styles.listHeader}>
           <h3>All Tasks</h3>
           <Badge variant="default">{tasks.length}</Badge>
         </div>
 
-        <div className={styles.listContent}>
+        <div className={styles.listContent} ref={listContentRef}>
+          {loadingOlderActions && (
+            <div className={styles.loadingOlder}>
+              <Loader2 size={14} className={styles.spinning} /> Loading older tasks...
+            </div>
+          )}
           {tasks.length === 0 ? (
             <div className={styles.emptyState}>
               <p>No tasks yet</p>
@@ -853,18 +876,6 @@ export function TasksPage() {
                 </div>
               )
             })
-          )}
-          {hasMoreActions && tasks.length > 0 && (
-            <div style={{ textAlign: 'center', padding: '12px 0' }}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={loadOlderActions}
-                loading={loadingOlderActions}
-              >
-                {loadingOlderActions ? 'Loading...' : 'Load older tasks'}
-              </Button>
-            </div>
           )}
         </div>
       </div>
