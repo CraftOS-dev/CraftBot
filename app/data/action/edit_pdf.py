@@ -13,6 +13,9 @@ from agent_core import action
         "For tasks that require text reflow (rephrasing paragraphs, inserting new sections, "
         "reformatting layout): use create_pdf to rebuild the document with changes applied — "
         "the user receives the same output path with a clean result. "
+        "When editing a PDF created by create_pdf, use the theme_used value from that call "
+        "to pick matching accent colours: default=#4f46e5, corporate=#0078d4, "
+        "minimal=#505050, warm=#b45309, forest=#16a34a. "
         "Use absolute paths only."
     ),
     mode="CLI",

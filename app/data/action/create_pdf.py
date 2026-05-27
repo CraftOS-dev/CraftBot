@@ -43,9 +43,13 @@ from agent_core import action
             "type": "string",
             "example": "default",
             "description": (
-                "Visual colour theme. One of: default (indigo gradient), "
-                "corporate (blue), minimal (grey), warm (amber/orange), "
-                "forest (green). Defaults to 'default'."
+                "Visual colour theme. One of: "
+                "default (indigo) — general use; "
+                "corporate (blue) — business, finance, formal reports; "
+                "minimal (grey) — academic, technical, low-decoration; "
+                "warm (amber) — creative, personal, informal; "
+                "forest (green) — sustainability, nature, environmental. "
+                "Defaults to 'default'."
             ),
         },
         "subtitle": {
@@ -82,6 +86,14 @@ from agent_core import action
             "type": "integer",
             "example": 48230,
             "description": "File size in bytes. Only present on success.",
+        },
+        "theme_used": {
+            "type": "string",
+            "example": "corporate",
+            "description": (
+                "The theme that was applied. Useful for downstream actions "
+                "(e.g. edit_pdf) that need to match colours to the document style."
+            ),
         },
         "message": {
             "type": "string",
@@ -207,7 +219,8 @@ def create_pdf_file(input_data: dict) -> dict:
         },
     }
     t = _THEMES.get(theme, _THEMES["default"])
- 
+    theme = theme if theme in _THEMES else "default"  # resolve fallback for theme_used
+
     # ── Unicode sanitizer ─────────────────────────────────────────────────
     # fpdf2's built-in fonts (Helvetica, Courier, Times) only cover latin-1
     # (characters 0-255). Any unicode character above that range causes a
@@ -346,6 +359,7 @@ def create_pdf_file(input_data: dict) -> dict:
             "path": abs_path,
             "pages": n_pages,
             "size_bytes": os.path.getsize(abs_path),
+            "theme_used": theme,
         }
  
     except PermissionError as exc:
