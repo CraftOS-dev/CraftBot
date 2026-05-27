@@ -16,7 +16,7 @@ from app.onboarding.interfaces.steps import (
     StepOption,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_json
+from app.ui_layer.settings.provider_settings import save_settings_to_json
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -271,7 +271,7 @@ class OnboardingFlowController:
         if provider == "remote":
             # api_key holds the Ollama base URL for the remote provider
             remote_url = api_key or "http://localhost:11434"
-            from app.tui.settings import save_remote_endpoint
+            from app.ui_layer.settings.provider_settings import save_remote_endpoint
             save_remote_endpoint(remote_url)
         elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
             if proxied_via == "openrouter":
@@ -314,7 +314,7 @@ class OnboardingFlowController:
 
         # Apply skill selections
         if selected_skills:
-            from app.tui.skill_settings import enable_skill
+            from app.ui_layer.settings.skill_settings import enable_skill
             for skill_name in selected_skills:
                 enable_skill(skill_name)
 

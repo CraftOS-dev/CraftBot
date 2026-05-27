@@ -544,7 +544,7 @@ class SkillsStep:
     def get_options(self) -> List[StepOption]:
         """Get top 10 recommended skills for onboarding."""
         try:
-            from app.tui.skill_settings import list_skills
+            from app.ui_layer.settings.skill_settings import list_skills
             skills = list_skills()
 
             # Create a lookup by name (only user-invocable skills)
