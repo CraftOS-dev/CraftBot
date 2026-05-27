@@ -603,9 +603,9 @@ const TaskEndRenderer: ActionRenderer = ({ inputObj }) => {
 // TASK UPDATE TODOS
 // ─────────────────────────────────────────────────────────────────────
 
-interface TodoEntry { content: string; status: string }
+export interface TodoEntry { content: string; status: string }
 
-function extractTodos(inputObj: Record<string, unknown> | null): TodoEntry[] | null {
+export function extractTodos(inputObj: Record<string, unknown> | null): TodoEntry[] | null {
   if (!inputObj) return null
   const raw = inputObj.todos
   let items: unknown[] | null = null
@@ -675,7 +675,61 @@ const TaskUpdateTodosRenderer: ActionRenderer = ({ inputObj }) => {
 // REGISTRY
 // ─────────────────────────────────────────────────────────────────────
 
-const REGISTRY: Record<string, ActionRenderer> = {
+/** Canonical list of every action name the Tasks panel renderer knows about.
+ *  This is the SOURCE OF TRUTH for "actions with custom rendering" across
+ *  the app — the mascot's speech-bubble formatter registry (in
+ *  mascotFormatters.ts) is typed against `SupportedActionName` so it must
+ *  cover the same set. If you add a new renderer below, add its name here
+ *  too and the compiler will force you to add the matching mascot formatter
+ *  (and vice versa). That prevents the two display systems from drifting. */
+export const SUPPORTED_ACTION_NAMES = [
+  // file ops
+  'stream_edit',
+  'write_file',
+  'read_file',
+  'find_files',
+  'list_folder',
+  'create_pdf',
+  'read_pdf',
+  'convert_to_markdown',
+  // code execution
+  'run_python',
+  'run_shell',
+  // web
+  'web_search',
+  'web_fetch',
+  'http_request',
+  // media
+  'generate_image',
+  'describe_image',
+  'perform_ocr',
+  'understand_video',
+  // search
+  'grep_files',
+  'memory_search',
+  // messaging + task control
+  'send_message',
+  'send_message_with_attachment',
+  'task_end',
+  // todos
+  'task_update_todos',
+] as const
+
+export type SupportedActionName = typeof SUPPORTED_ACTION_NAMES[number]
+
+/** Normalize an incoming action name (which may arrive snake_case, with
+ *  spaces, or with dashes from skill metadata) into its canonical form. */
+export function normalizeActionName(name: string): string {
+  return name.toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+/** Type guard — checks at runtime whether a normalized name is one of
+ *  the known action names. Used to safely index the registries. */
+export function isSupportedActionName(name: string): name is SupportedActionName {
+  return (SUPPORTED_ACTION_NAMES as readonly string[]).includes(name)
+}
+
+const REGISTRY: Record<SupportedActionName, ActionRenderer> = {
   // file ops
   stream_edit: StreamEditRenderer,
   write_file: WriteFileRenderer,
@@ -708,13 +762,13 @@ const REGISTRY: Record<string, ActionRenderer> = {
   task_update_todos: TaskUpdateTodosRenderer,
 }
 
-// Look up a renderer by action name. The name comparison is loose — names
-// arrive as either snake_case (canonical) or with spaces/dashes from skill
-// metadata, so we normalize them.
+/** Look up a renderer by action name. Name comparison is loose — names
+ *  may arrive as snake_case (canonical) or with spaces/dashes from skill
+ *  metadata, so we normalize first. Returns null for unknown names. */
 export function getActionRenderer(name: string | undefined): ActionRenderer | null {
   if (!name) return null
-  const normalized = name.toLowerCase().replace(/[\s-]+/g, '_')
-  return REGISTRY[normalized] ?? null
+  const normalized = normalizeActionName(name)
+  return isSupportedActionName(normalized) ? REGISTRY[normalized] : null
 }
 
 // Convenience: parse both input and output as dicts. Returned null on parse
