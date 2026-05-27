@@ -686,16 +686,27 @@ class DiscordClient(BasePlatformClient):
         )
 
     def create_dm_channel(self, recipient_id: str) -> Result:
+        def _transform(d: Any) -> Dict[str, Any]:
+            if not isinstance(d, dict) or "id" not in d:
+                logger.warning(
+                    "[discord] create_dm_channel: unexpected response shape for "
+                    "recipient_id=%s, body=%r",
+                    recipient_id,
+                    d,
+                )
+                return {"channel_id": None, "type": None, "recipients": []}
+            return {
+                "channel_id": d.get("id"),
+                "type": d.get("type"),
+                "recipients": d.get("recipients", []),
+            }
+
         return http_request(
             "POST",
             f"{DISCORD_API_BASE}/users/@me/channels",
             headers=self._bot_headers(),
             json={"recipient_id": recipient_id},
-            transform=lambda d: {
-                "channel_id": d.get("id"),
-                "type": d.get("type"),
-                "recipients": d.get("recipients", []),
-            },
+            transform=_transform,
         )
 
     def send_dm(
