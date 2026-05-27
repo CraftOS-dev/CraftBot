@@ -96,36 +96,6 @@ def view_image(input_data: dict) -> dict:
     if not os.path.isfile(image_path):
         return {"status": "error", "description": "", "message": "File not found."}
 
-    # Check if VLM is available before attempting the call
-    import app.internal_action_interface as iai
-
-    vlm = iai.InternalActionInterface.vlm_interface
-
-    # Check the model registry to see if the provider actually supports VLM
-    from agent_core.core.models.model_registry import MODEL_REGISTRY
-    from agent_core.core.models.types import InterfaceType
-    from app.config import get_vlm_provider
-
-    current_provider = get_vlm_provider()
-    registry_vlm = MODEL_REGISTRY.get(current_provider, {}).get(InterfaceType.VLM)
-
-    if vlm is None or not registry_vlm:
-        return {
-            "status": "error",
-            "description": "",
-            "message": (
-                f"The current VLM provider '{current_provider}' does not support vision/image analysis. "
-                "Please inform the user and suggest switching to a provider that supports VLM.\n\n"
-                "Providers with VLM support: openai, anthropic, gemini, byteplus.\n\n"
-                "To switch provider, edit 'app/config/settings.json' and update:\n"
-                '  "vlm_provider": "<provider>"  (e.g. "anthropic")\n'
-                '  "vlm_model": "<model>"  (e.g. "claude-sonnet-4-6" for anthropic)\n\n'
-                "Make sure the corresponding API key is configured under 'api_keys' in the same file. "
-                "If no API key is set, ask the user to provide one. "
-                "The system will automatically detect the config change and reload."
-            ),
-        }
-
     try:
         description = iai.InternalActionInterface.describe_image(image_path, prompt)
         if not description:

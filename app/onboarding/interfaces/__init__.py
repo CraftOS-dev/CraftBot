@@ -13,7 +13,7 @@ from app.onboarding.interfaces.steps import (
     ProviderStep,
     ApiKeyStep,
     AgentNameStep,
-    MCPStep,
+    IntegrationStep,
     SkillsStep,
 )
 
@@ -24,6 +24,6 @@ __all__ = [
     "ProviderStep",
     "ApiKeyStep",
     "AgentNameStep",
-    "MCPStep",
+    "IntegrationStep",
     "SkillsStep",
 ]

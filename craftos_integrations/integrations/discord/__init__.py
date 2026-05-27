@@ -686,16 +686,27 @@ class DiscordClient(BasePlatformClient):
         )
 
     def create_dm_channel(self, recipient_id: str) -> Result:
+        def _transform(d: Any) -> Dict[str, Any]:
+            if not isinstance(d, dict) or "id" not in d:
+                logger.warning(
+                    "[discord] create_dm_channel: unexpected response shape for "
+                    "recipient_id=%s, body=%r",
+                    recipient_id,
+                    d,
+                )
+                return {"channel_id": None, "type": None, "recipients": []}
+            return {
+                "channel_id": d.get("id"),
+                "type": d.get("type"),
+                "recipients": d.get("recipients", []),
+            }
+
         return http_request(
             "POST",
             f"{DISCORD_API_BASE}/users/@me/channels",
             headers=self._bot_headers(),
             json={"recipient_id": recipient_id},
-            transform=lambda d: {
-                "channel_id": d.get("id"),
-                "type": d.get("type"),
-                "recipients": d.get("recipients", []),
-            },
+            transform=_transform,
         )
 
     def send_dm(
@@ -962,3 +973,617 @@ class DiscordClient(BasePlatformClient):
             return {"error": f"Voice dependencies not installed: {e}"}
         except Exception as e:
             return {"error": str(e)}
+
+    # ==================================================================
+    # Messages (extended): bulk delete, crosspost, pins, reactions
+    # ==================================================================
+
+    def bulk_delete_messages(self, channel_id: str,
+                             message_ids: List[str]) -> Result:
+        """Delete 2-100 messages, all <14 days old. Returns 204."""
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/messages/bulk-delete",
+            headers=self._bot_headers(),
+            json={"messages": message_ids}, expected=(204,),
+            transform=lambda _: {"deleted": len(message_ids)},
+        )
+
+    def crosspost_message(self, channel_id: str, message_id: str) -> Result:
+        """Publish a message from an announcement channel to following channels."""
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/crosspost",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "flags": d.get("flags")},
+        )
+
+    def pin_message(self, channel_id: str, message_id: str) -> Result:
+        return http_request(
+            "PUT", f"{DISCORD_API_BASE}/channels/{channel_id}/pins/{message_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"pinned": True, "message_id": message_id},
+        )
+
+    def unpin_message(self, channel_id: str, message_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/channels/{channel_id}/pins/{message_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"unpinned": True, "message_id": message_id},
+        )
+
+    def list_pinned_messages(self, channel_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/channels/{channel_id}/pins",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda messages: {"messages": messages, "count": len(messages)},
+        )
+
+    def remove_user_reaction(self, channel_id: str, message_id: str,
+                             emoji: str, user_id: str) -> Result:
+        encoded = _url_quote(emoji, safe="")
+        return http_request(
+            "DELETE",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/{user_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"removed": True, "emoji": emoji, "user_id": user_id},
+        )
+
+    def remove_own_reaction(self, channel_id: str, message_id: str,
+                            emoji: str) -> Result:
+        encoded = _url_quote(emoji, safe="")
+        return http_request(
+            "DELETE",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/@me",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"removed": True, "emoji": emoji},
+        )
+
+    def list_reaction_users(self, channel_id: str, message_id: str,
+                            emoji: str, limit: int = 100) -> Result:
+        encoded = _url_quote(emoji, safe="")
+        return http_request(
+            "GET",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded}",
+            headers=self._bot_headers(),
+            params={"limit": min(limit, 100)}, expected=(200,),
+            transform=lambda users: {"users": users, "count": len(users)},
+        )
+
+    def clear_reactions(self, channel_id: str, message_id: str,
+                        emoji: Optional[str] = None) -> Result:
+        """Clear all reactions, or just one emoji's reactions."""
+        if emoji:
+            encoded = _url_quote(emoji, safe="")
+            url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded}"
+        else:
+            url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/reactions"
+        return http_request(
+            "DELETE", url, headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"cleared": True, "emoji": emoji or "*"},
+        )
+
+    # ==================================================================
+    # Threads
+    # ==================================================================
+
+    def create_thread_from_message(self, channel_id: str, message_id: str,
+                                   name: str,
+                                   auto_archive_duration: int = 1440) -> Result:
+        """auto_archive_duration in minutes: 60, 1440, 4320, 10080."""
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}/threads",
+            headers=self._bot_headers(),
+            json={"name": name, "auto_archive_duration": auto_archive_duration},
+            expected=(201,),
+            transform=lambda d: {"thread_id": d.get("id"), "name": d.get("name"),
+                                 "parent_id": d.get("parent_id")},
+        )
+
+    def create_thread(self, channel_id: str, name: str,
+                      thread_type: int = 11,
+                      auto_archive_duration: int = 1440,
+                      invitable: bool = True,
+                      rate_limit_per_user: Optional[int] = None) -> Result:
+        """thread_type: 10=announcement, 11=public, 12=private. Default 11 (public)."""
+        payload: Dict[str, Any] = {
+            "name": name,
+            "type": thread_type,
+            "auto_archive_duration": auto_archive_duration,
+            "invitable": invitable,
+        }
+        if rate_limit_per_user is not None:
+            payload["rate_limit_per_user"] = rate_limit_per_user
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/threads",
+            headers=self._bot_headers(), json=payload, expected=(201,),
+            transform=lambda d: {"thread_id": d.get("id"), "name": d.get("name"),
+                                 "type": d.get("type"), "parent_id": d.get("parent_id")},
+        )
+
+    def join_thread(self, thread_id: str) -> Result:
+        return http_request(
+            "PUT", f"{DISCORD_API_BASE}/channels/{thread_id}/thread-members/@me",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"joined": True, "thread_id": thread_id},
+        )
+
+    def leave_thread(self, thread_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/channels/{thread_id}/thread-members/@me",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"left": True, "thread_id": thread_id},
+        )
+
+    def add_thread_member(self, thread_id: str, user_id: str) -> Result:
+        return http_request(
+            "PUT", f"{DISCORD_API_BASE}/channels/{thread_id}/thread-members/{user_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"added": True, "user_id": user_id},
+        )
+
+    def remove_thread_member(self, thread_id: str, user_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/channels/{thread_id}/thread-members/{user_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"removed": True, "user_id": user_id},
+        )
+
+    def list_thread_members(self, thread_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/channels/{thread_id}/thread-members",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda m: {"members": m, "count": len(m)},
+        )
+
+    def list_active_threads(self, guild_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/threads/active",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda d: {"threads": d.get("threads", []),
+                                 "members": d.get("members", [])},
+        )
+
+    def archive_thread(self, thread_id: str) -> Result:
+        """Archive by PATCHing the thread with archived=true."""
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/channels/{thread_id}",
+            headers=self._bot_headers(),
+            json={"archived": True}, expected=(200,),
+            transform=lambda d: {"archived": True, "thread_id": d.get("id")},
+        )
+
+    def unarchive_thread(self, thread_id: str) -> Result:
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/channels/{thread_id}",
+            headers=self._bot_headers(),
+            json={"archived": False}, expected=(200,),
+            transform=lambda d: {"archived": False, "thread_id": d.get("id")},
+        )
+
+    # ==================================================================
+    # Channels (CRUD + invites + permission overwrites)
+    # ==================================================================
+
+    def create_guild_channel(self, guild_id: str, name: str,
+                             channel_type: int = 0,
+                             topic: Optional[str] = None,
+                             parent_id: Optional[str] = None,
+                             nsfw: bool = False,
+                             rate_limit_per_user: Optional[int] = None,
+                             position: Optional[int] = None,
+                             permission_overwrites: Optional[List[Dict[str, Any]]] = None,
+                             bitrate: Optional[int] = None,
+                             user_limit: Optional[int] = None) -> Result:
+        """channel_type: 0=text, 2=voice, 4=category, 5=announcement, 13=stage, 15=forum."""
+        payload: Dict[str, Any] = {"name": name, "type": channel_type, "nsfw": nsfw}
+        if topic is not None: payload["topic"] = topic
+        if parent_id: payload["parent_id"] = parent_id
+        if rate_limit_per_user is not None: payload["rate_limit_per_user"] = rate_limit_per_user
+        if position is not None: payload["position"] = position
+        if permission_overwrites is not None: payload["permission_overwrites"] = permission_overwrites
+        if bitrate is not None: payload["bitrate"] = bitrate
+        if user_limit is not None: payload["user_limit"] = user_limit
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/guilds/{guild_id}/channels",
+            headers=self._bot_headers(), json=payload, expected=(201,),
+            transform=lambda d: {"channel_id": d.get("id"), "name": d.get("name"),
+                                 "type": d.get("type")},
+        )
+
+    def modify_channel(self, channel_id: str, name: Optional[str] = None,
+                       topic: Optional[str] = None,
+                       nsfw: Optional[bool] = None,
+                       rate_limit_per_user: Optional[int] = None,
+                       parent_id: Optional[str] = None,
+                       position: Optional[int] = None,
+                       bitrate: Optional[int] = None,
+                       user_limit: Optional[int] = None,
+                       archived: Optional[bool] = None,
+                       locked: Optional[bool] = None) -> Result:
+        payload: Dict[str, Any] = {}
+        if name is not None: payload["name"] = name
+        if topic is not None: payload["topic"] = topic
+        if nsfw is not None: payload["nsfw"] = nsfw
+        if rate_limit_per_user is not None: payload["rate_limit_per_user"] = rate_limit_per_user
+        if parent_id is not None: payload["parent_id"] = parent_id
+        if position is not None: payload["position"] = position
+        if bitrate is not None: payload["bitrate"] = bitrate
+        if user_limit is not None: payload["user_limit"] = user_limit
+        if archived is not None: payload["archived"] = archived
+        if locked is not None: payload["locked"] = locked
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/channels/{channel_id}",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+            transform=lambda d: {"channel_id": d.get("id"), "name": d.get("name"),
+                                 "topic": d.get("topic")},
+        )
+
+    def delete_channel(self, channel_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/channels/{channel_id}",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda d: {"deleted": True, "channel_id": d.get("id")},
+        )
+
+    def edit_channel_permissions(self, channel_id: str, overwrite_id: str,
+                                 allow: str = "0", deny: str = "0",
+                                 type: int = 0) -> Result:
+        """type: 0=role, 1=member. allow/deny are bitfields as decimal strings."""
+        return http_request(
+            "PUT", f"{DISCORD_API_BASE}/channels/{channel_id}/permissions/{overwrite_id}",
+            headers=self._bot_headers(),
+            json={"allow": allow, "deny": deny, "type": type}, expected=(204,),
+            transform=lambda _: {"updated": True, "overwrite_id": overwrite_id},
+        )
+
+    def delete_channel_permission(self, channel_id: str, overwrite_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/channels/{channel_id}/permissions/{overwrite_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"deleted": True, "overwrite_id": overwrite_id},
+        )
+
+    def list_channel_invites(self, channel_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/channels/{channel_id}/invites",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda invites: {"invites": invites, "count": len(invites)},
+        )
+
+    def create_channel_invite(self, channel_id: str,
+                              max_age: int = 86400, max_uses: int = 0,
+                              temporary: bool = False, unique: bool = False) -> Result:
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/invites",
+            headers=self._bot_headers(),
+            json={"max_age": max_age, "max_uses": max_uses,
+                  "temporary": temporary, "unique": unique},
+            expected=(200, 201),
+            transform=lambda d: {"code": d.get("code"), "url": f"https://discord.gg/{d.get('code')}",
+                                 "max_age": d.get("max_age"), "max_uses": d.get("max_uses")},
+        )
+
+    def delete_invite(self, invite_code: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/invites/{invite_code}",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda d: {"deleted": True, "code": d.get("code")},
+        )
+
+    # ==================================================================
+    # Webhooks
+    # ==================================================================
+
+    def list_channel_webhooks(self, channel_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/channels/{channel_id}/webhooks",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda webhooks: {"webhooks": webhooks, "count": len(webhooks)},
+        )
+
+    def create_webhook(self, channel_id: str, name: str,
+                       avatar: Optional[str] = None) -> Result:
+        """avatar is a data-URI string (data:image/png;base64,...)."""
+        payload: Dict[str, Any] = {"name": name}
+        if avatar: payload["avatar"] = avatar
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/channels/{channel_id}/webhooks",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "token": d.get("token"),
+                                 "url": d.get("url"), "name": d.get("name")},
+        )
+
+    def get_webhook(self, webhook_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/webhooks/{webhook_id}",
+            headers=self._bot_headers(), expected=(200,),
+        )
+
+    def modify_webhook(self, webhook_id: str, name: Optional[str] = None,
+                       avatar: Optional[str] = None,
+                       channel_id: Optional[str] = None) -> Result:
+        payload: Dict[str, Any] = {}
+        if name is not None: payload["name"] = name
+        if avatar is not None: payload["avatar"] = avatar
+        if channel_id is not None: payload["channel_id"] = channel_id
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/webhooks/{webhook_id}",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("name")},
+        )
+
+    def delete_webhook(self, webhook_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/webhooks/{webhook_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"deleted": True, "webhook_id": webhook_id},
+        )
+
+    def execute_webhook(self, webhook_id: str, webhook_token: str,
+                        content: Optional[str] = None,
+                        username: Optional[str] = None,
+                        avatar_url: Optional[str] = None,
+                        embeds: Optional[List[Dict[str, Any]]] = None,
+                        wait: bool = False) -> Result:
+        """Post via webhook URL (no bot token needed for execute)."""
+        payload: Dict[str, Any] = {}
+        if content: payload["content"] = content
+        if username: payload["username"] = username
+        if avatar_url: payload["avatar_url"] = avatar_url
+        if embeds: payload["embeds"] = embeds
+        params: Dict[str, Any] = {}
+        if wait: params["wait"] = "true"
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/webhooks/{webhook_id}/{webhook_token}",
+            headers={"Content-Type": "application/json"},
+            json=payload, params=params, expected=(200, 204),
+            transform=lambda d: {"sent": True, "message_id": (d or {}).get("id")},
+        )
+
+    # ==================================================================
+    # Members (moderation: nickname, roles, kick, ban, timeout)
+    # ==================================================================
+
+    def modify_guild_member(self, guild_id: str, user_id: str,
+                            nick: Optional[str] = None,
+                            roles: Optional[List[str]] = None,
+                            mute: Optional[bool] = None,
+                            deaf: Optional[bool] = None,
+                            channel_id: Optional[str] = None,
+                            communication_disabled_until: Optional[str] = None) -> Result:
+        """Modify a guild member. communication_disabled_until is an ISO 8601 timestamp for timeout (max 28 days)."""
+        payload: Dict[str, Any] = {}
+        if nick is not None: payload["nick"] = nick
+        if roles is not None: payload["roles"] = roles
+        if mute is not None: payload["mute"] = mute
+        if deaf is not None: payload["deaf"] = deaf
+        if channel_id is not None: payload["channel_id"] = channel_id
+        if communication_disabled_until is not None:
+            payload["communication_disabled_until"] = communication_disabled_until
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/{user_id}",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+            transform=lambda d: {"nick": d.get("nick"),
+                                 "roles": d.get("roles", []),
+                                 "communication_disabled_until": d.get("communication_disabled_until")},
+        )
+
+    def modify_current_member_nick(self, guild_id: str,
+                                   nick: Optional[str]) -> Result:
+        """Set the bot's own nickname in a guild."""
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/@me",
+            headers=self._bot_headers(), json={"nick": nick}, expected=(200,),
+            transform=lambda d: {"nick": d.get("nick")},
+        )
+
+    def add_guild_member_role(self, guild_id: str, user_id: str,
+                              role_id: str) -> Result:
+        return http_request(
+            "PUT", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"added": True, "role_id": role_id},
+        )
+
+    def remove_guild_member_role(self, guild_id: str, user_id: str,
+                                 role_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"removed": True, "role_id": role_id},
+        )
+
+    def kick_guild_member(self, guild_id: str, user_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/{user_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"kicked": True, "user_id": user_id},
+        )
+
+    def ban_guild_member(self, guild_id: str, user_id: str,
+                         delete_message_seconds: int = 0) -> Result:
+        """delete_message_seconds: 0..604800 (7 days)."""
+        return http_request(
+            "PUT", f"{DISCORD_API_BASE}/guilds/{guild_id}/bans/{user_id}",
+            headers=self._bot_headers(),
+            json={"delete_message_seconds": delete_message_seconds},
+            expected=(204,),
+            transform=lambda _: {"banned": True, "user_id": user_id},
+        )
+
+    def unban_guild_member(self, guild_id: str, user_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/guilds/{guild_id}/bans/{user_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"unbanned": True, "user_id": user_id},
+        )
+
+    def list_guild_bans(self, guild_id: str, limit: int = 100) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/bans",
+            headers=self._bot_headers(),
+            params={"limit": min(limit, 1000)}, expected=(200,),
+            transform=lambda bans: {"bans": bans, "count": len(bans)},
+        )
+
+    def search_guild_members(self, guild_id: str, query: str,
+                             limit: int = 10) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/members/search",
+            headers=self._bot_headers(),
+            params={"query": query, "limit": min(limit, 1000)}, expected=(200,),
+            transform=lambda members: {"members": members, "count": len(members)},
+        )
+
+    # ==================================================================
+    # Guild: roles + emojis + stickers + scheduled events + audit log + invites
+    # ==================================================================
+
+    def get_guild(self, guild_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}",
+            headers=self._bot_headers(), expected=(200,),
+        )
+
+    def create_guild_role(self, guild_id: str, name: str,
+                          permissions: Optional[str] = None,
+                          color: Optional[int] = None,
+                          hoist: bool = False,
+                          mentionable: bool = False) -> Result:
+        payload: Dict[str, Any] = {"name": name, "hoist": hoist, "mentionable": mentionable}
+        if permissions is not None: payload["permissions"] = permissions
+        if color is not None: payload["color"] = color
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/guilds/{guild_id}/roles",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+            transform=lambda d: {"role_id": d.get("id"), "name": d.get("name"),
+                                 "color": d.get("color")},
+        )
+
+    def modify_guild_role(self, guild_id: str, role_id: str,
+                          name: Optional[str] = None,
+                          permissions: Optional[str] = None,
+                          color: Optional[int] = None,
+                          hoist: Optional[bool] = None,
+                          mentionable: Optional[bool] = None) -> Result:
+        payload: Dict[str, Any] = {}
+        if name is not None: payload["name"] = name
+        if permissions is not None: payload["permissions"] = permissions
+        if color is not None: payload["color"] = color
+        if hoist is not None: payload["hoist"] = hoist
+        if mentionable is not None: payload["mentionable"] = mentionable
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/guilds/{guild_id}/roles/{role_id}",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+        )
+
+    def delete_guild_role(self, guild_id: str, role_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/guilds/{guild_id}/roles/{role_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"deleted": True, "role_id": role_id},
+        )
+
+    def list_guild_emojis(self, guild_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/emojis",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda emojis: {"emojis": emojis, "count": len(emojis)},
+        )
+
+    def create_guild_emoji(self, guild_id: str, name: str,
+                           image: str, roles: Optional[List[str]] = None) -> Result:
+        """image is a data-URI: 'data:image/png;base64,<base64>'."""
+        payload: Dict[str, Any] = {"name": name, "image": image}
+        if roles: payload["roles"] = roles
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/guilds/{guild_id}/emojis",
+            headers=self._bot_headers(), json=payload, expected=(201,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("name")},
+        )
+
+    def delete_guild_emoji(self, guild_id: str, emoji_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/guilds/{guild_id}/emojis/{emoji_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"deleted": True, "emoji_id": emoji_id},
+        )
+
+    def list_guild_stickers(self, guild_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/stickers",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda s: {"stickers": s, "count": len(s)},
+        )
+
+    def list_scheduled_events(self, guild_id: str,
+                              with_user_count: bool = False) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/scheduled-events",
+            headers=self._bot_headers(),
+            params={"with_user_count": str(with_user_count).lower()},
+            expected=(200,),
+            transform=lambda events: {"events": events, "count": len(events)},
+        )
+
+    def create_scheduled_event(self, guild_id: str, name: str,
+                               scheduled_start_time: str,
+                               entity_type: int,
+                               privacy_level: int = 2,
+                               scheduled_end_time: Optional[str] = None,
+                               channel_id: Optional[str] = None,
+                               entity_metadata: Optional[Dict[str, Any]] = None,
+                               description: Optional[str] = None) -> Result:
+        """entity_type: 1=stage_instance, 2=voice, 3=external. privacy_level: 2=guild_only."""
+        payload: Dict[str, Any] = {
+            "name": name,
+            "scheduled_start_time": scheduled_start_time,
+            "entity_type": entity_type,
+            "privacy_level": privacy_level,
+        }
+        if scheduled_end_time is not None: payload["scheduled_end_time"] = scheduled_end_time
+        if channel_id is not None: payload["channel_id"] = channel_id
+        if entity_metadata is not None: payload["entity_metadata"] = entity_metadata
+        if description is not None: payload["description"] = description
+        return http_request(
+            "POST", f"{DISCORD_API_BASE}/guilds/{guild_id}/scheduled-events",
+            headers=self._bot_headers(), json=payload, expected=(200,),
+            transform=lambda d: {"event_id": d.get("id"), "name": d.get("name")},
+        )
+
+    def modify_scheduled_event(self, guild_id: str, event_id: str,
+                               **fields) -> Result:
+        return http_request(
+            "PATCH", f"{DISCORD_API_BASE}/guilds/{guild_id}/scheduled-events/{event_id}",
+            headers=self._bot_headers(), json=fields, expected=(200,),
+        )
+
+    def delete_scheduled_event(self, guild_id: str, event_id: str) -> Result:
+        return http_request(
+            "DELETE", f"{DISCORD_API_BASE}/guilds/{guild_id}/scheduled-events/{event_id}",
+            headers=self._bot_headers(), expected=(204,),
+            transform=lambda _: {"deleted": True, "event_id": event_id},
+        )
+
+    def get_audit_log(self, guild_id: str,
+                      user_id: Optional[str] = None,
+                      action_type: Optional[int] = None,
+                      before: Optional[str] = None,
+                      limit: int = 50) -> Result:
+        params: Dict[str, Any] = {"limit": min(limit, 100)}
+        if user_id: params["user_id"] = user_id
+        if action_type is not None: params["action_type"] = action_type
+        if before: params["before"] = before
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/audit-logs",
+            headers=self._bot_headers(), params=params, expected=(200,),
+            transform=lambda d: {"audit_log_entries": d.get("audit_log_entries", []),
+                                 "users": d.get("users", []),
+                                 "webhooks": d.get("webhooks", [])},
+        )
+
+    def list_guild_invites(self, guild_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/invites",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda invites: {"invites": invites, "count": len(invites)},
+        )

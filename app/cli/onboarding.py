@@ -13,7 +13,7 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    MCPStep,
+    IntegrationStep,
     SkillsStep,
 )
 from app.onboarding import onboarding_manager
@@ -32,7 +32,7 @@ class CLIHardOnboarding(OnboardingInterface):
     1. LLM Provider selection
     2. API Key input
     3. Agent name (optional)
-    4. MCP server selection (optional)
+    4. External app integration selection (optional)
     5. Skills selection (optional)
 
     Note: User name is collected during soft onboarding (conversational interview).
@@ -294,24 +294,6 @@ class CLIHardOnboarding(OnboardingInterface):
             else:
                 self._collected_data["user_profile"] = {}
 
-            # Step 5: MCP servers (optional)
-            mcp_step = MCPStep()
-            mcp_options = mcp_step.get_options()
-            if mcp_options:
-                print("\nWould you like to configure MCP servers? (y/N)")
-                try:
-                    configure_mcp = await self._async_input("> ")
-                except (EOFError, KeyboardInterrupt):
-                    configure_mcp = "n"
-
-                if configure_mcp.lower().startswith("y"):
-                    mcp_servers = await self._select_multiple(mcp_step)
-                    self._collected_data["mcp_servers"] = mcp_servers
-                else:
-                    self._collected_data["mcp_servers"] = []
-            else:
-                self._collected_data["mcp_servers"] = []
-
             # Step 5: Skills (optional)
             skills_step = SkillsStep()
             skills_options = skills_step.get_options()
@@ -329,6 +311,13 @@ class CLIHardOnboarding(OnboardingInterface):
                     self._collected_data["skills"] = []
             else:
                 self._collected_data["skills"] = []
+
+            # Step 6: External app integrations (optional, web-only panel)
+            print(
+                "\nExternal app integrations (Gmail, Slack, GitHub, Notion, etc.)"
+                " are set up in the browser interface under Settings → Integrations."
+            )
+            self._collected_data["integrations"] = ""
 
             self._collected_data["completed"] = True
             self.on_complete()
