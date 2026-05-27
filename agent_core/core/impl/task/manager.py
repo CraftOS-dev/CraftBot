@@ -216,6 +216,37 @@ class TaskManager:
         """Check if any task is currently running."""
         return any(t.status == "running" for t in self.tasks.values())
 
+    def get_active_task_ids(self) -> List[str]:
+        """Return IDs of tasks that should keep their session caches alive.
+
+        Used by the agent after a provider switch to know which tasks need
+        their session caches rebuilt under the new provider. A task is
+        "active" if it hasn't terminated — so `running` and `paused` count,
+        but `completed` / `error` / `cancelled` do not.
+        """
+        terminal = {"completed", "error", "cancelled"}
+        return [tid for tid, t in self.tasks.items() if t.status not in terminal]
+
+    def rebuild_session_caches(self, task_id: str) -> None:
+        """Re-register session caches for an existing task.
+
+        Used after a provider switch — `LLMInterface.reinitialize()` wipes
+        `_session_system_prompts` and the provider-specific message-history
+        buffers, so we need to call back into the same registration path
+        that ran at task creation. The system prompt is re-derived freshly
+        from `context_engine.make_prompt()`, so any state changes since the
+        original registration (todos, action sets, etc.) are picked up
+        automatically.
+
+        Args:
+            task_id: ID of the task whose sessions should be re-registered.
+        """
+        if not self.llm_interface or not self.context_engine:
+            return
+        if task_id not in self.tasks:
+            return
+        self._create_session_caches(task_id)
+
     def set_current_session(self, session_id: str) -> None:
         """Set the current session ID for the active property (CraftBot)."""
         self._current_session_id = session_id
