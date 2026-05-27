@@ -164,7 +164,7 @@
 
 .input:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .input::placeholder {
@@ -189,7 +189,7 @@
 }
 
 .inputWrapperDragOver {
-  outline: 2px dashed var(--color-primary);
+  outline: 2px dashed var(--text-primary);
   background: var(--color-primary-subtle);
 }
 
@@ -344,8 +344,8 @@
 }
 
 .inputListening {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-subtle);
+  border-color: var(--border-hover);
+  box-shadow: 0 0 0 2px var(--bg-selected);
 }
 
 /* Mic + language selector */
@@ -474,7 +474,7 @@
 }
 
 .langOptionActive {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .langCode {

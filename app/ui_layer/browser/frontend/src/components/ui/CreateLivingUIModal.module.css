@@ -1,5 +1,5 @@
 .headerIcon {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 /* Tabs */
@@ -32,7 +32,7 @@
 
 .tabActive {
   color: var(--text-primary);
-  border-bottom-color: var(--color-primary);
+  border-bottom-color: var(--text-primary);
   font-weight: var(--font-semibold);
 }
 
@@ -73,7 +73,7 @@
   font-size: var(--text-sm);
   font-family: inherit;
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
@@ -81,7 +81,7 @@
 
 .searchInput:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .tagsRow {
@@ -99,7 +99,7 @@
 
 .tagChip {
   padding: 4px 10px;
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: 999px;
   color: var(--text-muted);
@@ -111,18 +111,18 @@
 }
 
 .tagChip:hover {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   color: var(--text-primary);
 }
 
 .tagChipActive {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg-primary);
 }
 
 .tagChipActive:hover {
-  color: white;
+  color: var(--bg-primary);
 }
 
 .marketplaceContent {
@@ -148,7 +148,7 @@
 }
 
 .appCard:hover {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   transform: translateY(-2px);
 }
 
@@ -318,14 +318,29 @@
   margin-top: var(--space-4);
 }
 
-/* Centered form wrapper (used by Custom + Import + Configure tabs) */
+/* Centered form wrapper (used by Custom + Import + Configure tabs).
+   Wider max-width than the legacy 720px so the form fills the size="full"
+   modal — there were big empty bands on each side at the previous width.
+   Becomes flex: 1 so it grows to fill the body, letting the textarea
+   stretch vertically instead of leaving dead space below it. */
 .centeredForm {
   width: 100%;
-  max-width: 720px;
+  max-width: 1100px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: var(--space-4);
+}
+
+/* The formGroup that contains the large textarea grows to fill the
+   remaining vertical space inside .centeredForm. Targeted via :has() so
+   only the description block stretches — the project-name field stays
+   its natural height. */
+.centeredForm .formGroup:has(.textareaLarge) {
+  flex: 1;
+  min-height: 0;
 }
 
 /* Scrollable body for form-based tabs */
@@ -334,6 +349,8 @@
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .formGroup {
@@ -359,7 +376,7 @@
   font-size: var(--text-sm);
   font-family: inherit;
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
@@ -368,7 +385,7 @@
 .input:focus,
 .textarea:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .inputError {
@@ -382,11 +399,12 @@
 
 .textareaLarge {
   width: 100%;
+  flex: 1;
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);
   font-family: inherit;
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
@@ -396,7 +414,7 @@
 
 .textareaLarge:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .descriptionFooter {
@@ -467,12 +485,12 @@
 }
 
 .dropZone:hover {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   background: var(--bg-tertiary);
 }
 
 .dropZoneDragOver {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   background: var(--bg-tertiary);
 }
 

@@ -1,5 +1,18 @@
 /* Living UI Page Styles */
 
+/* LivingUI deliberately keeps the pre-existing warm off-white panel color
+   (#FAFAF8) in light mode, so its workspace chrome stays visually distinct
+   from the rest of the app — which uses a much-closer-to-white
+   --bg-secondary. Dark-mode rules below resolve via the token and are not
+   affected. */
+[data-theme="light"] .menuBar,
+[data-theme="light"] .hintsBox,
+[data-theme="light"] .chatPanel,
+[data-theme="light"] .message.system,
+[data-theme="light"] .notFound p {
+  background: #FAFAF8;
+}
+
 .container {
   display: flex;
   flex-direction: column;
@@ -33,7 +46,7 @@
 }
 
 .projectIcon {
-  color: var(--color-primary);
+  color: var(--text-primary);
   flex-shrink: 0;
 }
 
@@ -65,7 +78,7 @@
 }
 
 .status.ready {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .status.stopped {
@@ -89,7 +102,7 @@
   padding: 1px var(--space-2);
   border-radius: var(--radius-full);
   background: var(--color-primary-subtle);
-  color: var(--color-primary);
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
@@ -208,7 +221,7 @@
 
 .progressFill {
   height: 100%;
-  background: var(--color-primary);
+  background: var(--text-primary);
   border-radius: var(--radius-full);
   transition: width 400ms ease-out;
 }
@@ -218,7 +231,7 @@
   background: linear-gradient(
     90deg,
     var(--border-primary) 0%,
-    var(--color-primary) 50%,
+    var(--text-primary) 50%,
     var(--border-primary) 100%
   );
   animation: progressShimmer 1.6s ease-in-out infinite;
@@ -253,7 +266,7 @@
 .hintIcon {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .rotatingHint {
@@ -477,7 +490,7 @@
 }
 
 .chatInput textarea:focus {
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 /* Not Found */

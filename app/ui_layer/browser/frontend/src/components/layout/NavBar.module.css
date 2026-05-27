@@ -120,12 +120,13 @@
 }
 
 .navItem.active {
-  color: var(--color-primary);
-  background: var(--color-primary-subtle);
+  color: var(--text-primary);
+  background: var(--bg-selected);
+  font-weight: var(--font-semibold);
 }
 
 .navItem.active:hover {
-  background: var(--color-primary-light);
+  background: var(--bg-selected-hover);
 }
 
 .icon {
@@ -166,12 +167,13 @@
 }
 
 .livingUITabActive {
-  color: var(--color-primary);
-  background: var(--color-primary-subtle);
+  color: var(--text-primary);
+  background: var(--bg-selected);
+  font-weight: var(--font-semibold);
 }
 
 .livingUITabActive:hover {
-  background: var(--color-primary-light);
+  background: var(--bg-selected-hover);
 }
 
 .livingUITabIcon {

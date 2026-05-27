@@ -552,8 +552,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
             <div className={styles.emptyState}>
               <div className={styles.emptyIcon}>
                 <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-                  <rect width="32" height="32" rx="6" fill="var(--color-primary-light)"/>
-                  <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round"/>
+                  <rect width="32" height="32" rx="6" fill="var(--bg-selected)"/>
+                  <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--text-primary)" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </div>
               <h3>{emptyMessage || 'Start a conversation'}</h3>

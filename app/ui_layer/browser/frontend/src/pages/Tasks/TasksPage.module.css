@@ -166,7 +166,7 @@
 }
 
 .placeholderReplyBtn:hover {
-  color: var(--color-primary);
+  color: var(--text-primary);
   background: var(--color-primary-light);
 }
 
@@ -394,7 +394,7 @@
 }
 
 .todoInProgress .todoIcon {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .todoInProgress .todoContent {
@@ -856,6 +856,6 @@
 }
 
 .taskReplyBtn:hover {
-  color: var(--color-primary);
+  color: var(--text-primary);
   background: var(--color-primary-light);
 }

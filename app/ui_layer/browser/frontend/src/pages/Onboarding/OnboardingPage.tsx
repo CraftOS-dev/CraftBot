@@ -908,7 +908,7 @@ export function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => { setProxiedVia('direct'); setTextValue('') }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent, #e07b39)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-primary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
               >
                 ← Use direct {providerDisplay} API instead
               </button>
@@ -916,7 +916,7 @@ export function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => { setProxiedVia('openrouter'); setTextValue('') }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent, #e07b39)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-primary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
               >
                 Having connection issues? Use OpenRouter instead →
               </button>

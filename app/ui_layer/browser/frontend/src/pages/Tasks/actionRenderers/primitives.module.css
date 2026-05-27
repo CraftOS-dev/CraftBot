@@ -334,14 +334,15 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--color-primary);
+  color: var(--text-primary);
   font-size: var(--text-xs);
   cursor: pointer;
   text-decoration: underline;
 }
 
 .expandToggle:hover {
-  color: var(--color-primary-hover, var(--color-primary));
+  color: var(--text-primary);
+  text-decoration-color: var(--text-primary);
 }
 
 /* Pending state text and image/video captions (the user's prompt/query
