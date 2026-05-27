@@ -51,7 +51,9 @@ CRITICAL - Message Source Routing Rules:
 - If platform is telegram_bot → use send_telegram_bot_message
 - If platform is telegram_user → use send_telegram_user_message
 - If platform is WhatsApp → MUST use send_whatsapp_web_text_message (use to="user" for self-messages)
-- If platform is Discord → MUST use send_discord_message or send_discord_dm
+- If platform is Discord → choose based on where the message originated:
+  - Message arrived "in channel #<id>" (server channel) → use send_discord_message with that channel_id
+  - Message arrived "via DM" → use send_discord_dm with the sender's user ID as recipient_id; only use send_discord_dm when the source is explicitly a DM
 - If platform is Slack → MUST use send_slack_message
 - If platform is CraftBot interface (or no platform specified) → use send_message
 - ONLY fall back to send_message if the platform's send action is not in the available actions list.
@@ -199,7 +201,9 @@ CRITICAL - Message Source Routing Rules:
 - If platform is telegram_bot → use send_telegram_bot_message
 - If platform is telegram_user → use send_telegram_user_message
 - If platform is WhatsApp → MUST use send_whatsapp_web_text_message (use to="user" for self-messages)
-- If platform is Discord → MUST use send_discord_message or send_discord_dm
+- If platform is Discord → choose based on where the message originated:
+  - Message arrived "in channel #<id>" (server channel) → use send_discord_message with that channel_id
+  - Message arrived "via DM" → use send_discord_dm with the sender's user ID as recipient_id; only use send_discord_dm when the source is explicitly a DM
 - If platform is Slack → MUST use send_slack_message
 - If platform is CraftBot interface (or no platform specified) → use send_message
 - ONLY fall back to send_message if the platform's send action is not in the available actions list.
@@ -476,7 +480,9 @@ CRITICAL - Message Source Routing Rules:
 - If platform is telegram_bot → use send_telegram_bot_message
 - If platform is telegram_user → use send_telegram_user_message
 - If platform is WhatsApp → MUST use send_whatsapp_web_text_message (use to="user" for self-messages)
-- If platform is Discord → MUST use send_discord_message or send_discord_dm
+- If platform is Discord → choose based on where the message originated:
+  - Message arrived "in channel #<id>" (server channel) → use send_discord_message with that channel_id
+  - Message arrived "via DM" → use send_discord_dm with the sender's user ID as recipient_id; only use send_discord_dm when the source is explicitly a DM
 - If platform is Slack → MUST use send_slack_message
 - If platform is CraftBot interface (or no platform specified) → use send_message
 - ONLY fall back to send_message if the platform's send action is not in the available actions list.

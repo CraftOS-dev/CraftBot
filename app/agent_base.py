@@ -2313,14 +2313,28 @@ class AgentBase:
             trigger_payload["is_self_message"] = payload.get("is_self_message", False)
             trigger_payload["contact_id"] = payload.get("contact_id", "")
             trigger_payload["channel_id"] = payload.get("channel_id", "")
+            trigger_payload["channel_name"] = payload.get("channel_name", "")
         if payload.get("pre_selected_skills"):
             trigger_payload["pre_selected_skills"] = payload["pre_selected_skills"]
 
         # Steer the action-selection LLM to use the right platform-specific
-        # send action when replying.
+        # send action when replying, including whether the source is a DM or channel.
         platform_hint = ""
         if platform and platform.lower() != "craftbot interface":
-            platform_hint = f" from {platform} (reply on {platform}, NOT send_message)"
+            channel_name_val = payload.get("channel_name", "")
+            if channel_name_val == "DM":
+                channel_ctx = " via DM"
+                reply_ctx = " to this DM"
+            elif channel_name_val:
+                channel_ctx = f" in channel {channel_name_val}"
+                reply_ctx = " in the same channel"
+            else:
+                channel_ctx = ""
+                reply_ctx = ""
+            platform_hint = (
+                f" from {platform}{channel_ctx}"
+                f" (reply on {platform}{reply_ctx}, NOT send_message)"
+            )
 
         await self.triggers.put(
             Trigger(

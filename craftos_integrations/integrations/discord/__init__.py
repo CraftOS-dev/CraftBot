@@ -495,7 +495,9 @@ class DiscordClient(BasePlatformClient):
         author_name = author.get("username", "Unknown")
         channel_id = d.get("channel_id", "")
         guild_id = d.get("guild_id", "")
-        channel_name = f"#{channel_id}" if guild_id else "DM"
+        channel_type = d.get("channel_type")
+        is_dm = (channel_type in (1, 3)) if channel_type is not None else not bool(guild_id)
+        channel_name = "DM" if is_dm else f"#{channel_id}"
 
         ts = None
         try:
@@ -514,7 +516,7 @@ class DiscordClient(BasePlatformClient):
                     channel_name=channel_name,
                     message_id=d.get("id", ""),
                     timestamp=ts,
-                    raw={"guild_id": guild_id, "is_self_message": is_self_message},
+                    raw={"guild_id": guild_id, "channel_type": channel_type, "is_dm": is_dm, "is_self_message": is_self_message},
                 )
             )
 
