@@ -11,7 +11,7 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react'
-import { CraftBotPet } from './CraftBotPet'
+import { CraftBotMascot } from '@mascot'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useFullscreen } from '../../contexts/FullscreenContext'
 import { Button } from '../../components/ui/Button'
@@ -267,7 +267,7 @@ export function LivingUIPage() {
             />
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>
-              <CraftBotPet state="launching" size={96} />
+              <CraftBotMascot state="launching" size={96} />
               <p>Launching Living UI...</p>
               <p className={styles.hint}>Installing dependencies, running tests, starting servers</p>
             </div>
@@ -282,7 +282,7 @@ export function LivingUIPage() {
             </div>
           ) : (
             <div className={styles.stopped}>
-              <CraftBotPet state="stopped" size={96} />
+              <CraftBotMascot state="stopped" size={96} />
               <p>Living UI is not running</p>
               <Button variant="primary" onClick={handleLaunch}>
                 <Play size={16} /> Launch
