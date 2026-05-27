@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react'
+import ReactDOM from 'react-dom'
 import { X } from 'lucide-react'
 import styles from './Modal.module.css'
 
-export type ModalSize = 'sm' | 'md' | 'lg' | 'full'
+export type ModalSize = 'sm' | 'md' | 'lg' | 'full' | 'auto'
 
 export interface ModalProps {
   isOpen: boolean
@@ -46,7 +47,10 @@ export function Modal({
 
   const showHeader = title !== undefined || showCloseButton
 
-  return (
+  // Render via a portal so the modal escapes any ancestor stacking context
+  // (e.g. virtualized chat rows that use CSS `transform`, which would otherwise
+  // pin a `position: fixed` modal inside that ancestor's stacking layer).
+  return ReactDOM.createPortal(
     <div className={styles.overlay} onClick={handleOverlayClick}>
       <div
         className={`${styles.content} ${styles[`size_${size}`]} ${contentClassName ?? ''}`}
@@ -70,7 +74,8 @@ export function Modal({
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

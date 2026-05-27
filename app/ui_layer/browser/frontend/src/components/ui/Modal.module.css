@@ -49,6 +49,14 @@
   height: 95vh;
   max-height: 95vh;
 }
+/* Sizes to its content (capped). Use when the body has its own natural
+   width — e.g. an image at intrinsic dimensions or a fixed-width viewer. */
+.size_auto {
+  width: fit-content;
+  min-width: 320px;
+  max-width: min(95vw, 1400px);
+  max-height: 92vh;
+}
 
 .header {
   display: flex;

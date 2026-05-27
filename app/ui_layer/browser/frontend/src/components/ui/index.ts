@@ -14,6 +14,9 @@ export { MarkdownContent } from './MarkdownContent'
 
 export { AttachmentDisplay } from './AttachmentDisplay'
 
+export { AttachmentPreviewModal } from './AttachmentPreviewModal'
+export type { AttachmentPreviewModalProps, AttachmentPreviewItem } from './AttachmentPreviewModal'
+
 export { Modal, ModalBody, ModalFooter } from './Modal'
 export type { ModalProps, ModalSize, ModalSectionProps } from './Modal'
 
