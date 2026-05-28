@@ -604,10 +604,15 @@ class TwitterClient(BasePlatformClient):
 
     async def get_tweet(self, tweet_id: str) -> Result:
         url = f"{TWITTER_API}/tweets/{tweet_id}"
-        params = {"tweet.fields": "created_at,author_id,public_metrics,text,conversation_id"}
+        params = {
+            "tweet.fields": "created_at,author_id,public_metrics,text,conversation_id"
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -619,11 +624,16 @@ class TwitterClient(BasePlatformClient):
             "tweet.fields": "created_at,author_id,public_metrics,text",
         }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
-    async def get_user_mentions(self, user_id: Optional[str] = None, max_results: int = 10) -> Result:
+    async def get_user_mentions(
+        self, user_id: Optional[str] = None, max_results: int = 10
+    ) -> Result:
         """Recent mentions of a user (defaults to the authed user)."""
         cred = self._load()
         uid = user_id or cred.user_id
@@ -637,43 +647,64 @@ class TwitterClient(BasePlatformClient):
             "user.fields": "username,name",
         }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def post_quote_tweet(self, text: str, quoted_tweet_id: str) -> Result:
         url = f"{TWITTER_API}/tweets"
         payload = {"text": text, "quote_tweet_id": quoted_tweet_id}
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
             json=payload,
-            transform=lambda d: {"id": d.get("data", {}).get("id"),
-                                  "text": d.get("data", {}).get("text")},
+            transform=lambda d: {
+                "id": d.get("data", {}).get("id"),
+                "text": d.get("data", {}).get("text"),
+            },
         )
 
     async def hide_reply(self, reply_tweet_id: str, hidden: bool = True) -> Result:
         url = f"{TWITTER_API}/tweets/{reply_tweet_id}/hidden"
         return await arequest(
-            "PUT", url,
-            headers={**self._auth_header("PUT", url), "Content-Type": "application/json"},
-            json={"hidden": hidden}, expected=(200,),
+            "PUT",
+            url,
+            headers={
+                **self._auth_header("PUT", url),
+                "Content-Type": "application/json",
+            },
+            json={"hidden": hidden},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    async def post_tweet_with_media(self, text: str, media_ids: List[str],
-                                    reply_to: Optional[str] = None) -> Result:
+    async def post_tweet_with_media(
+        self, text: str, media_ids: List[str], reply_to: Optional[str] = None
+    ) -> Result:
         """Post a tweet with up to 4 already-uploaded media_ids attached."""
         url = f"{TWITTER_API}/tweets"
         payload: Dict[str, Any] = {"text": text, "media": {"media_ids": media_ids}}
         if reply_to:
             payload["reply"] = {"in_reply_to_tweet_id": reply_to}
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
             json=payload,
-            transform=lambda d: {"id": d.get("data", {}).get("id"),
-                                  "text": d.get("data", {}).get("text")},
+            transform=lambda d: {
+                "id": d.get("data", {}).get("id"),
+                "text": d.get("data", {}).get("text"),
+            },
         )
 
     # ----- Engagement: unlike, unretweet, bookmarks -----
@@ -682,7 +713,9 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/likes/{tweet_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
@@ -691,7 +724,9 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/retweets/{tweet_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
@@ -700,9 +735,14 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/bookmarks"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"tweet_id": tweet_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"tweet_id": tweet_id},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -710,7 +750,9 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/bookmarks/{tweet_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
@@ -718,27 +760,38 @@ class TwitterClient(BasePlatformClient):
     async def list_bookmarks(self, max_results: int = 50) -> Result:
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/bookmarks"
-        params = {"max_results": str(max_results),
-                  "tweet.fields": "created_at,author_id,public_metrics,text"}
+        params = {
+            "max_results": str(max_results),
+            "tweet.fields": "created_at,author_id,public_metrics,text",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def list_liking_users(self, tweet_id: str, max_results: int = 50) -> Result:
         url = f"{TWITTER_API}/tweets/{tweet_id}/liking_users"
         params = {"max_results": str(max_results), "user.fields": "username,name"}
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def list_retweeted_by(self, tweet_id: str, max_results: int = 50) -> Result:
         url = f"{TWITTER_API}/tweets/{tweet_id}/retweeted_by"
         params = {"max_results": str(max_results), "user.fields": "username,name"}
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     # ----- Follows / Block / Mute -----
@@ -747,9 +800,14 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/following"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"target_user_id": target_user_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"target_user_id": target_user_id},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -757,40 +815,61 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/following/{target_user_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    async def list_following(self, user_id: Optional[str] = None, max_results: int = 100) -> Result:
+    async def list_following(
+        self, user_id: Optional[str] = None, max_results: int = 100
+    ) -> Result:
         cred = self._load()
         uid = user_id or cred.user_id
         url = f"{TWITTER_API}/users/{uid}/following"
-        params = {"max_results": str(max_results),
-                  "user.fields": "username,name,description,public_metrics"}
+        params = {
+            "max_results": str(max_results),
+            "user.fields": "username,name,description,public_metrics",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
-    async def list_followers(self, user_id: Optional[str] = None, max_results: int = 100) -> Result:
+    async def list_followers(
+        self, user_id: Optional[str] = None, max_results: int = 100
+    ) -> Result:
         cred = self._load()
         uid = user_id or cred.user_id
         url = f"{TWITTER_API}/users/{uid}/followers"
-        params = {"max_results": str(max_results),
-                  "user.fields": "username,name,description,public_metrics"}
+        params = {
+            "max_results": str(max_results),
+            "user.fields": "username,name,description,public_metrics",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def block_user(self, target_user_id: str) -> Result:
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/blocking"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"target_user_id": target_user_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"target_user_id": target_user_id},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -798,7 +877,9 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/blocking/{target_user_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
@@ -807,9 +888,14 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/muting"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"target_user_id": target_user_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"target_user_id": target_user_id},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -817,23 +903,31 @@ class TwitterClient(BasePlatformClient):
         cred = self._load()
         url = f"{TWITTER_API}/users/{cred.user_id}/muting/{target_user_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     # ----- Lists -----
 
-    async def create_list(self, name: str, description: str = "",
-                          private: bool = False) -> Result:
+    async def create_list(
+        self, name: str, description: str = "", private: bool = False
+    ) -> Result:
         url = f"{TWITTER_API}/lists"
         payload = {"name": name, "private": private}
         if description:
             payload["description"] = description
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json=payload, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -841,15 +935,21 @@ class TwitterClient(BasePlatformClient):
         url = f"{TWITTER_API}/lists/{list_id}"
         params = {"list.fields": "name,description,member_count,follower_count,private"}
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    async def update_list(self, list_id: str,
-                          name: Optional[str] = None,
-                          description: Optional[str] = None,
-                          private: Optional[bool] = None) -> Result:
+    async def update_list(
+        self,
+        list_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        private: Optional[bool] = None,
+    ) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}"
         payload: Dict[str, Any] = {}
         if name is not None:
@@ -861,65 +961,95 @@ class TwitterClient(BasePlatformClient):
         if not payload:
             return {"error": "No fields to update"}
         return await arequest(
-            "PUT", url,
-            headers={**self._auth_header("PUT", url), "Content-Type": "application/json"},
-            json=payload, expected=(200,),
+            "PUT",
+            url,
+            headers={
+                **self._auth_header("PUT", url),
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     async def delete_list(self, list_id: str) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda _d: {"deleted": True, "list_id": list_id},
         )
 
-    async def list_owned_lists(self, user_id: Optional[str] = None,
-                               max_results: int = 100) -> Result:
+    async def list_owned_lists(
+        self, user_id: Optional[str] = None, max_results: int = 100
+    ) -> Result:
         cred = self._load()
         uid = user_id or cred.user_id
         url = f"{TWITTER_API}/users/{uid}/owned_lists"
-        params = {"max_results": str(max_results),
-                  "list.fields": "name,description,member_count,follower_count,private"}
+        params = {
+            "max_results": str(max_results),
+            "list.fields": "name,description,member_count,follower_count,private",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def add_list_member(self, list_id: str, user_id: str) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}/members"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"user_id": user_id}, expected=(200,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"user_id": user_id},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     async def remove_list_member(self, list_id: str, user_id: str) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}/members/{user_id}"
         return await arequest(
-            "DELETE", url, headers=self._auth_header("DELETE", url),
+            "DELETE",
+            url,
+            headers=self._auth_header("DELETE", url),
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     async def list_list_members(self, list_id: str, max_results: int = 100) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}/members"
-        params = {"max_results": str(max_results),
-                  "user.fields": "username,name,description"}
+        params = {
+            "max_results": str(max_results),
+            "user.fields": "username,name,description",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     async def list_list_tweets(self, list_id: str, max_results: int = 100) -> Result:
         url = f"{TWITTER_API}/lists/{list_id}/tweets"
-        params = {"max_results": str(max_results),
-                  "tweet.fields": "created_at,author_id,public_metrics,text"}
+        params = {
+            "max_results": str(max_results),
+            "tweet.fields": "created_at,author_id,public_metrics,text",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     # ----- Direct Messages -----
@@ -928,18 +1058,30 @@ class TwitterClient(BasePlatformClient):
         """Send a one-on-one DM to a user. Creates the conversation if needed."""
         url = f"{TWITTER_API}/dm_conversations/with/{participant_id}/messages"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"text": text}, expected=(201,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"text": text},
+            expected=(201,),
             transform=lambda d: d.get("data", d),
         )
 
-    async def send_dm_to_conversation(self, dm_conversation_id: str, text: str) -> Result:
+    async def send_dm_to_conversation(
+        self, dm_conversation_id: str, text: str
+    ) -> Result:
         url = f"{TWITTER_API}/dm_conversations/{dm_conversation_id}/messages"
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json={"text": text}, expected=(201,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json={"text": text},
+            expected=(201,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -952,35 +1094,53 @@ class TwitterClient(BasePlatformClient):
             "message": {"text": text},
         }
         return await arequest(
-            "POST", url,
-            headers={**self._auth_header("POST", url), "Content-Type": "application/json"},
-            json=payload, expected=(201,),
+            "POST",
+            url,
+            headers={
+                **self._auth_header("POST", url),
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            expected=(201,),
             transform=lambda d: d.get("data", d),
         )
 
     async def list_dm_events(self, max_results: int = 100) -> Result:
         """List recent DM events across all conversations."""
         url = f"{TWITTER_API}/dm_events"
-        params = {"max_results": str(max_results),
-                  "dm_event.fields": "id,event_type,text,created_at,sender_id,dm_conversation_id"}
+        params = {
+            "max_results": str(max_results),
+            "dm_event.fields": "id,event_type,text,created_at,sender_id,dm_conversation_id",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
-    async def list_dm_events_with_user(self, participant_id: str, max_results: int = 100) -> Result:
+    async def list_dm_events_with_user(
+        self, participant_id: str, max_results: int = 100
+    ) -> Result:
         url = f"{TWITTER_API}/dm_conversations/with/{participant_id}/dm_events"
-        params = {"max_results": str(max_results),
-                  "dm_event.fields": "id,event_type,text,created_at,sender_id"}
+        params = {
+            "max_results": str(max_results),
+            "dm_event.fields": "id,event_type,text,created_at,sender_id",
+        }
         return await arequest(
-            "GET", url, headers=self._auth_header("GET", url, params),
-            params=params, expected=(200,),
+            "GET",
+            url,
+            headers=self._auth_header("GET", url, params),
+            params=params,
+            expected=(200,),
         )
 
     # ----- Media upload (v1.1 - still the most reliable for OAuth 1.0a) -----
 
-    async def upload_media(self, file_path: str,
-                           media_category: str = "tweet_image") -> Result:
+    async def upload_media(
+        self, file_path: str, media_category: str = "tweet_image"
+    ) -> Result:
         """Upload an image/video for use in a tweet. Returns ``media_id_string``.
 
         Uses the v1.1 upload endpoint (``upload.twitter.com``) because OAuth 1.0a
@@ -1002,9 +1162,13 @@ class TwitterClient(BasePlatformClient):
         # OAuth 1.0a signature must include only the params actually sent in
         # the request line (not the multipart body fields).
         auth_hdr = _oauth1_header(
-            "POST", url, {},
-            cred.api_key, cred.api_secret,
-            cred.access_token, cred.access_token_secret,
+            "POST",
+            url,
+            {},
+            cred.api_key,
+            cred.api_secret,
+            cred.access_token,
+            cred.access_token_secret,
         )
 
         name = os.path.basename(file_path)
@@ -1019,10 +1183,13 @@ class TwitterClient(BasePlatformClient):
             if r.status_code not in (200, 201):
                 return {"error": f"http_{r.status_code}", "details": r.text[:500]}
             d = r.json()
-            return {"ok": True, "result": {
-                "media_id_string": d.get("media_id_string"),
-                "size": d.get("size"),
-                "image": d.get("image"),
-            }}
+            return {
+                "ok": True,
+                "result": {
+                    "media_id_string": d.get("media_id_string"),
+                    "size": d.get("size"),
+                    "image": d.get("image"),
+                },
+            }
         except Exception as e:
             return {"error": "upload_failed", "details": str(e)}

@@ -157,7 +157,9 @@ def filter_by_rule(findings: list[Finding], *rule_ids: str) -> list[Finding]:
 def sort_by_severity(findings: list[Finding], reverse: bool = False) -> list[Finding]:
     """Sort findings by severity (error > warning > note > none)."""
     severity_order = {"error": 0, "warning": 1, "note": 2, "none": 3}
-    return sorted(findings, key=lambda f: severity_order.get(f.level, 99), reverse=reverse)
+    return sorted(
+        findings, key=lambda f: severity_order.get(f.level, 99), reverse=reverse
+    )
 
 
 def group_by_file(findings: list[Finding]) -> dict[str, list[Finding]]:
@@ -254,12 +256,20 @@ def diff_findings(
     baseline_fps = {f.fingerprint or compute_fingerprint(f.raw) for f in baseline}
     current_fps = {f.fingerprint or compute_fingerprint(f.raw) for f in current}
 
-    new = [f for f in current if (f.fingerprint or compute_fingerprint(f.raw)) not in baseline_fps]
+    new = [
+        f
+        for f in current
+        if (f.fingerprint or compute_fingerprint(f.raw)) not in baseline_fps
+    ]
     fixed = [
-        f for f in baseline if (f.fingerprint or compute_fingerprint(f.raw)) not in current_fps
+        f
+        for f in baseline
+        if (f.fingerprint or compute_fingerprint(f.raw)) not in current_fps
     ]
     unchanged = [
-        f for f in current if (f.fingerprint or compute_fingerprint(f.raw)) in baseline_fps
+        f
+        for f in current
+        if (f.fingerprint or compute_fingerprint(f.raw)) in baseline_fps
     ]
 
     return new, fixed, unchanged

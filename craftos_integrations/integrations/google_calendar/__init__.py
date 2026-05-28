@@ -183,138 +183,223 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
 
     # ----- Events -----
 
-    def insert_event(self, calendar_id: str, event_data: Dict[str, Any],
-                     send_updates: str = "none",
-                     supports_attachments: bool = False,
-                     conference_data_version: int = 0) -> Result:
+    def insert_event(
+        self,
+        calendar_id: str,
+        event_data: Dict[str, Any],
+        send_updates: str = "none",
+        supports_attachments: bool = False,
+        conference_data_version: int = 0,
+    ) -> Result:
         params: Dict[str, Any] = {"sendUpdates": send_updates}
         if supports_attachments:
             params["supportsAttachments"] = "true"
         if conference_data_version:
             params["conferenceDataVersion"] = conference_data_version
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
-            headers=self._headers(), params=params, json=event_data,
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            headers=self._headers(),
+            params=params,
+            json=event_data,
             expected=(200,),
         )
 
-    def update_event(self, calendar_id: str, event_id: str,
-                     event_data: Dict[str, Any],
-                     send_updates: str = "none") -> Result:
+    def update_event(
+        self,
+        calendar_id: str,
+        event_id: str,
+        event_data: Dict[str, Any],
+        send_updates: str = "none",
+    ) -> Result:
         return http_request(
-            "PUT", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
-            headers=self._headers(), params={"sendUpdates": send_updates},
-            json=event_data, expected=(200,),
+            "PUT",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            headers=self._headers(),
+            params={"sendUpdates": send_updates},
+            json=event_data,
+            expected=(200,),
         )
 
-    def patch_event(self, calendar_id: str, event_id: str,
-                    event_data: Dict[str, Any],
-                    send_updates: str = "none") -> Result:
+    def patch_event(
+        self,
+        calendar_id: str,
+        event_id: str,
+        event_data: Dict[str, Any],
+        send_updates: str = "none",
+    ) -> Result:
         return http_request(
-            "PATCH", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
-            headers=self._headers(), params={"sendUpdates": send_updates},
-            json=event_data, expected=(200,),
+            "PATCH",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            headers=self._headers(),
+            params={"sendUpdates": send_updates},
+            json=event_data,
+            expected=(200,),
         )
 
-    def move_event(self, calendar_id: str, event_id: str,
-                   destination_calendar_id: str,
-                   send_updates: str = "none") -> Result:
+    def move_event(
+        self,
+        calendar_id: str,
+        event_id: str,
+        destination_calendar_id: str,
+        send_updates: str = "none",
+    ) -> Result:
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}/move",
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}/move",
             headers=self._auth_header(),
-            params={"destination": destination_calendar_id, "sendUpdates": send_updates},
+            params={
+                "destination": destination_calendar_id,
+                "sendUpdates": send_updates,
+            },
             expected=(200,),
         )
 
-    def quick_add_event(self, calendar_id: str, text: str,
-                        send_updates: str = "none") -> Result:
+    def quick_add_event(
+        self, calendar_id: str, text: str, send_updates: str = "none"
+    ) -> Result:
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/quickAdd",
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/quickAdd",
             headers=self._auth_header(),
             params={"text": text, "sendUpdates": send_updates},
             expected=(200,),
         )
 
-    def list_event_instances(self, calendar_id: str, event_id: str,
-                             time_min: Optional[str] = None,
-                             time_max: Optional[str] = None,
-                             max_results: int = 50) -> Result:
+    def list_event_instances(
+        self,
+        calendar_id: str,
+        event_id: str,
+        time_min: Optional[str] = None,
+        time_max: Optional[str] = None,
+        max_results: int = 50,
+    ) -> Result:
         params: Dict[str, Any] = {"maxResults": max_results}
-        if time_min: params["timeMin"] = time_min
-        if time_max: params["timeMax"] = time_max
+        if time_min:
+            params["timeMin"] = time_min
+        if time_max:
+            params["timeMax"] = time_max
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}/instances",
-            headers=self._auth_header(), params=params, expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}/instances",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
             transform=lambda d: {"instances": d.get("items", [])},
         )
 
     def import_event(self, calendar_id: str, event_data: Dict[str, Any]) -> Result:
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/import",
-            headers=self._headers(), json=event_data, expected=(200,),
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events/import",
+            headers=self._headers(),
+            json=event_data,
+            expected=(200,),
         )
 
     # ----- Calendars (the resource itself) -----
 
     def get_calendar(self, calendar_id: str = "primary") -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
-    def create_calendar(self, summary: str, description: Optional[str] = None,
-                        time_zone: Optional[str] = None,
-                        location: Optional[str] = None) -> Result:
+    def create_calendar(
+        self,
+        summary: str,
+        description: Optional[str] = None,
+        time_zone: Optional[str] = None,
+        location: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {"summary": summary}
-        if description: payload["description"] = description
-        if time_zone: payload["timeZone"] = time_zone
-        if location: payload["location"] = location
+        if description:
+            payload["description"] = description
+        if time_zone:
+            payload["timeZone"] = time_zone
+        if location:
+            payload["location"] = location
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars",
-            headers=self._headers(), json=payload, expected=(200,),
-            transform=lambda d: {"id": d.get("id"), "summary": d.get("summary"), "timeZone": d.get("timeZone")},
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "summary": d.get("summary"),
+                "timeZone": d.get("timeZone"),
+            },
         )
 
-    def update_calendar(self, calendar_id: str, summary: Optional[str] = None,
-                        description: Optional[str] = None,
-                        time_zone: Optional[str] = None,
-                        location: Optional[str] = None) -> Result:
+    def update_calendar(
+        self,
+        calendar_id: str,
+        summary: Optional[str] = None,
+        description: Optional[str] = None,
+        time_zone: Optional[str] = None,
+        location: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if summary is not None: payload["summary"] = summary
-        if description is not None: payload["description"] = description
-        if time_zone is not None: payload["timeZone"] = time_zone
-        if location is not None: payload["location"] = location
+        if summary is not None:
+            payload["summary"] = summary
+        if description is not None:
+            payload["description"] = description
+        if time_zone is not None:
+            payload["timeZone"] = time_zone
+        if location is not None:
+            payload["location"] = location
         return http_request(
-            "PUT", f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
-            headers=self._headers(), json=payload, expected=(200,),
+            "PUT",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
-    def patch_calendar(self, calendar_id: str, summary: Optional[str] = None,
-                       description: Optional[str] = None,
-                       time_zone: Optional[str] = None,
-                       location: Optional[str] = None) -> Result:
+    def patch_calendar(
+        self,
+        calendar_id: str,
+        summary: Optional[str] = None,
+        description: Optional[str] = None,
+        time_zone: Optional[str] = None,
+        location: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if summary is not None: payload["summary"] = summary
-        if description is not None: payload["description"] = description
-        if time_zone is not None: payload["timeZone"] = time_zone
-        if location is not None: payload["location"] = location
+        if summary is not None:
+            payload["summary"] = summary
+        if description is not None:
+            payload["description"] = description
+        if time_zone is not None:
+            payload["timeZone"] = time_zone
+        if location is not None:
+            payload["location"] = location
         return http_request(
-            "PATCH", f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
-            headers=self._headers(), json=payload, expected=(200,),
+            "PATCH",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def delete_calendar(self, calendar_id: str) -> Result:
         return http_request(
-            "DELETE", f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "calendar_id": calendar_id},
         )
 
     def clear_calendar(self, calendar_id: str = "primary") -> Result:
         """Clears all events on the PRIMARY calendar. No-op on secondary."""
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/clear",
-            headers=self._auth_header(), expected=(204,),
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/clear",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"cleared": True, "calendar_id": calendar_id},
         )
 
@@ -322,44 +407,69 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
 
     def get_calendar_list_entry(self, calendar_id: str) -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/users/me/calendarList/{calendar_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/users/me/calendarList/{calendar_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
-    def subscribe_calendar(self, calendar_id: str, color_id: Optional[str] = None,
-                           summary_override: Optional[str] = None,
-                           selected: Optional[bool] = None,
-                           hidden: Optional[bool] = None) -> Result:
+    def subscribe_calendar(
+        self,
+        calendar_id: str,
+        color_id: Optional[str] = None,
+        summary_override: Optional[str] = None,
+        selected: Optional[bool] = None,
+        hidden: Optional[bool] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {"id": calendar_id}
-        if color_id is not None: payload["colorId"] = color_id
-        if summary_override is not None: payload["summaryOverride"] = summary_override
-        if selected is not None: payload["selected"] = selected
-        if hidden is not None: payload["hidden"] = hidden
+        if color_id is not None:
+            payload["colorId"] = color_id
+        if summary_override is not None:
+            payload["summaryOverride"] = summary_override
+        if selected is not None:
+            payload["selected"] = selected
+        if hidden is not None:
+            payload["hidden"] = hidden
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/users/me/calendarList",
-            headers=self._headers(), json=payload, expected=(200,),
+            "POST",
+            f"{CALENDAR_API_BASE}/users/me/calendarList",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: {"id": d.get("id"), "summary": d.get("summary")},
         )
 
-    def update_calendar_list_entry(self, calendar_id: str,
-                                   color_id: Optional[str] = None,
-                                   summary_override: Optional[str] = None,
-                                   selected: Optional[bool] = None,
-                                   hidden: Optional[bool] = None) -> Result:
+    def update_calendar_list_entry(
+        self,
+        calendar_id: str,
+        color_id: Optional[str] = None,
+        summary_override: Optional[str] = None,
+        selected: Optional[bool] = None,
+        hidden: Optional[bool] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if color_id is not None: payload["colorId"] = color_id
-        if summary_override is not None: payload["summaryOverride"] = summary_override
-        if selected is not None: payload["selected"] = selected
-        if hidden is not None: payload["hidden"] = hidden
+        if color_id is not None:
+            payload["colorId"] = color_id
+        if summary_override is not None:
+            payload["summaryOverride"] = summary_override
+        if selected is not None:
+            payload["selected"] = selected
+        if hidden is not None:
+            payload["hidden"] = hidden
         return http_request(
-            "PATCH", f"{CALENDAR_API_BASE}/users/me/calendarList/{calendar_id}",
-            headers=self._headers(), json=payload, expected=(200,),
+            "PATCH",
+            f"{CALENDAR_API_BASE}/users/me/calendarList/{calendar_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def unsubscribe_calendar(self, calendar_id: str) -> Result:
         return http_request(
-            "DELETE", f"{CALENDAR_API_BASE}/users/me/calendarList/{calendar_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{CALENDAR_API_BASE}/users/me/calendarList/{calendar_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"unsubscribed": True, "calendar_id": calendar_id},
         )
 
@@ -367,55 +477,82 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
 
     def list_calendar_acl(self, calendar_id: str = "primary") -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl",
-            headers=self._auth_header(), expected=(200,),
-            transform=lambda d: {"acl": [
-                {"id": r.get("id"), "role": r.get("role"),
-                 "scope_type": r.get("scope", {}).get("type"),
-                 "scope_value": r.get("scope", {}).get("value")}
-                for r in d.get("items", [])
-            ]},
+            "GET",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "acl": [
+                    {
+                        "id": r.get("id"),
+                        "role": r.get("role"),
+                        "scope_type": r.get("scope", {}).get("type"),
+                        "scope_value": r.get("scope", {}).get("value"),
+                    }
+                    for r in d.get("items", [])
+                ]
+            },
         )
 
     def get_calendar_acl_rule(self, calendar_id: str, rule_id: str) -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl/{rule_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl/{rule_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
-    def add_calendar_acl_rule(self, calendar_id: str, scope_type: str,
-                              scope_value: str, role: str,
-                              send_notifications: bool = True) -> Result:
+    def add_calendar_acl_rule(
+        self,
+        calendar_id: str,
+        scope_type: str,
+        scope_value: str,
+        role: str,
+        send_notifications: bool = True,
+    ) -> Result:
         """scope_type: user|group|domain|default. role: none|freeBusyReader|reader|writer|owner."""
         payload = {"role": role, "scope": {"type": scope_type, "value": scope_value}}
         return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl",
-            headers=self._headers(), json=payload,
+            "POST",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl",
+            headers=self._headers(),
+            json=payload,
             params={"sendNotifications": str(send_notifications).lower()},
             expected=(200,),
             transform=lambda d: {"id": d.get("id"), "role": d.get("role")},
         )
 
-    def update_calendar_acl_rule(self, calendar_id: str, rule_id: str, role: str,
-                                 scope_type: Optional[str] = None,
-                                 scope_value: Optional[str] = None,
-                                 send_notifications: bool = True) -> Result:
+    def update_calendar_acl_rule(
+        self,
+        calendar_id: str,
+        rule_id: str,
+        role: str,
+        scope_type: Optional[str] = None,
+        scope_value: Optional[str] = None,
+        send_notifications: bool = True,
+    ) -> Result:
         payload: Dict[str, Any] = {"role": role}
         if scope_type or scope_value:
             payload["scope"] = {}
-            if scope_type: payload["scope"]["type"] = scope_type
-            if scope_value: payload["scope"]["value"] = scope_value
+            if scope_type:
+                payload["scope"]["type"] = scope_type
+            if scope_value:
+                payload["scope"]["value"] = scope_value
         return http_request(
-            "PUT", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl/{rule_id}",
-            headers=self._headers(), json=payload,
+            "PUT",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl/{rule_id}",
+            headers=self._headers(),
+            json=payload,
             params={"sendNotifications": str(send_notifications).lower()},
             expected=(200,),
         )
 
     def delete_calendar_acl_rule(self, calendar_id: str, rule_id: str) -> Result:
         return http_request(
-            "DELETE", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl/{rule_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{CALENDAR_API_BASE}/calendars/{calendar_id}/acl/{rule_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "rule_id": rule_id},
         )
 
@@ -423,22 +560,33 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
 
     def list_calendar_settings(self) -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/users/me/settings",
-            headers=self._auth_header(), expected=(200,),
-            transform=lambda d: {"settings": {s.get("id"): s.get("value") for s in d.get("items", [])}},
+            "GET",
+            f"{CALENDAR_API_BASE}/users/me/settings",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "settings": {s.get("id"): s.get("value") for s in d.get("items", [])}
+            },
         )
 
     def get_calendar_setting(self, setting_id: str) -> Result:
         """setting_id examples: timezone, locale, autoAddHangouts, weekStart."""
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/users/me/settings/{setting_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{CALENDAR_API_BASE}/users/me/settings/{setting_id}",
+            headers=self._auth_header(),
+            expected=(200,),
             transform=lambda d: {"id": d.get("id"), "value": d.get("value")},
         )
 
     def get_calendar_colors(self) -> Result:
         return http_request(
-            "GET", f"{CALENDAR_API_BASE}/colors",
-            headers=self._auth_header(), expected=(200,),
-            transform=lambda d: {"calendar": d.get("calendar", {}), "event": d.get("event", {})},
+            "GET",
+            f"{CALENDAR_API_BASE}/colors",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "calendar": d.get("calendar", {}),
+                "event": d.get("event", {}),
+            },
         )

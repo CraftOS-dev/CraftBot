@@ -482,9 +482,10 @@ class InternalActionInterface:
             logger.info(f"[TASK] Pre-selected skills (via command): {selected_skills}")
             try:
                 from app.ui_layer.metrics.collector import MetricsCollector
+
                 collector = MetricsCollector.get_instance()
                 if collector:
-                    logger.info(f"[TASK] Pre-selected skills collector initialized")
+                    logger.info("[TASK] Pre-selected skills collector initialized")
                     for skill_name in selected_skills:
                         collector.record_skill_invocation(skill_name)
             except Exception:
