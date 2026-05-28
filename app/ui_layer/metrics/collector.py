@@ -229,6 +229,27 @@ class SkillMetrics:
 
 
 @dataclass
+class IntegrationInfo:
+    """Information about an integration."""
+
+    name: str
+    connected: bool
+    description: str = ""
+    icon: str = ""
+
+
+@dataclass
+class IntegrationMetrics:
+    """Integration metrics."""
+
+    total_integrations: int = 0
+    connected_integrations: int = 0
+    total_calls: int = 0
+    integrations: List[IntegrationInfo] = field(default_factory=list)
+    top_integrations: List[UsageCount] = field(default_factory=list)
+
+
+@dataclass
 class ModelMetrics:
     """Current model information."""
 
@@ -268,6 +289,9 @@ class DashboardMetrics:
 
     # Skills
     skill: SkillMetrics = field(default_factory=SkillMetrics)
+
+    # Integrations
+    integration: IntegrationMetrics = field(default_factory=IntegrationMetrics)
 
     # Model info
     model: ModelMetrics = field(default_factory=ModelMetrics)
@@ -366,6 +390,15 @@ class DashboardMetrics:
                 "provider": self.model.provider,
                 "modelId": self.model.model_id,
                 "modelName": self.model.model_name,
+            },
+            "integration": {
+                "totalIntegrations": self.integration.total_integrations,
+                "connectedIntegrations": self.integration.connected_integrations,
+                "totalCalls": self.integration.total_calls,
+                "topIntegrations": [
+                    {"name": i.name, "count": i.count}
+                    for i in self.integration.top_integrations
+                ],
             },
         }
 
@@ -468,10 +501,15 @@ class MetricsCollector:
         self._skill_usage: Dict[str, int] = defaultdict(int)
         self._skill_total_invocations: int = 0
 
+        # Integration usage tracking
+        self._integration_usage: Dict[str, int] = defaultdict(int)
+        self._integration_total_calls: int = 0
+
         # Storage references for historical data
         self._usage_storage = None
         self._task_storage = None
         self._skill_storage = None
+        self._integration_storage = None
         self._init_storage()
 
     def _init_storage(self) -> None:
@@ -491,7 +529,14 @@ class MetricsCollector:
             self._skill_storage = get_skill_storage()
         except Exception:
             pass
+        try:
+            from app.usage.integration_storage import get_integration_storage
+
+            self._integration_storage = get_integration_storage()
+        except Exception:
+            pass
         self._load_skill_metrics()
+        self._load_integration_metrics()
 
     def _load_skill_metrics(self) -> None:
         """Restore skill invocation counts from persistent storage on startup."""
@@ -688,6 +733,42 @@ class MetricsCollector:
                 self._skill_usage.items(), key=lambda x: x[1], reverse=True
             )
             return sorted_skills[:limit]
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Integration Usage Tracking
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _load_integration_metrics(self) -> None:
+        """Restore integration call counts from persistent storage on startup."""
+        if not self._integration_storage:
+            return
+        try:
+            totals = self._integration_storage.get_integration_totals()
+            with self._lock:
+                for integration_name, count in totals.items():
+                    self._integration_usage[integration_name] = count
+                self._integration_total_calls = sum(totals.values())
+        except Exception:
+            pass
+
+    def record_integration_call(self, integration_name: str) -> None:
+        """Record a successful integration call."""
+        with self._lock:
+            self._integration_usage[integration_name] += 1
+            self._integration_total_calls += 1
+        if self._integration_storage:
+            try:
+                self._integration_storage.insert_call(integration_name)
+            except Exception:
+                pass
+
+    def get_top_integrations(self, limit: int = 3) -> List[Tuple[str, int]]:
+        """Get top N most used integrations."""
+        with self._lock:
+            sorted_integrations = sorted(
+                self._integration_usage.items(), key=lambda x: x[1], reverse=True
+            )
+            return sorted_integrations[:limit]
 
     # ─────────────────────────────────────────────────────────────────────
     # System Metrics
@@ -888,6 +969,54 @@ class MetricsCollector:
         except Exception:
             return SkillMetrics()
 
+    def _get_integration_metrics(self) -> IntegrationMetrics:
+        """Get integration metrics.
+
+        Uses only sync, credential-file-based checks so this is safe to call
+        from inside a running event loop (avoids _run_sync / RuntimeError).
+        """
+        try:
+            from craftos_integrations import get_client, get_handler
+            from craftos_integrations.service import list_metadata
+
+            integrations = []
+            connected = 0
+
+            for meta in list_metadata():
+                handler_id = meta["id"]
+                handler = get_handler(handler_id)
+                spec = getattr(handler, "spec", None) if handler else None
+                platform_id = (
+                    getattr(spec, "platform_id", handler_id) if spec else handler_id
+                )
+                client = get_client(platform_id)
+                is_connected = bool(client.has_credentials()) if client else False
+                if is_connected:
+                    connected += 1
+                integrations.append(
+                    IntegrationInfo(
+                        name=meta.get("name", handler_id),
+                        connected=is_connected,
+                        description=meta.get("description", ""),
+                        icon=meta.get("icon", ""),
+                    )
+                )
+
+            top_integrations = [
+                UsageCount(name=name, count=count)
+                for name, count in self.get_top_integrations(3)
+            ]
+
+            return IntegrationMetrics(
+                total_integrations=len(integrations),
+                connected_integrations=connected,
+                total_calls=self._integration_total_calls,
+                integrations=integrations,
+                top_integrations=top_integrations,
+            )
+        except Exception:
+            return IntegrationMetrics()
+
     # ─────────────────────────────────────────────────────────────────────
     # Model Metrics
     # ─────────────────────────────────────────────────────────────────────
@@ -1033,6 +1162,7 @@ class MetricsCollector:
         thread_pool_metrics = self._get_thread_pool_metrics()
         mcp_metrics = self._get_mcp_metrics()
         skill_metrics = self._get_skill_metrics()
+        integration_metrics = self._get_integration_metrics()
         model_metrics = self._get_model_metrics()
 
         return DashboardMetrics(
@@ -1070,6 +1200,7 @@ class MetricsCollector:
             ),
             mcp=mcp_metrics,
             skill=skill_metrics,
+            integration=integration_metrics,
             model=model_metrics,
         )
 

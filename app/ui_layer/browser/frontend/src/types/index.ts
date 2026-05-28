@@ -308,6 +308,13 @@ export interface ModelMetrics {
   modelName: string
 }
 
+export interface IntegrationMetrics {
+  totalIntegrations: number
+  connectedIntegrations: number
+  totalCalls: number
+  topIntegrations: UsageCount[]
+}
+
 export interface DashboardMetrics {
   uptimeSeconds: number
   timestamp: number
@@ -319,6 +326,7 @@ export interface DashboardMetrics {
   usage: UsageMetrics
   mcp: MCPMetrics
   skill: SkillMetrics
+  integration: IntegrationMetrics
   model: ModelMetrics
 }
 

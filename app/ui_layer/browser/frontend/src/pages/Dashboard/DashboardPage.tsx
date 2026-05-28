@@ -15,7 +15,8 @@ import {
   Wrench,
   Bot,
   Building2,
-  Hash
+  Hash,
+  Plug2
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { Badge, StatusIndicator } from '../../components/ui'
@@ -113,9 +114,10 @@ export function DashboardPage() {
   const [tokenPeriod, setTokenPeriod] = useState<MetricsTimePeriod>('total')
   const [usagePeriod, setUsagePeriod] = useState<MetricsTimePeriod>('total')
 
-  // Expand/collapse state for top tools/skills lists
+  // Expand/collapse state for top tools/skills/integrations lists
   const [showAllTools, setShowAllTools] = useState(false)
   const [showAllSkills, setShowAllSkills] = useState(false)
+  const [showAllIntegrations, setShowAllIntegrations] = useState(false)
 
   // Request filtered metrics when period changes (for all periods including 'total')
   const handlePeriodChange = useCallback((
@@ -217,6 +219,11 @@ export function DashboardPage() {
   const skillEnabled = metrics?.skill?.enabledSkills ?? 0
   const skillTotalInvocations = metrics?.skill?.totalInvocations ?? 0
   const topSkills = metrics?.skill?.topSkills ?? []
+
+  // Integration metrics
+  const integrationConnected = metrics?.integration?.connectedIntegrations ?? 0
+  const integrationTotalCalls = metrics?.integration?.totalCalls ?? 0
+  const topIntegrations = metrics?.integration?.topIntegrations ?? []
 
   // Model metrics
   const modelProvider = metrics?.model?.provider ?? ''
@@ -565,6 +572,52 @@ export function DashboardPage() {
                       onClick={() => setShowAllSkills(!showAllSkills)}
                     >
                       {showAllSkills ? 'Show less' : `View all (${topSkills.length})`}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className={styles.emptyUsage}>No usage yet</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Integrations Panel */}
+        <div className={styles.panel}>
+          <div className={styles.panelHeader}>
+            <Plug2 size={16} />
+            <h3>Integrations</h3>
+          </div>
+          <div className={styles.panelContent}>
+            <div className={styles.compactStats}>
+              <div className={styles.compactStatItem}>
+                <CheckCircle size={14} className={styles.successIcon} />
+                <span className={styles.compactStatValue}>{integrationConnected}</span>
+                <span className={styles.compactStatLabel}>Connected</span>
+              </div>
+              <div className={styles.compactStatItem}>
+                <Activity size={14} className={styles.primaryIcon} />
+                <span className={styles.compactStatValue}>{integrationTotalCalls}</span>
+                <span className={styles.compactStatLabel}>Total Calls</span>
+              </div>
+            </div>
+            <div className={styles.usageSection}>
+              <div className={styles.usageSectionHeader}>Top Integrations</div>
+              {topIntegrations.length > 0 ? (
+                <div className={styles.usageList}>
+                  {(showAllIntegrations ? topIntegrations : topIntegrations.slice(0, 3)).map((intg, index) => (
+                    <div key={intg.name} className={styles.usageItem}>
+                      <span className={styles.usageRank}>#{index + 1}</span>
+                      <span className={styles.usageName}>{intg.name}</span>
+                      <span className={styles.usageCount}>{intg.count}</span>
+                    </div>
+                  ))}
+                  {topIntegrations.length > 3 && (
+                    <button
+                      className={styles.viewAllButton}
+                      onClick={() => setShowAllIntegrations(!showAllIntegrations)}
+                    >
+                      {showAllIntegrations ? 'Show less' : `View all (${topIntegrations.length})`}
                     </button>
                   )}
                 </div>
