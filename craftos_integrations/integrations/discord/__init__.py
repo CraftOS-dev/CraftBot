@@ -505,6 +505,28 @@ class DiscordClient(BasePlatformClient):
         except Exception:
             pass
 
+        reply_to_id: Optional[str] = None
+        reply_to_text: Optional[str] = None
+        reply_to_author: Optional[str] = None
+
+        message_reference = d.get("message_reference") or {}
+        ref_msg_id = message_reference.get("message_id")
+        if ref_msg_id:
+            referenced_message = d.get("referenced_message") or {}
+            if not referenced_message:
+                try:
+                    result = await asyncio.to_thread(self.get_message, channel_id, ref_msg_id)
+                    if result.ok:
+                        referenced_message = result.data or {}
+                except Exception:
+                    logger.debug(
+                        "Failed to fetch referenced Discord message %s: %s",
+                        ref_msg_id
+                    ),
+            reply_to_id = ref_msg_id
+            reply_to_text = referenced_message.get("content", "")
+            reply_to_author = (referenced_message.get("author") or {}).get("username", "")
+
         if self._message_callback:
             await self._message_callback(
                 PlatformMessage(
@@ -516,7 +538,15 @@ class DiscordClient(BasePlatformClient):
                     channel_name=channel_name,
                     message_id=d.get("id", ""),
                     timestamp=ts,
-                    raw={"guild_id": guild_id, "channel_type": channel_type, "is_dm": is_dm, "is_self_message": is_self_message},
+                    raw={
+                        "guild_id": guild_id,
+                        "channel_type": channel_type,
+                        "is_dm": is_dm,
+                        "is_self_message": is_self_message,
+                        "reply_to_id": reply_to_id,
+                        "reply_to_text": reply_to_text,
+                        "reply_to_author": reply_to_author,
+                    },
                 )
             )
 
@@ -667,6 +697,14 @@ class DiscordClient(BasePlatformClient):
                 ],
                 "count": len(messages),
             },
+        )
+
+    def get_message(self, channel_id: str, message_id: str) -> Result:
+        return http_request(
+            "GET",
+            f"{DISCORD_API_BASE}/channels/{channel_id}/messages/{message_id}",
+            headers=self._bot_headers(),
+            expected=(200,),
         )
 
     def edit_message(self, channel_id: str, message_id: str, content: str) -> Result:
