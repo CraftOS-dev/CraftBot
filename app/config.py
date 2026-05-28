@@ -266,9 +266,11 @@ def get_base_url(provider: str) -> Optional[str]:
         return url if url else "https://openrouter.ai/api/v1"
     elif provider == "bedrock":
         # For Bedrock the "base URL" slot carries the AWS region.
-        region = endpoints.get("aws_region") or os.environ.get(
-            "AWS_DEFAULT_REGION"
-        ) or os.environ.get("AWS_REGION")
+        region = (
+            endpoints.get("aws_region")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or os.environ.get("AWS_REGION")
+        )
         return region or "us-east-1"
 
     return None

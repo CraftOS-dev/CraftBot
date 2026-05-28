@@ -5,6 +5,7 @@ from agent_core import action
 # Mail — send / list / get / search / reply / forward / lifecycle
 # ------------------------------------------------------------------
 
+
 @action(
     name="send_gmail",
     description="Send an email via Gmail.",
@@ -142,17 +143,32 @@ def read_top_emails(input_data: dict) -> dict:
     description="Search Gmail using Gmail's q syntax (e.g. 'from:alice subject:invoice newer_than:7d has:attachment').",
     action_sets=["gmail_mail", "gmail"],
     input_schema={
-        "query": {"type": "string", "description": "Gmail q query.", "example": "from:alice@example.com is:unread"},
-        "max_results": {"type": "integer", "description": "Max results.", "example": 25},
-        "include_spam_trash": {"type": "boolean", "description": "Include Spam/Trash.", "example": False},
+        "query": {
+            "type": "string",
+            "description": "Gmail q query.",
+            "example": "from:alice@example.com is:unread",
+        },
+        "max_results": {
+            "type": "integer",
+            "description": "Max results.",
+            "example": 25,
+        },
+        "include_spam_trash": {
+            "type": "boolean",
+            "description": "Include Spam/Trash.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def search_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "search_messages",
-        unwrap_envelope=True, fail_message="Failed to search.",
+        "gmail",
+        "search_messages",
+        unwrap_envelope=True,
+        fail_message="Failed to search.",
         query=input_data["query"],
         max_results=input_data.get("max_results", 25),
         include_spam_trash=bool(input_data.get("include_spam_trash", False)),
@@ -164,19 +180,34 @@ def search_gmail(input_data: dict) -> dict:
     description="Reply to a Gmail message. Preserves thread + In-Reply-To/References headers. Set reply_all=true to also CC the original To/Cc.",
     action_sets=["gmail_mail", "gmail"],
     input_schema={
-        "message_id": {"type": "string", "description": "Original message ID.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "description": "Original message ID.",
+            "example": "",
+        },
         "body": {"type": "string", "description": "Reply text.", "example": ""},
-        "reply_all": {"type": "boolean", "description": "Reply-all (CC original recipients).", "example": False},
-        "attachments": {"type": "array", "description": "Optional attachment file paths.", "example": []},
+        "reply_all": {
+            "type": "boolean",
+            "description": "Reply-all (CC original recipients).",
+            "example": False,
+        },
+        "attachments": {
+            "type": "array",
+            "description": "Optional attachment file paths.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def reply_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "reply_to_message",
-        unwrap_envelope=True, fail_message="Failed to reply.",
+        "gmail",
+        "reply_to_message",
+        unwrap_envelope=True,
+        fail_message="Failed to reply.",
         message_id=input_data["message_id"],
         body=input_data["body"],
         reply_all=bool(input_data.get("reply_all", False)),
@@ -189,19 +220,38 @@ def reply_gmail(input_data: dict) -> dict:
     description="Forward a Gmail message to another address.",
     action_sets=["gmail_mail", "gmail"],
     input_schema={
-        "message_id": {"type": "string", "description": "Original message ID.", "example": ""},
-        "to": {"type": "string", "description": "Recipient email.", "example": "bob@example.com"},
-        "body": {"type": "string", "description": "Optional intro text.", "example": ""},
-        "attachments": {"type": "array", "description": "Optional attachment file paths.", "example": []},
+        "message_id": {
+            "type": "string",
+            "description": "Original message ID.",
+            "example": "",
+        },
+        "to": {
+            "type": "string",
+            "description": "Recipient email.",
+            "example": "bob@example.com",
+        },
+        "body": {
+            "type": "string",
+            "description": "Optional intro text.",
+            "example": "",
+        },
+        "attachments": {
+            "type": "array",
+            "description": "Optional attachment file paths.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def forward_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "forward_message",
-        unwrap_envelope=True, fail_message="Failed to forward.",
+        "gmail",
+        "forward_message",
+        unwrap_envelope=True,
+        fail_message="Failed to forward.",
         message_id=input_data["message_id"],
         to=input_data["to"],
         body=input_data.get("body", ""),
@@ -215,17 +265,28 @@ def forward_gmail(input_data: dict) -> dict:
     action_sets=["gmail_mail", "gmail"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "add_label_ids": {"type": "array", "description": "Label IDs to add.", "example": ["STARRED"]},
-        "remove_label_ids": {"type": "array", "description": "Label IDs to remove.", "example": ["UNREAD"]},
+        "add_label_ids": {
+            "type": "array",
+            "description": "Label IDs to add.",
+            "example": ["STARRED"],
+        },
+        "remove_label_ids": {
+            "type": "array",
+            "description": "Label IDs to remove.",
+            "example": ["UNREAD"],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def modify_gmail_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "modify_message_labels",
-        unwrap_envelope=True, fail_message="Failed to modify labels.",
+        "gmail",
+        "modify_message_labels",
+        unwrap_envelope=True,
+        fail_message="Failed to modify labels.",
         message_id=input_data["message_id"],
         add_label_ids=input_data.get("add_label_ids"),
         remove_label_ids=input_data.get("remove_label_ids"),
@@ -244,9 +305,12 @@ def modify_gmail_labels(input_data: dict) -> dict:
 )
 def trash_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "trash_message",
-        unwrap_envelope=True, fail_message="Failed to trash.",
+        "gmail",
+        "trash_message",
+        unwrap_envelope=True,
+        fail_message="Failed to trash.",
         message_id=input_data["message_id"],
     )
 
@@ -263,9 +327,12 @@ def trash_gmail(input_data: dict) -> dict:
 )
 def untrash_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "untrash_message",
-        unwrap_envelope=True, fail_message="Failed to untrash.",
+        "gmail",
+        "untrash_message",
+        unwrap_envelope=True,
+        fail_message="Failed to untrash.",
         message_id=input_data["message_id"],
     )
 
@@ -282,9 +349,12 @@ def untrash_gmail(input_data: dict) -> dict:
 )
 def delete_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "delete_message",
-        unwrap_envelope=True, fail_message="Failed to delete.",
+        "gmail",
+        "delete_message",
+        unwrap_envelope=True,
+        fail_message="Failed to delete.",
         message_id=input_data["message_id"],
     )
 
@@ -294,18 +364,33 @@ def delete_gmail(input_data: dict) -> dict:
     description="Bulk add/remove labels across multiple messages in one call.",
     action_sets=["gmail_mail"],
     input_schema={
-        "message_ids": {"type": "array", "description": "List of message IDs.", "example": []},
-        "add_label_ids": {"type": "array", "description": "Label IDs to add.", "example": []},
-        "remove_label_ids": {"type": "array", "description": "Label IDs to remove.", "example": []},
+        "message_ids": {
+            "type": "array",
+            "description": "List of message IDs.",
+            "example": [],
+        },
+        "add_label_ids": {
+            "type": "array",
+            "description": "Label IDs to add.",
+            "example": [],
+        },
+        "remove_label_ids": {
+            "type": "array",
+            "description": "Label IDs to remove.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def batch_modify_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "batch_modify_messages",
-        unwrap_envelope=True, fail_message="Failed to batch modify.",
+        "gmail",
+        "batch_modify_messages",
+        unwrap_envelope=True,
+        fail_message="Failed to batch modify.",
         message_ids=input_data["message_ids"],
         add_label_ids=input_data.get("add_label_ids"),
         remove_label_ids=input_data.get("remove_label_ids"),
@@ -317,16 +402,23 @@ def batch_modify_gmail(input_data: dict) -> dict:
     description="Permanently delete multiple messages. Irreversible.",
     action_sets=["gmail_mail"],
     input_schema={
-        "message_ids": {"type": "array", "description": "List of message IDs.", "example": []},
+        "message_ids": {
+            "type": "array",
+            "description": "List of message IDs.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def batch_delete_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "batch_delete_messages",
-        unwrap_envelope=True, fail_message="Failed to batch delete.",
+        "gmail",
+        "batch_delete_messages",
+        unwrap_envelope=True,
+        fail_message="Failed to batch delete.",
         message_ids=input_data["message_ids"],
     )
 
@@ -335,22 +427,38 @@ def batch_delete_gmail(input_data: dict) -> dict:
 # Threads
 # ------------------------------------------------------------------
 
+
 @action(
     name="list_gmail_threads",
     description="List Gmail conversation threads.",
     action_sets=["gmail_threads", "gmail"],
     input_schema={
-        "query": {"type": "string", "description": "Optional Gmail q query.", "example": ""},
-        "label_ids": {"type": "array", "description": "Optional label filter.", "example": ["INBOX"]},
-        "max_results": {"type": "integer", "description": "Max threads.", "example": 25},
+        "query": {
+            "type": "string",
+            "description": "Optional Gmail q query.",
+            "example": "",
+        },
+        "label_ids": {
+            "type": "array",
+            "description": "Optional label filter.",
+            "example": ["INBOX"],
+        },
+        "max_results": {
+            "type": "integer",
+            "description": "Max threads.",
+            "example": 25,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_gmail_threads(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "list_threads",
-        unwrap_envelope=True, fail_message="Failed to list threads.",
+        "gmail",
+        "list_threads",
+        unwrap_envelope=True,
+        fail_message="Failed to list threads.",
         query=input_data.get("query") or None,
         label_ids=input_data.get("label_ids"),
         max_results=input_data.get("max_results", 25),
@@ -363,15 +471,22 @@ def list_gmail_threads(input_data: dict) -> dict:
     action_sets=["gmail_threads", "gmail"],
     input_schema={
         "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
-        "fmt": {"type": "string", "description": "metadata | full | minimal.", "example": "metadata"},
+        "fmt": {
+            "type": "string",
+            "description": "metadata | full | minimal.",
+            "example": "metadata",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_gmail_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "get_thread",
-        unwrap_envelope=True, fail_message="Failed to get thread.",
+        "gmail",
+        "get_thread",
+        unwrap_envelope=True,
+        fail_message="Failed to get thread.",
         thread_id=input_data["thread_id"],
         fmt=input_data.get("fmt", "metadata"),
     )
@@ -383,17 +498,28 @@ def get_gmail_thread(input_data: dict) -> dict:
     action_sets=["gmail_threads"],
     input_schema={
         "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
-        "add_label_ids": {"type": "array", "description": "Labels to add.", "example": []},
-        "remove_label_ids": {"type": "array", "description": "Labels to remove.", "example": []},
+        "add_label_ids": {
+            "type": "array",
+            "description": "Labels to add.",
+            "example": [],
+        },
+        "remove_label_ids": {
+            "type": "array",
+            "description": "Labels to remove.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def modify_gmail_thread_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "modify_thread_labels",
-        unwrap_envelope=True, fail_message="Failed to modify thread labels.",
+        "gmail",
+        "modify_thread_labels",
+        unwrap_envelope=True,
+        fail_message="Failed to modify thread labels.",
         thread_id=input_data["thread_id"],
         add_label_ids=input_data.get("add_label_ids"),
         remove_label_ids=input_data.get("remove_label_ids"),
@@ -412,9 +538,12 @@ def modify_gmail_thread_labels(input_data: dict) -> dict:
 )
 def trash_gmail_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "trash_thread",
-        unwrap_envelope=True, fail_message="Failed to trash thread.",
+        "gmail",
+        "trash_thread",
+        unwrap_envelope=True,
+        fail_message="Failed to trash thread.",
         thread_id=input_data["thread_id"],
     )
 
@@ -431,9 +560,12 @@ def trash_gmail_thread(input_data: dict) -> dict:
 )
 def untrash_gmail_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "untrash_thread",
-        unwrap_envelope=True, fail_message="Failed to untrash thread.",
+        "gmail",
+        "untrash_thread",
+        unwrap_envelope=True,
+        fail_message="Failed to untrash thread.",
         thread_id=input_data["thread_id"],
     )
 
@@ -450,9 +582,12 @@ def untrash_gmail_thread(input_data: dict) -> dict:
 )
 def delete_gmail_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "delete_thread",
-        unwrap_envelope=True, fail_message="Failed to delete thread.",
+        "gmail",
+        "delete_thread",
+        unwrap_envelope=True,
+        fail_message="Failed to delete thread.",
         thread_id=input_data["thread_id"],
     )
 
@@ -460,6 +595,7 @@ def delete_gmail_thread(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # Drafts
 # ------------------------------------------------------------------
+
 
 @action(
     name="list_gmail_drafts",
@@ -473,9 +609,12 @@ def delete_gmail_thread(input_data: dict) -> dict:
 )
 def list_gmail_drafts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "list_drafts",
-        unwrap_envelope=True, fail_message="Failed to list drafts.",
+        "gmail",
+        "list_drafts",
+        unwrap_envelope=True,
+        fail_message="Failed to list drafts.",
         max_results=input_data.get("max_results", 25),
         query=input_data.get("query") or None,
     )
@@ -487,15 +626,22 @@ def list_gmail_drafts(input_data: dict) -> dict:
     action_sets=["gmail_drafts"],
     input_schema={
         "draft_id": {"type": "string", "description": "Draft ID.", "example": ""},
-        "fmt": {"type": "string", "description": "metadata | full | minimal.", "example": "metadata"},
+        "fmt": {
+            "type": "string",
+            "description": "metadata | full | minimal.",
+            "example": "metadata",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_gmail_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "get_draft",
-        unwrap_envelope=True, fail_message="Failed to get draft.",
+        "gmail",
+        "get_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to get draft.",
         draft_id=input_data["draft_id"],
         fmt=input_data.get("fmt", "metadata"),
     )
@@ -511,16 +657,23 @@ def get_gmail_draft(input_data: dict) -> dict:
         "body": {"type": "string", "description": "Body text.", "example": ""},
         "cc": {"type": "string", "description": "Optional CC.", "example": ""},
         "bcc": {"type": "string", "description": "Optional BCC.", "example": ""},
-        "attachments": {"type": "array", "description": "Local file paths.", "example": []},
+        "attachments": {
+            "type": "array",
+            "description": "Local file paths.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_gmail_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "create_draft",
-        unwrap_envelope=True, fail_message="Failed to create draft.",
+        "gmail",
+        "create_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to create draft.",
         to=input_data["to"],
         subject=input_data["subject"],
         body=input_data["body"],
@@ -541,16 +694,23 @@ def create_gmail_draft(input_data: dict) -> dict:
         "body": {"type": "string", "description": "Body text.", "example": ""},
         "cc": {"type": "string", "description": "Optional CC.", "example": ""},
         "bcc": {"type": "string", "description": "Optional BCC.", "example": ""},
-        "attachments": {"type": "array", "description": "Local file paths.", "example": []},
+        "attachments": {
+            "type": "array",
+            "description": "Local file paths.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_gmail_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "update_draft",
-        unwrap_envelope=True, fail_message="Failed to update draft.",
+        "gmail",
+        "update_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to update draft.",
         draft_id=input_data["draft_id"],
         to=input_data["to"],
         subject=input_data["subject"],
@@ -573,9 +733,12 @@ def update_gmail_draft(input_data: dict) -> dict:
 )
 def send_gmail_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "send_draft",
-        unwrap_envelope=True, fail_message="Failed to send draft.",
+        "gmail",
+        "send_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to send draft.",
         draft_id=input_data["draft_id"],
     )
 
@@ -592,9 +755,12 @@ def send_gmail_draft(input_data: dict) -> dict:
 )
 def delete_gmail_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "delete_draft",
-        unwrap_envelope=True, fail_message="Failed to delete draft.",
+        "gmail",
+        "delete_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to delete draft.",
         draft_id=input_data["draft_id"],
     )
 
@@ -602,6 +768,7 @@ def delete_gmail_draft(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # Labels
 # ------------------------------------------------------------------
+
 
 @action(
     name="list_gmail_labels",
@@ -612,9 +779,12 @@ def delete_gmail_draft(input_data: dict) -> dict:
 )
 def list_gmail_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "list_labels",
-        unwrap_envelope=True, fail_message="Failed to list labels.",
+        "gmail",
+        "list_labels",
+        unwrap_envelope=True,
+        fail_message="Failed to list labels.",
     )
 
 
@@ -629,9 +799,12 @@ def list_gmail_labels(input_data: dict) -> dict:
 )
 def get_gmail_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "get_label",
-        unwrap_envelope=True, fail_message="Failed to get label.",
+        "gmail",
+        "get_label",
+        unwrap_envelope=True,
+        fail_message="Failed to get label.",
         label_id=input_data["label_id"],
     )
 
@@ -641,20 +814,43 @@ def get_gmail_label(input_data: dict) -> dict:
     description="Create a new user label. label_list_visibility: labelShow|labelShowIfUnread|labelHide. message_list_visibility: show|hide.",
     action_sets=["gmail_labels", "gmail"],
     input_schema={
-        "name": {"type": "string", "description": "Label name (use '/' for nesting, e.g. 'Work/Clients').", "example": "Receipts"},
-        "label_list_visibility": {"type": "string", "description": "labelShow / labelShowIfUnread / labelHide.", "example": "labelShow"},
-        "message_list_visibility": {"type": "string", "description": "show / hide.", "example": "show"},
-        "background_color": {"type": "string", "description": "Hex color (optional, requires text_color).", "example": ""},
-        "text_color": {"type": "string", "description": "Hex color (optional, requires background_color).", "example": ""},
+        "name": {
+            "type": "string",
+            "description": "Label name (use '/' for nesting, e.g. 'Work/Clients').",
+            "example": "Receipts",
+        },
+        "label_list_visibility": {
+            "type": "string",
+            "description": "labelShow / labelShowIfUnread / labelHide.",
+            "example": "labelShow",
+        },
+        "message_list_visibility": {
+            "type": "string",
+            "description": "show / hide.",
+            "example": "show",
+        },
+        "background_color": {
+            "type": "string",
+            "description": "Hex color (optional, requires text_color).",
+            "example": "",
+        },
+        "text_color": {
+            "type": "string",
+            "description": "Hex color (optional, requires background_color).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_gmail_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "create_label",
-        unwrap_envelope=True, fail_message="Failed to create label.",
+        "gmail",
+        "create_label",
+        unwrap_envelope=True,
+        fail_message="Failed to create label.",
         name=input_data["name"],
         label_list_visibility=input_data.get("label_list_visibility", "labelShow"),
         message_list_visibility=input_data.get("message_list_visibility", "show"),
@@ -669,20 +865,43 @@ def create_gmail_label(input_data: dict) -> dict:
     action_sets=["gmail_labels"],
     input_schema={
         "label_id": {"type": "string", "description": "Label ID.", "example": ""},
-        "name": {"type": "string", "description": "New name (optional).", "example": ""},
-        "label_list_visibility": {"type": "string", "description": "labelShow / labelShowIfUnread / labelHide.", "example": ""},
-        "message_list_visibility": {"type": "string", "description": "show / hide.", "example": ""},
-        "background_color": {"type": "string", "description": "Hex color (optional).", "example": ""},
-        "text_color": {"type": "string", "description": "Hex color (optional).", "example": ""},
+        "name": {
+            "type": "string",
+            "description": "New name (optional).",
+            "example": "",
+        },
+        "label_list_visibility": {
+            "type": "string",
+            "description": "labelShow / labelShowIfUnread / labelHide.",
+            "example": "",
+        },
+        "message_list_visibility": {
+            "type": "string",
+            "description": "show / hide.",
+            "example": "",
+        },
+        "background_color": {
+            "type": "string",
+            "description": "Hex color (optional).",
+            "example": "",
+        },
+        "text_color": {
+            "type": "string",
+            "description": "Hex color (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_gmail_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "update_label",
-        unwrap_envelope=True, fail_message="Failed to update label.",
+        "gmail",
+        "update_label",
+        unwrap_envelope=True,
+        fail_message="Failed to update label.",
         label_id=input_data["label_id"],
         name=input_data.get("name") or None,
         label_list_visibility=input_data.get("label_list_visibility") or None,
@@ -704,9 +923,12 @@ def update_gmail_label(input_data: dict) -> dict:
 )
 def delete_gmail_label(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "delete_label",
-        unwrap_envelope=True, fail_message="Failed to delete label.",
+        "gmail",
+        "delete_label",
+        unwrap_envelope=True,
+        fail_message="Failed to delete label.",
         label_id=input_data["label_id"],
     )
 
@@ -715,23 +937,35 @@ def delete_gmail_label(input_data: dict) -> dict:
 # Attachments + profile
 # ------------------------------------------------------------------
 
+
 @action(
     name="download_gmail_attachment",
     description="Download a Gmail attachment to a local path. Get the attachment_id from get_gmail with full_body=true (payload.parts[].body.attachmentId).",
     action_sets=["gmail_attachments", "gmail"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "attachment_id": {"type": "string", "description": "Attachment ID from the message payload.", "example": ""},
-        "save_to": {"type": "string", "description": "Local path to save to.", "example": "C:/Users/me/downloads/file.pdf"},
+        "attachment_id": {
+            "type": "string",
+            "description": "Attachment ID from the message payload.",
+            "example": "",
+        },
+        "save_to": {
+            "type": "string",
+            "description": "Local path to save to.",
+            "example": "C:/Users/me/downloads/file.pdf",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def download_gmail_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "download_attachment",
-        unwrap_envelope=True, fail_message="Failed to download attachment.",
+        "gmail",
+        "download_attachment",
+        unwrap_envelope=True,
+        fail_message="Failed to download attachment.",
         message_id=input_data["message_id"],
         attachment_id=input_data["attachment_id"],
         save_to=input_data["save_to"],
@@ -747,15 +981,19 @@ def download_gmail_attachment(input_data: dict) -> dict:
 )
 def get_gmail_profile(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "gmail", "get_profile",
-        unwrap_envelope=True, fail_message="Failed to get profile.",
+        "gmail",
+        "get_profile",
+        unwrap_envelope=True,
+        fail_message="Failed to get profile.",
     )
 
 
 # ------------------------------------------------------------------
 # Backwards-compat aliases (legacy action names — kept for skills/memory)
 # ------------------------------------------------------------------
+
 
 @action(
     name="send_google_workspace_email",

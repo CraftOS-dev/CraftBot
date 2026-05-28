@@ -5,21 +5,33 @@ from agent_core import action
 # Convenience helpers (kept as-is for backwards-compat)
 # ------------------------------------------------------------------
 
+
 @action(
     name="create_google_meet",
     description="Create a Google Calendar event with a Google Meet link.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
-        "event_data": {"type": "object", "description": "Calendar event data with summary, start, end, conferenceData.", "example": {}},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
+        "event_data": {
+            "type": "object",
+            "description": "Calendar event data with summary, start, end, conferenceData.",
+            "example": {},
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def create_google_meet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "create_meet_event",
-        unwrap_envelope=True, fail_message="Failed to create event.",
+        "google_calendar",
+        "create_meet_event",
+        unwrap_envelope=True,
+        fail_message="Failed to create event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_data=input_data.get("event_data"),
     )
@@ -30,17 +42,32 @@ def create_google_meet(input_data: dict) -> dict:
     description="Check Google Calendar free/busy availability.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
-        "time_min": {"type": "string", "description": "Start time in ISO 8601 format.", "example": "2024-01-15T09:00:00Z"},
-        "time_max": {"type": "string", "description": "End time in ISO 8601 format.", "example": "2024-01-15T17:00:00Z"},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
+        "time_min": {
+            "type": "string",
+            "description": "Start time in ISO 8601 format.",
+            "example": "2024-01-15T09:00:00Z",
+        },
+        "time_max": {
+            "type": "string",
+            "description": "End time in ISO 8601 format.",
+            "example": "2024-01-15T17:00:00Z",
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def check_calendar_availability(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "check_availability",
-        unwrap_envelope=True, fail_message="Failed to check availability.",
+        "google_calendar",
+        "check_availability",
+        unwrap_envelope=True,
+        fail_message="Failed to check availability.",
         calendar_id=input_data.get("calendar_id", "primary"),
         time_min=input_data.get("time_min"),
         time_max=input_data.get("time_max"),
@@ -52,12 +79,32 @@ def check_calendar_availability(input_data: dict) -> dict:
     description="Schedule meeting if free.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
-        "start_time": {"type": "string", "description": "Start time.", "example": "2024-01-01T10:00:00"},
-        "end_time": {"type": "string", "description": "End time.", "example": "2024-01-01T11:00:00"},
+        "start_time": {
+            "type": "string",
+            "description": "Start time.",
+            "example": "2024-01-01T10:00:00",
+        },
+        "end_time": {
+            "type": "string",
+            "description": "End time.",
+            "example": "2024-01-01T11:00:00",
+        },
         "summary": {"type": "string", "description": "Summary.", "example": "Meeting"},
-        "description": {"type": "string", "description": "Description.", "example": "Details"},
-        "attendees": {"type": "array", "description": "Attendees.", "example": ["a@b.com"]},
-        "from_email": {"type": "string", "description": "Sender.", "example": "me@example.com"},
+        "description": {
+            "type": "string",
+            "description": "Description.",
+            "example": "Details",
+        },
+        "attendees": {
+            "type": "array",
+            "description": "Attendees.",
+            "example": ["a@b.com"],
+        },
+        "from_email": {
+            "type": "string",
+            "description": "Sender.",
+            "example": "me@example.com",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -73,18 +120,30 @@ def check_availability_and_schedule(input_data: dict) -> dict:
         return {"status": "error", "message": str(e)}
 
     avail = run_client_sync(
-        "google_calendar", "check_availability",
-        unwrap_envelope=True, fail_message="Google Calendar FreeBusy API error",
+        "google_calendar",
+        "check_availability",
+        unwrap_envelope=True,
+        fail_message="Google Calendar FreeBusy API error",
         calendar_id="primary",
         time_min=start_time.isoformat() + "Z",
         time_max=end_time.isoformat() + "Z",
     )
     if avail["status"] == "error":
-        return {"status": "error", "reason": "Google Calendar FreeBusy API error", "details": avail}
+        return {
+            "status": "error",
+            "reason": "Google Calendar FreeBusy API error",
+            "details": avail,
+        }
 
-    busy_slots = avail.get("result", {}).get("calendars", {}).get("primary", {}).get("busy", [])
+    busy_slots = (
+        avail.get("result", {}).get("calendars", {}).get("primary", {}).get("busy", [])
+    )
     if busy_slots:
-        return {"status": "busy", "reason": "Time slot is already occupied", "conflicting_events": busy_slots}
+        return {
+            "status": "busy",
+            "reason": "Time slot is already occupied",
+            "conflicting_events": busy_slots,
+        }
 
     attendees = input_data.get("attendees") or []
     event_payload = {
@@ -101,13 +160,19 @@ def check_availability_and_schedule(input_data: dict) -> dict:
         },
     }
     result = run_client_sync(
-        "google_calendar", "create_meet_event",
-        unwrap_envelope=True, fail_message="Google Calendar API error",
+        "google_calendar",
+        "create_meet_event",
+        unwrap_envelope=True,
+        fail_message="Google Calendar API error",
         calendar_id="primary",
         event_data=event_payload,
     )
     if result["status"] == "error":
-        return {"status": "error", "reason": "Google Calendar API error", "details": result}
+        return {
+            "status": "error",
+            "reason": "Google Calendar API error",
+            "details": result,
+        }
     return {
         "status": "success",
         "reason": "Meeting scheduled successfully.",
@@ -119,23 +184,43 @@ def check_availability_and_schedule(input_data: dict) -> dict:
 # Events — daily-driver event operations
 # ------------------------------------------------------------------
 
+
 @action(
     name="list_google_calendar_events",
     description="List events on a calendar between time_min and time_max. Returns expanded single events sorted by start time.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "time_min": {"type": "string", "description": "ISO 8601 lower bound (optional).", "example": "2026-05-20T00:00:00Z"},
-        "time_max": {"type": "string", "description": "ISO 8601 upper bound (optional).", "example": "2026-05-27T00:00:00Z"},
-        "max_results": {"type": "integer", "description": "Max events to return.", "example": 50},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "time_min": {
+            "type": "string",
+            "description": "ISO 8601 lower bound (optional).",
+            "example": "2026-05-20T00:00:00Z",
+        },
+        "time_max": {
+            "type": "string",
+            "description": "ISO 8601 upper bound (optional).",
+            "example": "2026-05-27T00:00:00Z",
+        },
+        "max_results": {
+            "type": "integer",
+            "description": "Max events to return.",
+            "example": 50,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_google_calendar_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "list_events",
-        unwrap_envelope=True, fail_message="Failed to list events.",
+        "google_calendar",
+        "list_events",
+        unwrap_envelope=True,
+        fail_message="Failed to list events.",
         calendar_id=input_data.get("calendar_id", "primary"),
         time_min=input_data.get("time_min"),
         time_max=input_data.get("time_max"),
@@ -149,15 +234,22 @@ def list_google_calendar_events(input_data: dict) -> dict:
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "get_event",
-        unwrap_envelope=True, fail_message="Failed to get event.",
+        "google_calendar",
+        "get_event",
+        unwrap_envelope=True,
+        fail_message="Failed to get event.",
         event_id=input_data["event_id"],
         calendar_id=input_data.get("calendar_id", "primary"),
     )
@@ -168,19 +260,38 @@ def get_google_calendar_event(input_data: dict) -> dict:
     description="Create a calendar event. event_data is the full Event resource (summary, start, end, attendees, etc.). Use create_google_meet for events with a Meet link.",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
-        "event_data": {"type": "object", "description": "Event resource: summary, description, start, end, attendees, recurrence, etc.", "example": {}},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "send_updates": {"type": "string", "description": "none, all, or externalOnly — who gets notified.", "example": "none"},
-        "supports_attachments": {"type": "boolean", "description": "Set true if event_data includes attachments.", "example": False},
+        "event_data": {
+            "type": "object",
+            "description": "Event resource: summary, description, start, end, attendees, recurrence, etc.",
+            "example": {},
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "send_updates": {
+            "type": "string",
+            "description": "none, all, or externalOnly — who gets notified.",
+            "example": "none",
+        },
+        "supports_attachments": {
+            "type": "boolean",
+            "description": "Set true if event_data includes attachments.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "insert_event",
-        unwrap_envelope=True, fail_message="Failed to create event.",
+        "google_calendar",
+        "insert_event",
+        unwrap_envelope=True,
+        fail_message="Failed to create event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_data=input_data["event_data"],
         send_updates=input_data.get("send_updates", "none"),
@@ -194,18 +305,33 @@ def create_google_calendar_event(input_data: dict) -> dict:
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
-        "event_data": {"type": "object", "description": "Full Event resource — replaces existing.", "example": {}},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "send_updates": {"type": "string", "description": "none, all, externalOnly.", "example": "none"},
+        "event_data": {
+            "type": "object",
+            "description": "Full Event resource — replaces existing.",
+            "example": {},
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "send_updates": {
+            "type": "string",
+            "description": "none, all, externalOnly.",
+            "example": "none",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "update_event",
-        unwrap_envelope=True, fail_message="Failed to update event.",
+        "google_calendar",
+        "update_event",
+        unwrap_envelope=True,
+        fail_message="Failed to update event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_id=input_data["event_id"],
         event_data=input_data["event_data"],
@@ -219,18 +345,33 @@ def update_google_calendar_event(input_data: dict) -> dict:
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
-        "event_data": {"type": "object", "description": "Partial event fields to update.", "example": {"summary": "New title"}},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "send_updates": {"type": "string", "description": "none, all, externalOnly.", "example": "none"},
+        "event_data": {
+            "type": "object",
+            "description": "Partial event fields to update.",
+            "example": {"summary": "New title"},
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "send_updates": {
+            "type": "string",
+            "description": "none, all, externalOnly.",
+            "example": "none",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def patch_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "patch_event",
-        unwrap_envelope=True, fail_message="Failed to patch event.",
+        "google_calendar",
+        "patch_event",
+        unwrap_envelope=True,
+        fail_message="Failed to patch event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_id=input_data["event_id"],
         event_data=input_data["event_data"],
@@ -244,16 +385,23 @@ def patch_google_calendar_event(input_data: dict) -> dict:
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def delete_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "delete_event",
-        unwrap_envelope=True, fail_message="Failed to delete event.",
+        "google_calendar",
+        "delete_event",
+        unwrap_envelope=True,
+        fail_message="Failed to delete event.",
         event_id=input_data["event_id"],
         calendar_id=input_data.get("calendar_id", "primary"),
     )
@@ -265,18 +413,33 @@ def delete_google_calendar_event(input_data: dict) -> dict:
     action_sets=["google_calendar_events"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": ""},
-        "calendar_id": {"type": "string", "description": "Current calendar ID.", "example": "primary"},
-        "destination_calendar_id": {"type": "string", "description": "Target calendar ID.", "example": ""},
-        "send_updates": {"type": "string", "description": "none, all, externalOnly.", "example": "none"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Current calendar ID.",
+            "example": "primary",
+        },
+        "destination_calendar_id": {
+            "type": "string",
+            "description": "Target calendar ID.",
+            "example": "",
+        },
+        "send_updates": {
+            "type": "string",
+            "description": "none, all, externalOnly.",
+            "example": "none",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def move_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "move_event",
-        unwrap_envelope=True, fail_message="Failed to move event.",
+        "google_calendar",
+        "move_event",
+        unwrap_envelope=True,
+        fail_message="Failed to move event.",
         event_id=input_data["event_id"],
         calendar_id=input_data.get("calendar_id", "primary"),
         destination_calendar_id=input_data["destination_calendar_id"],
@@ -289,18 +452,33 @@ def move_google_calendar_event(input_data: dict) -> dict:
     description="Create an event from a natural-language string (e.g. 'Lunch with Alice tomorrow at noon').",
     action_sets=["google_calendar_events", "google_calendar"],
     input_schema={
-        "text": {"type": "string", "description": "Natural-language event description.", "example": "Lunch with Alice tomorrow at noon"},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "send_updates": {"type": "string", "description": "none, all, externalOnly.", "example": "none"},
+        "text": {
+            "type": "string",
+            "description": "Natural-language event description.",
+            "example": "Lunch with Alice tomorrow at noon",
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "send_updates": {
+            "type": "string",
+            "description": "none, all, externalOnly.",
+            "example": "none",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def quick_add_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "quick_add_event",
-        unwrap_envelope=True, fail_message="Failed to quick-add event.",
+        "google_calendar",
+        "quick_add_event",
+        unwrap_envelope=True,
+        fail_message="Failed to quick-add event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         text=input_data["text"],
         send_updates=input_data.get("send_updates", "none"),
@@ -312,19 +490,42 @@ def quick_add_google_calendar_event(input_data: dict) -> dict:
     description="Expand a recurring event into its individual instances.",
     action_sets=["google_calendar_events"],
     input_schema={
-        "event_id": {"type": "string", "description": "Recurring event ID.", "example": ""},
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "time_min": {"type": "string", "description": "ISO 8601 lower bound (optional).", "example": ""},
-        "time_max": {"type": "string", "description": "ISO 8601 upper bound (optional).", "example": ""},
-        "max_results": {"type": "integer", "description": "Max instances.", "example": 50},
+        "event_id": {
+            "type": "string",
+            "description": "Recurring event ID.",
+            "example": "",
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "time_min": {
+            "type": "string",
+            "description": "ISO 8601 lower bound (optional).",
+            "example": "",
+        },
+        "time_max": {
+            "type": "string",
+            "description": "ISO 8601 upper bound (optional).",
+            "example": "",
+        },
+        "max_results": {
+            "type": "integer",
+            "description": "Max instances.",
+            "example": 50,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_google_calendar_event_instances(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "list_event_instances",
-        unwrap_envelope=True, fail_message="Failed to list instances.",
+        "google_calendar",
+        "list_event_instances",
+        unwrap_envelope=True,
+        fail_message="Failed to list instances.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_id=input_data["event_id"],
         time_min=input_data.get("time_min"),
@@ -338,17 +539,28 @@ def list_google_calendar_event_instances(input_data: dict) -> dict:
     description="Import a pre-existing event (with its own iCal UID) into a calendar — preserves identity across calendars. Distinct from create.",
     action_sets=["google_calendar_events"],
     input_schema={
-        "event_data": {"type": "object", "description": "Event resource including iCalUID.", "example": {}},
-        "calendar_id": {"type": "string", "description": "Target calendar ID.", "example": "primary"},
+        "event_data": {
+            "type": "object",
+            "description": "Event resource including iCalUID.",
+            "example": {},
+        },
+        "calendar_id": {
+            "type": "string",
+            "description": "Target calendar ID.",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def import_google_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "import_event",
-        unwrap_envelope=True, fail_message="Failed to import event.",
+        "google_calendar",
+        "import_event",
+        unwrap_envelope=True,
+        fail_message="Failed to import event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_data=input_data["event_data"],
     )
@@ -357,6 +569,7 @@ def import_google_calendar_event(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # Calendars (the calendar resources themselves)
 # ------------------------------------------------------------------
+
 
 @action(
     name="list_google_calendars",
@@ -367,9 +580,12 @@ def import_google_calendar_event(input_data: dict) -> dict:
 )
 def list_google_calendars(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "list_calendars",
-        unwrap_envelope=True, fail_message="Failed to list calendars.",
+        "google_calendar",
+        "list_calendars",
+        unwrap_envelope=True,
+        fail_message="Failed to list calendars.",
     )
 
 
@@ -378,15 +594,22 @@ def list_google_calendars(input_data: dict) -> dict:
     description="Get metadata for a single calendar (summary, timezone, description).",
     action_sets=["google_calendar_admin", "google_calendar"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "get_calendar",
-        unwrap_envelope=True, fail_message="Failed to get calendar.",
+        "google_calendar",
+        "get_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to get calendar.",
         calendar_id=input_data.get("calendar_id", "primary"),
     )
 
@@ -396,19 +619,38 @@ def get_google_calendar(input_data: dict) -> dict:
     description="Create a new (secondary) calendar owned by the authenticated user.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "summary": {"type": "string", "description": "Calendar name.", "example": "Team events"},
-        "description": {"type": "string", "description": "Description (optional).", "example": ""},
-        "time_zone": {"type": "string", "description": "IANA tz (optional, e.g. Asia/Tokyo).", "example": "UTC"},
-        "location": {"type": "string", "description": "Default location (optional).", "example": ""},
+        "summary": {
+            "type": "string",
+            "description": "Calendar name.",
+            "example": "Team events",
+        },
+        "description": {
+            "type": "string",
+            "description": "Description (optional).",
+            "example": "",
+        },
+        "time_zone": {
+            "type": "string",
+            "description": "IANA tz (optional, e.g. Asia/Tokyo).",
+            "example": "UTC",
+        },
+        "location": {
+            "type": "string",
+            "description": "Default location (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "create_calendar",
-        unwrap_envelope=True, fail_message="Failed to create calendar.",
+        "google_calendar",
+        "create_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to create calendar.",
         summary=input_data["summary"],
         description=input_data.get("description") or None,
         time_zone=input_data.get("time_zone") or None,
@@ -422,19 +664,38 @@ def create_google_calendar(input_data: dict) -> dict:
     action_sets=["google_calendar_admin"],
     input_schema={
         "calendar_id": {"type": "string", "description": "Calendar ID.", "example": ""},
-        "summary": {"type": "string", "description": "New name (optional).", "example": ""},
-        "description": {"type": "string", "description": "New description (optional).", "example": ""},
-        "time_zone": {"type": "string", "description": "New IANA tz (optional).", "example": ""},
-        "location": {"type": "string", "description": "New location (optional).", "example": ""},
+        "summary": {
+            "type": "string",
+            "description": "New name (optional).",
+            "example": "",
+        },
+        "description": {
+            "type": "string",
+            "description": "New description (optional).",
+            "example": "",
+        },
+        "time_zone": {
+            "type": "string",
+            "description": "New IANA tz (optional).",
+            "example": "",
+        },
+        "location": {
+            "type": "string",
+            "description": "New location (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "update_calendar",
-        unwrap_envelope=True, fail_message="Failed to update calendar.",
+        "google_calendar",
+        "update_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to update calendar.",
         calendar_id=input_data["calendar_id"],
         summary=input_data.get("summary") or None,
         description=input_data["description"] if "description" in input_data else None,
@@ -449,19 +710,38 @@ def update_google_calendar(input_data: dict) -> dict:
     action_sets=["google_calendar_admin"],
     input_schema={
         "calendar_id": {"type": "string", "description": "Calendar ID.", "example": ""},
-        "summary": {"type": "string", "description": "New name (optional).", "example": ""},
-        "description": {"type": "string", "description": "New description (optional).", "example": ""},
-        "time_zone": {"type": "string", "description": "New IANA tz (optional).", "example": ""},
-        "location": {"type": "string", "description": "New location (optional).", "example": ""},
+        "summary": {
+            "type": "string",
+            "description": "New name (optional).",
+            "example": "",
+        },
+        "description": {
+            "type": "string",
+            "description": "New description (optional).",
+            "example": "",
+        },
+        "time_zone": {
+            "type": "string",
+            "description": "New IANA tz (optional).",
+            "example": "",
+        },
+        "location": {
+            "type": "string",
+            "description": "New location (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def patch_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "patch_calendar",
-        unwrap_envelope=True, fail_message="Failed to patch calendar.",
+        "google_calendar",
+        "patch_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to patch calendar.",
         calendar_id=input_data["calendar_id"],
         summary=input_data.get("summary") or None,
         description=input_data["description"] if "description" in input_data else None,
@@ -475,16 +755,23 @@ def patch_google_calendar(input_data: dict) -> dict:
     description="DELETE a secondary calendar. Cannot be used on the primary calendar.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID to delete.", "example": ""},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID to delete.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def delete_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "delete_calendar",
-        unwrap_envelope=True, fail_message="Failed to delete calendar.",
+        "google_calendar",
+        "delete_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to delete calendar.",
         calendar_id=input_data["calendar_id"],
     )
 
@@ -494,16 +781,23 @@ def delete_google_calendar(input_data: dict) -> dict:
     description="Delete ALL events on the user's PRIMARY calendar. Irreversible. No-op on secondary calendars.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Must be 'primary'.", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Must be 'primary'.",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def clear_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "clear_calendar",
-        unwrap_envelope=True, fail_message="Failed to clear calendar.",
+        "google_calendar",
+        "clear_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to clear calendar.",
         calendar_id=input_data.get("calendar_id", "primary"),
     )
 
@@ -511,6 +805,7 @@ def clear_google_calendar(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # CalendarList (the user's view of calendars: subscriptions, colors, visibility)
 # ------------------------------------------------------------------
+
 
 @action(
     name="get_google_calendar_list_entry",
@@ -523,9 +818,12 @@ def clear_google_calendar(input_data: dict) -> dict:
 )
 def get_google_calendar_list_entry(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "get_calendar_list_entry",
-        unwrap_envelope=True, fail_message="Failed to get calendar list entry.",
+        "google_calendar",
+        "get_calendar_list_entry",
+        unwrap_envelope=True,
+        fail_message="Failed to get calendar list entry.",
         calendar_id=input_data["calendar_id"],
     )
 
@@ -535,20 +833,43 @@ def get_google_calendar_list_entry(input_data: dict) -> dict:
     description="Subscribe to (add to the user's calendar list) an existing calendar by ID.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID to subscribe to.", "example": ""},
-        "color_id": {"type": "string", "description": "Color ID from get_google_calendar_colors (optional).", "example": ""},
-        "summary_override": {"type": "string", "description": "User-side display name (optional).", "example": ""},
-        "selected": {"type": "boolean", "description": "Show in UI (optional).", "example": True},
-        "hidden": {"type": "boolean", "description": "Hide from UI (optional).", "example": False},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID to subscribe to.",
+            "example": "",
+        },
+        "color_id": {
+            "type": "string",
+            "description": "Color ID from get_google_calendar_colors (optional).",
+            "example": "",
+        },
+        "summary_override": {
+            "type": "string",
+            "description": "User-side display name (optional).",
+            "example": "",
+        },
+        "selected": {
+            "type": "boolean",
+            "description": "Show in UI (optional).",
+            "example": True,
+        },
+        "hidden": {
+            "type": "boolean",
+            "description": "Hide from UI (optional).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def subscribe_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "subscribe_calendar",
-        unwrap_envelope=True, fail_message="Failed to subscribe to calendar.",
+        "google_calendar",
+        "subscribe_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to subscribe to calendar.",
         calendar_id=input_data["calendar_id"],
         color_id=input_data.get("color_id") or None,
         summary_override=input_data.get("summary_override") or None,
@@ -563,22 +884,43 @@ def subscribe_google_calendar(input_data: dict) -> dict:
     action_sets=["google_calendar_admin"],
     input_schema={
         "calendar_id": {"type": "string", "description": "Calendar ID.", "example": ""},
-        "color_id": {"type": "string", "description": "Color ID (optional).", "example": ""},
-        "summary_override": {"type": "string", "description": "Display name (optional).", "example": ""},
-        "selected": {"type": "boolean", "description": "Show in UI (optional).", "example": True},
-        "hidden": {"type": "boolean", "description": "Hide from UI (optional).", "example": False},
+        "color_id": {
+            "type": "string",
+            "description": "Color ID (optional).",
+            "example": "",
+        },
+        "summary_override": {
+            "type": "string",
+            "description": "Display name (optional).",
+            "example": "",
+        },
+        "selected": {
+            "type": "boolean",
+            "description": "Show in UI (optional).",
+            "example": True,
+        },
+        "hidden": {
+            "type": "boolean",
+            "description": "Hide from UI (optional).",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_google_calendar_list_entry(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "update_calendar_list_entry",
-        unwrap_envelope=True, fail_message="Failed to update calendar list entry.",
+        "google_calendar",
+        "update_calendar_list_entry",
+        unwrap_envelope=True,
+        fail_message="Failed to update calendar list entry.",
         calendar_id=input_data["calendar_id"],
         color_id=input_data.get("color_id") or None,
-        summary_override=input_data["summary_override"] if "summary_override" in input_data else None,
+        summary_override=input_data["summary_override"]
+        if "summary_override" in input_data
+        else None,
         selected=input_data["selected"] if "selected" in input_data else None,
         hidden=input_data["hidden"] if "hidden" in input_data else None,
     )
@@ -589,16 +931,23 @@ def update_google_calendar_list_entry(input_data: dict) -> dict:
     description="Remove a calendar from the user's calendar list. Does NOT delete the calendar itself.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID to unsubscribe from.", "example": ""},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID to unsubscribe from.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def unsubscribe_google_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "unsubscribe_calendar",
-        unwrap_envelope=True, fail_message="Failed to unsubscribe.",
+        "google_calendar",
+        "unsubscribe_calendar",
+        unwrap_envelope=True,
+        fail_message="Failed to unsubscribe.",
         calendar_id=input_data["calendar_id"],
     )
 
@@ -607,20 +956,28 @@ def unsubscribe_google_calendar(input_data: dict) -> dict:
 # ACL (per-calendar sharing)
 # ------------------------------------------------------------------
 
+
 @action(
     name="list_google_calendar_acl",
     description="List ACL rules (who has what access) on a calendar.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_google_calendar_acl(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "list_calendar_acl",
-        unwrap_envelope=True, fail_message="Failed to list ACL.",
+        "google_calendar",
+        "list_calendar_acl",
+        unwrap_envelope=True,
+        fail_message="Failed to list ACL.",
         calendar_id=input_data.get("calendar_id", "primary"),
     )
 
@@ -630,16 +987,23 @@ def list_google_calendar_acl(input_data: dict) -> dict:
     description="Get a single ACL rule by ID.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID.", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID.",
+            "example": "primary",
+        },
         "rule_id": {"type": "string", "description": "ACL rule ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_google_calendar_acl_rule(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "get_calendar_acl_rule",
-        unwrap_envelope=True, fail_message="Failed to get ACL rule.",
+        "google_calendar",
+        "get_calendar_acl_rule",
+        unwrap_envelope=True,
+        fail_message="Failed to get ACL rule.",
         calendar_id=input_data.get("calendar_id", "primary"),
         rule_id=input_data["rule_id"],
     )
@@ -650,20 +1014,43 @@ def get_google_calendar_acl_rule(input_data: dict) -> dict:
     description="Grant calendar access. scope_type: user/group/domain/default. role: none/freeBusyReader/reader/writer/owner.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID (default: primary).", "example": "primary"},
-        "scope_type": {"type": "string", "description": "user, group, domain, or default.", "example": "user"},
-        "scope_value": {"type": "string", "description": "Email, group address, or domain (empty for 'default').", "example": "alice@example.com"},
-        "role": {"type": "string", "description": "none, freeBusyReader, reader, writer, or owner.", "example": "reader"},
-        "send_notifications": {"type": "boolean", "description": "Email the grantee.", "example": True},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID (default: primary).",
+            "example": "primary",
+        },
+        "scope_type": {
+            "type": "string",
+            "description": "user, group, domain, or default.",
+            "example": "user",
+        },
+        "scope_value": {
+            "type": "string",
+            "description": "Email, group address, or domain (empty for 'default').",
+            "example": "alice@example.com",
+        },
+        "role": {
+            "type": "string",
+            "description": "none, freeBusyReader, reader, writer, or owner.",
+            "example": "reader",
+        },
+        "send_notifications": {
+            "type": "boolean",
+            "description": "Email the grantee.",
+            "example": True,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def add_google_calendar_acl_rule(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "add_calendar_acl_rule",
-        unwrap_envelope=True, fail_message="Failed to add ACL rule.",
+        "google_calendar",
+        "add_calendar_acl_rule",
+        unwrap_envelope=True,
+        fail_message="Failed to add ACL rule.",
         calendar_id=input_data.get("calendar_id", "primary"),
         scope_type=input_data["scope_type"],
         scope_value=input_data.get("scope_value", ""),
@@ -677,21 +1064,40 @@ def add_google_calendar_acl_rule(input_data: dict) -> dict:
     description="Change the role of an existing ACL rule.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID.", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID.",
+            "example": "primary",
+        },
         "rule_id": {"type": "string", "description": "ACL rule ID.", "example": ""},
         "role": {"type": "string", "description": "New role.", "example": "writer"},
-        "scope_type": {"type": "string", "description": "New scope type (optional).", "example": ""},
-        "scope_value": {"type": "string", "description": "New scope value (optional).", "example": ""},
-        "send_notifications": {"type": "boolean", "description": "Email the grantee.", "example": True},
+        "scope_type": {
+            "type": "string",
+            "description": "New scope type (optional).",
+            "example": "",
+        },
+        "scope_value": {
+            "type": "string",
+            "description": "New scope value (optional).",
+            "example": "",
+        },
+        "send_notifications": {
+            "type": "boolean",
+            "description": "Email the grantee.",
+            "example": True,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_google_calendar_acl_rule(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "update_calendar_acl_rule",
-        unwrap_envelope=True, fail_message="Failed to update ACL rule.",
+        "google_calendar",
+        "update_calendar_acl_rule",
+        unwrap_envelope=True,
+        fail_message="Failed to update ACL rule.",
         calendar_id=input_data.get("calendar_id", "primary"),
         rule_id=input_data["rule_id"],
         role=input_data["role"],
@@ -706,7 +1112,11 @@ def update_google_calendar_acl_rule(input_data: dict) -> dict:
     description="Revoke access by deleting an ACL rule.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "calendar_id": {"type": "string", "description": "Calendar ID.", "example": "primary"},
+        "calendar_id": {
+            "type": "string",
+            "description": "Calendar ID.",
+            "example": "primary",
+        },
         "rule_id": {"type": "string", "description": "ACL rule ID.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -714,9 +1124,12 @@ def update_google_calendar_acl_rule(input_data: dict) -> dict:
 )
 def delete_google_calendar_acl_rule(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "delete_calendar_acl_rule",
-        unwrap_envelope=True, fail_message="Failed to delete ACL rule.",
+        "google_calendar",
+        "delete_calendar_acl_rule",
+        unwrap_envelope=True,
+        fail_message="Failed to delete ACL rule.",
         calendar_id=input_data.get("calendar_id", "primary"),
         rule_id=input_data["rule_id"],
     )
@@ -725,6 +1138,7 @@ def delete_google_calendar_acl_rule(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # Settings & colors
 # ------------------------------------------------------------------
+
 
 @action(
     name="list_google_calendar_settings",
@@ -735,9 +1149,12 @@ def delete_google_calendar_acl_rule(input_data: dict) -> dict:
 )
 def list_google_calendar_settings(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "list_calendar_settings",
-        unwrap_envelope=True, fail_message="Failed to list settings.",
+        "google_calendar",
+        "list_calendar_settings",
+        unwrap_envelope=True,
+        fail_message="Failed to list settings.",
     )
 
 
@@ -746,15 +1163,22 @@ def list_google_calendar_settings(input_data: dict) -> dict:
     description="Get a single user setting by ID. Common IDs: timezone, locale, autoAddHangouts, weekStart.",
     action_sets=["google_calendar_admin"],
     input_schema={
-        "setting_id": {"type": "string", "description": "Setting ID.", "example": "timezone"},
+        "setting_id": {
+            "type": "string",
+            "description": "Setting ID.",
+            "example": "timezone",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_google_calendar_setting(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "get_calendar_setting",
-        unwrap_envelope=True, fail_message="Failed to get setting.",
+        "google_calendar",
+        "get_calendar_setting",
+        unwrap_envelope=True,
+        fail_message="Failed to get setting.",
         setting_id=input_data["setting_id"],
     )
 
@@ -768,9 +1192,12 @@ def get_google_calendar_setting(input_data: dict) -> dict:
 )
 def get_google_calendar_colors(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "google_calendar", "get_calendar_colors",
-        unwrap_envelope=True, fail_message="Failed to get colors.",
+        "google_calendar",
+        "get_calendar_colors",
+        unwrap_envelope=True,
+        fail_message="Failed to get colors.",
     )
 
 

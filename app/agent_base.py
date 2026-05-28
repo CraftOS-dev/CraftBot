@@ -2954,9 +2954,7 @@ class AgentBase:
             # a tiny delta against an empty history.
             try:
                 active_task_ids = (
-                    self.task_manager.get_active_task_ids()
-                    if self.task_manager
-                    else []
+                    self.task_manager.get_active_task_ids() if self.task_manager else []
                 )
                 if active_task_ids:
                     for task_id in active_task_ids:

@@ -5139,22 +5139,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 for c in cmds
                 if not isinstance(c, SkillInvokeCommand)
             ]
-            await self._broadcast({
-                "type": "command_list",
-                "data": {
-                    "success": True,
-                    "commands": commands,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "command_list",
+                    "data": {
+                        "success": True,
+                        "commands": commands,
+                    },
+                }
+            )
         except Exception as e:
-            await self._broadcast({
-                "type": "command_list",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "commands": [],
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "command_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "commands": [],
+                    },
+                }
+            )
 
     async def _handle_skill_list(self) -> None:
         """Get list of all skills."""

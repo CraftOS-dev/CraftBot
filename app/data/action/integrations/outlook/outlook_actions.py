@@ -5,6 +5,7 @@ from agent_core import action
 # Mail — read / send / reply / forward / draft / lifecycle
 # ------------------------------------------------------------------
 
+
 @action(
     name="send_outlook_email",
     description="Send an email via Outlook (Microsoft 365).",
@@ -142,17 +143,28 @@ def read_top_outlook_emails(input_data: dict) -> dict:
     description="Search Outlook messages by free-text query (matches subject, body, attachments). Sorted by relevance.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
-        "query": {"type": "string", "description": "Search text.", "example": "invoice contoso"},
+        "query": {
+            "type": "string",
+            "description": "Search text.",
+            "example": "invoice contoso",
+        },
         "top": {"type": "integer", "description": "Max results.", "example": 25},
-        "folder": {"type": "string", "description": "Optional folder name (inbox/sentitems/etc.) or ID.", "example": ""},
+        "folder": {
+            "type": "string",
+            "description": "Optional folder name (inbox/sentitems/etc.) or ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def search_outlook_emails(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "search_messages",
-        unwrap_envelope=True, fail_message="Failed to search.",
+        "outlook",
+        "search_messages",
+        unwrap_envelope=True,
+        fail_message="Failed to search.",
         query=input_data["query"],
         top=input_data.get("top", 25),
         folder=input_data.get("folder") or None,
@@ -164,9 +176,21 @@ def search_outlook_emails(input_data: dict) -> dict:
     description="Reply to the sender of an email. Sent immediately.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
-        "message_id": {"type": "string", "description": "Original message ID.", "example": "AAMk..."},
-        "comment": {"type": "string", "description": "Reply body (plain text).", "example": "Thanks, sounds good."},
-        "to_recipients": {"type": "string", "description": "Optional comma-separated extra recipients.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "description": "Original message ID.",
+            "example": "AAMk...",
+        },
+        "comment": {
+            "type": "string",
+            "description": "Reply body (plain text).",
+            "example": "Thanks, sounds good.",
+        },
+        "to_recipients": {
+            "type": "string",
+            "description": "Optional comma-separated extra recipients.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -174,10 +198,17 @@ def search_outlook_emails(input_data: dict) -> dict:
 def reply_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     from app.utils.text import csv_list
-    to = csv_list(input_data.get("to_recipients", ""), default=None) if input_data.get("to_recipients") else None
+
+    to = (
+        csv_list(input_data.get("to_recipients", ""), default=None)
+        if input_data.get("to_recipients")
+        else None
+    )
     return run_client_sync(
-        "outlook", "reply_to_message",
-        unwrap_envelope=True, fail_message="Failed to reply.",
+        "outlook",
+        "reply_to_message",
+        unwrap_envelope=True,
+        fail_message="Failed to reply.",
         message_id=input_data["message_id"],
         comment=input_data["comment"],
         to_recipients=to,
@@ -189,7 +220,11 @@ def reply_outlook_email(input_data: dict) -> dict:
     description="Reply-all to an email. Sent immediately.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
-        "message_id": {"type": "string", "description": "Original message ID.", "example": "AAMk..."},
+        "message_id": {
+            "type": "string",
+            "description": "Original message ID.",
+            "example": "AAMk...",
+        },
         "comment": {"type": "string", "description": "Reply body.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -197,9 +232,12 @@ def reply_outlook_email(input_data: dict) -> dict:
 )
 def reply_all_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "reply_all_to_message",
-        unwrap_envelope=True, fail_message="Failed to reply-all.",
+        "outlook",
+        "reply_all_to_message",
+        unwrap_envelope=True,
+        fail_message="Failed to reply-all.",
         message_id=input_data["message_id"],
         comment=input_data["comment"],
     )
@@ -210,9 +248,21 @@ def reply_all_outlook_email(input_data: dict) -> dict:
     description="Forward an email to other recipients.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
-        "message_id": {"type": "string", "description": "Message ID.", "example": "AAMk..."},
-        "to_recipients": {"type": "string", "description": "Comma-separated recipient emails.", "example": "bob@example.com"},
-        "comment": {"type": "string", "description": "Optional intro comment.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "description": "Message ID.",
+            "example": "AAMk...",
+        },
+        "to_recipients": {
+            "type": "string",
+            "description": "Comma-separated recipient emails.",
+            "example": "bob@example.com",
+        },
+        "comment": {
+            "type": "string",
+            "description": "Optional intro comment.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -220,12 +270,15 @@ def reply_all_outlook_email(input_data: dict) -> dict:
 def forward_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     from app.utils.text import csv_list
+
     to = csv_list(input_data["to_recipients"])
     if not to:
         return {"status": "error", "message": "No recipients provided."}
     return run_client_sync(
-        "outlook", "forward_message",
-        unwrap_envelope=True, fail_message="Failed to forward.",
+        "outlook",
+        "forward_message",
+        unwrap_envelope=True,
+        fail_message="Failed to forward.",
         message_id=input_data["message_id"],
         to_recipients=to,
         comment=input_data.get("comment", ""),
@@ -237,17 +290,28 @@ def forward_outlook_email(input_data: dict) -> dict:
     description="Create a draft reply (pre-populated with quoted original). Edit with update_outlook_draft, then send with send_outlook_draft.",
     action_sets=["outlook_mail"],
     input_schema={
-        "message_id": {"type": "string", "description": "Original message ID.", "example": "AAMk..."},
-        "comment": {"type": "string", "description": "Optional initial reply text.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "description": "Original message ID.",
+            "example": "AAMk...",
+        },
+        "comment": {
+            "type": "string",
+            "description": "Optional initial reply text.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_outlook_reply_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "create_reply_draft",
-        unwrap_envelope=True, fail_message="Failed to create reply draft.",
+        "outlook",
+        "create_reply_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to create reply draft.",
         message_id=input_data["message_id"],
         comment=input_data.get("comment", ""),
     )
@@ -258,8 +322,16 @@ def create_outlook_reply_draft(input_data: dict) -> dict:
     description="Create a draft forward (pre-populated with quoted original). Edit and send later.",
     action_sets=["outlook_mail"],
     input_schema={
-        "message_id": {"type": "string", "description": "Original message ID.", "example": "AAMk..."},
-        "to_recipients": {"type": "string", "description": "Comma-separated recipient emails.", "example": ""},
+        "message_id": {
+            "type": "string",
+            "description": "Original message ID.",
+            "example": "AAMk...",
+        },
+        "to_recipients": {
+            "type": "string",
+            "description": "Comma-separated recipient emails.",
+            "example": "",
+        },
         "comment": {"type": "string", "description": "Optional intro.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -268,10 +340,13 @@ def create_outlook_reply_draft(input_data: dict) -> dict:
 def create_outlook_forward_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     from app.utils.text import csv_list
+
     to = csv_list(input_data.get("to_recipients", ""))
     return run_client_sync(
-        "outlook", "create_forward_draft",
-        unwrap_envelope=True, fail_message="Failed to create forward draft.",
+        "outlook",
+        "create_forward_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to create forward draft.",
         message_id=input_data["message_id"],
         to_recipients=to,
         comment=input_data.get("comment", ""),
@@ -283,11 +358,27 @@ def create_outlook_forward_draft(input_data: dict) -> dict:
     description="Create a new email draft (not sent). Returns the draft_id for later editing/sending.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
-        "subject": {"type": "string", "description": "Subject.", "example": "Quick question"},
+        "subject": {
+            "type": "string",
+            "description": "Subject.",
+            "example": "Quick question",
+        },
         "body": {"type": "string", "description": "Body.", "example": ""},
-        "to": {"type": "string", "description": "Comma-separated recipients (optional).", "example": ""},
-        "cc": {"type": "string", "description": "Comma-separated CC (optional).", "example": ""},
-        "bcc": {"type": "string", "description": "Comma-separated BCC (optional).", "example": ""},
+        "to": {
+            "type": "string",
+            "description": "Comma-separated recipients (optional).",
+            "example": "",
+        },
+        "cc": {
+            "type": "string",
+            "description": "Comma-separated CC (optional).",
+            "example": "",
+        },
+        "bcc": {
+            "type": "string",
+            "description": "Comma-separated BCC (optional).",
+            "example": "",
+        },
         "html": {"type": "boolean", "description": "Body is HTML.", "example": False},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -296,9 +387,12 @@ def create_outlook_forward_draft(input_data: dict) -> dict:
 def create_outlook_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     from app.utils.text import csv_list
+
     return run_client_sync(
-        "outlook", "create_draft",
-        unwrap_envelope=True, fail_message="Failed to create draft.",
+        "outlook",
+        "create_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to create draft.",
         subject=input_data["subject"],
         body=input_data["body"],
         to=csv_list(input_data.get("to", ""), default=None),
@@ -314,10 +408,22 @@ def create_outlook_draft(input_data: dict) -> dict:
     action_sets=["outlook_mail"],
     input_schema={
         "message_id": {"type": "string", "description": "Draft ID.", "example": ""},
-        "subject": {"type": "string", "description": "New subject (optional).", "example": ""},
-        "body": {"type": "string", "description": "New body (optional).", "example": ""},
+        "subject": {
+            "type": "string",
+            "description": "New subject (optional).",
+            "example": "",
+        },
+        "body": {
+            "type": "string",
+            "description": "New body (optional).",
+            "example": "",
+        },
         "html": {"type": "boolean", "description": "Body is HTML.", "example": False},
-        "to": {"type": "string", "description": "New comma-separated recipients (optional, replaces).", "example": ""},
+        "to": {
+            "type": "string",
+            "description": "New comma-separated recipients (optional, replaces).",
+            "example": "",
+        },
         "cc": {"type": "string", "description": "New CC (optional).", "example": ""},
         "bcc": {"type": "string", "description": "New BCC (optional).", "example": ""},
     },
@@ -327,9 +433,12 @@ def create_outlook_draft(input_data: dict) -> dict:
 def update_outlook_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     from app.utils.text import csv_list
+
     return run_client_sync(
-        "outlook", "update_draft",
-        unwrap_envelope=True, fail_message="Failed to update draft.",
+        "outlook",
+        "update_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to update draft.",
         message_id=input_data["message_id"],
         subject=input_data.get("subject") if "subject" in input_data else None,
         body=input_data.get("body") if "body" in input_data else None,
@@ -352,9 +461,12 @@ def update_outlook_draft(input_data: dict) -> dict:
 )
 def send_outlook_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "send_draft",
-        unwrap_envelope=True, fail_message="Failed to send draft.",
+        "outlook",
+        "send_draft",
+        unwrap_envelope=True,
+        fail_message="Failed to send draft.",
         message_id=input_data["message_id"],
     )
 
@@ -371,9 +483,12 @@ def send_outlook_draft(input_data: dict) -> dict:
 )
 def delete_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "delete_message",
-        unwrap_envelope=True, fail_message="Failed to delete.",
+        "outlook",
+        "delete_message",
+        unwrap_envelope=True,
+        fail_message="Failed to delete.",
         message_id=input_data["message_id"],
     )
 
@@ -384,16 +499,23 @@ def delete_outlook_email(input_data: dict) -> dict:
     action_sets=["outlook_mail", "outlook"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "destination_folder_id": {"type": "string", "description": "Folder ID or well-known name.", "example": "archive"},
+        "destination_folder_id": {
+            "type": "string",
+            "description": "Folder ID or well-known name.",
+            "example": "archive",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def move_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "move_message",
-        unwrap_envelope=True, fail_message="Failed to move.",
+        "outlook",
+        "move_message",
+        unwrap_envelope=True,
+        fail_message="Failed to move.",
         message_id=input_data["message_id"],
         destination_folder_id=input_data["destination_folder_id"],
     )
@@ -405,16 +527,23 @@ def move_outlook_email(input_data: dict) -> dict:
     action_sets=["outlook_mail"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "destination_folder_id": {"type": "string", "description": "Folder ID or well-known name.", "example": ""},
+        "destination_folder_id": {
+            "type": "string",
+            "description": "Folder ID or well-known name.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def copy_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "copy_message",
-        unwrap_envelope=True, fail_message="Failed to copy.",
+        "outlook",
+        "copy_message",
+        unwrap_envelope=True,
+        fail_message="Failed to copy.",
         message_id=input_data["message_id"],
         destination_folder_id=input_data["destination_folder_id"],
     )
@@ -459,9 +588,12 @@ def mark_outlook_email_read(input_data: dict) -> dict:
 )
 def mark_outlook_email_unread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "mark_as_unread",
-        unwrap_envelope=True, fail_message="Failed to mark unread.",
+        "outlook",
+        "mark_as_unread",
+        unwrap_envelope=True,
+        fail_message="Failed to mark unread.",
         message_id=input_data["message_id"],
     )
 
@@ -472,16 +604,23 @@ def mark_outlook_email_unread(input_data: dict) -> dict:
     action_sets=["outlook_mail", "outlook"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "flag_status": {"type": "string", "description": "notFlagged, flagged, or complete.", "example": "flagged"},
+        "flag_status": {
+            "type": "string",
+            "description": "notFlagged, flagged, or complete.",
+            "example": "flagged",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def flag_outlook_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "flag_message",
-        unwrap_envelope=True, fail_message="Failed to flag.",
+        "outlook",
+        "flag_message",
+        unwrap_envelope=True,
+        fail_message="Failed to flag.",
         message_id=input_data["message_id"],
         flag_status=input_data.get("flag_status", "flagged"),
     )
@@ -493,7 +632,11 @@ def flag_outlook_email(input_data: dict) -> dict:
     action_sets=["outlook_mail"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "categories": {"type": "string", "description": "Comma-separated category display names.", "example": "Personal,Important"},
+        "categories": {
+            "type": "string",
+            "description": "Comma-separated category display names.",
+            "example": "Personal,Important",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -501,10 +644,13 @@ def flag_outlook_email(input_data: dict) -> dict:
 def set_outlook_email_categories(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     from app.utils.text import csv_list
+
     categories = csv_list(input_data.get("categories", ""))
     return run_client_sync(
-        "outlook", "set_message_categories",
-        unwrap_envelope=True, fail_message="Failed to set categories.",
+        "outlook",
+        "set_message_categories",
+        unwrap_envelope=True,
+        fail_message="Failed to set categories.",
         message_id=input_data["message_id"],
         categories=categories,
     )
@@ -513,6 +659,7 @@ def set_outlook_email_categories(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # Attachments
 # ------------------------------------------------------------------
+
 
 @action(
     name="list_outlook_attachments",
@@ -525,9 +672,12 @@ def set_outlook_email_categories(input_data: dict) -> dict:
 )
 def list_outlook_attachments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "list_attachments",
-        unwrap_envelope=True, fail_message="Failed to list attachments.",
+        "outlook",
+        "list_attachments",
+        unwrap_envelope=True,
+        fail_message="Failed to list attachments.",
         message_id=input_data["message_id"],
     )
 
@@ -538,17 +688,28 @@ def list_outlook_attachments(input_data: dict) -> dict:
     action_sets=["outlook_attachments", "outlook"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "attachment_id": {"type": "string", "description": "Attachment ID.", "example": ""},
-        "save_to": {"type": "string", "description": "Local path to save to.", "example": "C:/Users/me/downloads/file.pdf"},
+        "attachment_id": {
+            "type": "string",
+            "description": "Attachment ID.",
+            "example": "",
+        },
+        "save_to": {
+            "type": "string",
+            "description": "Local path to save to.",
+            "example": "C:/Users/me/downloads/file.pdf",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def download_outlook_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "download_attachment",
-        unwrap_envelope=True, fail_message="Failed to download.",
+        "outlook",
+        "download_attachment",
+        unwrap_envelope=True,
+        fail_message="Failed to download.",
         message_id=input_data["message_id"],
         attachment_id=input_data["attachment_id"],
         save_to=input_data["save_to"],
@@ -560,18 +721,33 @@ def download_outlook_attachment(input_data: dict) -> dict:
     description="Attach a local file to a DRAFT message (under 3 MB).",
     action_sets=["outlook_attachments"],
     input_schema={
-        "message_id": {"type": "string", "description": "Draft message ID.", "example": ""},
-        "file_path": {"type": "string", "description": "Absolute path to the local file.", "example": ""},
-        "content_type": {"type": "string", "description": "MIME type (autodetect if omitted).", "example": ""},
+        "message_id": {
+            "type": "string",
+            "description": "Draft message ID.",
+            "example": "",
+        },
+        "file_path": {
+            "type": "string",
+            "description": "Absolute path to the local file.",
+            "example": "",
+        },
+        "content_type": {
+            "type": "string",
+            "description": "MIME type (autodetect if omitted).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def add_outlook_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "add_attachment",
-        unwrap_envelope=True, fail_message="Failed to add attachment.",
+        "outlook",
+        "add_attachment",
+        unwrap_envelope=True,
+        fail_message="Failed to add attachment.",
         message_id=input_data["message_id"],
         file_path=input_data["file_path"],
         content_type=input_data.get("content_type") or None,
@@ -584,16 +760,23 @@ def add_outlook_attachment(input_data: dict) -> dict:
     action_sets=["outlook_attachments"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
-        "attachment_id": {"type": "string", "description": "Attachment ID.", "example": ""},
+        "attachment_id": {
+            "type": "string",
+            "description": "Attachment ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def delete_outlook_attachment(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "delete_attachment",
-        unwrap_envelope=True, fail_message="Failed to delete attachment.",
+        "outlook",
+        "delete_attachment",
+        unwrap_envelope=True,
+        fail_message="Failed to delete attachment.",
         message_id=input_data["message_id"],
         attachment_id=input_data["attachment_id"],
     )
@@ -602,6 +785,7 @@ def delete_outlook_attachment(input_data: dict) -> dict:
 # ------------------------------------------------------------------
 # Folders
 # ------------------------------------------------------------------
+
 
 @action(
     name="list_outlook_folders",
@@ -626,15 +810,22 @@ def list_outlook_folders(input_data: dict) -> dict:
     description="Get metadata for a single mail folder (counts, parent).",
     action_sets=["outlook_folders"],
     input_schema={
-        "folder_id": {"type": "string", "description": "Folder ID or well-known name (inbox, drafts, sentitems, etc.).", "example": "inbox"},
+        "folder_id": {
+            "type": "string",
+            "description": "Folder ID or well-known name (inbox, drafts, sentitems, etc.).",
+            "example": "inbox",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_outlook_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "get_folder",
-        unwrap_envelope=True, fail_message="Failed to get folder.",
+        "outlook",
+        "get_folder",
+        unwrap_envelope=True,
+        fail_message="Failed to get folder.",
         folder_id=input_data["folder_id"],
     )
 
@@ -644,17 +835,28 @@ def get_outlook_folder(input_data: dict) -> dict:
     description="Create a new mail folder. Defaults to top-level (under msgfolderroot).",
     action_sets=["outlook_folders", "outlook"],
     input_schema={
-        "display_name": {"type": "string", "description": "Folder name.", "example": "Receipts"},
-        "parent_folder_id": {"type": "string", "description": "Parent folder ID or well-known name. Default msgfolderroot.", "example": "msgfolderroot"},
+        "display_name": {
+            "type": "string",
+            "description": "Folder name.",
+            "example": "Receipts",
+        },
+        "parent_folder_id": {
+            "type": "string",
+            "description": "Parent folder ID or well-known name. Default msgfolderroot.",
+            "example": "msgfolderroot",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_outlook_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "create_folder",
-        unwrap_envelope=True, fail_message="Failed to create folder.",
+        "outlook",
+        "create_folder",
+        unwrap_envelope=True,
+        fail_message="Failed to create folder.",
         display_name=input_data["display_name"],
         parent_folder_id=input_data.get("parent_folder_id", "msgfolderroot"),
     )
@@ -673,9 +875,12 @@ def create_outlook_folder(input_data: dict) -> dict:
 )
 def update_outlook_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "update_folder",
-        unwrap_envelope=True, fail_message="Failed to rename folder.",
+        "outlook",
+        "update_folder",
+        unwrap_envelope=True,
+        fail_message="Failed to rename folder.",
         folder_id=input_data["folder_id"],
         display_name=input_data["display_name"],
     )
@@ -693,9 +898,12 @@ def update_outlook_folder(input_data: dict) -> dict:
 )
 def delete_outlook_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "delete_folder",
-        unwrap_envelope=True, fail_message="Failed to delete folder.",
+        "outlook",
+        "delete_folder",
+        unwrap_envelope=True,
+        fail_message="Failed to delete folder.",
         folder_id=input_data["folder_id"],
     )
 
@@ -705,15 +913,22 @@ def delete_outlook_folder(input_data: dict) -> dict:
     description="List child folders of a mail folder.",
     action_sets=["outlook_folders"],
     input_schema={
-        "folder_id": {"type": "string", "description": "Parent folder ID or well-known name. Default msgfolderroot.", "example": "msgfolderroot"},
+        "folder_id": {
+            "type": "string",
+            "description": "Parent folder ID or well-known name. Default msgfolderroot.",
+            "example": "msgfolderroot",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_outlook_child_folders(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "list_child_folders",
-        unwrap_envelope=True, fail_message="Failed to list child folders.",
+        "outlook",
+        "list_child_folders",
+        unwrap_envelope=True,
+        fail_message="Failed to list child folders.",
         folder_id=input_data.get("folder_id", "msgfolderroot"),
     )
 
@@ -723,17 +938,28 @@ def list_outlook_child_folders(input_data: dict) -> dict:
     description="List messages in a specific folder.",
     action_sets=["outlook_folders", "outlook"],
     input_schema={
-        "folder_id": {"type": "string", "description": "Folder ID or well-known name.", "example": "inbox"},
+        "folder_id": {
+            "type": "string",
+            "description": "Folder ID or well-known name.",
+            "example": "inbox",
+        },
         "count": {"type": "integer", "description": "Max results.", "example": 25},
-        "unread_only": {"type": "boolean", "description": "Filter to unread.", "example": False},
+        "unread_only": {
+            "type": "boolean",
+            "description": "Filter to unread.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_outlook_folder_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "list_folder_messages",
-        unwrap_envelope=True, fail_message="Failed to list messages.",
+        "outlook",
+        "list_folder_messages",
+        unwrap_envelope=True,
+        fail_message="Failed to list messages.",
         folder_id=input_data["folder_id"],
         n=input_data.get("count", 25),
         unread_only=bool(input_data.get("unread_only", False)),
@@ -744,6 +970,7 @@ def list_outlook_folder_messages(input_data: dict) -> dict:
 # Mailbox settings + auto-replies + rules + categories
 # ------------------------------------------------------------------
 
+
 @action(
     name="get_outlook_mailbox_settings",
     description="Get the user's mailbox settings (timezone, locale, working hours, etc.).",
@@ -753,9 +980,12 @@ def list_outlook_folder_messages(input_data: dict) -> dict:
 )
 def get_outlook_mailbox_settings(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "get_mailbox_settings",
-        unwrap_envelope=True, fail_message="Failed to get settings.",
+        "outlook",
+        "get_mailbox_settings",
+        unwrap_envelope=True,
+        fail_message="Failed to get settings.",
     )
 
 
@@ -768,9 +998,12 @@ def get_outlook_mailbox_settings(input_data: dict) -> dict:
 )
 def get_outlook_automatic_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "get_automatic_replies",
-        unwrap_envelope=True, fail_message="Failed to get auto-replies.",
+        "outlook",
+        "get_automatic_replies",
+        unwrap_envelope=True,
+        fail_message="Failed to get auto-replies.",
     )
 
 
@@ -779,24 +1012,55 @@ def get_outlook_automatic_replies(input_data: dict) -> dict:
     description="Set out-of-office reply. status: disabled | alwaysEnabled | scheduled. external_audience: none | contactsOnly | all.",
     action_sets=["outlook_settings", "outlook"],
     input_schema={
-        "status": {"type": "string", "description": "disabled, alwaysEnabled, or scheduled.", "example": "alwaysEnabled"},
-        "internal_reply": {"type": "string", "description": "Reply text shown to internal senders (optional).", "example": "Out of office until Friday."},
-        "external_reply": {"type": "string", "description": "Reply text shown to external senders (optional).", "example": ""},
-        "external_audience": {"type": "string", "description": "none, contactsOnly, or all.", "example": "all"},
-        "scheduled_start": {"type": "string", "description": "ISO 8601 start (only for status=scheduled).", "example": ""},
-        "scheduled_end": {"type": "string", "description": "ISO 8601 end (only for status=scheduled).", "example": ""},
+        "status": {
+            "type": "string",
+            "description": "disabled, alwaysEnabled, or scheduled.",
+            "example": "alwaysEnabled",
+        },
+        "internal_reply": {
+            "type": "string",
+            "description": "Reply text shown to internal senders (optional).",
+            "example": "Out of office until Friday.",
+        },
+        "external_reply": {
+            "type": "string",
+            "description": "Reply text shown to external senders (optional).",
+            "example": "",
+        },
+        "external_audience": {
+            "type": "string",
+            "description": "none, contactsOnly, or all.",
+            "example": "all",
+        },
+        "scheduled_start": {
+            "type": "string",
+            "description": "ISO 8601 start (only for status=scheduled).",
+            "example": "",
+        },
+        "scheduled_end": {
+            "type": "string",
+            "description": "ISO 8601 end (only for status=scheduled).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_outlook_automatic_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "update_automatic_replies",
-        unwrap_envelope=True, fail_message="Failed to set auto-replies.",
+        "outlook",
+        "update_automatic_replies",
+        unwrap_envelope=True,
+        fail_message="Failed to set auto-replies.",
         status=input_data["status"],
-        internal_reply=input_data.get("internal_reply") if "internal_reply" in input_data else None,
-        external_reply=input_data.get("external_reply") if "external_reply" in input_data else None,
+        internal_reply=input_data.get("internal_reply")
+        if "internal_reply" in input_data
+        else None,
+        external_reply=input_data.get("external_reply")
+        if "external_reply" in input_data
+        else None,
         external_audience=input_data.get("external_audience", "all"),
         scheduled_start=input_data.get("scheduled_start") or None,
         scheduled_end=input_data.get("scheduled_end") or None,
@@ -812,9 +1076,12 @@ def update_outlook_automatic_replies(input_data: dict) -> dict:
 )
 def list_outlook_inbox_rules(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "list_inbox_rules",
-        unwrap_envelope=True, fail_message="Failed to list rules.",
+        "outlook",
+        "list_inbox_rules",
+        unwrap_envelope=True,
+        fail_message="Failed to list rules.",
     )
 
 
@@ -823,20 +1090,43 @@ def list_outlook_inbox_rules(input_data: dict) -> dict:
     description="Create an inbox rule. conditions and actions are Graph rule objects — e.g. conditions={'fromAddresses': [{'emailAddress': {'address': 'x@y.com'}}]}, actions={'moveToFolder': '<folderId>'}.",
     action_sets=["outlook_settings"],
     input_schema={
-        "display_name": {"type": "string", "description": "Rule name.", "example": "From boss to Important"},
-        "conditions": {"type": "object", "description": "Graph messageRulePredicates object.", "example": {}},
-        "actions": {"type": "object", "description": "Graph messageRuleActions object.", "example": {}},
-        "sequence": {"type": "integer", "description": "Run order (lower runs first).", "example": 1},
-        "is_enabled": {"type": "boolean", "description": "Enable on create.", "example": True},
+        "display_name": {
+            "type": "string",
+            "description": "Rule name.",
+            "example": "From boss to Important",
+        },
+        "conditions": {
+            "type": "object",
+            "description": "Graph messageRulePredicates object.",
+            "example": {},
+        },
+        "actions": {
+            "type": "object",
+            "description": "Graph messageRuleActions object.",
+            "example": {},
+        },
+        "sequence": {
+            "type": "integer",
+            "description": "Run order (lower runs first).",
+            "example": 1,
+        },
+        "is_enabled": {
+            "type": "boolean",
+            "description": "Enable on create.",
+            "example": True,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_outlook_inbox_rule(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "create_inbox_rule",
-        unwrap_envelope=True, fail_message="Failed to create rule.",
+        "outlook",
+        "create_inbox_rule",
+        unwrap_envelope=True,
+        fail_message="Failed to create rule.",
         display_name=input_data["display_name"],
         conditions=input_data["conditions"],
         actions=input_data["actions"],
@@ -857,9 +1147,12 @@ def create_outlook_inbox_rule(input_data: dict) -> dict:
 )
 def delete_outlook_inbox_rule(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "delete_inbox_rule",
-        unwrap_envelope=True, fail_message="Failed to delete rule.",
+        "outlook",
+        "delete_inbox_rule",
+        unwrap_envelope=True,
+        fail_message="Failed to delete rule.",
         rule_id=input_data["rule_id"],
     )
 
@@ -873,9 +1166,12 @@ def delete_outlook_inbox_rule(input_data: dict) -> dict:
 )
 def list_outlook_categories(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "list_categories",
-        unwrap_envelope=True, fail_message="Failed to list categories.",
+        "outlook",
+        "list_categories",
+        unwrap_envelope=True,
+        fail_message="Failed to list categories.",
     )
 
 
@@ -884,17 +1180,28 @@ def list_outlook_categories(input_data: dict) -> dict:
     description="Create a master category. color: preset0..preset24 from Graph categoryColor enum.",
     action_sets=["outlook_settings"],
     input_schema={
-        "display_name": {"type": "string", "description": "Category name.", "example": "Personal"},
-        "color": {"type": "string", "description": "preset0..preset24.", "example": "preset0"},
+        "display_name": {
+            "type": "string",
+            "description": "Category name.",
+            "example": "Personal",
+        },
+        "color": {
+            "type": "string",
+            "description": "preset0..preset24.",
+            "example": "preset0",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_outlook_category(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "create_category",
-        unwrap_envelope=True, fail_message="Failed to create category.",
+        "outlook",
+        "create_category",
+        unwrap_envelope=True,
+        fail_message="Failed to create category.",
         display_name=input_data["display_name"],
         color=input_data.get("color", "preset0"),
     )
@@ -912,9 +1219,12 @@ def create_outlook_category(input_data: dict) -> dict:
 )
 def delete_outlook_category(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "outlook", "delete_category",
-        unwrap_envelope=True, fail_message="Failed to delete category.",
+        "outlook",
+        "delete_category",
+        unwrap_envelope=True,
+        fail_message="Failed to delete category.",
         category_id=input_data["category_id"],
     )
 

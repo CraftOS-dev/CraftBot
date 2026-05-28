@@ -464,111 +464,168 @@ class LarkClient(BasePlatformClient):
     def _msg_content(msg_type: str, body: Dict[str, Any]) -> str:
         """Lark's content field is always a JSON-encoded STRING (not an object)."""
         import json as _json
+
         return _json.dumps(body, ensure_ascii=False)
 
-    def send_message(self, receive_id: str, msg_type: str,
-                     content: Dict[str, Any],
-                     receive_id_type: str = "open_id",
-                     uuid: Optional[str] = None) -> Result:
-        """Generic send. msg_type: text | post | image | file | audio | media | sticker | interactive | share_chat | share_user. content is the per-type dict (this method JSON-encodes it)."""
+    def _send_im_message(
+        self,
+        receive_id: str,
+        msg_type: str,
+        content: Dict[str, Any],
+        receive_id_type: str = "open_id",
+        uuid: Optional[str] = None,
+    ) -> Result:
+        """Low-level Lark IM v1 POST. msg_type: text | post | image | file | audio | media | sticker | interactive | share_chat | share_user. content is the per-type dict (this method JSON-encodes it).
+
+        Internal helper backing the type-specific senders below (``send_image_message``,
+        ``send_file_message``, etc.). External callers should use the platform-interface
+        ``send_message(recipient, text)`` defined above, or one of the type-specific
+        wrappers.
+        """
         import json as _json
+
         payload: Dict[str, Any] = {
             "receive_id": receive_id,
             "msg_type": msg_type,
             "content": _json.dumps(content, ensure_ascii=False),
         }
-        if uuid: payload["uuid"] = uuid
+        if uuid:
+            payload["uuid"] = uuid
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/messages",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/messages",
             params={"receive_id_type": receive_id_type},
-            headers=self._headers(), json=payload, expected=(200,),
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def send_image_message(self, receive_id: str, image_key: str,
-                           receive_id_type: str = "open_id") -> Result:
-        return self.send_message(receive_id, "image", {"image_key": image_key},
-                                 receive_id_type=receive_id_type)
+    def send_image_message(
+        self, receive_id: str, image_key: str, receive_id_type: str = "open_id"
+    ) -> Result:
+        return self._send_im_message(
+            receive_id,
+            "image",
+            {"image_key": image_key},
+            receive_id_type=receive_id_type,
+        )
 
-    def send_file_message(self, receive_id: str, file_key: str,
-                          receive_id_type: str = "open_id") -> Result:
-        return self.send_message(receive_id, "file", {"file_key": file_key},
-                                 receive_id_type=receive_id_type)
+    def send_file_message(
+        self, receive_id: str, file_key: str, receive_id_type: str = "open_id"
+    ) -> Result:
+        return self._send_im_message(
+            receive_id, "file", {"file_key": file_key}, receive_id_type=receive_id_type
+        )
 
-    def send_card_message(self, receive_id: str, card: Dict[str, Any],
-                          receive_id_type: str = "open_id") -> Result:
+    def send_card_message(
+        self, receive_id: str, card: Dict[str, Any], receive_id_type: str = "open_id"
+    ) -> Result:
         """card is a Lark interactive-card JSON schema."""
-        return self.send_message(receive_id, "interactive", card,
-                                 receive_id_type=receive_id_type)
+        return self._send_im_message(
+            receive_id, "interactive", card, receive_id_type=receive_id_type
+        )
 
-    def send_post_message(self, receive_id: str, post: Dict[str, Any],
-                          receive_id_type: str = "open_id") -> Result:
+    def send_post_message(
+        self, receive_id: str, post: Dict[str, Any], receive_id_type: str = "open_id"
+    ) -> Result:
         """post is Lark's rich-text 'post' format: {zh_cn: {title, content: [[{tag,text/...}]]}}."""
-        return self.send_message(receive_id, "post", post,
-                                 receive_id_type=receive_id_type)
+        return self._send_im_message(
+            receive_id, "post", post, receive_id_type=receive_id_type
+        )
 
-    def reply_message(self, message_id: str, msg_type: str,
-                      content: Dict[str, Any],
-                      reply_in_thread: bool = False) -> Result:
+    def reply_message(
+        self,
+        message_id: str,
+        msg_type: str,
+        content: Dict[str, Any],
+        reply_in_thread: bool = False,
+    ) -> Result:
         """Reply to message_id. reply_in_thread starts a thread off the parent."""
         import json as _json
+
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/messages/{message_id}/reply",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/reply",
             headers=self._headers(),
-            json={"msg_type": msg_type,
-                  "content": _json.dumps(content, ensure_ascii=False),
-                  "reply_in_thread": reply_in_thread},
+            json={
+                "msg_type": msg_type,
+                "content": _json.dumps(content, ensure_ascii=False),
+                "reply_in_thread": reply_in_thread,
+            },
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def get_message(self, message_id: str) -> Result:
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/messages/{message_id}",
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def delete_message(self, message_id: str) -> Result:
         """Recall a message the bot sent (within Lark's recall window)."""
         return http_request(
-            "DELETE", f"{LARK_API_BASE}/im/v1/messages/{message_id}",
-            headers=self._headers(), expected=(200,),
-            transform=lambda d: d.get("data", {"recalled": True, "message_id": message_id}),
+            "DELETE",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}",
+            headers=self._headers(),
+            expected=(200,),
+            transform=lambda d: d.get(
+                "data", {"recalled": True, "message_id": message_id}
+            ),
         )
 
-    def update_message(self, message_id: str, msg_type: str,
-                       content: Dict[str, Any]) -> Result:
+    def update_message(
+        self, message_id: str, msg_type: str, content: Dict[str, Any]
+    ) -> Result:
         """Edit text/interactive content of a bot-sent message."""
         import json as _json
+
         return http_request(
-            "PUT", f"{LARK_API_BASE}/im/v1/messages/{message_id}",
+            "PUT",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}",
             headers=self._headers(),
-            json={"msg_type": msg_type,
-                  "content": _json.dumps(content, ensure_ascii=False)},
+            json={
+                "msg_type": msg_type,
+                "content": _json.dumps(content, ensure_ascii=False),
+            },
             expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def forward_message(self, message_id: str, receive_id: str,
-                        receive_id_type: str = "open_id",
-                        uuid: Optional[str] = None) -> Result:
+    def forward_message(
+        self,
+        message_id: str,
+        receive_id: str,
+        receive_id_type: str = "open_id",
+        uuid: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {"receive_id": receive_id}
-        if uuid: payload["uuid"] = uuid
+        if uuid:
+            payload["uuid"] = uuid
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/messages/{message_id}/forward",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/forward",
             params={"receive_id_type": receive_id_type},
-            headers=self._headers(), json=payload, expected=(200,),
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def list_messages(self, container_id: str,
-                      container_id_type: str = "chat",
-                      start_time: Optional[str] = None,
-                      end_time: Optional[str] = None,
-                      sort_type: str = "ByCreateTimeAsc",
-                      page_size: int = 50,
-                      page_token: str = "") -> Result:
+    def list_messages(
+        self,
+        container_id: str,
+        container_id_type: str = "chat",
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        sort_type: str = "ByCreateTimeAsc",
+        page_size: int = 50,
+        page_token: str = "",
+    ) -> Result:
         """List a chat's message history. start_time/end_time are unix-seconds strings."""
         params: Dict[str, str] = {
             "container_id": container_id,
@@ -576,37 +633,52 @@ class LarkClient(BasePlatformClient):
             "sort_type": sort_type,
             "page_size": str(min(page_size, 50)),
         }
-        if start_time: params["start_time"] = start_time
-        if end_time: params["end_time"] = end_time
-        if page_token: params["page_token"] = page_token
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/messages",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/messages",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def list_message_read_users(self, message_id: str,
-                                user_id_type: str = "open_id",
-                                page_size: int = 100,
-                                page_token: str = "") -> Result:
+    def list_message_read_users(
+        self,
+        message_id: str,
+        user_id_type: str = "open_id",
+        page_size: int = 100,
+        page_token: str = "",
+    ) -> Result:
         """Who has read a message. Returns user identifiers + read_time."""
         params: Dict[str, str] = {
             "user_id_type": user_id_type,
             "page_size": str(min(page_size, 100)),
         }
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/messages/{message_id}/read_users",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/read_users",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def add_reaction(self, message_id: str, emoji_type: str) -> Result:
         """emoji_type is Lark's emoji code, e.g. 'SMILE' / 'HAPPY' / 'THUMBSUP'. See Lark emoji reference."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/messages/{message_id}/reactions",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/reactions",
             headers=self._headers(),
-            json={"reaction_type": {"emoji_type": emoji_type}}, expected=(200,),
+            json={"reaction_type": {"emoji_type": emoji_type}},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -614,101 +686,144 @@ class LarkClient(BasePlatformClient):
         return http_request(
             "DELETE",
             f"{LARK_API_BASE}/im/v1/messages/{message_id}/reactions/{reaction_id}",
-            headers=self._headers(), expected=(200,),
-            transform=lambda d: d.get("data", {"removed": True, "reaction_id": reaction_id}),
+            headers=self._headers(),
+            expected=(200,),
+            transform=lambda d: d.get(
+                "data", {"removed": True, "reaction_id": reaction_id}
+            ),
         )
 
-    def list_reactions(self, message_id: str,
-                       emoji_type: Optional[str] = None,
-                       page_size: int = 100,
-                       page_token: str = "",
-                       user_id_type: str = "open_id") -> Result:
+    def list_reactions(
+        self,
+        message_id: str,
+        emoji_type: Optional[str] = None,
+        page_size: int = 100,
+        page_token: str = "",
+        user_id_type: str = "open_id",
+    ) -> Result:
         params: Dict[str, str] = {
             "user_id_type": user_id_type,
             "page_size": str(min(page_size, 100)),
         }
-        if emoji_type: params["reaction_type"] = emoji_type
-        if page_token: params["page_token"] = page_token
+        if emoji_type:
+            params["reaction_type"] = emoji_type
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/messages/{message_id}/reactions",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/reactions",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def pin_message(self, message_id: str) -> Result:
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/pins",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/pins",
             headers=self._headers(),
-            json={"message_id": message_id}, expected=(200,),
+            json={"message_id": message_id},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def unpin_message(self, message_id: str) -> Result:
         return http_request(
-            "DELETE", f"{LARK_API_BASE}/im/v1/pins/{message_id}",
-            headers=self._headers(), expected=(200,),
-            transform=lambda d: d.get("data", {"unpinned": True, "message_id": message_id}),
+            "DELETE",
+            f"{LARK_API_BASE}/im/v1/pins/{message_id}",
+            headers=self._headers(),
+            expected=(200,),
+            transform=lambda d: d.get(
+                "data", {"unpinned": True, "message_id": message_id}
+            ),
         )
 
-    def list_pinned_messages(self, chat_id: str,
-                             page_size: int = 50,
-                             page_token: str = "") -> Result:
+    def list_pinned_messages(
+        self, chat_id: str, page_size: int = 50, page_token: str = ""
+    ) -> Result:
         params: Dict[str, str] = {
             "chat_id": chat_id,
             "page_size": str(min(page_size, 50)),
         }
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/pins",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/pins",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def send_urgent(self, message_id: str, user_id_list: List[str],
-                    urgent_type: str = "app",
-                    user_id_type: str = "open_id") -> Result:
+    def send_urgent(
+        self,
+        message_id: str,
+        user_id_list: List[str],
+        urgent_type: str = "app",
+        user_id_type: str = "open_id",
+    ) -> Result:
         """urgent_type: app | sms | phone (escalation level). Most useful when a message needs immediate attention."""
-        endpoint_map = {"app": "urgent_app", "sms": "urgent_sms", "phone": "urgent_phone"}
+        endpoint_map = {
+            "app": "urgent_app",
+            "sms": "urgent_sms",
+            "phone": "urgent_phone",
+        }
         sub = endpoint_map.get(urgent_type, "urgent_app")
         return http_request(
-            "PATCH", f"{LARK_API_BASE}/im/v1/messages/{message_id}/{sub}",
+            "PATCH",
+            f"{LARK_API_BASE}/im/v1/messages/{message_id}/{sub}",
             headers=self._headers(),
             params={"user_id_type": user_id_type},
-            json={"user_id_list": user_id_list}, expected=(200,),
+            json={"user_id_list": user_id_list},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def batch_send_message(self, msg_type: str, content: Dict[str, Any],
-                           open_ids: Optional[List[str]] = None,
-                           user_ids: Optional[List[str]] = None,
-                           department_ids: Optional[List[str]] = None) -> Result:
+    def batch_send_message(
+        self,
+        msg_type: str,
+        content: Dict[str, Any],
+        open_ids: Optional[List[str]] = None,
+        user_ids: Optional[List[str]] = None,
+        department_ids: Optional[List[str]] = None,
+    ) -> Result:
         """Send the same message to many recipients (departments/users/openids) at once."""
         import json as _json
+
         payload: Dict[str, Any] = {
             "msg_type": msg_type,
             "content": _json.dumps(content, ensure_ascii=False),
         }
-        if open_ids: payload["open_ids"] = open_ids
-        if user_ids: payload["user_ids"] = user_ids
-        if department_ids: payload["department_ids"] = department_ids
+        if open_ids:
+            payload["open_ids"] = open_ids
+        if user_ids:
+            payload["user_ids"] = user_ids
+        if department_ids:
+            payload["department_ids"] = department_ids
         return http_request(
-            "POST", f"{LARK_API_BASE}/message/v4/batch_send/",
-            headers=self._headers(), json=payload, expected=(200,),
+            "POST",
+            f"{LARK_API_BASE}/message/v4/batch_send/",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     # ----- IM resources (file/image upload + download) -----
 
-    def upload_image(self, file_path: str,
-                     image_type: str = "message") -> Result:
+    def upload_image(self, file_path: str, image_type: str = "message") -> Result:
         """image_type: message | avatar. Returns image_key for use in send_image_message."""
         import os
+
         token = self._headers()["Authorization"]
         try:
             with open(file_path, "rb") as f:
                 file_data = f.read()
             return http_request(
-                "POST", f"{LARK_API_BASE}/im/v1/images",
+                "POST",
+                f"{LARK_API_BASE}/im/v1/images",
                 headers={"Authorization": token},
                 data={"image_type": image_type},
                 files={"image": (os.path.basename(file_path), file_data)},
@@ -718,11 +833,16 @@ class LarkClient(BasePlatformClient):
         except OSError as e:
             return {"error": f"Failed to read {file_path}: {e}"}
 
-    def upload_im_file(self, file_path: str, file_type: str = "stream",
-                       file_name: Optional[str] = None,
-                       duration: Optional[int] = None) -> Result:
+    def upload_im_file(
+        self,
+        file_path: str,
+        file_type: str = "stream",
+        file_name: Optional[str] = None,
+        duration: Optional[int] = None,
+    ) -> Result:
         """file_type: opus | mp4 | pdf | doc | xls | ppt | stream. Returns file_key for send_file_message."""
         import os
+
         if not file_name:
             file_name = os.path.basename(file_path)
         token = self._headers()["Authorization"]
@@ -733,7 +853,8 @@ class LarkClient(BasePlatformClient):
             if duration is not None:
                 form["duration"] = str(duration)
             return http_request(
-                "POST", f"{LARK_API_BASE}/im/v1/files",
+                "POST",
+                f"{LARK_API_BASE}/im/v1/files",
                 headers={"Authorization": token},
                 data=form,
                 files={"file": (file_name, file_data)},
@@ -743,11 +864,16 @@ class LarkClient(BasePlatformClient):
         except OSError as e:
             return {"error": f"Failed to read {file_path}: {e}"}
 
-    def download_message_resource(self, message_id: str, file_key: str,
-                                  dest_path: str,
-                                  resource_type: str = "file") -> Result:
+    def download_message_resource(
+        self,
+        message_id: str,
+        file_key: str,
+        dest_path: str,
+        resource_type: str = "file",
+    ) -> Result:
         """Download an attached image/file/audio from a message. resource_type: image | file (covers audio/video)."""
         import httpx
+
         token = self._headers()["Authorization"]
         try:
             with httpx.stream(
@@ -758,15 +884,19 @@ class LarkClient(BasePlatformClient):
                 timeout=120.0,
             ) as resp:
                 if resp.status_code != 200:
-                    return {"error": f"Download failed: HTTP {resp.status_code}",
-                            "details": resp.read().decode("utf-8", errors="replace")[:500]}
+                    return {
+                        "error": f"Download failed: HTTP {resp.status_code}",
+                        "details": resp.read().decode("utf-8", errors="replace")[:500],
+                    }
                 bytes_written = 0
                 with open(dest_path, "wb") as f:
                     for chunk in resp.iter_bytes(chunk_size=64 * 1024):
                         f.write(chunk)
                         bytes_written += len(chunk)
-                return {"ok": True, "result": {"path": dest_path,
-                                                "bytes_written": bytes_written}}
+                return {
+                    "ok": True,
+                    "result": {"path": dest_path, "bytes_written": bytes_written},
+                }
         except (httpx.HTTPError, OSError) as e:
             return {"error": f"Download failed: {e}"}
 
@@ -774,14 +904,17 @@ class LarkClient(BasePlatformClient):
     # Chats — CRUD + members + announcement + search
     # ==================================================================
 
-    def create_chat(self, name: str,
-                    description: str = "",
-                    owner_id: Optional[str] = None,
-                    user_id_list: Optional[List[str]] = None,
-                    bot_id_list: Optional[List[str]] = None,
-                    chat_mode: str = "group",
-                    chat_type: str = "private",
-                    user_id_type: str = "open_id") -> Result:
+    def create_chat(
+        self,
+        name: str,
+        description: str = "",
+        owner_id: Optional[str] = None,
+        user_id_list: Optional[List[str]] = None,
+        bot_id_list: Optional[List[str]] = None,
+        chat_mode: str = "group",
+        chat_type: str = "private",
+        user_id_type: str = "open_id",
+    ) -> Result:
         """chat_mode: group | topic. chat_type: public | private."""
         payload: Dict[str, Any] = {
             "name": name,
@@ -789,134 +922,193 @@ class LarkClient(BasePlatformClient):
             "chat_mode": chat_mode,
             "chat_type": chat_type,
         }
-        if owner_id: payload["owner_id"] = owner_id
-        if user_id_list: payload["user_id_list"] = user_id_list
-        if bot_id_list: payload["bot_id_list"] = bot_id_list
+        if owner_id:
+            payload["owner_id"] = owner_id
+        if user_id_list:
+            payload["user_id_list"] = user_id_list
+        if bot_id_list:
+            payload["bot_id_list"] = bot_id_list
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/chats",
+            "POST",
+            f"{LARK_API_BASE}/im/v1/chats",
             params={"user_id_type": user_id_type},
-            headers=self._headers(), json=payload, expected=(200,),
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def get_chat(self, chat_id: str,
-                 user_id_type: str = "open_id") -> Result:
+    def get_chat(self, chat_id: str, user_id_type: str = "open_id") -> Result:
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/chats/{chat_id}",
+            "GET",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}",
             params={"user_id_type": user_id_type},
-            headers=self._headers(), expected=(200,),
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def update_chat(self, chat_id: str,
-                    name: Optional[str] = None,
-                    description: Optional[str] = None,
-                    avatar: Optional[str] = None,
-                    add_member_permission: Optional[str] = None,
-                    share_card_permission: Optional[str] = None,
-                    at_all_permission: Optional[str] = None,
-                    edit_permission: Optional[str] = None,
-                    chat_type: Optional[str] = None) -> Result:
+    def update_chat(
+        self,
+        chat_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        avatar: Optional[str] = None,
+        add_member_permission: Optional[str] = None,
+        share_card_permission: Optional[str] = None,
+        at_all_permission: Optional[str] = None,
+        edit_permission: Optional[str] = None,
+        chat_type: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if name is not None: payload["name"] = name
-        if description is not None: payload["description"] = description
-        if avatar is not None: payload["avatar"] = avatar
-        if add_member_permission is not None: payload["add_member_permission"] = add_member_permission
-        if share_card_permission is not None: payload["share_card_permission"] = share_card_permission
-        if at_all_permission is not None: payload["at_all_permission"] = at_all_permission
-        if edit_permission is not None: payload["edit_permission"] = edit_permission
-        if chat_type is not None: payload["chat_type"] = chat_type
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        if avatar is not None:
+            payload["avatar"] = avatar
+        if add_member_permission is not None:
+            payload["add_member_permission"] = add_member_permission
+        if share_card_permission is not None:
+            payload["share_card_permission"] = share_card_permission
+        if at_all_permission is not None:
+            payload["at_all_permission"] = at_all_permission
+        if edit_permission is not None:
+            payload["edit_permission"] = edit_permission
+        if chat_type is not None:
+            payload["chat_type"] = chat_type
         return http_request(
-            "PUT", f"{LARK_API_BASE}/im/v1/chats/{chat_id}",
-            headers=self._headers(), json=payload, expected=(200,),
+            "PUT",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def dissolve_chat(self, chat_id: str) -> Result:
         return http_request(
-            "DELETE", f"{LARK_API_BASE}/im/v1/chats/{chat_id}",
-            headers=self._headers(), expected=(200,),
+            "DELETE",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", {"dissolved": True, "chat_id": chat_id}),
         )
 
-    def list_chat_members(self, chat_id: str,
-                          member_id_type: str = "open_id",
-                          page_size: int = 100,
-                          page_token: str = "") -> Result:
+    def list_chat_members(
+        self,
+        chat_id: str,
+        member_id_type: str = "open_id",
+        page_size: int = 100,
+        page_token: str = "",
+    ) -> Result:
         params: Dict[str, str] = {
             "member_id_type": member_id_type,
             "page_size": str(min(page_size, 100)),
         }
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/chats/{chat_id}/members",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}/members",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def add_chat_members(self, chat_id: str, id_list: List[str],
-                         member_id_type: str = "open_id",
-                         succeed_type: int = 0) -> Result:
+    def add_chat_members(
+        self,
+        chat_id: str,
+        id_list: List[str],
+        member_id_type: str = "open_id",
+        succeed_type: int = 0,
+    ) -> Result:
         """succeed_type: 0 (return error if any fails) | 1 (partial-success allowed) | 2 (return existing-member info)."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/im/v1/chats/{chat_id}/members",
-            params={"member_id_type": member_id_type, "succeed_type": str(succeed_type)},
+            "POST",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}/members",
+            params={
+                "member_id_type": member_id_type,
+                "succeed_type": str(succeed_type),
+            },
             headers=self._headers(),
-            json={"id_list": id_list}, expected=(200,),
+            json={"id_list": id_list},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def remove_chat_members(self, chat_id: str, id_list: List[str],
-                            member_id_type: str = "open_id") -> Result:
+    def remove_chat_members(
+        self, chat_id: str, id_list: List[str], member_id_type: str = "open_id"
+    ) -> Result:
         return http_request(
-            "DELETE", f"{LARK_API_BASE}/im/v1/chats/{chat_id}/members",
+            "DELETE",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}/members",
             params={"member_id_type": member_id_type},
             headers=self._headers(),
-            json={"id_list": id_list}, expected=(200,),
+            json={"id_list": id_list},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def search_chats(self, query: str, page_size: int = 50,
-                     page_token: str = "") -> Result:
+    def search_chats(
+        self, query: str, page_size: int = 50, page_token: str = ""
+    ) -> Result:
         params: Dict[str, str] = {
             "query": query,
             "page_size": str(min(page_size, 100)),
         }
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/chats/search",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/chats/search",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def get_chat_announcement(self, chat_id: str) -> Result:
         return http_request(
-            "GET", f"{LARK_API_BASE}/im/v1/chats/{chat_id}/announcement",
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}/announcement",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def update_chat_announcement(self, chat_id: str, revision: str,
-                                 requests: List[Dict[str, Any]]) -> Result:
+    def update_chat_announcement(
+        self, chat_id: str, revision: str, requests: List[Dict[str, Any]]
+    ) -> Result:
         """requests is a list of Lark block update operations (same shape as Docx)."""
         return http_request(
-            "PATCH", f"{LARK_API_BASE}/im/v1/chats/{chat_id}/announcement",
+            "PATCH",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}/announcement",
             headers=self._headers(),
-            json={"revision": revision, "requests": requests}, expected=(200,),
+            json={"revision": revision, "requests": requests},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def update_chat_moderation(self, chat_id: str,
-                               moderation_setting: str,
-                               user_id_list: Optional[List[str]] = None,
-                               user_id_type: str = "open_id") -> Result:
+    def update_chat_moderation(
+        self,
+        chat_id: str,
+        moderation_setting: str,
+        user_id_list: Optional[List[str]] = None,
+        user_id_type: str = "open_id",
+    ) -> Result:
         """moderation_setting: all_members | only_owner | specific_users."""
         payload: Dict[str, Any] = {"moderation_setting": moderation_setting}
-        if user_id_list is not None: payload["user_id_list"] = user_id_list
+        if user_id_list is not None:
+            payload["user_id_list"] = user_id_list
         return http_request(
-            "PUT", f"{LARK_API_BASE}/im/v1/chats/{chat_id}/moderation",
+            "PUT",
+            f"{LARK_API_BASE}/im/v1/chats/{chat_id}/moderation",
             params={"user_id_type": user_id_type},
-            headers=self._headers(), json=payload, expected=(200,),
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -924,96 +1116,139 @@ class LarkClient(BasePlatformClient):
     # Contacts — users / departments
     # ==================================================================
 
-    def get_user(self, user_id: str,
-                 user_id_type: str = "open_id",
-                 department_id_type: str = "open_department_id") -> Result:
+    def get_user(
+        self,
+        user_id: str,
+        user_id_type: str = "open_id",
+        department_id_type: str = "open_department_id",
+    ) -> Result:
         return http_request(
-            "GET", f"{LARK_API_BASE}/contact/v3/users/{user_id}",
-            params={"user_id_type": user_id_type,
-                    "department_id_type": department_id_type},
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/contact/v3/users/{user_id}",
+            params={
+                "user_id_type": user_id_type,
+                "department_id_type": department_id_type,
+            },
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def batch_get_users(self, user_ids: List[str],
-                        user_id_type: str = "open_id") -> Result:
+    def batch_get_users(
+        self, user_ids: List[str], user_id_type: str = "open_id"
+    ) -> Result:
         return http_request(
-            "GET", f"{LARK_API_BASE}/contact/v3/users/batch",
-            params=[("user_id_type", user_id_type)] + [("user_ids", uid) for uid in user_ids],
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/contact/v3/users/batch",
+            params=[("user_id_type", user_id_type)]
+            + [("user_ids", uid) for uid in user_ids],
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def batch_get_user_ids(self,
-                           emails: Optional[List[str]] = None,
-                           mobiles: Optional[List[str]] = None,
-                           user_id_type: str = "open_id") -> Result:
+    def batch_get_user_ids(
+        self,
+        emails: Optional[List[str]] = None,
+        mobiles: Optional[List[str]] = None,
+        user_id_type: str = "open_id",
+    ) -> Result:
         """Resolve a batch of emails/mobiles to user IDs (extension of get_user_by_email)."""
         payload: Dict[str, Any] = {}
-        if emails: payload["emails"] = emails
-        if mobiles: payload["mobiles"] = mobiles
+        if emails:
+            payload["emails"] = emails
+        if mobiles:
+            payload["mobiles"] = mobiles
         return http_request(
-            "POST", f"{LARK_API_BASE}/contact/v3/users/batch_get_id",
+            "POST",
+            f"{LARK_API_BASE}/contact/v3/users/batch_get_id",
             params={"user_id_type": user_id_type},
-            headers=self._headers(), json=payload, expected=(200,),
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def list_department_users(self, department_id: str,
-                              user_id_type: str = "open_id",
-                              department_id_type: str = "open_department_id",
-                              page_size: int = 50,
-                              page_token: str = "") -> Result:
+    def list_department_users(
+        self,
+        department_id: str,
+        user_id_type: str = "open_id",
+        department_id_type: str = "open_department_id",
+        page_size: int = 50,
+        page_token: str = "",
+    ) -> Result:
         params: Dict[str, str] = {
             "department_id": department_id,
             "user_id_type": user_id_type,
             "department_id_type": department_id_type,
             "page_size": str(min(page_size, 50)),
         }
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/contact/v3/users/find_by_department",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/contact/v3/users/find_by_department",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def search_users_by_name(self, query: str,
-                             page_size: int = 50,
-                             page_token: str = "") -> Result:
+    def search_users_by_name(
+        self, query: str, page_size: int = 50, page_token: str = ""
+    ) -> Result:
         """User search visible to the app (depends on scope grants)."""
         params: Dict[str, str] = {"query": query, "page_size": str(min(page_size, 50))}
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/contact/v3/users/search",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/contact/v3/users/search",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def get_department(self, department_id: str,
-                       department_id_type: str = "open_department_id",
-                       user_id_type: str = "open_id") -> Result:
+    def get_department(
+        self,
+        department_id: str,
+        department_id_type: str = "open_department_id",
+        user_id_type: str = "open_id",
+    ) -> Result:
         return http_request(
-            "GET", f"{LARK_API_BASE}/contact/v3/departments/{department_id}",
-            params={"department_id_type": department_id_type,
-                    "user_id_type": user_id_type},
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/contact/v3/departments/{department_id}",
+            params={
+                "department_id_type": department_id_type,
+                "user_id_type": user_id_type,
+            },
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def list_department_children(self, parent_department_id: str,
-                                 department_id_type: str = "open_department_id",
-                                 fetch_child: bool = False,
-                                 page_size: int = 50,
-                                 page_token: str = "") -> Result:
+    def list_department_children(
+        self,
+        parent_department_id: str,
+        department_id_type: str = "open_department_id",
+        fetch_child: bool = False,
+        page_size: int = 50,
+        page_token: str = "",
+    ) -> Result:
         params: Dict[str, str] = {
             "parent_department_id": parent_department_id,
             "department_id_type": department_id_type,
             "fetch_child": str(fetch_child).lower(),
             "page_size": str(min(page_size, 50)),
         }
-        if page_token: params["page_token"] = page_token
+        if page_token:
+            params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/contact/v3/departments/children",
-            headers=self._headers(), params=params, expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/contact/v3/departments/children",
+            headers=self._headers(),
+            params=params,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )

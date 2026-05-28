@@ -380,7 +380,9 @@ Image specifications:
                 }.get(safety_filter_level, "BLOCK_MEDIUM_AND_ABOVE")
 
                 safety_settings = [
-                    types.SafetySetting(category=category, threshold=harm_block_threshold)
+                    types.SafetySetting(
+                        category=category, threshold=harm_block_threshold
+                    )
                     for category in (
                         "HARM_CATEGORY_HARASSMENT",
                         "HARM_CATEGORY_HATE_SPEECH",
@@ -488,6 +490,7 @@ Image specifications:
                 )
 
             import urllib.request as _urllib_request
+
             images_found = []
             for item in response.data:
                 if item.b64_json:
@@ -518,7 +521,9 @@ Image specifications:
 
             model_label = "Images 2.0"
 
-        message = f"Successfully generated {len(image_paths)} image(s) using {model_label}."
+        message = (
+            f"Successfully generated {len(image_paths)} image(s) using {model_label}."
+        )
         if warnings:
             message += " Warnings: " + " ".join(warnings)
 
@@ -535,21 +540,40 @@ Image specifications:
 
         if provider == "gemini":
             if "quota" in error_message.lower() or "rate" in error_message.lower():
-                error_message = f"Gemini API rate limit or quota exceeded: {error_message}"
+                error_message = (
+                    f"Gemini API rate limit or quota exceeded: {error_message}"
+                )
             elif "invalid" in error_message.lower() and "key" in error_message.lower():
                 error_message = f"Invalid Gemini API key: {error_message}. Please verify your Google API key is correct."
-            elif "permission" in error_message.lower() or "access" in error_message.lower():
+            elif (
+                "permission" in error_message.lower()
+                or "access" in error_message.lower()
+            ):
                 error_message = f"Gemini API access denied: {error_message}. Ensure your API key has access to the Nano Banana 2 model."
-            elif "safety" in error_message.lower() or "blocked" in error_message.lower():
+            elif (
+                "safety" in error_message.lower() or "blocked" in error_message.lower()
+            ):
                 error_message = f"Content blocked by Gemini safety filters: {error_message}. Try modifying your prompt."
             elif "not found" in error_message.lower() or "404" in error_message:
                 error_message = f"Gemini model not available: {error_message}. The gemini-3.1-flash-image-preview model may not be accessible with your API key. Try using Google AI Studio to verify access."
         else:
-            if "billing" in error_message.lower() or "insufficient_quota" in error_message.lower() or "rate" in error_message.lower():
-                error_message = f"OpenAI API rate limit or quota exceeded: {error_message}"
-            elif "invalid_api_key" in error_message.lower() or ("invalid" in error_message.lower() and "key" in error_message.lower()):
+            if (
+                "billing" in error_message.lower()
+                or "insufficient_quota" in error_message.lower()
+                or "rate" in error_message.lower()
+            ):
+                error_message = (
+                    f"OpenAI API rate limit or quota exceeded: {error_message}"
+                )
+            elif "invalid_api_key" in error_message.lower() or (
+                "invalid" in error_message.lower() and "key" in error_message.lower()
+            ):
                 error_message = f"Invalid OpenAI API key: {error_message}. Please verify your OpenAI API key is correct."
-            elif "content_policy" in error_message.lower() or "safety" in error_message.lower() or "blocked" in error_message.lower():
+            elif (
+                "content_policy" in error_message.lower()
+                or "safety" in error_message.lower()
+                or "blocked" in error_message.lower()
+            ):
                 error_message = f"Content blocked by OpenAI safety policy: {error_message}. Try modifying your prompt."
             elif "not found" in error_message.lower() or "404" in error_message:
                 error_message = f"OpenAI model not available: {error_message}. The gpt-image-2 model may not be accessible with your API key."

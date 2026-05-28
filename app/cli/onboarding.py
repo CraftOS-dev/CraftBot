@@ -13,7 +13,6 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    IntegrationStep,
     SkillsStep,
 )
 from app.onboarding import onboarding_manager

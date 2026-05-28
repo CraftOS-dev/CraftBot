@@ -873,9 +873,7 @@ class LLMInterface:
                     {"role": "system", "content": effective_system_prompt}
                 ]
                 for msg in history:
-                    or_messages.append(
-                        {"role": msg["role"], "content": msg["content"]}
-                    )
+                    or_messages.append({"role": msg["role"], "content": msg["content"]})
                 or_messages.append({"role": "user", "content": user_prompt})
 
                 logger.debug(
@@ -893,9 +891,7 @@ class LLMInterface:
                 assistant_content = response.get("content", "")
                 if assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
-                    history.append(
-                        {"role": "assistant", "content": assistant_content}
-                    )
+                    history.append({"role": "assistant", "content": assistant_content})
             else:
                 # Standard single-turn path. OpenAI/DeepSeek/Grok rely on the
                 # upstream's automatic prefix caching with prompt_cache_key —
@@ -1074,9 +1070,7 @@ class LLMInterface:
             assistant_content = response.get("content", "")
             response_has_error = bool(response.get("error"))
             if assistant_content and not response_has_error:
-                history.append(
-                    {"role": "user", "content": [{"text": user_prompt}]}
-                )
+                history.append({"role": "user", "content": [{"text": user_prompt}]})
                 history.append(
                     {"role": "assistant", "content": [{"text": assistant_content}]}
                 )
@@ -1837,9 +1831,7 @@ class LLMInterface:
             # the session-cache dispatcher accumulates history and we want
             # Gemini's automatic prefix matching to do the work.
             if contents_override is not None:
-                cache_type = (
-                    f"implicit_{call_type}" if call_type else "implicit"
-                )
+                cache_type = f"implicit_{call_type}" if call_type else "implicit"
                 logger.debug(
                     f"[GEMINI] Using multi-turn implicit caching "
                     f"(call_type={call_type}, turns={len(contents_override)})"
@@ -2482,9 +2474,11 @@ class LLMInterface:
             # already placed on the last assistant message (if any). Single-turn
             # path: build a fresh user-only message list.
             multi_turn = messages is not None
-            converse_messages = messages if multi_turn else [
-                {"role": "user", "content": [{"text": user_prompt}]}
-            ]
+            converse_messages = (
+                messages
+                if multi_turn
+                else [{"role": "user", "content": [{"text": user_prompt}]}]
+            )
 
             converse_kwargs: Dict[str, Any] = {
                 "modelId": self.model,
