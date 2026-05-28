@@ -261,6 +261,13 @@ async def with_client(
         result = fn(client, *args, **kwargs)
         if asyncio.iscoroutine(result):
             result = await result
+        try:
+            from app.ui_layer.metrics.collector import MetricsCollector
+            collector = MetricsCollector.get_instance()
+            if collector:
+                collector.record_integration_call(integration)
+        except Exception:
+            pass
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "message": str(e)}
