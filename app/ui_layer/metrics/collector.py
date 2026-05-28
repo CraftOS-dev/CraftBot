@@ -970,35 +970,24 @@ class MetricsCollector:
             return SkillMetrics()
 
     def _get_integration_metrics(self) -> IntegrationMetrics:
-        """Get integration metrics.
-
-        Uses only sync, credential-file-based checks so this is safe to call
-        from inside a running event loop (avoids _run_sync / RuntimeError).
-        """
+        """Get integration metrics using the same data source as the integration list handler."""
         try:
-            from craftos_integrations import get_client, get_handler
-            from craftos_integrations.service import list_metadata
+            from craftos_integrations import list_integrations_sync
 
+            integrations_data = list_integrations_sync()
             integrations = []
             connected = 0
 
-            for meta in list_metadata():
-                handler_id = meta["id"]
-                handler = get_handler(handler_id)
-                spec = getattr(handler, "spec", None) if handler else None
-                platform_id = (
-                    getattr(spec, "platform_id", handler_id) if spec else handler_id
-                )
-                client = get_client(platform_id)
-                is_connected = bool(client.has_credentials()) if client else False
+            for intg in integrations_data:
+                is_connected = intg.get("connected", False)
                 if is_connected:
                     connected += 1
                 integrations.append(
                     IntegrationInfo(
-                        name=meta.get("name", handler_id),
+                        name=intg.get("name", intg.get("id", "")),
                         connected=is_connected,
-                        description=meta.get("description", ""),
-                        icon=meta.get("icon", ""),
+                        description=intg.get("description", ""),
+                        icon=intg.get("icon", ""),
                     )
                 )
 
