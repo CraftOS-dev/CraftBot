@@ -16,7 +16,7 @@ It is open-source and still in active development — suggestions, feedback, and
 
 - Use the built-in agent to plan and execute multi-step tasks
 - Subclass the base agent to build specialized behaviors or workflows
-- Interact with the agent through a TUI (text-based interface)
+- Interact with the agent through a browser UI or CLI
 
 ## Key features
 

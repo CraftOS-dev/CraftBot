@@ -47,9 +47,10 @@ def get_project_root() -> Path:
     on Linux). Runtime state (agent_file_system, chroma_db_memory, dbs, logs)
     lives there so the install dir stays clean and uninstalls don't lose data.
     """
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return _frozen_user_data_root()
     return Path(__file__).resolve().parent.parent
+
 
 PROJECT_ROOT = get_project_root()
 AGENT_WORKSPACE_ROOT = PROJECT_ROOT / "agent_file_system/workspace"
@@ -108,6 +109,12 @@ def _get_default_settings() -> Dict[str, Any]:
             "google_api_base": "",
             "google_api_version": "",
             "openrouter_base_url": "",
+            "aws_region": "us-east-1",
+        },
+        "aws_credentials": {
+            "access_key_id": "",
+            "secret_access_key": "",
+            "session_token": "",
         },
         "web_search": {
             "google_cse_id": "",
@@ -175,7 +182,11 @@ def get_app_version() -> str:
     # Settings.json legacy fallback — was the source of truth before
     # the VERSION-file scheme.
     settings = get_settings()
-    v = settings.get("version", "").strip() if isinstance(settings.get("version"), str) else ""
+    v = (
+        settings.get("version", "").strip()
+        if isinstance(settings.get("version"), str)
+        else ""
+    )
     return v or "0.0.0"
 
 
@@ -253,8 +264,45 @@ def get_base_url(provider: str) -> Optional[str]:
     elif provider == "openrouter":
         url = endpoints.get("openrouter_base_url", "")
         return url if url else "https://openrouter.ai/api/v1"
+    elif provider == "bedrock":
+        # For Bedrock the "base URL" slot carries the AWS region.
+        region = (
+            endpoints.get("aws_region")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or os.environ.get("AWS_REGION")
+        )
+        return region or "us-east-1"
 
     return None
+
+
+def get_aws_credentials() -> Dict[str, str]:
+    """Get AWS credentials for the Bedrock provider.
+
+    Returns a dict with access_key_id, secret_access_key, session_token, and
+    region. Values fall back from settings.json → env vars → empty string so
+    boto3's default credential chain still works when running on an EC2/ECS
+    host with an IAM role.
+    """
+    settings = get_settings()
+    aws = settings.get("aws_credentials", {}) or {}
+    endpoints = settings.get("endpoints", {}) or {}
+
+    return {
+        "access_key_id": aws.get("access_key_id")
+        or os.environ.get("AWS_ACCESS_KEY_ID", "")
+        or "",
+        "secret_access_key": aws.get("secret_access_key")
+        or os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+        or "",
+        "session_token": aws.get("session_token")
+        or os.environ.get("AWS_SESSION_TOKEN", "")
+        or "",
+        "region": endpoints.get("aws_region")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+        or "us-east-1",
+    }
 
 
 def get_connection_test_model(provider: str) -> Optional[str]:
@@ -365,10 +413,12 @@ def detect_and_save_os_language() -> str:
 
 
 MAX_ACTIONS_PER_TASK: int = 500
-MAX_TOKEN_PER_TASK: int = 12000000 # of tokens
+MAX_TOKEN_PER_TASK: int = 12000000  # of tokens
 
 # Memory processing configuration
-PROCESS_MEMORY_AT_STARTUP: bool = False  # Process EVENT_UNPROCESSED.md into MEMORY.md at startup
+PROCESS_MEMORY_AT_STARTUP: bool = (
+    False  # Process EVENT_UNPROCESSED.md into MEMORY.md at startup
+)
 MEMORY_PROCESSING_SCHEDULE_HOUR: int = 3  # Hour (0-23) to run daily memory processing
 
 # Credential storage mode (local-only in CraftBot)
@@ -377,23 +427,30 @@ USE_REMOTE_CREDENTIALS: bool = False
 # OAuth client credentials
 # Uses embedded credentials with environment variable override
 # See core/credentials/embedded_credentials.py for credential management
-import os
 from agent_core import get_credential
 
 # Google (PKCE - only client_id required, secret kept for backwards compatibility)
 GOOGLE_CLIENT_ID: str = get_credential("google", "client_id", "GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET: str = get_credential("google", "client_secret", "GOOGLE_CLIENT_SECRET")
+GOOGLE_CLIENT_SECRET: str = get_credential(
+    "google", "client_secret", "GOOGLE_CLIENT_SECRET"
+)
 
 # LinkedIn (requires both client_id and client_secret)
 LINKEDIN_CLIENT_ID: str = get_credential("linkedin", "client_id", "LINKEDIN_CLIENT_ID")
-LINKEDIN_CLIENT_SECRET: str = get_credential("linkedin", "client_secret", "LINKEDIN_CLIENT_SECRET")
+LINKEDIN_CLIENT_SECRET: str = get_credential(
+    "linkedin", "client_secret", "LINKEDIN_CLIENT_SECRET"
+)
 
 # Outlook / Microsoft (PKCE - only client_id required)
 OUTLOOK_CLIENT_ID: str = get_credential("outlook", "client_id", "OUTLOOK_CLIENT_ID")
 
 # Slack (requires both client_id and client_secret - no PKCE support)
-SLACK_SHARED_CLIENT_ID: str = get_credential("slack", "client_id", "SLACK_SHARED_CLIENT_ID")
-SLACK_SHARED_CLIENT_SECRET: str = get_credential("slack", "client_secret", "SLACK_SHARED_CLIENT_SECRET")
+SLACK_SHARED_CLIENT_ID: str = get_credential(
+    "slack", "client_id", "SLACK_SHARED_CLIENT_ID"
+)
+SLACK_SHARED_CLIENT_SECRET: str = get_credential(
+    "slack", "client_secret", "SLACK_SHARED_CLIENT_SECRET"
+)
 
 # Telegram (token-based, not OAuth)
 TELEGRAM_SHARED_BOT_TOKEN: str = os.environ.get("TELEGRAM_SHARED_BOT_TOKEN", "")
@@ -404,5 +461,9 @@ TELEGRAM_API_ID: str = get_credential("telegram", "api_id", "TELEGRAM_API_ID")
 TELEGRAM_API_HASH: str = get_credential("telegram", "api_hash", "TELEGRAM_API_HASH")
 
 # Notion (requires both client_id and client_secret - no PKCE support)
-NOTION_SHARED_CLIENT_ID: str = get_credential("notion", "client_id", "NOTION_SHARED_CLIENT_ID")
-NOTION_SHARED_CLIENT_SECRET: str = get_credential("notion", "client_secret", "NOTION_SHARED_CLIENT_SECRET")
+NOTION_SHARED_CLIENT_ID: str = get_credential(
+    "notion", "client_id", "NOTION_SHARED_CLIENT_ID"
+)
+NOTION_SHARED_CLIENT_SECRET: str = get_credential(
+    "notion", "client_secret", "NOTION_SHARED_CLIENT_SECRET"
+)

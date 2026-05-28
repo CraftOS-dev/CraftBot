@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from .types import RecurringTask, RecurringData, RecurringOutcome
+from .types import RecurringTask, RecurringData
 from .parser import ProactiveParser
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,9 @@ class ProactiveManager:
         content = self.file_path.read_text(encoding="utf-8")
         self._template = content
         self._data = ProactiveParser.parse(content)
-        logger.info(f"[PROACTIVE] Loaded {len(self._data.tasks)} tasks from {self.file_path}")
+        logger.info(
+            f"[PROACTIVE] Loaded {len(self._data.tasks)} tasks from {self.file_path}"
+        )
         return self._data
 
     def save(self) -> None:
@@ -73,18 +75,20 @@ class ProactiveManager:
         try:
             # Write to temporary file first
             with tempfile.NamedTemporaryFile(
-                mode='w',
-                encoding='utf-8',
-                suffix='.md',
+                mode="w",
+                encoding="utf-8",
+                suffix=".md",
                 delete=False,
-                dir=self.file_path.parent
+                dir=self.file_path.parent,
             ) as f:
                 f.write(content)
                 temp_path = Path(f.name)
 
             # Atomic rename
             shutil.move(str(temp_path), str(self.file_path))
-            logger.info(f"[PROACTIVE] Saved {len(self._data.tasks)} tasks to {self.file_path}")
+            logger.info(
+                f"[PROACTIVE] Saved {len(self._data.tasks)} tasks to {self.file_path}"
+            )
 
         except Exception as e:
             # Clean up temp file on error
@@ -101,9 +105,7 @@ class ProactiveManager:
         return self._data
 
     def get_tasks(
-        self,
-        frequency: Optional[str] = None,
-        enabled_only: bool = True
+        self, frequency: Optional[str] = None, enabled_only: bool = True
     ) -> List[RecurringTask]:
         """Get tasks, optionally filtered.
 
@@ -171,7 +173,9 @@ class ProactiveManager:
         # Validate frequency
         valid_frequencies = ["hourly", "daily", "weekly", "monthly"]
         if frequency not in valid_frequencies:
-            raise ValueError(f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
+            raise ValueError(
+                f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}"
+            )
 
         # Generate ID if not provided
         if not task_id:
@@ -183,6 +187,7 @@ class ProactiveManager:
 
         # Parse conditions
         from .types import RecurringCondition
+
         parsed_conditions = []
         if conditions:
             for c in conditions:
@@ -231,14 +236,14 @@ class ProactiveManager:
         # Apply updates
         if updates:
             for key, value in updates.items():
-                if hasattr(task, key) and key not in ['id', 'outcome_history']:
+                if hasattr(task, key) and key not in ["id", "outcome_history"]:
                     setattr(task, key, value)
 
         # Add outcome
         if add_outcome:
             task.add_outcome(
                 result=add_outcome.get("result", ""),
-                success=add_outcome.get("success", True)
+                success=add_outcome.get("success", True),
             )
 
         self.save()
@@ -275,10 +280,7 @@ class ProactiveManager:
         return self.update_task(task_id, updates={"enabled": enabled})
 
     def record_outcome(
-        self,
-        task_id: str,
-        result: str,
-        success: bool = True
+        self, task_id: str, result: str, success: bool = True
     ) -> Optional[RecurringTask]:
         """Record an execution outcome for a task.
 
@@ -291,8 +293,7 @@ class ProactiveManager:
             The updated task if found, None otherwise
         """
         return self.update_task(
-            task_id,
-            add_outcome={"result": result, "success": success}
+            task_id, add_outcome={"result": result, "success": success}
         )
 
     def update_planner_output(self, scope: str, date_info: str, content: str) -> None:
@@ -322,7 +323,9 @@ class ProactiveManager:
         # Filter by should_run logic
         due_tasks = [t for t in tasks if t.should_run(frequency)]
 
-        logger.info(f"[PROACTIVE] Found {len(due_tasks)} due tasks for {frequency} heartbeat")
+        logger.info(
+            f"[PROACTIVE] Found {len(due_tasks)} due tasks for {frequency} heartbeat"
+        )
         return due_tasks
 
     def get_all_due_tasks(self) -> List[RecurringTask]:
@@ -344,7 +347,9 @@ class ProactiveManager:
             for t in due:
                 freq_counts[t.frequency] = freq_counts.get(t.frequency, 0) + 1
             summary = ", ".join(f"{cnt} {f}" for f, cnt in freq_counts.items())
-            logger.info(f"[PROACTIVE] Found {len(due)} due tasks across all frequencies: {summary}")
+            logger.info(
+                f"[PROACTIVE] Found {len(due)} due tasks across all frequencies: {summary}"
+            )
         else:
             logger.info("[PROACTIVE] No due tasks found across any frequency")
 

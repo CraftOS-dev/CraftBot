@@ -53,7 +53,11 @@
 .statusText {
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  max-width: 150px;
+  /* Cap at a viewport-relative width so the agent status can show
+     long messages on wide screens while still ellipsis-truncating on
+     narrow windows (preserving space for the version badge and the
+     icon buttons on the right). */
+  max-width: min(60vw, 700px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

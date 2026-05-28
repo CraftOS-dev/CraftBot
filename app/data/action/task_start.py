@@ -103,7 +103,9 @@ async def start_task(input_data: dict) -> dict:
         # Pass session_id so task_id == session_id for event stream isolation
         # Pass original_query to log user message to the new task's event stream
         result = await iai.InternalActionInterface.do_create_task(
-            task_name, task_description, task_mode,
+            task_name,
+            task_description,
+            task_mode,
             session_id=session_id,
             original_query=original_query,
             original_platform=original_platform,

@@ -9,33 +9,27 @@ from agent_core import action
         "task_id": {
             "type": "string",
             "description": "ID of the task to update",
-            "example": "daily_morning_briefing"
+            "example": "daily_morning_briefing",
         },
         "updates": {
             "type": "object",
             "description": "Fields to update. Can include: enabled, priority, permission_tier, instruction, time, day",
-            "example": {"enabled": False, "priority": 30}
+            "example": {"enabled": False, "priority": 30},
         },
         "add_outcome": {
             "type": "object",
             "description": "Optional outcome to add to task history. Include 'result' (string) and optionally 'success' (boolean, default true)",
-            "example": {"result": "Task completed successfully", "success": True}
-        }
+            "example": {"result": "Task completed successfully", "success": True},
+        },
     },
     output_schema={
         "status": {
             "type": "string",
-            "description": "ok if successful, error otherwise"
+            "description": "ok if successful, error otherwise",
         },
-        "task": {
-            "type": "object",
-            "description": "The updated task details"
-        },
-        "message": {
-            "type": "string",
-            "description": "Confirmation message"
-        }
-    }
+        "task": {"type": "object", "description": "The updated task details"},
+        "message": {"type": "string", "description": "Confirmation message"},
+    },
 )
 def recurring_update_task(input_data: dict) -> dict:
     """Update an existing recurring task."""
@@ -43,10 +37,7 @@ def recurring_update_task(input_data: dict) -> dict:
 
     manager = get_proactive_manager()
     if manager is None:
-        return {
-            "status": "error",
-            "error": "Proactive manager not initialized"
-        }
+        return {"status": "error", "error": "Proactive manager not initialized"}
 
     try:
         task_id = input_data.get("task_id")
@@ -58,15 +49,20 @@ def recurring_update_task(input_data: dict) -> dict:
 
         # Validate updates
         allowed_update_fields = [
-            "enabled", "priority", "permission_tier", "instruction",
-            "time", "day", "name"
+            "enabled",
+            "priority",
+            "permission_tier",
+            "instruction",
+            "time",
+            "day",
+            "name",
         ]
         invalid_fields = [k for k in updates.keys() if k not in allowed_update_fields]
         if invalid_fields:
             return {
                 "status": "error",
                 "error": f"Cannot update fields: {', '.join(invalid_fields)}. "
-                        f"Allowed: {', '.join(allowed_update_fields)}"
+                f"Allowed: {', '.join(allowed_update_fields)}",
             }
 
         # Validate permission_tier if being updated
@@ -75,21 +71,18 @@ def recurring_update_task(input_data: dict) -> dict:
             if not isinstance(tier, int) or tier < 0 or tier > 3:
                 return {
                     "status": "error",
-                    "error": "permission_tier must be an integer from 0 to 3"
+                    "error": "permission_tier must be an integer from 0 to 3",
                 }
 
         # Update the task
         task = manager.update_task(
             task_id=task_id,
             updates=updates if updates else None,
-            add_outcome=add_outcome
+            add_outcome=add_outcome,
         )
 
         if task is None:
-            return {
-                "status": "error",
-                "error": f"Task not found: {task_id}"
-            }
+            return {"status": "error", "error": f"Task not found: {task_id}"}
 
         # Build response
         task_dict = {
@@ -114,11 +107,10 @@ def recurring_update_task(input_data: dict) -> dict:
         return {
             "status": "ok",
             "task": task_dict,
-            "message": ". ".join(messages) if messages else "Task retrieved (no changes)"
+            "message": ". ".join(messages)
+            if messages
+            else "Task retrieved (no changes)",
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

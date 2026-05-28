@@ -1,4 +1,5 @@
 """Environment and validation for the "read pdf file" action."""
+
 from __future__ import annotations
 
 import textwrap
@@ -124,7 +125,9 @@ def validate_read_pdf(
     if not isinstance(elements, list) or not elements:
         return "incorrect result", "PDF content did not include any elements."
 
-    any_text = any("Hello diagnostic PDF" in str(elem.get("text", "")) for elem in elements)
+    any_text = any(
+        "Hello diagnostic PDF" in str(elem.get("text", "")) for elem in elements
+    )
     if not any_text:
         return "incorrect result", "Expected text not found in extracted elements."
 

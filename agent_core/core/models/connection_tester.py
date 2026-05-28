@@ -22,6 +22,7 @@ def test_provider_connection(
     base_url: Optional[str] = None,
     timeout: float = 15.0,
     model: Optional[str] = None,
+    aws_credentials: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Test if a provider's API key (and optionally model id) is valid.
 
@@ -72,7 +73,21 @@ def test_provider_connection(
             url = cfg.default_base_url
             return _test_openai_compat(provider, api_key, url, timeout, model)
         elif provider in ("moonshot", "minimax"):
-            return _test_moonshot_minimax(provider, api_key, cfg.default_base_url, timeout, model)
+            return _test_moonshot_minimax(
+                provider, api_key, cfg.default_base_url, timeout, model
+            )
+        elif provider == "bedrock":
+            # `base_url` carries the AWS region through the existing factory
+            # plumbing. `aws_credentials` (if provided) override what's in
+            # settings.json — used when the user is testing new creds before
+            # save. Otherwise the tester reads via app.config so the boto3
+            # credential chain is respected on EC2/ECS hosts.
+            return _test_bedrock(
+                region=base_url,
+                model=model,
+                timeout=timeout,
+                aws_credentials=aws_credentials,
+            )
         else:
             return {
                 "success": False,
@@ -123,6 +138,7 @@ def _get_openrouter_fallback_for_test() -> tuple:
     """Return (or_api_key, or_base_url) if OpenRouter is configured, else (None, None)."""
     try:
         from app.config import get_api_key
+
         or_key = get_api_key("openrouter") or None
         return (or_key, _OPENROUTER_BASE_URL) if or_key else (None, None)
     except Exception:
@@ -171,11 +187,14 @@ def _test_moonshot_minimax(
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
-def _classified_error_result(exc: Exception, provider: str, model: Optional[str]) -> Dict[str, Any]:
+def _classified_error_result(
+    exc: Exception, provider: str, model: Optional[str]
+) -> Dict[str, Any]:
     """Run an exception through the classifier and return a failure result
     with the rich message — same format the chat sees for real LLM errors."""
     try:
         from agent_core.core.impl.llm.errors import classify_llm_error
+
         info = classify_llm_error(exc, provider=provider, model=model)
         return {
             "success": False,
@@ -199,6 +218,7 @@ def _resolve_test_model(provider: str, model: Optional[str], fallback: str) -> s
         return model
     try:
         from app.config import get_connection_test_model
+
         configured = get_connection_test_model(provider)
         if configured:
             return configured
@@ -227,6 +247,7 @@ _DISPLAY = {
     "grok": "Grok (xAI)",
     "openrouter": "OpenRouter",
     "remote": "Ollama",
+    "bedrock": "AWS Bedrock",
 }
 
 
@@ -258,6 +279,7 @@ def _openai_compat_chat_test(
         }
     try:
         from openai import OpenAI
+
         client = OpenAI(
             api_key=api_key,
             base_url=base_url or None,
@@ -274,9 +296,14 @@ def _openai_compat_chat_test(
         # 422 BadRequest with a "messages" issue still means auth+model worked.
         # Classify, and if it's a BAD_REQUEST not about the model, treat as success.
         from agent_core.core.impl.llm.errors import classify_llm_error, ErrorCategory
+
         try:
             info = classify_llm_error(exc, provider=provider, model=model)
-            if info.category in (ErrorCategory.AUTH, ErrorCategory.MODEL, ErrorCategory.CREDIT):
+            if info.category in (
+                ErrorCategory.AUTH,
+                ErrorCategory.MODEL,
+                ErrorCategory.CREDIT,
+            ):
                 return {
                     "success": False,
                     "message": info.message,
@@ -289,15 +316,25 @@ def _openai_compat_chat_test(
             return _classified_error_result(exc, provider, model)
 
 
-def _test_openai(api_key: Optional[str], timeout: float, model: Optional[str]) -> Dict[str, Any]:
+def _test_openai(
+    api_key: Optional[str], timeout: float, model: Optional[str]
+) -> Dict[str, Any]:
     if model:
         return _openai_compat_chat_test(
-            provider="openai", api_key=api_key, base_url=None, model=model, timeout=timeout,
+            provider="openai",
+            api_key=api_key,
+            base_url=None,
+            model=model,
+            timeout=timeout,
         )
     # No model specified → just verify the key with /models list (cheaper).
     if not api_key:
-        return {"success": False, "message": "API key is required for OpenAI",
-                "provider": "openai", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for OpenAI",
+            "provider": "openai",
+            "error": "Missing API key",
+        }
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.get(
@@ -307,24 +344,40 @@ def _test_openai(api_key: Optional[str], timeout: float, model: Optional[str]) -
         if response.status_code == 200:
             return _success("openai", None)
         response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "openai", "error": response.text[:300]}
+        return {
+            "success": False,
+            "message": f"API returned status {response.status_code}",
+            "provider": "openai",
+            "error": response.text[:300],
+        }
     except Exception as exc:
         return _classified_error_result(exc, "openai", None)
 
 
 def _test_openai_compat(
-    provider: str, api_key: Optional[str], base_url: str, timeout: float, model: Optional[str],
+    provider: str,
+    api_key: Optional[str],
+    base_url: str,
+    timeout: float,
+    model: Optional[str],
 ) -> Dict[str, Any]:
     if model:
         return _openai_compat_chat_test(
-            provider=provider, api_key=api_key, base_url=base_url, model=model, timeout=timeout,
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=timeout,
         )
     # No model → /models list (auth-only).
     display = _DISPLAY.get(provider, provider)
     if not api_key:
-        return {"success": False, "message": f"API key is required for {display}",
-                "provider": provider, "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": f"API key is required for {display}",
+            "provider": provider,
+            "error": "Missing API key",
+        }
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.get(
@@ -334,8 +387,12 @@ def _test_openai_compat(
         if response.status_code == 200:
             return _success(provider, None)
         response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": provider, "error": response.text[:300]}
+        return {
+            "success": False,
+            "message": f"API returned status {response.status_code}",
+            "provider": provider,
+            "error": response.text[:300],
+        }
     except Exception as exc:
         return _classified_error_result(exc, provider, None)
 
@@ -343,15 +400,24 @@ def _test_openai_compat(
 # ─── Anthropic ────────────────────────────────────────────────────────
 
 
-def _test_anthropic(api_key: Optional[str], timeout: float, model: Optional[str]) -> Dict[str, Any]:
+def _test_anthropic(
+    api_key: Optional[str], timeout: float, model: Optional[str]
+) -> Dict[str, Any]:
     if not api_key:
-        return {"success": False, "message": "API key is required for Anthropic",
-                "provider": "anthropic", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for Anthropic",
+            "provider": "anthropic",
+            "error": "Missing API key",
+        }
 
-    test_model = _resolve_test_model("anthropic", model, fallback="claude-haiku-4-5-20251001")
+    test_model = _resolve_test_model(
+        "anthropic", model, fallback="claude-haiku-4-5-20251001"
+    )
 
     try:
         from anthropic import Anthropic
+
         client = Anthropic(api_key=api_key, timeout=timeout, max_retries=0)
         client.messages.create(
             model=test_model,
@@ -361,11 +427,16 @@ def _test_anthropic(api_key: Optional[str], timeout: float, model: Optional[str]
         return _success("anthropic", model)
     except Exception as exc:
         from agent_core.core.impl.llm.errors import classify_llm_error, ErrorCategory
+
         try:
             info = classify_llm_error(exc, provider="anthropic", model=test_model)
             # Auth, missing model, or credit issues are real failures.
             # 400 BadRequest about the prompt itself is fine (auth+model OK).
-            if info.category in (ErrorCategory.AUTH, ErrorCategory.MODEL, ErrorCategory.CREDIT):
+            if info.category in (
+                ErrorCategory.AUTH,
+                ErrorCategory.MODEL,
+                ErrorCategory.CREDIT,
+            ):
                 return {
                     "success": False,
                     "message": info.message,
@@ -380,10 +451,16 @@ def _test_anthropic(api_key: Optional[str], timeout: float, model: Optional[str]
 # ─── Gemini ────────────────────────────────────────────────────────────
 
 
-def _test_gemini(api_key: Optional[str], timeout: float, model: Optional[str]) -> Dict[str, Any]:
+def _test_gemini(
+    api_key: Optional[str], timeout: float, model: Optional[str]
+) -> Dict[str, Any]:
     if not api_key:
-        return {"success": False, "message": "API key is required for Gemini",
-                "provider": "gemini", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for Gemini",
+            "provider": "gemini",
+            "error": "Missing API key",
+        }
     if model:
         # Verify the specific model via models/{name}.
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}?key={api_key}"
@@ -393,8 +470,12 @@ def _test_gemini(api_key: Optional[str], timeout: float, model: Optional[str]) -
             if response.status_code == 200:
                 return _success("gemini", model)
             response.raise_for_status()
-            return {"success": False, "message": f"API returned status {response.status_code}",
-                    "provider": "gemini", "error": response.text[:300]}
+            return {
+                "success": False,
+                "message": f"API returned status {response.status_code}",
+                "provider": "gemini",
+                "error": response.text[:300],
+            }
         except Exception as exc:
             return _classified_error_result(exc, "gemini", model)
     # No model → list endpoint (auth-only).
@@ -406,8 +487,12 @@ def _test_gemini(api_key: Optional[str], timeout: float, model: Optional[str]) -
         if response.status_code == 200:
             return _success("gemini", None)
         response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "gemini", "error": response.text[:300]}
+        return {
+            "success": False,
+            "message": f"API returned status {response.status_code}",
+            "provider": "gemini",
+            "error": response.text[:300],
+        }
     except Exception as exc:
         return _classified_error_result(exc, "gemini", None)
 
@@ -416,11 +501,18 @@ def _test_gemini(api_key: Optional[str], timeout: float, model: Optional[str]) -
 
 
 def _test_byteplus(
-    api_key: Optional[str], base_url: Optional[str], timeout: float, model: Optional[str],
+    api_key: Optional[str],
+    base_url: Optional[str],
+    timeout: float,
+    model: Optional[str],
 ) -> Dict[str, Any]:
     if not api_key:
-        return {"success": False, "message": "API key is required for BytePlus",
-                "provider": "byteplus", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for BytePlus",
+            "provider": "byteplus",
+            "error": "Missing API key",
+        }
     url = base_url or "https://ark.ap-southeast.bytepluses.com/api/v3"
     if model:
         # Verify via tiny chat completion.
@@ -442,8 +534,12 @@ def _test_byteplus(
                 # 200 = both OK. 400/422 = auth+model OK, request quirk only.
                 return _success("byteplus", model)
             response.raise_for_status()
-            return {"success": False, "message": f"API returned status {response.status_code}",
-                    "provider": "byteplus", "error": response.text[:300]}
+            return {
+                "success": False,
+                "message": f"API returned status {response.status_code}",
+                "provider": "byteplus",
+                "error": response.text[:300],
+            }
         except Exception as exc:
             return _classified_error_result(exc, "byteplus", model)
     # No model → /models list.
@@ -456,8 +552,12 @@ def _test_byteplus(
         if response.status_code == 200:
             return _success("byteplus", None)
         response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "byteplus", "error": response.text[:300]}
+        return {
+            "success": False,
+            "message": f"API returned status {response.status_code}",
+            "provider": "byteplus",
+            "error": response.text[:300],
+        }
     except Exception as exc:
         return _classified_error_result(exc, "byteplus", None)
 
@@ -475,12 +575,23 @@ def _test_remote(base_url: Optional[str], timeout: float) -> Dict[str, Any]:
         if response.status_code == 200:
             models = [m["name"] for m in response.json().get("models", [])]
             if models:
-                message = f"Connected! {len(models)} model(s) available: {', '.join(models)}"
+                message = (
+                    f"Connected! {len(models)} model(s) available: {', '.join(models)}"
+                )
             else:
                 message = "Connected to Ollama, but no models downloaded yet. Use '+ Download New Model' to get one."
-            return {"success": True, "message": message, "provider": "remote", "models": models}
-        return {"success": False, "message": f"Ollama returned status {response.status_code}",
-                "provider": "remote", "error": response.text[:200] if response.text else "Unknown error"}
+            return {
+                "success": True,
+                "message": message,
+                "provider": "remote",
+                "models": models,
+            }
+        return {
+            "success": False,
+            "message": f"Ollama returned status {response.status_code}",
+            "provider": "remote",
+            "error": response.text[:200] if response.text else "Unknown error",
+        }
     except Exception as exc:
         return _classified_error_result(exc, "remote", None)
 
@@ -489,17 +600,28 @@ def _test_remote(base_url: Optional[str], timeout: float) -> Dict[str, Any]:
 
 
 def _test_openrouter(
-    api_key: Optional[str], base_url: str, timeout: float, model: Optional[str],
+    api_key: Optional[str],
+    base_url: str,
+    timeout: float,
+    model: Optional[str],
 ) -> Dict[str, Any]:
     if not api_key:
-        return {"success": False, "message": "API key is required for OpenRouter",
-                "provider": "openrouter", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for OpenRouter",
+            "provider": "openrouter",
+            "error": "Missing API key",
+        }
     if model:
         # Verify auth + model + credits via tiny chat completion. OR returns
         # 401 (bad key), 402 (no credits), 404 (bad model slug), or 200/4xx
         # depending on upstream. Classifier handles them all.
         return _openai_compat_chat_test(
-            provider="openrouter", api_key=api_key, base_url=base_url, model=model, timeout=timeout,
+            provider="openrouter",
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=timeout,
         )
     # No model → /auth/key (auth + balance only).
     try:
@@ -517,15 +639,24 @@ def _test_openrouter(
                 msg = f"Connected to OpenRouter ({label}) — unlimited credits"
             else:
                 remaining = max(0.0, float(limit) - float(usage or 0.0))
-                msg = (f"Connected to OpenRouter ({label}) — "
-                       f"${remaining:.2f} of ${float(limit):.2f} remaining")
+                msg = (
+                    f"Connected to OpenRouter ({label}) — "
+                    f"${remaining:.2f} of ${float(limit):.2f} remaining"
+                )
             return {"success": True, "message": msg, "provider": "openrouter"}
         if response.status_code in (401, 403):
-            return {"success": False, "message": "Invalid API key",
-                    "provider": "openrouter",
-                    "error": "Authentication failed - check your OpenRouter API key"}
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "openrouter", "error": response.text[:300]}
+            return {
+                "success": False,
+                "message": "Invalid API key",
+                "provider": "openrouter",
+                "error": "Authentication failed - check your OpenRouter API key",
+            }
+        return {
+            "success": False,
+            "message": f"API returned status {response.status_code}",
+            "provider": "openrouter",
+            "error": response.text[:300],
+        }
     except Exception as exc:
         return _classified_error_result(exc, "openrouter", None)
 
@@ -534,11 +665,18 @@ def _test_openrouter(
 
 
 def _test_grok(
-    api_key: Optional[str], base_url: str, timeout: float, model: Optional[str],
+    api_key: Optional[str],
+    base_url: str,
+    timeout: float,
+    model: Optional[str],
 ) -> Dict[str, Any]:
     if not api_key:
-        return {"success": False, "message": "API key is required for Grok (xAI)",
-                "provider": "grok", "error": "Missing API key"}
+        return {
+            "success": False,
+            "message": "API key is required for Grok (xAI)",
+            "provider": "grok",
+            "error": "Missing API key",
+        }
     test_model = _resolve_test_model("grok", model, fallback="grok-3")
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -560,7 +698,104 @@ def _test_grok(
             # Hardcoded test model probably hit a tier restriction; auth still OK.
             return _success("grok", None)
         response.raise_for_status()
-        return {"success": False, "message": f"API returned status {response.status_code}",
-                "provider": "grok", "error": response.text[:300]}
+        return {
+            "success": False,
+            "message": f"API returned status {response.status_code}",
+            "provider": "grok",
+            "error": response.text[:300],
+        }
     except Exception as exc:
         return _classified_error_result(exc, "grok", model)
+
+
+# ─── Bedrock ──────────────────────────────────────────────────────────
+
+
+def _test_bedrock(
+    region: Optional[str],
+    model: Optional[str],
+    timeout: float,
+    aws_credentials: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Verify the Bedrock credential chain and (optionally) a specific model.
+
+    Bedrock has no shared "API key"; we exercise the boto3 credential chain
+    (settings.json → env → IAM role / SSO profile) by calling the public
+    `list_foundation_models` endpoint. When `model` is supplied we also do a
+    1-token `converse` call against the model so a typo in the model ID is
+    caught at test time rather than at first real call.
+    """
+    try:
+        import boto3  # type: ignore
+        from botocore.config import Config  # type: ignore
+    except ImportError:
+        return {
+            "success": False,
+            "message": "boto3 is not installed. Run `pip install boto3`.",
+            "provider": "bedrock",
+            "error": "boto3 missing",
+        }
+
+    test_model = _resolve_test_model(
+        "bedrock", model, fallback="us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
+
+    # Caller-supplied creds (from the settings form, pre-save) win over what's
+    # in settings.json. Otherwise fall through app.config which reads settings →
+    # env → IAM role / SSO via the default boto3 chain.
+    aws_region = region
+    access_key = secret_key = session_token = None
+    if aws_credentials:
+        access_key = aws_credentials.get("access_key_id") or None
+        secret_key = aws_credentials.get("secret_access_key") or None
+        session_token = aws_credentials.get("session_token") or None
+        aws_region = aws_credentials.get("region") or aws_region
+    if not (access_key and secret_key):
+        try:
+            from app.config import get_aws_credentials
+
+            creds = get_aws_credentials()
+            access_key = access_key or (creds.get("access_key_id") or None)
+            secret_key = secret_key or (creds.get("secret_access_key") or None)
+            session_token = session_token or (creds.get("session_token") or None)
+            aws_region = aws_region or creds.get("region") or "us-east-1"
+        except Exception:
+            aws_region = aws_region or "us-east-1"
+    else:
+        aws_region = aws_region or "us-east-1"
+
+    try:
+        cfg = Config(
+            retries={"max_attempts": 1, "mode": "standard"},
+            connect_timeout=timeout,
+            read_timeout=timeout,
+        )
+        client_kwargs = {"region_name": aws_region, "config": cfg}
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+            if session_token:
+                client_kwargs["aws_session_token"] = session_token
+
+        if model:
+            # Use bedrock-runtime + Converse for a real round-trip against the
+            # model. If it returns OK we know auth + model + region all work.
+            rt = boto3.client("bedrock-runtime", **client_kwargs)
+            rt.converse(
+                modelId=test_model,
+                messages=[{"role": "user", "content": [{"text": "hi"}]}],
+                inferenceConfig={"maxTokens": 1, "temperature": 0.0},
+            )
+            return _success("bedrock", model)
+
+        # No model → just verify creds via `list_foundation_models` on the
+        # bedrock control-plane client.
+        cp = boto3.client("bedrock", **client_kwargs)
+        cp.list_foundation_models()
+        return _success("bedrock", None)
+    except Exception as exc:
+        # Use the classifier so the chat sees the same rich error as a real
+        # call. Bedrock errors surface as botocore ClientError; the classifier
+        # falls back to UNKNOWN with the raw message preserved, which is still
+        # informative.
+        return _classified_error_result(exc, "bedrock", model)

@@ -4,7 +4,6 @@ Configuration constants for the onboarding module.
 """
 
 from pathlib import Path
-from typing import Optional
 
 from agent_core.core.config import get_workspace_root
 
@@ -43,6 +42,6 @@ HARD_ONBOARDING_STEPS = [
 # Identity/preferences are now collected in hard onboarding.
 # Soft onboarding focuses on job/role and deep life goals exploration.
 SOFT_ONBOARDING_QUESTIONS = [
-    "job",                         # What do you do for work?
-    "life_goals",                  # Deep life goals exploration (multiple rounds)
+    "job",  # What do you do for work?
+    "life_goals",  # Deep life goals exploration (multiple rounds)
 ]

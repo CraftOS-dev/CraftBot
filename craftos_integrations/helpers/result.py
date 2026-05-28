@@ -13,6 +13,7 @@ file-private call helpers return the raw API body on success so callers can
 read flat fields like ``result["channels"]`` directly. Those still return
 ``Dict[str, Any]`` and are documented in their respective files.
 """
+
 from __future__ import annotations
 
 from typing import Any, TypedDict, Union
@@ -24,7 +25,7 @@ except ImportError:
 
 
 class Ok(TypedDict):
-    ok: bool   # always True for the Ok shape
+    ok: bool  # always True for the Ok shape
     result: Any
 
 

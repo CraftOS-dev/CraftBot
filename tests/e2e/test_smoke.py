@@ -14,7 +14,6 @@ import asyncio
 import inspect
 import platform
 
-import pytest
 
 from agent_core import load_actions_from_directories, registry_instance
 
@@ -73,7 +72,9 @@ def test_representative_integration_actions_exist():
 def test_web_search_simulated_end_to_end():
     """web_search has test_payload={simulated_mode: True} — exercise it."""
     _ensure_actions_loaded()
-    impl = registry_instance.get_action_implementation("web_search", platform.system().lower())
+    impl = registry_instance.get_action_implementation(
+        "web_search", platform.system().lower()
+    )
     assert impl is not None, "web_search has no impl for this platform"
     assert impl.metadata.test_payload is not None, "web_search has no test_payload"
 
@@ -102,14 +103,23 @@ def test_all_testable_actions_smoke():
         try:
             result = _run_handler(impl)
             if not isinstance(result, dict):
-                failures.append((impl.metadata.name, f"non-dict: {type(result).__name__}"))
+                failures.append(
+                    (impl.metadata.name, f"non-dict: {type(result).__name__}")
+                )
                 continue
             status = result.get("status")
             if status not in ("success", "ok", "ignored", "completed", "queued", None):
-                failures.append((impl.metadata.name, f"status={status}: {result.get('message', '')}"))
+                failures.append(
+                    (
+                        impl.metadata.name,
+                        f"status={status}: {result.get('message', '')}",
+                    )
+                )
         except Exception as e:
             failures.append((impl.metadata.name, f"raised: {type(e).__name__}: {e}"))
 
     if skipped:
         print(f"\nskipped {len(skipped)} known-broken: {skipped}")
-    assert not failures, "testable actions failed:\n" + "\n".join(f"  {n}: {m}" for n, m in failures)
+    assert not failures, "testable actions failed:\n" + "\n".join(
+        f"  {n}: {m}" for n, m in failures
+    )

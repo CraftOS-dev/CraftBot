@@ -37,7 +37,7 @@ class StyleDefinition:
     Abstract style definition that adapters interpret.
 
     This defines styling in a platform-agnostic way. Each adapter
-    (CLI, TUI, Browser) converts these to their native format.
+    (CLI, Browser) converts these to their native format.
 
     Attributes:
         foreground: Text color (color name or hex like "#ff4f18")
@@ -97,7 +97,7 @@ class StyleDefinition:
         return ""
 
     def to_rich(self) -> str:
-        """Convert to Rich markup style for TUI adapter."""
+        """Convert to Rich markup style."""
         parts = []
         if self.bold:
             parts.append("bold")
@@ -131,7 +131,7 @@ class ThemeAdapter(ABC):
     """
     Adapts abstract theme to interface-specific formatting.
 
-    Each interface (CLI, TUI, Browser) implements this to convert
+    Each interface (CLI, Browser) implements this to convert
     StyleDefinitions to their native format.
     """
 

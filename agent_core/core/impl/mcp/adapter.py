@@ -33,7 +33,9 @@ class MCPActionAdapter:
     """
 
     @staticmethod
-    def convert_json_schema_to_input_schema(mcp_schema: Dict[str, Any]) -> Dict[str, Any]:
+    def convert_json_schema_to_input_schema(
+        mcp_schema: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """
         Convert MCP JSON Schema to action input_schema format.
 
@@ -157,7 +159,7 @@ class MCPActionAdapter:
         # Create the actual function by executing the source
         local_ns = {}
         exec(source_code, local_ns)
-        handler = local_ns['mcp_handler']
+        handler = local_ns["mcp_handler"]
 
         # Store the source code on the function for later retrieval by the registry
         # This is critical - inspect.getsource() won't work on dynamically created functions
@@ -217,7 +219,10 @@ class MCPActionAdapter:
             platforms=[PLATFORM_ALL],
             input_schema=input_schema,
             output_schema={
-                "status": {"type": "string", "description": "Execution status (success/error)"},
+                "status": {
+                    "type": "string",
+                    "description": "Execution status (success/error)",
+                },
                 "result": {"type": "any", "description": "Tool execution result"},
                 "message": {"type": "string", "description": "Error message if failed"},
             },
@@ -262,9 +267,7 @@ class MCPActionAdapter:
                 registry_instance.register(action)
                 count += 1
 
-                logger.debug(
-                    f"Registered MCP tool as action: {action.metadata.name}"
-                )
+                logger.debug(f"Registered MCP tool as action: {action.metadata.name}")
 
             except Exception as e:
                 logger.error(
@@ -293,7 +296,8 @@ class MCPActionAdapter:
 
         # Find and remove matching actions
         actions_to_remove = [
-            name for name in registry_instance._registry.keys()
+            name
+            for name in registry_instance._registry.keys()
             if name.startswith(prefix)
         ]
 

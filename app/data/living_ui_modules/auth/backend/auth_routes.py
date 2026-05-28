@@ -10,7 +10,7 @@ Then import and include the router in routes.py:
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth_models import User, Membership, Invite
@@ -98,6 +98,7 @@ def list_users(
 # Profile — update own account
 # ============================================================================
 
+
 class UpdateProfileRequest(BaseModel):
     username: str = None
     email: str = None
@@ -115,7 +116,11 @@ def update_profile(
             raise HTTPException(status_code=400, detail="Email already in use")
         user.email = data.email
     if data.username and data.username != user.username:
-        if db.query(User).filter(User.username == data.username, User.id != user.id).first():
+        if (
+            db.query(User)
+            .filter(User.username == data.username, User.id != user.id)
+            .first()
+        ):
             raise HTTPException(status_code=400, detail="Username already taken")
         user.username = data.username
     db.commit()
@@ -138,7 +143,9 @@ def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        raise HTTPException(
+            status_code=400, detail="Password must be at least 6 characters"
+        )
     user.password_hash = hash_password(data.new_password)
     db.commit()
     return {"message": "Password updated"}
@@ -148,8 +155,14 @@ def change_password(
 # Membership — link users to resources (projects, boards, teams, etc.)
 # ============================================================================
 
-def _check_membership(db: Session, user: User, resource_type: str, resource_id: int,
-                      required_roles: tuple = None) -> None:
+
+def _check_membership(
+    db: Session,
+    user: User,
+    resource_type: str,
+    resource_id: int,
+    required_roles: tuple = None,
+) -> None:
     """Verify user has access to a resource. Raises 403 if not.
 
     Args:
@@ -158,13 +171,19 @@ def _check_membership(db: Session, user: User, resource_type: str, resource_id: 
     """
     if user.role == "admin":
         return  # Global admins bypass all checks
-    membership = db.query(Membership).filter_by(
-        user_id=user.id, resource_type=resource_type, resource_id=resource_id
-    ).first()
+    membership = (
+        db.query(Membership)
+        .filter_by(
+            user_id=user.id, resource_type=resource_type, resource_id=resource_id
+        )
+        .first()
+    )
     if not membership:
         raise HTTPException(status_code=403, detail="Not a member of this resource")
     if required_roles and membership.role not in required_roles:
-        raise HTTPException(status_code=403, detail=f"Requires role: {' or '.join(required_roles)}")
+        raise HTTPException(
+            status_code=403, detail=f"Requires role: {' or '.join(required_roles)}"
+        )
 
 
 @router.get("/members/{resource_type}/{resource_id}")
@@ -176,9 +195,11 @@ def get_members(
 ):
     """Get all members of a resource. Caller must be a member."""
     _check_membership(db, user, resource_type, resource_id)
-    members = db.query(Membership).filter_by(
-        resource_type=resource_type, resource_id=resource_id
-    ).all()
+    members = (
+        db.query(Membership)
+        .filter_by(resource_type=resource_type, resource_id=resource_id)
+        .all()
+    )
     return {"members": [m.to_dict() for m in members]}
 
 
@@ -198,9 +219,13 @@ def add_member(
     """Add a user to a resource. Caller must be owner/admin of the resource."""
     _check_membership(db, user, resource_type, resource_id, ("owner", "admin"))
 
-    existing = db.query(Membership).filter_by(
-        user_id=data.user_id, resource_type=resource_type, resource_id=resource_id
-    ).first()
+    existing = (
+        db.query(Membership)
+        .filter_by(
+            user_id=data.user_id, resource_type=resource_type, resource_id=resource_id
+        )
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=400, detail="User is already a member")
 
@@ -228,9 +253,13 @@ def remove_member(
     if user.id != user_id:
         _check_membership(db, user, resource_type, resource_id, ("owner", "admin"))
 
-    membership = db.query(Membership).filter_by(
-        user_id=user_id, resource_type=resource_type, resource_id=resource_id
-    ).first()
+    membership = (
+        db.query(Membership)
+        .filter_by(
+            user_id=user_id, resource_type=resource_type, resource_id=resource_id
+        )
+        .first()
+    )
     if not membership:
         raise HTTPException(status_code=404, detail="Membership not found")
 
@@ -242,6 +271,7 @@ def remove_member(
 # ============================================================================
 # Invites — shareable links to join a resource
 # ============================================================================
+
 
 class CreateInviteRequest(BaseModel):
     resource_type: str
@@ -257,7 +287,9 @@ def create_invite(
     db: Session = Depends(get_db),
 ):
     """Create an invite link for a resource. Caller must be owner/admin."""
-    _check_membership(db, user, data.resource_type, data.resource_id, ("owner", "admin"))
+    _check_membership(
+        db, user, data.resource_type, data.resource_id, ("owner", "admin")
+    )
 
     invite = Invite.create(
         resource_type=data.resource_type,
@@ -287,9 +319,15 @@ def accept_invite(
         raise HTTPException(status_code=410, detail="Invite has reached maximum uses")
 
     # Check if already a member
-    existing = db.query(Membership).filter_by(
-        user_id=user.id, resource_type=invite.resource_type, resource_id=invite.resource_id
-    ).first()
+    existing = (
+        db.query(Membership)
+        .filter_by(
+            user_id=user.id,
+            resource_type=invite.resource_type,
+            resource_id=invite.resource_id,
+        )
+        .first()
+    )
     if existing:
         return {"membership": existing.to_dict(), "message": "Already a member"}
 

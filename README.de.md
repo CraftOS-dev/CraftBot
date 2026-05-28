@@ -59,7 +59,7 @@ CraftBot wartet auf deine Befehle. Richte jetzt deinen eigenen CraftBot ein.
 - **Plattformübergreifend** — Vollständige Unterstützung für Windows, macOS und Linux mit plattformspezifischen Code-Varianten und Docker-Containerisierung.
 
 > [!IMPORTANT]
-> **Der GUI-Modus ist veraltet.** CraftBot unterstützt den GUI-Modus (Desktop-Automatisierung) nicht mehr. Bitte verwende stattdessen den Browser-, TUI- oder CLI-Modus.
+> **Der GUI-Modus ist veraltet.** CraftBot unterstützt den GUI-Modus (Desktop-Automatisierung) nicht mehr. Bitte verwende stattdessen den Browser- oder CLI-Modus.
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -171,7 +171,7 @@ python run.py
 Beim ersten Start wirst du durch die Einrichtung deiner API-Schlüssel und Einstellungen geführt.
 
 > [!NOTE]
-> Wenn Node.js nicht installiert ist, führt dich das Installationsprogramm Schritt für Schritt durch die Installation. Du kannst den Browser-Modus auch vollständig überspringen und den TUI-Modus verwenden — kein Node.js nötig: `python run.py --tui`
+> Wenn Node.js nicht installiert ist, führt dich das Installationsprogramm Schritt für Schritt durch die Installation. Du kannst den Browser-Modus auch vollständig überspringen und den CLI-Modus verwenden — kein Node.js nötig: `python run.py --cli`
 
 ### Was kannst du direkt danach tun?
 - Natürlich mit dem Agent sprechen
@@ -190,10 +190,9 @@ CraftBot unterstützt mehrere UI-Modi. Wähle nach deinen Vorlieben:
 | Modus | Befehl | Voraussetzungen | Empfohlen für |
 |------|---------|--------------|----------|
 | **Browser** | `python run.py` | Node.js 18+ | Moderne Web-Oberfläche, am einfachsten |
-| **TUI** | `python run.py --tui` | Keine | Terminal-UI, ohne Abhängigkeiten |
 | **CLI** | `python run.py --cli` | Keine | Kommandozeile, leichtgewichtig |
 
-Der **Browser-Modus** ist Standard und wird empfohlen. Ohne Node.js gibt dir das Installationsprogramm eine Anleitung – alternativ kannst du den **TUI-Modus** nutzen.
+Der **Browser-Modus** ist Standard und wird empfohlen. Ohne Node.js gibt dir das Installationsprogramm eine Anleitung – alternativ kannst du den **CLI-Modus** nutzen.
 
 ---
 
@@ -262,7 +261,6 @@ REST-API abfragen und in deinem Namen Aktionen auslösen.
 | **Task Manager** | Verwaltet Task-Definitionen, ermöglicht einfache und komplexe Task-Modi, erstellt To-dos und verfolgt mehrstufige Workflows. |
 | **Skill Manager** | Lädt einsteckbare Skills und injiziert sie in den Agent-Kontext. |
 | **MCP Adapter** | Model Context Protocol Integration, die MCP-Tools in native Aktionen umwandelt. |
-| **TUI Interface** | Textual-basierte Terminal-Benutzeroberfläche für interaktive Kommandozeilennutzung. |
 
 ---
 
@@ -289,7 +287,6 @@ REST-API abfragen und in deinem Namen Aktionen auslösen.
 | Flag | Beschreibung |
 |------|-------------|
 | (keines) | Im **Browser**-Modus ausführen (empfohlen, Node.js erforderlich) |
-| `--tui` | Im **Terminal-UI**-Modus ausführen (keine Abhängigkeiten nötig) |
 | `--cli` | Im **CLI**-Modus ausführen (leichtgewichtig) |
 
 ### craftbot.py
@@ -319,9 +316,6 @@ python install.py --conda
 # Browser-Modus (Standard, Node.js erforderlich)
 python run.py
 
-# TUI-Modus (kein Node.js nötig)
-python run.py --tui
-
 # CLI-Modus (leichtgewichtig)
 python run.py --cli
 
@@ -336,9 +330,6 @@ conda run -n craftbot python run.py
 ```bash
 # Browser-Modus (Standard, Node.js erforderlich)
 python run.py
-
-# TUI-Modus (kein Node.js nötig)
-python run.py --tui
 
 # CLI-Modus (leichtgewichtig)
 python run.py --cli
@@ -381,7 +372,7 @@ python craftbot.py logs     # Aktuelle Log-Ausgabe ansehen
 > Nach `craftbot.py start` oder `craftbot.py install` wird automatisch eine **CraftBot-Desktop-Verknüpfung** erstellt. Hast du den Browser versehentlich geschlossen, doppelklicke die Verknüpfung, um ihn wieder zu öffnen.
 
 > [!NOTE]
-> **Installation:** Das Installationsprogramm gibt nun klare Hinweise, falls Abhängigkeiten fehlen. Wird Node.js nicht gefunden, wirst du zur Installation aufgefordert oder kannst in den TUI-Modus wechseln. Die Installation erkennt die GPU-Verfügbarkeit automatisch und fällt bei Bedarf auf den CPU-Modus zurück.
+> **Installation:** Das Installationsprogramm gibt nun klare Hinweise, falls Abhängigkeiten fehlen. Wird Node.js nicht gefunden, wirst du zur Installation aufgefordert oder kannst in den CLI-Modus wechseln. Die Installation erkennt die GPU-Verfügbarkeit automatisch und fällt bei Bedarf auf den CPU-Modus zurück.
 
 > [!TIP]
 > **Ersteinrichtung:** CraftBot führt dich durch einen Onboarding-Ablauf, um API-Schlüssel, den Agentennamen, MCPs und Skills zu konfigurieren.
@@ -399,9 +390,9 @@ Erscheint **"npm not found in PATH"** beim Ausführen von `python run.py`:
 2. Installieren und das Terminal neu starten
 3. `python run.py` erneut ausführen
 
-**Alternative:** TUI-Modus verwenden (kein Node.js nötig):
+**Alternative:** CLI-Modus verwenden (kein Node.js nötig):
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### Installation schlägt bei Abhängigkeiten fehl

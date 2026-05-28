@@ -5,7 +5,7 @@ description: Advanced expert in prompt engineering, custom instructions design, 
 
 # Prompt Engineering Expert Skill
 
-This skill equips Claude with deep expertise in prompt engineering, custom instructions design, and prompt optimization. It provides comprehensive guidance on crafting effective AI prompts, designing agent instructions, and iteratively improving prompt performance.
+This skill equips CraftBot with deep expertise in prompt engineering, custom instructions design, and prompt optimization. It provides comprehensive guidance on crafting effective AI prompts, designing agent instructions, and iteratively improving prompt performance.
 
 ## Core Expertise Areas
 
@@ -20,8 +20,8 @@ This skill equips Claude with deep expertise in prompt engineering, custom instr
 - **Chain-of-Thought (CoT) Prompting**: Encouraging step-by-step reasoning for complex tasks
 - **Few-Shot Prompting**: Using examples to guide model behavior (1-shot, 2-shot, multi-shot)
 - **XML Tags**: Leveraging structured XML formatting for clarity and parsing
-- **Role-Based Prompting**: Assigning specific personas or expertise to Claude
-- **Prefilling**: Starting Claude's response to guide output format
+- **Role-Based Prompting**: Assigning specific personas or expertise to CraftBot
+- **Prefilling**: Starting CraftBot's response to guide output format
 - **Prompt Chaining**: Breaking complex tasks into sequential prompts
 
 ### 3. Custom Instructions & System Prompts

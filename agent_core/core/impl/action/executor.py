@@ -41,7 +41,6 @@ DEFAULT_ACTION_TIMEOUT = 6000
 
 # Persistent venv for sandboxed actions (reused across calls)
 _PERSISTENT_VENV_DIR: Optional[Path] = None
-_PERSISTENT_VENV_LOCK = None  # Will be initialized lazily to avoid issues with ProcessPoolExecutor
 
 # Base packages that must be installed in the sandbox venv (empty - venv isolation is the sandbox)
 _SANDBOX_BASE_PACKAGES = []
@@ -77,7 +76,7 @@ def _ensure_persistent_venv() -> Path:
         # Create the venv (only happens once)
         logger.info(f"[VENV] Creating persistent sandbox venv at {venv_dir}")
         venv.EnvBuilder(with_pip=True).create(venv_dir)
-        logger.info(f"[VENV] Persistent sandbox venv created successfully")
+        logger.info("[VENV] Persistent sandbox venv created successfully")
 
     _PERSISTENT_VENV_DIR = venv_dir
 
@@ -88,20 +87,22 @@ def _ensure_persistent_venv() -> Path:
         logger.info(f"[VENV] Installing base packages: {_SANDBOX_BASE_PACKAGES}")
         try:
             result = subprocess.run(
-                [str(python_bin), "-m", "pip", "install", "--quiet"] + _SANDBOX_BASE_PACKAGES,
+                [str(python_bin), "-m", "pip", "install", "--quiet"]
+                + _SANDBOX_BASE_PACKAGES,
                 capture_output=True,
-                timeout=120
+                timeout=120,
             )
             if result.returncode == 0:
                 # Create marker file to skip this check on future calls
                 marker_file.write_text("installed")
-                logger.info(f"[VENV] Base packages installed successfully")
+                logger.info("[VENV] Base packages installed successfully")
             else:
                 logger.warning(f"[VENV] pip install returned non-zero: {result.stderr}")
         except Exception as e:
             logger.warning(f"[VENV] Failed to install base packages: {e}")
 
     return python_bin
+
 
 # Optional GUI handler hook - set by agent at startup if GUI mode is needed
 _gui_execute_hook: Optional[Callable[[str, str, Dict, str], Dict]] = None
@@ -134,6 +135,7 @@ def _get_gui_target() -> str:
 # ============================================
 # Worker: runs in a separate PROCESS
 # ============================================
+
 
 def _find_system_python() -> Optional[str]:
     """
@@ -183,13 +185,17 @@ def _find_system_python() -> Optional[str]:
             )
             return found
         except Exception:
-            logger.debug(f"[PYTHON] Candidate '{found}' failed --version check, skipping.")
+            logger.debug(
+                f"[PYTHON] Candidate '{found}' failed --version check, skipping."
+            )
             continue
 
     return None
 
 
-def _ensure_requirements(requirements: List[str], python_bin: Optional[str] = None) -> None:
+def _ensure_requirements(
+    requirements: List[str], python_bin: Optional[str] = None
+) -> None:
     """
     Install pip packages that are not yet available.
 
@@ -216,7 +222,9 @@ def _ensure_requirements(requirements: List[str], python_bin: Optional[str] = No
 
     pip_python = python_bin or _find_system_python()
     if not pip_python:
-        logger.warning("[REQUIREMENTS] No Python interpreter found on PATH; cannot install packages.")
+        logger.warning(
+            "[REQUIREMENTS] No Python interpreter found on PATH; cannot install packages."
+        )
         return
 
     installed_any = False
@@ -280,8 +288,7 @@ def _suppress_worker_stdio():
     Redirect OS-level stdout/stderr to devnull in the worker process.
 
     This prevents venv.EnvBuilder, ensurepip, and other subprocess calls
-    from writing to the inherited terminal, which would corrupt the
-    Textual TUI display.
+    from writing to the inherited terminal.
 
     Returns (saved_stdout_fd, saved_stderr_fd) for later restoration.
     """
@@ -319,13 +326,13 @@ def _atomic_action_venv_process(
     via pip persist in the venv, eliminating redundant installations.
 
     stdout/stderr are suppressed at the OS level so that venv creation
-    and other subprocess calls do not corrupt the parent's TUI.
+    and other subprocess calls do not corrupt the parent's terminal.
     """
     # GUI mode - delegate to GUI handler hook
     if mode == "GUI" and _gui_execute_hook:
         return _gui_execute_hook(_get_gui_target(), action_code, input_data, mode)
 
-    # Suppress worker stdout/stderr to prevent TUI corruption
+    # Suppress worker stdout/stderr to prevent terminal corruption
     saved_stdout, saved_stderr = _suppress_worker_stdio()
 
     try:
@@ -342,7 +349,7 @@ def _atomic_action_venv_process(
                 check_result = subprocess.run(
                     [str(python_bin), "-m", "pip", "show", "--quiet", pkg],
                     capture_output=True,
-                    timeout=15
+                    timeout=15,
                 )
                 if check_result.returncode == 0:
                     continue  # Already installed, skip
@@ -352,14 +359,22 @@ def _atomic_action_venv_process(
                         [str(python_bin), "-m", "pip", "install", "--quiet", pkg],
                         capture_output=True,
                         text=True,
-                        timeout=120
+                        timeout=120,
                     )
                     if pip_result.returncode != 0:
                         stderr_lower = pip_result.stderr.lower()
-                        if "no matching distribution" not in stderr_lower and "could not find" not in stderr_lower:
-                            print(f"Warning: Could not install '{pkg}': {pip_result.stderr.strip()[:100]}", file=sys.stderr)
+                        if (
+                            "no matching distribution" not in stderr_lower
+                            and "could not find" not in stderr_lower
+                        ):
+                            print(
+                                f"Warning: Could not install '{pkg}': {pip_result.stderr.strip()[:100]}",
+                                file=sys.stderr,
+                            )
                 except subprocess.TimeoutExpired:
-                    print(f"Warning: Installation timed out for '{pkg}'", file=sys.stderr)
+                    print(
+                        f"Warning: Installation timed out for '{pkg}'", file=sys.stderr
+                    )
                 except Exception as e:
                     print(f"Warning: Error installing '{pkg}': {e}", file=sys.stderr)
 
@@ -494,7 +509,9 @@ except Exception as e:
             )
 
             if proc.returncode != 0:
-                err = proc.stderr.strip() or f"Action exited with code {proc.returncode}"
+                err = (
+                    proc.stderr.strip() or f"Action exited with code {proc.returncode}"
+                )
                 return {"status": "error", "message": err}
 
             stdout = proc.stdout.strip()
@@ -540,13 +557,19 @@ def _atomic_action_internal(
 
         function_to_call = None
         for key, value in local_ns.items():
-            if key not in pre_exec_keys and key != '__builtins__' and inspect.isfunction(value):
+            if (
+                key not in pre_exec_keys
+                and key != "__builtins__"
+                and inspect.isfunction(value)
+            ):
                 function_to_call = value
                 logger.debug(f"Found action function: '{key}'")
                 break
 
         if function_to_call is None:
-            raise ValueError("The action_code string did not define a callable Python function.")
+            raise ValueError(
+                "The action_code string did not define a callable Python function."
+            )
 
         execution_result = function_to_call(input_data)
         return execution_result
@@ -593,13 +616,19 @@ async def _atomic_action_internal_async(
 
         function_to_call = None
         for key, value in local_ns.items():
-            if key not in pre_exec_keys and key != '__builtins__' and inspect.isfunction(value):
+            if (
+                key not in pre_exec_keys
+                and key != "__builtins__"
+                and inspect.isfunction(value)
+            ):
                 function_to_call = value
                 logger.debug(f"Found action function: '{key}'")
                 break
 
         if function_to_call is None:
-            raise ValueError("The action_code string did not define a callable Python function.")
+            raise ValueError(
+                "The action_code string did not define a callable Python function."
+            )
 
         # Check if the function is async (coroutine function)
         if inspect.iscoroutinefunction(function_to_call):
@@ -607,7 +636,9 @@ async def _atomic_action_internal_async(
             execution_result = await function_to_call(input_data)
         else:
             # Sync function - run in thread pool to avoid blocking
-            logger.debug(f"[SYNC] Action '{action_name}' is sync, running in thread pool")
+            logger.debug(
+                f"[SYNC] Action '{action_name}' is sync, running in thread pool"
+            )
             loop = asyncio.get_running_loop()
             execution_result = await loop.run_in_executor(
                 THREAD_POOL,
@@ -624,6 +655,7 @@ async def _atomic_action_internal_async(
 # ============================================
 # Async executor (awaitable, non-blocking)
 # ============================================
+
 
 class ActionExecutor:
     """
@@ -660,7 +692,9 @@ class ActionExecutor:
         execution_mode = getattr(action, "execution_mode", "sandboxed")
         mode = getattr(action, "mode", "CLI")
         # Use action's timeout, then parameter, then default
-        effective_timeout = getattr(action, "timeout", None) or timeout or DEFAULT_ACTION_TIMEOUT
+        effective_timeout = (
+            getattr(action, "timeout", None) or timeout or DEFAULT_ACTION_TIMEOUT
+        )
         logger.debug(f"[EXECUTION CODE] {action.code}")
 
         # Pre-install declared pip requirements
@@ -682,7 +716,10 @@ class ActionExecutor:
                     timeout=effective_timeout,
                 )
             except asyncio.TimeoutError:
-                return {"status": "error", "message": f"Execution timed out after {effective_timeout}s while running internal action."}
+                return {
+                    "status": "error",
+                    "message": f"Execution timed out after {effective_timeout}s while running internal action.",
+                }
 
         elif execution_mode == "sandboxed":
             requirements = getattr(action, "requirements", [])
@@ -701,7 +738,10 @@ class ActionExecutor:
                     timeout=effective_timeout + 5,
                 )
             except asyncio.TimeoutError:
-                return {"status": "error", "message": f"Execution timed out after {effective_timeout}s while running sandboxed action."}
+                return {
+                    "status": "error",
+                    "message": f"Execution timed out after {effective_timeout}s while running sandboxed action.",
+                }
         else:
             raise ValueError(f"Unknown execution_mode: {execution_mode}")
 

@@ -712,7 +712,7 @@
   width: 100%;
   padding: var(--space-1) 0;
   font-size: var(--text-xs);
-  color: var(--color-primary);
+  color: var(--text-primary);
   background: none;
   border: none;
   cursor: pointer;
@@ -760,11 +760,16 @@
 .modelValue {
   flex: 1;
   font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Model name row only — scoped via the primaryIcon sibling so Provider
+ * and Model ID stay neutral. */
+.modelItem:has(.primaryIcon) .modelValue {
+  color: var(--color-primary);
 }
 
 .modelValueSmall {

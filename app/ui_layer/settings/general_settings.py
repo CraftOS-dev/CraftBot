@@ -1,7 +1,7 @@
 """General settings management for UI layer.
 
 Provides functions for managing general application settings that can be
-used by any interface adapter (Browser, TUI, CLI).
+used by any interface adapter (Browser, CLI).
 """
 
 from pathlib import Path
@@ -9,7 +9,11 @@ from typing import Dict, Any, Optional
 import shutil
 import time
 
-from app.config import AGENT_FILE_SYSTEM_PATH, AGENT_FILE_SYSTEM_TEMPLATE_PATH, APP_DATA_PATH
+from app.config import (
+    AGENT_FILE_SYSTEM_PATH,
+    AGENT_FILE_SYSTEM_TEMPLATE_PATH,
+    APP_DATA_PATH,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -155,6 +159,7 @@ def remove_agent_profile_picture() -> Dict[str, Any]:
 # Agent File Operations
 # ─────────────────────────────────────────────────────────────────────
 
+
 def read_agent_file(filename: str) -> Dict[str, Any]:
     """Read an agent file (USER.md, AGENT.md, etc.).
 
@@ -165,11 +170,18 @@ def read_agent_file(filename: str) -> Dict[str, Any]:
         Dict with 'success', 'content' or 'error' fields
     """
     # Validate filename to prevent directory traversal
-    allowed_files = {"USER.md", "AGENT.md", "SOUL.md", "MEMORY.md", "PROACTIVE.md", "GLOBAL_LIVING_UI.md"}
+    allowed_files = {
+        "USER.md",
+        "AGENT.md",
+        "SOUL.md",
+        "MEMORY.md",
+        "PROACTIVE.md",
+        "GLOBAL_LIVING_UI.md",
+    }
     if filename not in allowed_files:
         return {
             "success": False,
-            "error": f"Invalid filename. Allowed files: {', '.join(allowed_files)}"
+            "error": f"Invalid filename. Allowed files: {', '.join(allowed_files)}",
         }
 
     file_path = AGENT_FILE_SYSTEM_PATH / filename
@@ -181,21 +193,12 @@ def read_agent_file(filename: str) -> Dict[str, Any]:
             if template_path.exists():
                 shutil.copy(template_path, file_path)
             else:
-                return {
-                    "success": False,
-                    "error": f"File not found: {filename}"
-                }
+                return {"success": False, "error": f"File not found: {filename}"}
 
         content = file_path.read_text(encoding="utf-8")
-        return {
-            "success": True,
-            "content": content
-        }
+        return {"success": True, "content": content}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to read {filename}: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to read {filename}: {str(e)}"}
 
 
 def write_agent_file(filename: str, content: str) -> Dict[str, Any]:
@@ -213,7 +216,7 @@ def write_agent_file(filename: str, content: str) -> Dict[str, Any]:
     if filename not in allowed_files:
         return {
             "success": False,
-            "error": f"Invalid filename for writing. Allowed files: {', '.join(allowed_files)}"
+            "error": f"Invalid filename for writing. Allowed files: {', '.join(allowed_files)}",
         }
 
     file_path = AGENT_FILE_SYSTEM_PATH / filename
@@ -225,10 +228,7 @@ def write_agent_file(filename: str, content: str) -> Dict[str, Any]:
         file_path.write_text(content, encoding="utf-8")
         return {"success": True}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to write {filename}: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to write {filename}: {str(e)}"}
 
 
 def restore_agent_file(filename: str) -> Dict[str, Any]:
@@ -241,11 +241,17 @@ def restore_agent_file(filename: str) -> Dict[str, Any]:
         Dict with 'success', 'content' or 'error' fields
     """
     # Validate filename
-    allowed_files = {"USER.md", "AGENT.md", "SOUL.md", "PROACTIVE.md", "GLOBAL_LIVING_UI.md"}
+    allowed_files = {
+        "USER.md",
+        "AGENT.md",
+        "SOUL.md",
+        "PROACTIVE.md",
+        "GLOBAL_LIVING_UI.md",
+    }
     if filename not in allowed_files:
         return {
             "success": False,
-            "error": f"Invalid filename for restore. Allowed files: {', '.join(allowed_files)}"
+            "error": f"Invalid filename for restore. Allowed files: {', '.join(allowed_files)}",
         }
 
     template_path = AGENT_FILE_SYSTEM_TEMPLATE_PATH / filename
@@ -253,30 +259,22 @@ def restore_agent_file(filename: str) -> Dict[str, Any]:
 
     try:
         if not template_path.exists():
-            return {
-                "success": False,
-                "error": f"Template not found for: {filename}"
-            }
+            return {"success": False, "error": f"Template not found for: {filename}"}
 
         # Copy template to target
         shutil.copy(template_path, target_path)
 
         # Read and return the restored content
         content = target_path.read_text(encoding="utf-8")
-        return {
-            "success": True,
-            "content": content
-        }
+        return {"success": True, "content": content}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to restore {filename}: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to restore {filename}: {str(e)}"}
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Reset Operations
 # ─────────────────────────────────────────────────────────────────────
+
 
 async def reset_agent_state(controller) -> Dict[str, Any]:
     """Reset the agent state.
@@ -296,20 +294,15 @@ async def reset_agent_state(controller) -> Dict[str, Any]:
         # Reset agent state
         await controller.agent.reset_agent_state()
 
-        return {
-            "success": True,
-            "message": "Agent state has been reset."
-        }
+        return {"success": True, "message": "Agent state has been reset."}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to reset agent state: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to reset agent state: {str(e)}"}
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Settings Persistence
 # ─────────────────────────────────────────────────────────────────────
+
 
 def get_general_settings() -> Dict[str, Any]:
     """Get general application settings.
@@ -348,7 +341,4 @@ def update_general_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
 
         return {"success": True}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to update settings: {str(e)}"
-        }
+        return {"success": False, "error": f"Failed to update settings: {str(e)}"}

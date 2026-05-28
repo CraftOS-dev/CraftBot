@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import threading
-import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -45,9 +44,7 @@ def _write_status(
         "error": error,
     }
     try:
-        HEALTH_STATUS_FILE.write_text(
-            json.dumps(status, indent=2), encoding="utf-8"
-        )
+        HEALTH_STATUS_FILE.write_text(json.dumps(status, indent=2), encoding="utf-8")
     except Exception as e:
         logger.warning(f"[HealthChecker] Failed to write status file: {e}")
 

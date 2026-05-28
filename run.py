@@ -4,11 +4,9 @@ CraftBot Run Script
 
 Usage:
     python run.py             # Run the agent (browser interface - default)
-    python run.py --tui       # Run in TUI mode
     python run.py --cli       # Run in CLI mode
 
 Options:
-    --tui                     Use TUI (terminal UI) interface instead of browser
     --cli                     Use CLI (command line) interface
     --conda                   Use conda environment (overrides config setting)
     --no-conda                Don't use conda (overrides config setting)
@@ -18,6 +16,7 @@ Options:
 
 Note: The installation method (conda/pip) is saved from install.py and reused here.
 """
+
 import multiprocessing
 import os
 import sys
@@ -38,7 +37,7 @@ multiprocessing.freeze_support()
 
 # --- Base directory ---
 # In a PyInstaller --onefile binary, bundled data is extracted to sys._MEIPASS
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     BASE_DIR = sys._MEIPASS
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -56,7 +55,7 @@ def _bootstrap_frozen():
       - Direct double-click of CraftBotAgent.exe doesn't dump runtime files
         next to the binary
     """
-    if not getattr(sys, 'frozen', False):
+    if not getattr(sys, "frozen", False):
         return
 
     import shutil as _shutil
@@ -120,6 +119,7 @@ YML_FILE = os.path.join(BASE_DIR, "environment.yml")
 OMNIPARSER_ENV_NAME = "omni"
 OMNIPARSER_SERVER_URL = os.getenv("OMNIPARSER_BASE_URL", "http://localhost:7861")
 
+
 # ==========================================
 # TERMINAL COLORS  (orange/white brand palette)
 # ==========================================
@@ -128,6 +128,7 @@ def _enable_windows_vtp() -> None:
         return
     try:
         import ctypes
+
         k32 = ctypes.windll.kernel32
         h = k32.GetStdHandle(-11)
         m = ctypes.c_ulong()
@@ -136,19 +137,23 @@ def _enable_windows_vtp() -> None:
     except Exception:
         pass
 
+
 _enable_windows_vtp()
 _USE_COLOR = sys.stdout.isatty()
+
 
 def _c(code: str) -> str:
     return code if _USE_COLOR else ""
 
-ORANGE = _c("\033[38;2;255;79;24m")   # #FF4F18
-WHITE  = _c("\033[38;2;255;255;255m") # #FFFFFF
-BOLD   = _c("\033[1m")
-DIM    = _c("\033[38;2;80;80;80m")
-GREEN  = _c("\033[38;2;80;220;100m")
-RED    = _c("\033[91m")
-RESET  = _c("\033[0m")
+
+ORANGE = _c("\033[38;2;255;79;24m")  # #FF4F18
+WHITE = _c("\033[38;2;255;255;255m")  # #FFFFFF
+BOLD = _c("\033[1m")
+DIM = _c("\033[38;2;80;80;80m")
+GREEN = _c("\033[38;2;80;220;100m")
+RED = _c("\033[91m")
+RESET = _c("\033[0m")
+
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -169,13 +174,17 @@ def parse_port_arg(args: list, flag: str, default: int) -> int:
             try:
                 return int(args[i + 1])
             except ValueError:
-                print(f"Warning: Invalid port value for {flag}, using default {default}")
+                print(
+                    f"Warning: Invalid port value for {flag}, using default {default}"
+                )
                 return default
         elif arg.startswith(f"{flag}="):
             try:
                 return int(arg.split("=", 1)[1])
             except ValueError:
-                print(f"Warning: Invalid port value for {flag}, using default {default}")
+                print(
+                    f"Warning: Invalid port value for {flag}, using default {default}"
+                )
                 return default
     return default
 
@@ -188,14 +197,15 @@ def _wrap_windows_bat(cmd_list: list[str]) -> list[str]:
         return ["cmd.exe", "/d", "/c", exe] + cmd_list[1:]
     return cmd_list
 
+
 def load_config() -> Dict[str, Any]:
     """
     Load configuration from file safely.
-    
+
     SECURITY FIX: Use try-except instead of check-then-use to prevent TOCTOU race conditions.
     """
     try:
-        with open(CONFIG_FILE, 'r') as f:
+        with open(CONFIG_FILE, "r") as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
@@ -204,16 +214,24 @@ def load_config() -> Dict[str, Any]:
     except IOError:
         return {}
 
+
 def save_config_value(key: str, value: Any) -> None:
     config = load_config()
     config[key] = value
     try:
-        with open(CONFIG_FILE, 'w') as f:
+        with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
     except IOError:
         pass
 
-def run_command(cmd_list: list[str], cwd: Optional[str] = None, check: bool = True, capture: bool = False, env_extras: Dict[str, str] = None) -> subprocess.CompletedProcess:
+
+def run_command(
+    cmd_list: list[str],
+    cwd: Optional[str] = None,
+    check: bool = True,
+    capture: bool = False,
+    env_extras: Dict[str, str] = None,
+) -> subprocess.CompletedProcess:
     cmd_list = _wrap_windows_bat(cmd_list)
     my_env = os.environ.copy()
     if env_extras:
@@ -222,11 +240,11 @@ def run_command(cmd_list: list[str], cwd: Optional[str] = None, check: bool = Tr
 
     kwargs = {}
     if capture:
-        kwargs['capture_output'] = True
-        kwargs['text'] = True
+        kwargs["capture_output"] = True
+        kwargs["text"] = True
     else:
-        kwargs['stdout'] = sys.stdout
-        kwargs['stderr'] = sys.stderr
+        kwargs["stdout"] = sys.stdout
+        kwargs["stderr"] = sys.stderr
 
     try:
         return subprocess.run(cmd_list, cwd=cwd, check=check, env=my_env, **kwargs)
@@ -236,7 +254,10 @@ def run_command(cmd_list: list[str], cwd: Optional[str] = None, check: bool = Tr
         print(f"Executable not found: {e.filename}")
         sys.exit(1)
 
-def launch_background_command(cmd_list: list[str], cwd: Optional[str] = None, env_extras: Dict[str, str] = None) -> Optional[subprocess.Popen]:
+
+def launch_background_command(
+    cmd_list: list[str], cwd: Optional[str] = None, env_extras: Dict[str, str] = None
+) -> Optional[subprocess.Popen]:
     cmd_list = _wrap_windows_bat(cmd_list)
     my_env = os.environ.copy()
     if env_extras:
@@ -247,7 +268,7 @@ def launch_background_command(cmd_list: list[str], cwd: Optional[str] = None, en
 
     kwargs = {}
     if sys.platform != "win32":
-        kwargs['start_new_session'] = True
+        kwargs["start_new_session"] = True
 
     try:
         process = subprocess.Popen(
@@ -256,12 +277,13 @@ def launch_background_command(cmd_list: list[str], cwd: Optional[str] = None, en
             env=my_env,
             stdout=sys.stdout,
             stderr=sys.stderr,
-            **kwargs
+            **kwargs,
         )
         return process
     except Exception as e:
         print(f"Error: {e}")
         return None
+
 
 def wait_for_server(url: str, timeout: int = 180) -> bool:
     print(f"Waiting for {url}...", end="", flush=True)
@@ -276,12 +298,13 @@ def wait_for_server(url: str, timeout: int = 180) -> bool:
             if e.code < 500:
                 print(" Ready!")
                 return True
-        except:
+        except Exception:
             pass
         print(".", end="", flush=True)
         time.sleep(1)
-    print(f" Timeout!")
+    print(" Timeout!")
     return False
+
 
 # ==========================================
 # BROWSER FRONTEND
@@ -293,6 +316,7 @@ FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
 # Global list to track background processes for cleanup
 _background_processes: List[subprocess.Popen] = []
 
+
 def cleanup_background_processes():
     """Clean up all background processes on exit."""
     for proc in _background_processes:
@@ -300,10 +324,10 @@ def cleanup_background_processes():
             try:
                 proc.terminate()
                 proc.wait(timeout=5)
-            except:
+            except Exception:
                 try:
                     proc.kill()
-                except:
+                except Exception:
                     pass
 
 
@@ -320,7 +344,9 @@ def _kill_stale_port_process(port: int) -> bool:
         try:
             result = subprocess.run(
                 ["lsof", "-ti", f":{port}"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             for pid_str in result.stdout.strip().split():
                 pid = int(pid_str)
@@ -335,7 +361,9 @@ def _kill_stale_port_process(port: int) -> bool:
     try:
         result = subprocess.run(
             ["netstat", "-ano"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         for line in result.stdout.splitlines():
             # Match LISTENING lines for our port on any address
@@ -345,7 +373,8 @@ def _kill_stale_port_process(port: int) -> bool:
                 if pid and pid != os.getpid():
                     subprocess.run(
                         ["taskkill", "/PID", str(pid), "/F"],
-                        capture_output=True, timeout=10,
+                        capture_output=True,
+                        timeout=10,
                     )
                     return True
     except Exception:
@@ -368,24 +397,32 @@ def _try_install_nodejs_linux(silent: bool = False) -> bool:
     """
     if sys.platform == "win32":
         return False
-    
+
     # Check if node is already installed
     if shutil.which("node") and shutil.which("npm"):
         return True
-    
+
     if not silent:
         print("\n🔧 Attempting to install Node.js...")
-    
+
     # Detect package manager and prepare commands
     package_managers = [
-        ("apt-get", ["sudo", "apt-get", "update"], ["sudo", "apt-get", "install", "-y", "nodejs", "npm"]),
-        ("apt", ["sudo", "apt", "update"], ["sudo", "apt", "install", "-y", "nodejs", "npm"]),
+        (
+            "apt-get",
+            ["sudo", "apt-get", "update"],
+            ["sudo", "apt-get", "install", "-y", "nodejs", "npm"],
+        ),
+        (
+            "apt",
+            ["sudo", "apt", "update"],
+            ["sudo", "apt", "install", "-y", "nodejs", "npm"],
+        ),
         ("dnf", None, ["sudo", "dnf", "install", "-y", "nodejs", "npm"]),
         ("yum", None, ["sudo", "yum", "install", "-y", "nodejs", "npm"]),
         ("pacman", None, ["sudo", "pacman", "-Sy", "nodejs", "npm"]),
         ("zypper", None, ["sudo", "zypper", "install", "-y", "nodejs", "npm"]),
     ]
-    
+
     for pm_name, update_cmd, install_cmd in package_managers.items():
         if shutil.which(pm_name.split()[0]):
             if not silent:
@@ -394,12 +431,16 @@ def _try_install_nodejs_linux(silent: bool = False) -> bool:
                 # Run update command if available
                 if update_cmd:
                     try:
-                        result = subprocess.run(update_cmd, capture_output=True, text=True, timeout=300)
+                        result = subprocess.run(
+                            update_cmd, capture_output=True, text=True, timeout=300
+                        )
                     except Exception:
                         pass  # Update failed, but continue with install
-                
+
                 # Run install command
-                result = subprocess.run(install_cmd, capture_output=True, text=True, timeout=300)
+                result = subprocess.run(
+                    install_cmd, capture_output=True, text=True, timeout=300
+                )
                 if result.returncode == 0:
                     if not silent:
                         print("✓ Node.js installed successfully")
@@ -412,8 +453,9 @@ def _try_install_nodejs_linux(silent: bool = False) -> bool:
             except Exception as e:
                 if not silent:
                     print(f"   ⚠ Error with {pm_name}: {str(e)[:100]}, trying next...")
-    
+
     return False
+
 
 def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     """Serve pre-built frontend static files with proxy support.
@@ -442,13 +484,18 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             elif self.path.startswith("/ws"):
                 # WebSocket upgrade can't be proxied via HTTP; the frontend
                 # will connect directly if we return 426
-                self.send_error(426, "WebSocket connections not proxied - connect directly to backend")
+                self.send_error(
+                    426,
+                    "WebSocket connections not proxied - connect directly to backend",
+                )
             else:
                 # Serve static files; fall back to index.html for SPA routing
                 # Check if file exists, otherwise serve index.html
                 file_path = os.path.join(dist_dir, self.path.lstrip("/"))
                 if not os.path.exists(file_path) or os.path.isdir(file_path):
-                    if not os.path.exists(file_path + "/index.html") and "." not in os.path.basename(self.path):
+                    if not os.path.exists(
+                        file_path + "/index.html"
+                    ) and "." not in os.path.basename(self.path):
                         self.path = "/index.html"
                 super().do_GET()
 
@@ -512,6 +559,7 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
 
         def handle_error(self, request, client_address):
             import sys as _sys
+
             exc_type = _sys.exc_info()[0]
             if exc_type is not None and issubclass(
                 exc_type,
@@ -535,10 +583,13 @@ def _launch_static_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
         def __init__(self, server):
             self._server = server
             self.returncode = None
+
         def poll(self):
             return None  # always running
+
         def terminate(self):
             self._server.shutdown()
+
         def kill(self):
             self._server.shutdown()
 
@@ -552,7 +603,7 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     # If running as a PyInstaller binary, serve pre-built static files
     # instead of launching npm dev server (node/npm won't be available)
     dist_dir = os.path.join(FRONTEND_DIR, "dist")
-    is_frozen = getattr(sys, 'frozen', False)
+    is_frozen = getattr(sys, "frozen", False)
 
     if is_frozen:
         if os.path.exists(dist_dir):
@@ -608,7 +659,9 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
     # Terminal intercepts and shows as a blank tab).
     if sys.platform == "win32":
         node_exe = shutil.which("node")
-        vite_script = os.path.join(FRONTEND_DIR, "node_modules", "vite", "bin", "vite.js")
+        vite_script = os.path.join(
+            FRONTEND_DIR, "node_modules", "vite", "bin", "vite.js"
+        )
         if node_exe and os.path.isfile(vite_script):
             cmd = [node_exe, vite_script]
         else:
@@ -632,7 +685,9 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
             # DETACHED_PROCESS + CREATE_NO_WINDOW on the direct node.exe call
             # ensures no console window is created or inherited
             DETACHED_PROCESS = 0x00000008
-            popen_kwargs["creationflags"] = DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
+            popen_kwargs["creationflags"] = (
+                DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
+            )
         process = subprocess.Popen(cmd, **popen_kwargs)
         _background_processes.append(process)
         return process
@@ -645,6 +700,7 @@ def launch_frontend(silent: bool = False) -> Optional[subprocess.Popen]:
         if not silent:
             print(f"Error starting frontend: {e}")
         return None
+
 
 def wait_for_frontend(timeout: int = 30) -> bool:
     """Wait for the frontend dev server to be ready."""
@@ -660,12 +716,13 @@ def wait_for_frontend(timeout: int = 30) -> bool:
             if e.code < 500:
                 print(" Ready!")
                 return True
-        except:
+        except Exception:
             pass
         print(".", end="", flush=True)
         time.sleep(0.5)
     print(" Timeout!")
     return False
+
 
 def open_browser(url: str):
     """Open the default web browser to the given URL."""
@@ -676,6 +733,7 @@ def open_browser(url: str):
         print(f"Could not open browser automatically: {e}")
         print(f"Please open {url} manually in your browser.")
 
+
 BACKEND_PORT = 7926
 BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 
@@ -683,6 +741,7 @@ BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 # BROWSER MODE STARTUP UI
 # ==========================================
 STEP_WIDTH = 45  # Width for step text alignment
+
 
 def print_browser_header():
     """Print the retro browser mode startup header."""
@@ -708,6 +767,7 @@ def print_browser_header():
     print(_BE)
     print(f"{_BB}\n")
 
+
 def print_step(step_num: int, total: int, message: str, done: bool = False):
     """Print a retro formatted step line."""
     line = f"  {ORANGE}▸ [{step_num:>1}/{total}]{RESET}  {DIM}░{RESET}  {WHITE}{message.upper()}{RESET}"
@@ -716,9 +776,11 @@ def print_step(step_num: int, total: int, message: str, done: bool = False):
     else:
         print(line, end="", flush=True)
 
+
 def print_step_done():
     """Print retro done marker for current step."""
     print(f"  {GREEN}[ OK ]{RESET}", flush=True)
+
 
 def print_progress_bar(percent: int, width: int = 40):
     """Print a retro progress bar from 0-100%."""
@@ -727,17 +789,19 @@ def print_progress_bar(percent: int, width: int = 40):
     sys.stdout.write(f"\r  {bar}  {ORANGE}[ {percent:3d}% ]{RESET}")
     sys.stdout.flush()
 
+
 def print_ready_banner(url: str):
     """Print the retro ready banner."""
     W = 62
     print(f"\n{ORANGE}╔{'═' * W}╗{RESET}")
     print(f"{ORANGE}║{' ' * W}║{RESET}")
-    _r1 = f"  ▸  CRAFTBOT IS READY"
+    _r1 = "  ▸  CRAFTBOT IS READY"
     _r2 = f"  ░░ {url}"
     print(f"{ORANGE}║{RESET}{GREEN}{_r1.ljust(W)}{RESET}{ORANGE}║{RESET}")
     print(f"{ORANGE}║{RESET}{ORANGE}{_r2.ljust(W)}{RESET}{ORANGE}║{RESET}")
     print(f"{ORANGE}║{' ' * W}║{RESET}")
     print(f"{ORANGE}╚{'═' * W}╝{RESET}\n")
+
 
 def wait_for_backend_silent(timeout: int = 60) -> bool:
     """Wait for the agent backend WebSocket server to be ready (silent)."""
@@ -752,10 +816,11 @@ def wait_for_backend_silent(timeout: int = 60) -> bool:
                 return True
         except urllib.error.URLError:
             pass
-        except:
+        except Exception:
             pass
         time.sleep(0.5)
     return False
+
 
 def wait_for_frontend_silent(timeout: int = 30) -> bool:
     """Wait for the frontend dev server to be ready (silent)."""
@@ -768,10 +833,11 @@ def wait_for_frontend_silent(timeout: int = 30) -> bool:
         except urllib.error.HTTPError as e:
             if e.code < 500:
                 return True
-        except:
+        except Exception:
             pass
         time.sleep(0.5)
     return False
+
 
 def wait_for_backend(timeout: int = 60) -> bool:
     """Wait for the agent backend WebSocket server to be ready."""
@@ -790,14 +856,17 @@ def wait_for_backend(timeout: int = 60) -> bool:
                 return True
         except urllib.error.URLError:
             pass
-        except:
+        except Exception:
             pass
         print(".", end="", flush=True)
         time.sleep(0.5)
     print(" Timeout!")
     return False
 
-def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bool = False) -> Optional[subprocess.Popen]:
+
+def launch_agent_background(
+    env_name: Optional[str], use_conda: bool, silent: bool = False
+) -> Optional[subprocess.Popen]:
     """Launch main.py in the background for browser mode."""
     main_script = os.path.abspath(MAIN_APP_SCRIPT)
     if not os.path.exists(main_script):
@@ -806,7 +875,7 @@ def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bo
         return None
 
     # Filter flags (--browser passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda", "--tui"}
+    skip_flags = {"--gui", "--conda", "--no-conda"}
     # Also skip port flags and their values
     pass_args = []
     skip_next = False
@@ -834,7 +903,7 @@ def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bo
 
     # When running as a PyInstaller frozen binary, run main() in a thread
     # instead of spawning a subprocess (sys.executable is the binary itself)
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         import threading
 
         sys.argv = [sys.argv[0]] + pass_args
@@ -844,6 +913,7 @@ def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bo
         def _run_agent():
             try:
                 from main import main as main_entry
+
                 main_entry()
             except Exception as e:
                 print(f"Agent error: {e}")
@@ -855,12 +925,16 @@ def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bo
         class _AgentThread:
             def __init__(self):
                 self.returncode = None
+
             def poll(self):
                 return None if thread.is_alive() else 0
+
             def wait(self):
                 thread.join()
+
             def terminate(self):
                 pass  # Thread will exit when main process exits (daemon=True)
+
             def kill(self):
                 pass
 
@@ -871,7 +945,16 @@ def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bo
     # Build command
     if use_conda and env_name:
         conda_exe = get_conda_command()
-        cmd = [conda_exe, "run", "--no-capture-output", "-n", env_name, "python", "-u", main_script] + pass_args
+        cmd = [
+            conda_exe,
+            "run",
+            "--no-capture-output",
+            "-n",
+            env_name,
+            "python",
+            "-u",
+            main_script,
+        ] + pass_args
 
         # On Windows, wrap .bat files with cmd.exe
         if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
@@ -894,6 +977,7 @@ def launch_agent_background(env_name: Optional[str], use_conda: bool, silent: bo
             print(f"Error starting agent: {e}")
         return None
 
+
 # ==========================================
 # ENVIRONMENT DETECTION
 # ==========================================
@@ -914,12 +998,12 @@ def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
             "C:\\anaconda3",
             "C:\\Anaconda3",
         ]
-        
+
         for base_path in common_paths:
             conda_bat = os.path.join(base_path, "condabin", "conda.bat")
             if os.path.exists(conda_bat):
                 return True, conda_bat, base_path
-        
+
         # Also check current Python directory
         for base in [os.path.dirname(os.path.dirname(sys.executable))]:
             if os.path.exists(os.path.join(base, "condabin", "conda.bat")):
@@ -927,15 +1011,17 @@ def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
 
     return False, "", None
 
+
 def get_env_name_from_yml() -> str:
     try:
-        with open(YML_FILE, 'r') as f:
+        with open(YML_FILE, "r") as f:
             for line in f:
                 if line.strip().startswith("name:"):
                     return line.split(":", 1)[1].strip().strip("'\"")
-    except:
+    except Exception:
         pass
     return "craftbot"
+
 
 def get_conda_command() -> str:
     """Return conda command. Use full path on Windows if conda not in PATH."""
@@ -943,7 +1029,7 @@ def get_conda_command() -> str:
     conda_exe = shutil.which("conda")
     if conda_exe:
         return conda_exe
-    
+
     # On Windows, check common installation paths
     if sys.platform == "win32":
         common_paths = [
@@ -956,14 +1042,15 @@ def get_conda_command() -> str:
             "C:\\anaconda3",
             "C:\\Anaconda3",
         ]
-        
+
         for base_path in common_paths:
             conda_bat = os.path.join(base_path, "condabin", "conda.bat")
             if os.path.exists(conda_bat):
                 return conda_bat
-    
+
     # Fallback to just "conda" (will work if it's in PATH)
     return "conda"
+
 
 def verify_env(env_name: str) -> bool:
     try:
@@ -971,8 +1058,9 @@ def verify_env(env_name: str) -> bool:
         cmd = [conda_cmd, "run", "-n", env_name, "python", "-c", "print('ok')"]
         run_command(cmd, capture=True)
         return True
-    except:
+    except Exception:
         return False
+
 
 # ==========================================
 # OMNIPARSER SERVER
@@ -982,16 +1070,27 @@ def launch_omniparser(use_conda: bool) -> bool:
     print("Starting GUI components (OmniParser)...")
 
     config = load_config()
-    repo_path = config.get("omniparser_repo_path", os.path.abspath("OmniParser_CraftOS"))
+    repo_path = config.get(
+        "omniparser_repo_path", os.path.abspath("OmniParser_CraftOS")
+    )
 
     if not os.path.exists(repo_path):
-        print(f"Error: GUI components not installed.")
+        print("Error: GUI components not installed.")
         print("Run 'python install.py --gui --conda' first.")
         return False
 
     if use_conda:
         conda_cmd = get_conda_command()
-        cmd = [conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "python", "-u", "-m", "gradio_demo"]
+        cmd = [
+            conda_cmd,
+            "run",
+            "-n",
+            OMNIPARSER_ENV_NAME,
+            "python",
+            "-u",
+            "-m",
+            "gradio_demo",
+        ]
     else:
         cmd = [sys.executable, "-u", "-m", "gradio_demo"]
 
@@ -1004,6 +1103,7 @@ def launch_omniparser(use_conda: bool) -> bool:
     print("Failed to start GUI components.")
     return False
 
+
 # ==========================================
 # MAIN LAUNCHER
 # ==========================================
@@ -1014,7 +1114,7 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
         print(f"Error: {main_script} not found.")
         sys.exit(1)
 
-    # Filter flags (--cli and --tui pass through to agent)
+    # Filter flags (--cli passes through to agent)
     skip_flags = {"--gui", "--conda", "--no-conda", "--browser"}
     # Also skip port flags and their values
     pass_args = []
@@ -1032,15 +1132,16 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
             continue
         pass_args.append(a)
 
-    print(f"Starting CraftBot...\n")
+    print("Starting CraftBot...\n")
 
     # When running as a PyInstaller frozen binary, sys.executable points to
     # the binary itself, so spawning "python main.py" would re-run run.py
     # in an infinite loop. Instead, import and call main() directly.
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         try:
             sys.argv = [sys.argv[0]] + pass_args
             from main import main as main_entry
+
             main_entry()
         except KeyboardInterrupt:
             print("\nInterrupted.")
@@ -1050,7 +1151,16 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
     # Build command
     if use_conda and env_name:
         conda_exe = get_conda_command()
-        cmd = [conda_exe, "run", "--no-capture-output", "-n", env_name, "python", "-u", main_script] + pass_args
+        cmd = [
+            conda_exe,
+            "run",
+            "--no-capture-output",
+            "-n",
+            env_name,
+            "python",
+            "-u",
+            main_script,
+        ] + pass_args
 
         # On Windows, wrap .bat files with cmd.exe
         if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
@@ -1060,7 +1170,9 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
 
     # Run in current terminal with all environment variables.
     try:
-        result = subprocess.run(cmd, cwd=os.path.dirname(main_script), env=os.environ.copy())
+        result = subprocess.run(
+            cmd, cwd=os.path.dirname(main_script), env=os.environ.copy()
+        )
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         print("\nInterrupted.")
@@ -1078,11 +1190,12 @@ if __name__ == "__main__":
     # [V1.2.2] GUI mode is temporarily disabled in this version.
     if "--gui" in args:
         print("\n[!] GUI mode is temporarily disabled in this version (V1.2.2).")
-        print("    This feature is experimental and will be re-enabled in a future release.")
+        print(
+            "    This feature is experimental and will be re-enabled in a future release."
+        )
         print("    Please run without --gui flag.\n")
         sys.exit(1)
     gui_mode = False  # "--gui" in args  # [V1.2.2] disabled
-    tui_mode = "--tui" in args
     cli_mode = "--cli" in args
     conda_flag = "--conda" in args
     no_conda_flag = "--no-conda" in args
@@ -1093,12 +1206,14 @@ if __name__ == "__main__":
     FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
     BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 
-    # Browser mode is default (unless --tui or --cli specified)
-    browser_mode = not tui_mode and not cli_mode
+    # Browser mode is default (unless --cli specified)
+    browser_mode = not cli_mode
 
     # Load saved config to check what was actually installed
     config = load_config()
-    use_conda = config.get("use_conda", False)  # Use config instead of defaulting to True
+    use_conda = config.get(
+        "use_conda", False
+    )  # Use config instead of defaulting to True
 
     # Override with command-line flags if provided
     if conda_flag:
@@ -1119,12 +1234,7 @@ if __name__ == "__main__":
 
     # Determine mode string for display (only print for non-browser modes)
     if not browser_mode:
-        if cli_mode:
-            mode_str = "CLI"
-        elif gui_mode:
-            mode_str = "GUI + TUI"
-        else:
-            mode_str = "TUI"
+        mode_str = "GUI + CLI" if gui_mode else "CLI"
         print(f"\nMode: {mode_str}")
 
     # Check conda only if it was installed earlier
@@ -1167,13 +1277,13 @@ if __name__ == "__main__":
         # Step 1: Start frontend server (0% -> 10%)
         # Step 1: Start frontend server
         print_step(1, 8, "Starting frontend server")
-        frontend_process = launch_frontend(silent=not getattr(sys, 'frozen', False))
+        frontend_process = launch_frontend(silent=not getattr(sys, "frozen", False))
         if not frontend_process:
             print(" ✗")
             print("\nError: Failed to start browser frontend.")
-            print("\n" + "="*52)
+            print("\n" + "=" * 52)
             print("TROUBLESHOOTING:")
-            print("="*52)
+            print("=" * 52)
             print("\n1. Make sure Node.js is installed:")
             print("   → Download from: https://nodejs.org/ (LTS version)")
             print("   → Verify: node --version && npm --version")
@@ -1184,7 +1294,7 @@ if __name__ == "__main__":
             print("   → npm install")
             print("\n4. Try running again:")
             print("   → python run.py")
-            print("="*52 + "\n")
+            print("=" * 52 + "\n")
             sys.exit(1)
         print_step_done()
 
@@ -1213,7 +1323,7 @@ if __name__ == "__main__":
                 if e.code < 500:
                     frontend_ready = True
                     break
-            except:
+            except Exception:
                 pass
             time.sleep(0.5)
 
@@ -1229,7 +1339,7 @@ if __name__ == "__main__":
                 if e.code < 500:
                     backend_ready = True
                     break
-            except:
+            except Exception:
                 pass
             time.sleep(0.5)
 
@@ -1254,7 +1364,9 @@ if __name__ == "__main__":
             print("\n⚠ Error: Agent backend crashed")
             print("   Check the error messages above for details")
             if use_conda:
-                print(f"   Try running: conda activate {env_name} && python main.py --browser")
+                print(
+                    f"   Try running: conda activate {env_name} && python main.py --browser"
+                )
         else:
             # Frontend or backend may still be starting, but proceed anyway
             print_ready_banner(FRONTEND_URL)

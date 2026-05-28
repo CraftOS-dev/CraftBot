@@ -1,4 +1,5 @@
 """Diagnostic environment for the "mouse move" action."""
+
 from __future__ import annotations
 
 from diagnostic.framework import ActionTestCase

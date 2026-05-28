@@ -62,7 +62,7 @@ CraftBot awaits your orders. Set up your own CraftBot now.
 - **Cross-Platform** — Full support for Windows, macOS, and Linux with platform-specific code variants and Docker containerization.
 
 > [!IMPORTANT]
-> **GUI mode is deprecated.** CraftBot no longer supports GUI (desktop automation) mode. Please use Browser, TUI, or CLI mode instead.
+> **GUI mode is deprecated.** CraftBot no longer supports GUI (desktop automation) mode. Please use Browser or CLI mode instead.
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -176,7 +176,7 @@ python run.py
 The first run will guide you through setting up your API keys and preferences.
 
 > [!NOTE]
-> If Node.js is not installed, the installer will provide step-by-step instructions. You can also skip browser mode entirely and use TUI mode — no Node.js required: `python run.py --tui`
+> If Node.js is not installed, the installer will provide step-by-step instructions. You can also skip browser mode entirely and use CLI mode — no Node.js required: `python run.py --cli`
 
 ---
 
@@ -197,10 +197,9 @@ CraftBot supports multiple UI modes. Choose based on your preference:
 | Mode | Command | Requirements | Best For |
 |------|---------|--------------|----------|
 | **Browser** | `python run.py` | Node.js 18+ | Modern web interface, easiest to use |
-| **TUI** | `python run.py --tui` | None | Terminal UI, no dependencies needed |
 | **CLI** | `python run.py --cli` | None | Command-line, lightweight |
 
-**Browser mode** is the default and recommended. If you don't have Node.js, the installer will provide installation instructions or you can use **TUI mode** instead.
+**Browser mode** is the default and recommended. If you don't have Node.js, the installer will provide installation instructions or you can use **CLI mode** instead.
 
 ---
 
@@ -265,7 +264,6 @@ REST API, and trigger actions on your behalf.
 | **Task Manager** | Manages task definitions, enable simple and complex tasks bode, create todos, and multi-step workflow tracking. |
 | **Skill Manager** | Loads and injects pluggable skills into the agent context. |
 | **MCP Adapter** | Model Context Protocol integration that converts MCP tools into native actions. |
-| **TUI Interface** | Terminal user interface built with Textual framework for interactive command-line operation. |
 
 ---
 
@@ -319,18 +317,14 @@ python install.py --conda
 | Flag | Description |
 |------|-------------|
 | (none) | Run in **Browser** mode (recommended, requires Node.js) |
-| `--tui` | Run in **Terminal UI** mode (no dependencies needed) |
-| `--cli` | Run in **CLI** mode (lightweight) |
+| `--cli` | Run in **CLI** mode (lightweight, no Node.js required) |
 
 **Windows (PowerShell):**
 ```powershell
 # Browser mode (default, requires Node.js)
 python run.py
 
-# TUI mode (no Node.js required)
-python run.py --tui
-
-# CLI mode (lightweight)
+# CLI mode (no Node.js required)
 python run.py --cli
 
 # With conda environment
@@ -343,7 +337,6 @@ conda run -n craftbot python run.py
 **Linux/macOS (Bash):**
 ```bash
 python run.py          # Browser mode
-python run.py --tui    # TUI mode
 python run.py --cli    # CLI mode
 
 # With conda environment
@@ -351,7 +344,7 @@ conda run -n craftbot python run.py
 ```
 
 > [!NOTE]
-> **Installation:** The installer now provides clear guidance if dependencies are missing. If Node.js is not found, you'll be prompted to install it or can switch to TUI mode. Installation automatically detects GPU availability and falls back to CPU-only mode if needed.
+> **Installation:** The installer now provides clear guidance if dependencies are missing. If Node.js is not found, you'll be prompted to install it or can switch to CLI mode. Installation automatically detects GPU availability and falls back to CPU-only mode if needed.
 
 > [!TIP]
 > **First-time setup:** CraftBot will guide you through an onboarding sequence to configure API keys, the agent's name, MCPs, and Skills.
@@ -369,9 +362,9 @@ If you see **"npm not found in PATH"** when running `python run.py`:
 2. Install and restart your terminal
 3. Run `python run.py` again
 
-**Alternative:** Use TUI mode instead (no Node.js needed):
+**Alternative:** Use CLI mode instead (no Node.js needed):
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### Installation Fails with Dependencies

@@ -11,6 +11,7 @@ order.
     from .logger import get_logger
     logger = get_logger(__name__)
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +24,7 @@ class _LoggerProxy:
     so a host that calls ``configure(logger=...)`` AFTER modules have
     already imported their logger still sees its messages routed correctly.
     """
+
     __slots__ = ("_name", "_fallback")
 
     def __init__(self, name: str) -> None:
@@ -31,12 +33,15 @@ class _LoggerProxy:
 
     def _resolve(self):
         from .config import ConfigStore
+
         if ConfigStore.logger is not None:
             return ConfigStore.logger
         if self._fallback is None:
             lg = logging.getLogger(self._name)
             if not lg.handlers:
-                logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+                logging.basicConfig(
+                    level=logging.INFO, format="%(levelname)s: %(message)s"
+                )
             self._fallback = lg
         return self._fallback
 

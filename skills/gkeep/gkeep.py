@@ -15,6 +15,7 @@ Usage:
   gkeep unpin <note_id>         # Unpin a note
   gkeep stats                   # Show note counts
 """
+
 import sys
 import os
 import json
@@ -54,10 +55,12 @@ def cmd_login(email):
 
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_FILE.write_text(
-        json.dumps({
-            "email": email,
-            "token": keep.getMasterToken(),
-        })
+        json.dumps(
+            {
+                "email": email,
+                "token": keep.getMasterToken(),
+            }
+        )
     )
     TOKEN_FILE.chmod(0o600)
     print(f"Logged in as {email}. Token saved to {TOKEN_FILE}")
@@ -66,7 +69,7 @@ def cmd_login(email):
 def cmd_list(limit=20):
     keep = load_keep()
     keep.sync()
-    notes = list(keep.all())[:int(limit)]
+    notes = list(keep.all())[: int(limit)]
     for note in notes:
         if note.trashed or note.archived:
             continue

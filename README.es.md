@@ -59,7 +59,7 @@ CraftBot espera tus órdenes. Configura tu propio CraftBot ahora.
 - **Multiplataforma** — Soporte completo para Windows, macOS y Linux con variantes de código específicas por plataforma y contenedorización con Docker.
 
 > [!IMPORTANT]
-> **El modo GUI está obsoleto.** CraftBot ya no admite el modo GUI (automatización de escritorio). Usa en su lugar el modo Browser, TUI o CLI.
+> **El modo GUI está obsoleto.** CraftBot ya no admite el modo GUI (automatización de escritorio). Usa en su lugar el modo Browser o CLI.
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -171,7 +171,7 @@ python run.py
 La primera ejecución te guiará para configurar tus claves API y preferencias.
 
 > [!NOTE]
-> Si Node.js no está instalado, el instalador te ofrecerá instrucciones paso a paso. También puedes omitir completamente el modo navegador y usar el modo TUI — sin Node.js: `python run.py --tui`
+> Si Node.js no está instalado, el instalador te ofrecerá instrucciones paso a paso. También puedes omitir completamente el modo navegador y usar el modo CLI — sin Node.js: `python run.py --cli`
 
 ### ¿Qué puedes hacer justo después?
 - Hablar con el agente de forma natural
@@ -190,10 +190,9 @@ CraftBot soporta varios modos de UI. Elige según tu preferencia:
 | Modo | Comando | Requisitos | Recomendado para |
 |------|---------|--------------|----------|
 | **Browser** | `python run.py` | Node.js 18+ | Interfaz web moderna, la más sencilla de usar |
-| **TUI** | `python run.py --tui` | Ninguno | UI en terminal, sin dependencias adicionales |
 | **CLI** | `python run.py --cli` | Ninguno | Línea de comandos, ligero |
 
-El **modo navegador** es el predeterminado y recomendado. Si no tienes Node.js, el instalador te ofrecerá instrucciones de instalación o puedes usar el **modo TUI** en su lugar.
+El **modo navegador** es el predeterminado y recomendado. Si no tienes Node.js, el instalador te ofrecerá instrucciones de instalación o puedes usar el **modo CLI** en su lugar.
 
 ---
 
@@ -260,7 +259,6 @@ de la app mediante la API REST, y disparar acciones en tu nombre.
 | **Task Manager** | Administra definiciones de tareas, habilita modos de tareas simples y complejas, crea todos y hace seguimiento a flujos de trabajo multietapa. |
 | **Skill Manager** | Carga e inyecta skills intercambiables en el contexto del agente. |
 | **MCP Adapter** | Integración con Model Context Protocol que convierte herramientas MCP en acciones nativas. |
-| **TUI Interface** | Interfaz de usuario de terminal construida con el framework Textual para operación interactiva por línea de comandos. |
 
 ---
 
@@ -287,7 +285,6 @@ de la app mediante la API REST, y disparar acciones en tu nombre.
 | Flag | Descripción |
 |------|-------------|
 | (ninguno) | Ejecutar en modo **Browser** (recomendado, requiere Node.js) |
-| `--tui` | Ejecutar en modo **Terminal UI** (no requiere dependencias) |
 | `--cli` | Ejecutar en modo **CLI** (ligero) |
 
 ### craftbot.py
@@ -317,9 +314,6 @@ python install.py --conda
 # Modo navegador (por defecto, requiere Node.js)
 python run.py
 
-# Modo TUI (no requiere Node.js)
-python run.py --tui
-
 # Modo CLI (ligero)
 python run.py --cli
 
@@ -334,9 +328,6 @@ conda run -n craftbot python run.py
 ```bash
 # Modo navegador (por defecto, requiere Node.js)
 python run.py
-
-# Modo TUI (no requiere Node.js)
-python run.py --tui
 
 # Modo CLI (ligero)
 python run.py --cli
@@ -379,7 +370,7 @@ python craftbot.py logs     # Ver el log reciente
 > Tras `craftbot.py start` o `craftbot.py install`, se crea automáticamente un **acceso directo de CraftBot en el escritorio**. Si cierras el navegador por error, haz doble clic en el acceso directo para reabrirlo.
 
 > [!NOTE]
-> **Instalación:** El instalador ahora ofrece orientación clara si faltan dependencias. Si no se encuentra Node.js, se te pedirá instalarlo o podrás cambiar al modo TUI. La instalación detecta automáticamente la disponibilidad de GPU y recurre al modo solo CPU si es necesario.
+> **Instalación:** El instalador ahora ofrece orientación clara si faltan dependencias. Si no se encuentra Node.js, se te pedirá instalarlo o podrás cambiar al modo CLI. La instalación detecta automáticamente la disponibilidad de GPU y recurre al modo solo CPU si es necesario.
 
 > [!TIP]
 > **Configuración inicial:** CraftBot te guiará por una secuencia de onboarding para configurar claves API, el nombre del agente, MCPs y Skills.
@@ -397,9 +388,9 @@ Si ves **"npm not found in PATH"** al ejecutar `python run.py`:
 2. Instálalo y reinicia tu terminal
 3. Ejecuta `python run.py` de nuevo
 
-**Alternativa:** Usa el modo TUI (no necesita Node.js):
+**Alternativa:** Usa el modo CLI (no necesita Node.js):
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### La instalación falla por dependencias

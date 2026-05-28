@@ -1,10 +1,10 @@
 # Jira Skill
 
-Natural language interaction with Jira for managing issues, sprints, and workflows. This skill enables Claude to view, create, update, and transition Jira tickets using conversational commands.
+Natural language interaction with Jira for managing issues, sprints, and workflows. This skill enables CraftBot to view, create, update, and transition Jira tickets using conversational commands.
 
 ## Purpose
 
-The Jira skill bridges the gap between natural language requests and Jira operations. Instead of remembering specific CLI commands or API calls, you can simply tell Claude what you want to do with your Jira tickets, and the skill handles the technical details.
+The Jira skill bridges the gap between natural language requests and Jira operations. Instead of remembering specific CLI commands or API calls, you can simply tell CraftBot what you want to do with your Jira tickets, and the skill handles the technical details.
 
 Key benefits:
 - **Conversational interface**: Ask questions like "What are my open tickets?" or "Move PROJ-123 to Done"
@@ -169,7 +169,7 @@ Follow the prompts to configure your Jira server URL and authentication.
 
 The Atlassian MCP provides Jira access through Model Context Protocol.
 
-Configure the Atlassian MCP in your Claude settings with your Atlassian credentials. This enables access to `mcp__atlassian__*` tools.
+Configure the Atlassian MCP in your CraftBot settings with your Atlassian credentials. This enables access to `mcp__atlassian__*` tools.
 
 ## Output
 
@@ -282,7 +282,7 @@ If neither CLI nor MCP is available:
    jira init
    ```
 
-2. **Or configure Atlassian MCP** in your Claude settings
+2. **Or configure Atlassian MCP** in your CraftBot settings
 
 ## Reference Files
 

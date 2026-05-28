@@ -14,14 +14,19 @@ try:
     from loguru import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 from ._state import get_living_ui_manager
 
 # Registered async callbacks into the browser adapter.
 _broadcast_ready_callback: Optional[Callable[[str, str, int], Awaitable[bool]]] = None
-_broadcast_progress_callback: Optional[Callable[[str, str, int, str], Awaitable[None]]] = None
-_broadcast_todos_callback: Optional[Callable[[str, List[Dict[str, Any]]], Awaitable[None]]] = None
+_broadcast_progress_callback: Optional[
+    Callable[[str, str, int, str], Awaitable[None]]
+] = None
+_broadcast_todos_callback: Optional[
+    Callable[[str, List[Dict[str, Any]]], Awaitable[None]]
+] = None
 _broadcast_data_changed_callback: Optional[Callable[[str], Awaitable[None]]] = None
 
 # Captured at register time so cross-thread dispatchers (action handlers
@@ -32,14 +37,19 @@ _main_loop: Optional[asyncio.AbstractEventLoop] = None
 def register_broadcast_callbacks(
     broadcast_ready: Callable[[str, str, int], Awaitable[bool]],
     broadcast_progress: Callable[[str, str, int, str], Awaitable[None]],
-    broadcast_todos: Optional[Callable[[str, List[Dict[str, Any]]], Awaitable[None]]] = None,
+    broadcast_todos: Optional[
+        Callable[[str, List[Dict[str, Any]]], Awaitable[None]]
+    ] = None,
     broadcast_data_changed: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 
     Called by the browser_adapter when it initializes.
     """
-    global _broadcast_ready_callback, _broadcast_progress_callback, _broadcast_todos_callback
+    global \
+        _broadcast_ready_callback, \
+        _broadcast_progress_callback, \
+        _broadcast_todos_callback
     global _broadcast_data_changed_callback, _main_loop
     _broadcast_ready_callback = broadcast_ready
     _broadcast_progress_callback = broadcast_progress
@@ -49,7 +59,9 @@ def register_broadcast_callbacks(
         _main_loop = asyncio.get_running_loop()
     except RuntimeError:
         _main_loop = None
-        logger.warning("[LIVING_UI] No running loop at callback registration — cross-thread broadcasts will fail")
+        logger.warning(
+            "[LIVING_UI] No running loop at callback registration — cross-thread broadcasts will fail"
+        )
     logger.info("[LIVING_UI] Broadcast callbacks registered")
 
 
@@ -74,9 +86,7 @@ async def broadcast_living_ui_progress(
     return False
 
 
-async def _broadcast_todos_async(
-    project_id: str, todos: List[Dict[str, Any]]
-) -> bool:
+async def _broadcast_todos_async(project_id: str, todos: List[Dict[str, Any]]) -> bool:
     """Internal async broadcaster used by the sync dispatcher below."""
     if _broadcast_todos_callback:
         await _broadcast_todos_callback(project_id, todos)
@@ -161,6 +171,7 @@ def make_todo_broadcast_hook() -> Callable[[Any, List[Dict[str, Any]]], None]:
     It filters non-Living-UI tasks by checking whether the task id maps to
     a project, so registering it globally is safe.
     """
+
     def hook(task: Any, todos: List[Dict[str, Any]]) -> None:
         manager = get_living_ui_manager()
         if manager is None:
@@ -168,6 +179,9 @@ def make_todo_broadcast_hook() -> Callable[[Any, List[Dict[str, Any]]], None]:
         project = manager.get_project_by_task_id(task.id)
         if project is None:
             return  # non-Living-UI task — silently skip
-        logger.debug(f"[LIVING_UI] Broadcasting {len(todos)} todos to project {project.id}")
+        logger.debug(
+            f"[LIVING_UI] Broadcasting {len(todos)} todos to project {project.id}"
+        )
         _dispatch_todos(project.id, todos)
+
     return hook

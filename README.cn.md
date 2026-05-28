@@ -59,7 +59,7 @@ CraftBot 静候你的指令，现在就部署属于你的 CraftBot 吧。
 - **跨平台** — 完整支持 Windows、macOS 和 Linux，具有平台特定代码变体和 Docker 容器化。
 
 > [!IMPORTANT]
-> **GUI 模式已弃用。** CraftBot 不再支持 GUI（桌面自动化）模式。请改用 Browser、TUI 或 CLI 模式。
+> **GUI 模式已弃用。** CraftBot 不再支持 GUI（桌面自动化）模式。请改用 Browser 或 CLI 模式。
 
 <div align="center">
     <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
@@ -171,7 +171,7 @@ python run.py
 首次运行会引导你完成 API Key 设置和偏好配置。
 
 > [!NOTE]
-> 如果未安装 Node.js，安装器会提供详细指引。你也可以完全跳过浏览器模式，直接使用 TUI 模式——无需 Node.js：`python run.py --tui`
+> 如果未安装 Node.js，安装器会提供详细指引。你也可以完全跳过浏览器模式，直接使用 CLI 模式——无需 Node.js：`python run.py --cli`
 
 ### 安装完成后你可以做什么？
 - 用自然语言与代理交流
@@ -190,10 +190,9 @@ CraftBot 支持多种 UI 模式。根据你的偏好选择：
 | 模式 | 命令 | 要求 | 最适合 |
 |------|---------|--------------|----------|
 | **浏览器** | `python run.py` | Node.js 18+ | 现代 Web 界面，最易使用 |
-| **TUI** | `python run.py --tui` | 无 | 终端 UI，无需额外依赖 |
 | **CLI** | `python run.py --cli` | 无 | 命令行，轻量级 |
 
-**浏览器模式**是默认的推荐模式。如果你没有 Node.js，安装器会提供安装指引，或者你可以使用 **TUI 模式**。
+**浏览器模式**是默认的推荐模式。如果你没有 Node.js，安装器会提供安装指引，或者你可以使用 **CLI 模式**。
 
 ---
 
@@ -258,7 +257,6 @@ CraftBot 嵌入在每个 Living UI 中，并**感知其状态**：
 | **任务管理器** | 管理任务定义，支持简单和复杂任务模式，创建待办事项，多步骤工作流跟踪。 |
 | **技能管理器** | 加载并将可插拔技能注入代理上下文。 |
 | **MCP 适配器** | 模型上下文协议集成，将 MCP 工具转换为原生动作。 |
-| **TUI 界面** | 基于 Textual 框架构建的终端用户界面，用于交互式命令行操作。 |
 
 ---
 
@@ -285,7 +283,6 @@ CraftBot 嵌入在每个 Living UI 中，并**感知其状态**：
 | 参数 | 说明 |
 |------|-------------|
 | （无） | 以**浏览器**模式运行（推荐，需要 Node.js） |
-| `--tui` | 以**终端 UI** 模式运行（无需额外依赖） |
 | `--cli` | 以 **CLI** 模式运行（轻量级） |
 
 **安装示例：**
@@ -303,9 +300,6 @@ python install.py --conda
 # 浏览器模式（默认，需要 Node.js）
 python run.py
 
-# TUI 模式（不需要 Node.js）
-python run.py --tui
-
 # CLI 模式（轻量级）
 python run.py --cli
 
@@ -320,9 +314,6 @@ conda run -n craftbot python run.py
 ```bash
 # 浏览器模式（默认，需要 Node.js）
 python run.py
-
-# TUI 模式（不需要 Node.js）
-python run.py --tui
 
 # CLI 模式（轻量级）
 python run.py --cli
@@ -365,7 +356,7 @@ python craftbot.py logs     # 查看最近日志输出
 > 执行 `craftbot.py start` 或 `craftbot.py install` 后，系统会自动创建 **CraftBot 桌面快捷方式**。如果不小心关闭了浏览器，双击快捷方式即可重新打开。
 
 > [!NOTE]
-> **安装：** 安装器会在缺少依赖时提供清晰的指引。如果未找到 Node.js，会提示你安装或切换到 TUI 模式。安装会自动检测 GPU 可用性，必要时回退到仅 CPU 模式。
+> **安装：** 安装器会在缺少依赖时提供清晰的指引。如果未找到 Node.js，会提示你安装或切换到 CLI 模式。安装会自动检测 GPU 可用性，必要时回退到仅 CPU 模式。
 
 > [!TIP]
 > **首次设置：** CraftBot 会引导你完成引导流程，配置 API Key、代理名称、MCP 和技能。
@@ -383,9 +374,9 @@ python craftbot.py logs     # 查看最近日志输出
 2. 安装并重启终端
 3. 再次运行 `python run.py`
 
-**替代方案：** 使用 TUI 模式（不需要 Node.js）：
+**替代方案：** 使用 CLI 模式（不需要 Node.js）：
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### 依赖安装失败

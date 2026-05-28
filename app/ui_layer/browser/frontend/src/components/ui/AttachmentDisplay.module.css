@@ -70,6 +70,26 @@
   flex-shrink: 0;
 }
 
+.previewTrigger {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.previewTrigger:hover .fileName {
+  text-decoration: underline;
+}
+
 /* Pending attachment preview (for files not yet sent) */
 .pendingAttachment {
   display: flex;

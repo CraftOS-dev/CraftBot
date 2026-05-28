@@ -33,7 +33,10 @@ from agent_core import action
         "errors": {
             "type": "array",
             "items": {"type": "string"},
-            "example": ["Failed to connect to API on first attempt", "Permission denied for /etc/config"],
+            "example": [
+                "Failed to connect to API on first attempt",
+                "Permission denied for /etc/config",
+            ],
             "description": "List of any errors or issues encountered during task execution (optional).",
         },
     },
@@ -80,23 +83,26 @@ def end_task(input_data: dict) -> dict:
     import app.internal_action_interface as iai
 
     if status == "complete":
-        res = asyncio.run(iai.InternalActionInterface.mark_task_completed(
-            message=reason,
-            summary=summary,
-            errors=errors,
-            task_id=session_id,  # Pass specific task ID to end
-        ))
+        res = asyncio.run(
+            iai.InternalActionInterface.mark_task_completed(
+                message=reason,
+                summary=summary,
+                errors=errors,
+                task_id=session_id,  # Pass specific task ID to end
+            )
+        )
     else:
         # Map 'abort' to a cancellation by default
-        res = asyncio.run(iai.InternalActionInterface.mark_task_cancel(
-            reason=reason,
-            summary=summary,
-            errors=errors,
-            task_id=session_id,  # Pass specific task ID to end
-        ))
+        res = asyncio.run(
+            iai.InternalActionInterface.mark_task_cancel(
+                reason=reason,
+                summary=summary,
+                errors=errors,
+                task_id=session_id,  # Pass specific task ID to end
+            )
+        )
 
     if isinstance(res, dict) and res.get("status") == "ok":
         res["status"] = "success"
 
     return res
-

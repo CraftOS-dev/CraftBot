@@ -8,14 +8,17 @@ ROOT = Path(__file__).resolve().parents[2]
 # Top-level packages in your repo
 PACKAGE_DIRS = ["app", "agents"]
 
+
 def is_package_dir(d: Path) -> bool:
     return d.is_dir() and (d / "__init__.py").exists()
+
 
 def iter_python_modules(pkg_dir: Path):
     for path in sorted(pkg_dir.rglob("*.py")):
         if path.name == "__init__.py":
             continue
         yield path
+
 
 nav_lines: list[str] = []
 nav_lines.append("* [Home](index.md)")

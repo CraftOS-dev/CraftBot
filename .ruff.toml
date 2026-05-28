@@ -1,0 +1,17 @@
+extend-exclude = [
+    "app/data/living_ui_template",
+]
+
+# E402 (module-level imports not at top) is triggered in files that deliberately
+# run setup code before imports — logging suppression, sys.path manipulation,
+# asyncio compatibility shims, or state-registry initialization that other
+# modules depend on at import time. These orderings are load-bearing.
+[lint.per-file-ignores]
+"agent_core/core/impl/context/engine.py" = ["E402"]
+"agent_core/core/prompts/__init__.py" = ["E402"]
+"agents/dog_agent/data/action/dog_behaviour.py" = ["E402"]
+"app/action/action_framework/run_actions_tests.py" = ["E402"]
+"app/config.py" = ["E402"]
+"app/llm_interface.py" = ["E402"]
+"app/main.py" = ["E402"]
+"craftos_integrations/__init__.py" = ["E402"]

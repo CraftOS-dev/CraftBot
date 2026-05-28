@@ -35,16 +35,29 @@ class EventTransformer:
 
     # Actions that should be hidden from the UI (for action_start/action_end events)
     HIDDEN_ACTIONS = {
-        "task_update_todos", "ignore",
-        "task start", "task_start",
+        "task_update_todos",
+        "ignore",
+        "task start",
+        "task_start",
     }
 
     # Event kinds that should be hidden from chat (reasoning, internal events)
     HIDDEN_EVENT_KINDS = {
-        "reasoning", "thinking", "thought", "internal",
-        "plan", "planning", "consider", "analysis",
-        "reflection", "debug", "trace", "context",
-        "memory", "observation", "reasoning_step",
+        "reasoning",
+        "thinking",
+        "thought",
+        "internal",
+        "plan",
+        "planning",
+        "consider",
+        "analysis",
+        "reflection",
+        "debug",
+        "trace",
+        "context",
+        "memory",
+        "observation",
+        "reasoning_step",
     }
 
     # Track active actions: (task_id, action_name) -> action_id
@@ -88,7 +101,9 @@ class EventTransformer:
 
         if kind in cls.TASK_END_KINDS or "task_end" in kind:
             # Use original message for status detection (contains "cancelled", "error", etc.)
-            return cls._create_task_end_event(message, event.message, timestamp, task_id)
+            return cls._create_task_end_event(
+                message, event.message, timestamp, task_id
+            )
 
         # Check for hidden actions (applies to action events only)
         if cls._is_hidden_action(kind, message):
@@ -171,7 +186,7 @@ class EventTransformer:
             if hidden in kind or hidden in message_lower:
                 return True
 
-        # Skip screenshot events in CLI (handled separately for TUI)
+        # Skip screenshot events in CLI (footage is handled by the browser UI)
         if "screen" in kind and "shot" in kind:
             return True
 
@@ -198,22 +213,32 @@ class EventTransformer:
         """Clean action name by removing common prefixes and suffixes."""
         # Remove prefixes like "Running ", "Starting ", etc.
         prefixes_to_remove = [
-            "Running ", "Starting ", "Executing ",
-            "Processing ", "Performing ", "Doing ",
+            "Running ",
+            "Starting ",
+            "Executing ",
+            "Processing ",
+            "Performing ",
+            "Doing ",
         ]
         for prefix in prefixes_to_remove:
             if name.startswith(prefix):
-                name = name[len(prefix):]
+                name = name[len(prefix) :]
 
         # Remove suffixes like " → done", " → error", " → completed" (from action_end display_message)
         # Note: ActionManager uses "completed" and "failed" as display_status values
         suffixes_to_remove = [
-            " → done", " → error", " → failed", " → completed",
-            " -> done", " -> error", " -> failed", " -> completed",
+            " → done",
+            " → error",
+            " → failed",
+            " → completed",
+            " -> done",
+            " -> error",
+            " -> failed",
+            " -> completed",
         ]
         for suffix in suffixes_to_remove:
             if name.endswith(suffix):
-                name = name[:-len(suffix)]
+                name = name[: -len(suffix)]
 
         return name.strip()
 
@@ -265,7 +290,11 @@ class EventTransformer:
         # Determine task status from full message content
         if "error" in full_message_lower or "failed" in full_message_lower:
             status = "error"
-        elif "aborted" in full_message_lower or "cancelled" in full_message_lower or "canceled" in full_message_lower:
+        elif (
+            "aborted" in full_message_lower
+            or "cancelled" in full_message_lower
+            or "canceled" in full_message_lower
+        ):
             status = "cancelled"
         else:
             status = "completed"

@@ -10,7 +10,7 @@ def baidu_search(api_key, requestBody: dict):
     headers = {
         "Authorization": "Bearer %s" % api_key,
         "X-Appbuilder-From": "openclaw",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     # 使用POST方法发送JSON数据
@@ -53,21 +53,24 @@ if __name__ == "__main__":
         sys.exit(1)
 
     request_body = {
-        "messages": [
-            {
-                "content": parse_data["query"],
-                "role": "user"
-            }
-        ],
+        "messages": [{"content": parse_data["query"], "role": "user"}],
         "edition": parse_data["edition"] if "edition" in parse_data else "standard",
         "search_source": "baidu_search_v2",
-        "resource_type_filter": parse_data["resource_type_filter"] if "resource_type_filter" in parse_data else [
-            {"type": "web", "top_k": 20}],
-        "search_filter": parse_data["search_filter"] if "search_filter" in parse_data else {},
-        "block_websites": parse_data["block_websites"] if "block_websites" in parse_data else None,
-        "search_recency_filter": parse_data[
-            "search_recency_filter"] if "search_recency_filter" in parse_data else "year",
-        "safe_search": parse_data["safe_search"] if "safe_search" in parse_data else False,
+        "resource_type_filter": parse_data["resource_type_filter"]
+        if "resource_type_filter" in parse_data
+        else [{"type": "web", "top_k": 20}],
+        "search_filter": parse_data["search_filter"]
+        if "search_filter" in parse_data
+        else {},
+        "block_websites": parse_data["block_websites"]
+        if "block_websites" in parse_data
+        else None,
+        "search_recency_filter": parse_data["search_recency_filter"]
+        if "search_recency_filter" in parse_data
+        else "year",
+        "safe_search": parse_data["safe_search"]
+        if "safe_search" in parse_data
+        else False,
     }
     try:
         results = baidu_search(api_key, request_body)

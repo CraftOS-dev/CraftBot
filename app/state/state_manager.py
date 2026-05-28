@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 from datetime import datetime
 from pathlib import Path
 from agent_core.core.state.types import MainState
@@ -69,11 +69,13 @@ class StateManager:
         self.log_to_main_stream(
             "task_started",
             f"Started task: {task.name}",
-            display_message=f"Task started: {task.name}"
+            display_message=f"Task started: {task.name}",
         )
         logger.debug(f"[STATE] Task created and tracked in main state: {task.id}")
 
-    def on_task_ended(self, task: Task, status: str, summary: Optional[str] = None) -> None:
+    def on_task_ended(
+        self, task: Task, status: str, summary: Optional[str] = None
+    ) -> None:
         """Called when a task ends.
 
         Updates main state and logs to main stream.
@@ -81,15 +83,13 @@ class StateManager:
         which runs later to give the UI time to poll the task_end event.
         """
         # Update main state
-        self._main_state.mark_task_ended(
-            task.id, status, task.ended_at or "", summary
-        )
+        self._main_state.mark_task_ended(task.id, status, task.ended_at or "", summary)
 
         # Log to main stream
         self.log_to_main_stream(
             "task_ended",
             f"Task {status}: {task.name}. {summary or ''}",
-            display_message=f"Task {status}: {task.name}"
+            display_message=f"Task {status}: {task.name}",
         )
 
         # NOTE: Do NOT remove stream here. The TaskManager's on_stream_remove hook
@@ -101,7 +101,9 @@ class StateManager:
     # Session Management
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def start_session(self, gui_mode: bool = False, session_id: Optional[str] = None):
+    async def start_session(
+        self, gui_mode: bool = False, session_id: Optional[str] = None
+    ):
         """
         Initialize a session, optionally for a specific task/session.
 
@@ -135,7 +137,9 @@ class StateManager:
                 self.task = None
                 # Use main state event stream (conversation history)
                 event_stream = self._main_state.main_event_stream
-                logger.debug(f"[STATE] No task found for session={session_id}, using main state (conversation mode)")
+                logger.debug(
+                    f"[STATE] No task found for session={session_id}, using main state (conversation mode)"
+                )
         elif not session_id:
             # No session_id provided - use existing task if any
             current_task = self.get_current_task_state()
@@ -157,9 +161,7 @@ class StateManager:
             logger.debug(f"[STATE] StateSession created for session_id={session_id}")
 
         STATE.refresh(
-            current_task=current_task,
-            event_stream=event_stream,
-            gui_mode=gui_mode
+            current_task=current_task, event_stream=event_stream, gui_mode=gui_mode
         )
 
         # CRITICAL: Sync agent_properties.current_task_id with the session being processed
@@ -219,7 +221,7 @@ class StateManager:
             content: The message content.
             session_id: Optional task/session ID for multi-task isolation.
                        If not provided, falls back to current task's ID.
-            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot TUI").
+            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot CLI").
                      If provided, the event label becomes "user message from platform: X".
         """
         # Get task_id for proper event stream isolation in multi-task scenarios
@@ -260,7 +262,7 @@ class StateManager:
             content: The message content.
             session_id: Optional task/session ID for multi-task isolation.
                        If not provided, falls back to current task's ID.
-            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot TUI").
+            platform: Optional platform identifier (e.g., "Telegram", "WhatsApp", "CraftBot CLI").
                      If provided, the event label becomes "agent message to platform: X".
         """
         # Get task_id for proper event stream isolation in multi-task scenarios
@@ -349,7 +351,9 @@ class StateManager:
         """
         if session_id and self._task_manager:
             result = session_id in self._task_manager.tasks
-            logger.debug(f"[is_running_task] session_id={session_id!r}, in_tasks={result}")
+            logger.debug(
+                f"[is_running_task] session_id={session_id!r}, in_tasks={result}"
+            )
             return result
         # Fallback: check current task reference
         return self.task is not None

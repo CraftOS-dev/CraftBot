@@ -1,4 +1,5 @@
 """Environment and validation for the "google search" action."""
+
 from __future__ import annotations
 
 import subprocess as real_subprocess
@@ -23,7 +24,11 @@ def _build_google_search_stubs() -> Mapping[str, types.ModuleType]:
     def search(query: str, num_results: int = 5, advanced: bool = True):  # noqa: ARG001
         hits: List[FakeHit] = []
         for idx in range(num_results):
-            hits.append(FakeHit(url=f"https://example.com/{idx}", title=f"{query} result {idx + 1}"))
+            hits.append(
+                FakeHit(
+                    url=f"https://example.com/{idx}", title=f"{query} result {idx + 1}"
+                )
+            )
         return hits
 
     googlesearch_mod.search = search  # type: ignore[attr-defined]
@@ -79,7 +84,9 @@ def _build_google_search_stubs() -> Mapping[str, types.ModuleType]:
     # trafilatura module
     trafilatura_mod = types.ModuleType("trafilatura")
 
-    def extract(html: str, include_comments: bool = False, include_tables: bool = False) -> str:  # noqa: D401
+    def extract(
+        html: str, include_comments: bool = False, include_tables: bool = False
+    ) -> str:  # noqa: D401
         return html
 
     trafilatura_mod.extract = extract  # type: ignore[attr-defined]
