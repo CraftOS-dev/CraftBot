@@ -5,22 +5,37 @@ from agent_core import action
 # Messages — post / update / delete / ephemeral / schedule / permalink / threads
 # ------------------------------------------------------------------
 
+
 @action(
     name="send_slack_message",
     description="Send a message to a Slack channel or DM. Pass thread_ts to reply in a thread.",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID or name.", "example": "C01234567"},
-        "text": {"type": "string", "description": "Message text.", "example": "Hello team!"},
-        "thread_ts": {"type": "string", "description": "Optional thread timestamp for replies.", "example": ""},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID or name.",
+            "example": "C01234567",
+        },
+        "text": {
+            "type": "string",
+            "description": "Message text.",
+            "example": "Hello team!",
+        },
+        "thread_ts": {
+            "type": "string",
+            "description": "Optional thread timestamp for replies.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 async def send_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
+
     return await run_client(
-        "slack", "send_message",
+        "slack",
+        "send_message",
         recipient=input_data["channel"],
         text=input_data["text"],
         thread_ts=input_data.get("thread_ts"),
@@ -32,18 +47,36 @@ async def send_slack_message(input_data: dict) -> dict:
     description="Edit a previously-sent Slack message. ts is the timestamp returned when posting.",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
-        "ts": {"type": "string", "description": "Timestamp of the message to edit.", "example": "1234567890.123456"},
-        "text": {"type": "string", "description": "New text (optional).", "example": ""},
-        "blocks": {"type": "array", "description": "New Block Kit blocks (optional).", "example": []},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
+        "ts": {
+            "type": "string",
+            "description": "Timestamp of the message to edit.",
+            "example": "1234567890.123456",
+        },
+        "text": {
+            "type": "string",
+            "description": "New text (optional).",
+            "example": "",
+        },
+        "blocks": {
+            "type": "array",
+            "description": "New Block Kit blocks (optional).",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "update_message",
+        "slack",
+        "update_message",
         channel=input_data["channel"],
         ts=input_data["ts"],
         text=input_data["text"] if "text" in input_data else None,
@@ -56,7 +89,11 @@ def update_slack_message(input_data: dict) -> dict:
     description="Delete a Slack message.",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
         "ts": {"type": "string", "description": "Message timestamp.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -64,9 +101,12 @@ def update_slack_message(input_data: dict) -> dict:
 )
 def delete_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "delete_message",
-        channel=input_data["channel"], ts=input_data["ts"],
+        "slack",
+        "delete_message",
+        channel=input_data["channel"],
+        ts=input_data["ts"],
     )
 
 
@@ -75,20 +115,39 @@ def delete_slack_message(input_data: dict) -> dict:
     description="Send an ephemeral message visible only to one user in a channel.",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
-        "user": {"type": "string", "description": "User ID who will see the message.", "example": "U12345"},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
+        "user": {
+            "type": "string",
+            "description": "User ID who will see the message.",
+            "example": "U12345",
+        },
         "text": {"type": "string", "description": "Message text.", "example": ""},
-        "blocks": {"type": "array", "description": "Block Kit blocks (optional).", "example": []},
-        "thread_ts": {"type": "string", "description": "Reply in a thread (optional).", "example": ""},
+        "blocks": {
+            "type": "array",
+            "description": "Block Kit blocks (optional).",
+            "example": [],
+        },
+        "thread_ts": {
+            "type": "string",
+            "description": "Reply in a thread (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def send_slack_ephemeral(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "post_ephemeral",
-        channel=input_data["channel"], user=input_data["user"],
+        "slack",
+        "post_ephemeral",
+        channel=input_data["channel"],
+        user=input_data["user"],
         text=input_data["text"],
         blocks=input_data["blocks"] if "blocks" in input_data else None,
         thread_ts=input_data.get("thread_ts") or None,
@@ -100,19 +159,37 @@ def send_slack_ephemeral(input_data: dict) -> dict:
     description="Schedule a Slack message to be sent at a future time. post_at is a Unix timestamp.",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
-        "post_at": {"type": "integer", "description": "Unix timestamp when to send.", "example": 0},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
+        "post_at": {
+            "type": "integer",
+            "description": "Unix timestamp when to send.",
+            "example": 0,
+        },
         "text": {"type": "string", "description": "Message text.", "example": ""},
-        "blocks": {"type": "array", "description": "Block Kit blocks (optional).", "example": []},
-        "thread_ts": {"type": "string", "description": "Optional thread reply.", "example": ""},
+        "blocks": {
+            "type": "array",
+            "description": "Block Kit blocks (optional).",
+            "example": [],
+        },
+        "thread_ts": {
+            "type": "string",
+            "description": "Optional thread reply.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def schedule_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "schedule_message",
+        "slack",
+        "schedule_message",
         channel=input_data["channel"],
         post_at=input_data["post_at"],
         text=input_data["text"],
@@ -127,15 +204,21 @@ def schedule_slack_message(input_data: dict) -> dict:
     action_sets=["slack_messages"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
-        "scheduled_message_id": {"type": "string", "description": "Scheduled message ID (from schedule_slack_message response).", "example": ""},
+        "scheduled_message_id": {
+            "type": "string",
+            "description": "Scheduled message ID (from schedule_slack_message response).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def delete_scheduled_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "delete_scheduled_message",
+        "slack",
+        "delete_scheduled_message",
         channel=input_data["channel"],
         scheduled_message_id=input_data["scheduled_message_id"],
     )
@@ -146,15 +229,21 @@ def delete_scheduled_slack_message(input_data: dict) -> dict:
     description="List the bot's pending scheduled messages.",
     action_sets=["slack_messages"],
     input_schema={
-        "channel": {"type": "string", "description": "Filter to one channel (optional).", "example": ""},
+        "channel": {
+            "type": "string",
+            "description": "Filter to one channel (optional).",
+            "example": "",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_scheduled_slack_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "list_scheduled_messages",
+        "slack",
+        "list_scheduled_messages",
         channel=input_data.get("channel") or None,
         limit=input_data.get("limit", 100),
     )
@@ -165,16 +254,27 @@ def list_scheduled_slack_messages(input_data: dict) -> dict:
     description="Get a shareable permalink URL for a Slack message.",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
-        "message_ts": {"type": "string", "description": "Message timestamp.", "example": ""},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
+        "message_ts": {
+            "type": "string",
+            "description": "Message timestamp.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_message_permalink(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "get_permalink",
-        channel=input_data["channel"], message_ts=input_data["message_ts"],
+        "slack",
+        "get_permalink",
+        channel=input_data["channel"],
+        message_ts=input_data["message_ts"],
     )
 
 
@@ -183,40 +283,67 @@ def get_slack_message_permalink(input_data: dict) -> dict:
     description="Get all messages in a Slack thread (the parent + all replies).",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
-        "ts": {"type": "string", "description": "Parent message timestamp (thread_ts).", "example": ""},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
+        "ts": {
+            "type": "string",
+            "description": "Parent message timestamp (thread_ts).",
+            "example": "",
+        },
         "limit": {"type": "integer", "description": "Max messages.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_thread_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "get_thread_replies",
-        channel=input_data["channel"], ts=input_data["ts"],
+        "slack",
+        "get_thread_replies",
+        channel=input_data["channel"],
+        ts=input_data["ts"],
         limit=input_data.get("limit", 100),
     )
 
 
 # ----- Reactions -----
 
+
 @action(
     name="add_slack_reaction",
     description="Add an emoji reaction to a Slack message. name is the emoji code without colons (e.g. 'thumbsup', 'eyes').",
     action_sets=["slack_messages", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
-        "timestamp": {"type": "string", "description": "Message timestamp.", "example": ""},
-        "name": {"type": "string", "description": "Emoji name without colons.", "example": "thumbsup"},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
+        "timestamp": {
+            "type": "string",
+            "description": "Message timestamp.",
+            "example": "",
+        },
+        "name": {
+            "type": "string",
+            "description": "Emoji name without colons.",
+            "example": "thumbsup",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def add_slack_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "add_reaction",
-        channel=input_data["channel"], timestamp=input_data["timestamp"],
+        "slack",
+        "add_reaction",
+        channel=input_data["channel"],
+        timestamp=input_data["timestamp"],
         name=input_data["name"],
     )
 
@@ -227,17 +354,28 @@ def add_slack_reaction(input_data: dict) -> dict:
     action_sets=["slack_messages", "slack"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
-        "timestamp": {"type": "string", "description": "Message timestamp.", "example": ""},
-        "name": {"type": "string", "description": "Emoji name without colons.", "example": "thumbsup"},
+        "timestamp": {
+            "type": "string",
+            "description": "Message timestamp.",
+            "example": "",
+        },
+        "name": {
+            "type": "string",
+            "description": "Emoji name without colons.",
+            "example": "thumbsup",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def remove_slack_reaction(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "remove_reaction",
-        channel=input_data["channel"], timestamp=input_data["timestamp"],
+        "slack",
+        "remove_reaction",
+        channel=input_data["channel"],
+        timestamp=input_data["timestamp"],
         name=input_data["name"],
     )
 
@@ -248,15 +386,22 @@ def remove_slack_reaction(input_data: dict) -> dict:
     action_sets=["slack_messages"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
-        "timestamp": {"type": "string", "description": "Message timestamp.", "example": ""},
+        "timestamp": {
+            "type": "string",
+            "description": "Message timestamp.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_reactions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "get_reactions",
-        channel=input_data["channel"], timestamp=input_data["timestamp"],
+        "slack",
+        "get_reactions",
+        channel=input_data["channel"],
+        timestamp=input_data["timestamp"],
     )
 
 
@@ -265,15 +410,21 @@ def get_slack_reactions(input_data: dict) -> dict:
     description="List messages a user has reacted to.",
     action_sets=["slack_messages"],
     input_schema={
-        "user": {"type": "string", "description": "User ID (optional, defaults to auth'd user).", "example": ""},
+        "user": {
+            "type": "string",
+            "description": "User ID (optional, defaults to auth'd user).",
+            "example": "",
+        },
         "count": {"type": "integer", "description": "Max results.", "example": 100},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_user_reactions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "list_user_reactions",
+        "slack",
+        "list_user_reactions",
         user=input_data.get("user") or None,
         count=input_data.get("count", 100),
     )
@@ -281,22 +432,30 @@ def list_slack_user_reactions(input_data: dict) -> dict:
 
 # ----- Pins -----
 
+
 @action(
     name="pin_slack_message",
     description="Pin a message to a Slack channel.",
     action_sets=["slack_messages", "slack"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
-        "timestamp": {"type": "string", "description": "Message timestamp.", "example": ""},
+        "timestamp": {
+            "type": "string",
+            "description": "Message timestamp.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def pin_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "pin_message",
-        channel=input_data["channel"], timestamp=input_data["timestamp"],
+        "slack",
+        "pin_message",
+        channel=input_data["channel"],
+        timestamp=input_data["timestamp"],
     )
 
 
@@ -306,16 +465,23 @@ def pin_slack_message(input_data: dict) -> dict:
     action_sets=["slack_messages"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
-        "timestamp": {"type": "string", "description": "Message timestamp.", "example": ""},
+        "timestamp": {
+            "type": "string",
+            "description": "Message timestamp.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def unpin_slack_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "unpin_message",
-        channel=input_data["channel"], timestamp=input_data["timestamp"],
+        "slack",
+        "unpin_message",
+        channel=input_data["channel"],
+        timestamp=input_data["timestamp"],
     )
 
 
@@ -330,6 +496,7 @@ def unpin_slack_message(input_data: dict) -> dict:
 )
 def list_slack_pins(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "list_pins", channel=input_data["channel"])
 
 
@@ -337,17 +504,26 @@ def list_slack_pins(input_data: dict) -> dict:
 # Conversations — list/info/create/invite/open/archive/rename/topic/members
 # ------------------------------------------------------------------
 
+
 @action(
     name="list_slack_channels",
     description="List channels in the Slack workspace.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
-        "limit": {"type": "integer", "description": "Max channels to return.", "example": 100},
+        "limit": {
+            "type": "integer",
+            "description": "Max channels to return.",
+            "example": 100,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "channels": {"type": "array"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "channels": {"type": "array"},
+    },
 )
 def list_slack_channels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "list_channels", limit=input_data.get("limit", 100))
 
 
@@ -356,12 +532,17 @@ def list_slack_channels(input_data: dict) -> dict:
     description="Get info about a Slack channel.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C1234567"},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C1234567",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_channel_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "get_channel_info", channel=input_data["channel"])
 
 
@@ -370,16 +551,26 @@ def get_slack_channel_info(input_data: dict) -> dict:
     description="Get message history from a Slack channel.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C01234567"},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C01234567",
+        },
         "limit": {"type": "integer", "description": "Max messages.", "example": 50},
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "messages": {"type": "array"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "messages": {"type": "array"},
+    },
 )
 def get_slack_channel_history(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "get_channel_history",
-        channel=input_data["channel"], limit=input_data.get("limit", 50),
+        "slack",
+        "get_channel_history",
+        channel=input_data["channel"],
+        limit=input_data.get("limit", 50),
     )
 
 
@@ -390,14 +581,20 @@ def get_slack_channel_history(input_data: dict) -> dict:
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
         "limit": {"type": "integer", "description": "Max members.", "example": 100},
-        "cursor": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "cursor": {
+            "type": "string",
+            "description": "Pagination cursor.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_channel_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "list_channel_members",
+        "slack",
+        "list_channel_members",
         channel=input_data["channel"],
         limit=input_data.get("limit", 100),
         cursor=input_data.get("cursor") or None,
@@ -409,17 +606,28 @@ def list_slack_channel_members(input_data: dict) -> dict:
     description="Create a new Slack channel.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
-        "name": {"type": "string", "description": "Channel name.", "example": "project-alpha"},
-        "is_private": {"type": "boolean", "description": "Is private?", "example": False},
+        "name": {
+            "type": "string",
+            "description": "Channel name.",
+            "example": "project-alpha",
+        },
+        "is_private": {
+            "type": "boolean",
+            "description": "Is private?",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "create_channel",
-        name=input_data["name"], is_private=input_data.get("is_private", False),
+        "slack",
+        "create_channel",
+        name=input_data["name"],
+        is_private=input_data.get("is_private", False),
     )
 
 
@@ -428,17 +636,28 @@ def create_slack_channel(input_data: dict) -> dict:
     description="Invite users to a Slack channel.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Channel ID.", "example": "C1234567"},
-        "users": {"type": "array", "description": "List of user IDs.", "example": ["U123"]},
+        "channel": {
+            "type": "string",
+            "description": "Channel ID.",
+            "example": "C1234567",
+        },
+        "users": {
+            "type": "array",
+            "description": "List of user IDs.",
+            "example": ["U123"],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def invite_to_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "invite_to_channel",
-        channel=input_data["channel"], users=input_data["users"],
+        "slack",
+        "invite_to_channel",
+        channel=input_data["channel"],
+        users=input_data["users"],
     )
 
 
@@ -447,13 +666,18 @@ def invite_to_slack_channel(input_data: dict) -> dict:
     description="Open a DM with Slack users.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
-        "users": {"type": "array", "description": "List of user IDs.", "example": ["U123"]},
+        "users": {
+            "type": "array",
+            "description": "List of user IDs.",
+            "example": ["U123"],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def open_slack_dm(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "open_dm", users=input_data["users"])
 
 
@@ -469,6 +693,7 @@ def open_slack_dm(input_data: dict) -> dict:
 )
 def archive_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "archive_channel", channel=input_data["channel"])
 
 
@@ -484,6 +709,7 @@ def archive_slack_channel(input_data: dict) -> dict:
 )
 def unarchive_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "unarchive_channel", channel=input_data["channel"])
 
 
@@ -500,9 +726,12 @@ def unarchive_slack_channel(input_data: dict) -> dict:
 )
 def rename_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "rename_channel",
-        channel=input_data["channel"], name=input_data["name"],
+        "slack",
+        "rename_channel",
+        channel=input_data["channel"],
+        name=input_data["name"],
     )
 
 
@@ -519,9 +748,12 @@ def rename_slack_channel(input_data: dict) -> dict:
 )
 def set_slack_channel_topic(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "set_channel_topic",
-        channel=input_data["channel"], topic=input_data["topic"],
+        "slack",
+        "set_channel_topic",
+        channel=input_data["channel"],
+        topic=input_data["topic"],
     )
 
 
@@ -538,9 +770,12 @@ def set_slack_channel_topic(input_data: dict) -> dict:
 )
 def set_slack_channel_purpose(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "set_channel_purpose",
-        channel=input_data["channel"], purpose=input_data["purpose"],
+        "slack",
+        "set_channel_purpose",
+        channel=input_data["channel"],
+        purpose=input_data["purpose"],
     )
 
 
@@ -556,6 +791,7 @@ def set_slack_channel_purpose(input_data: dict) -> dict:
 )
 def join_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "join_channel", channel=input_data["channel"])
 
 
@@ -571,6 +807,7 @@ def join_slack_channel(input_data: dict) -> dict:
 )
 def leave_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "leave_channel", channel=input_data["channel"])
 
 
@@ -587,9 +824,12 @@ def leave_slack_channel(input_data: dict) -> dict:
 )
 def kick_user_from_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "kick_user",
-        channel=input_data["channel"], user=input_data["user"],
+        "slack",
+        "kick_user",
+        channel=input_data["channel"],
+        user=input_data["user"],
     )
 
 
@@ -605,6 +845,7 @@ def kick_user_from_slack_channel(input_data: dict) -> dict:
 )
 def close_slack_conversation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "close_conversation", channel=input_data["channel"])
 
 
@@ -612,25 +853,52 @@ def close_slack_conversation(input_data: dict) -> dict:
 # Files
 # ------------------------------------------------------------------
 
+
 @action(
     name="upload_slack_file",
     description="Upload a local file to Slack using the modern 3-step files.getUploadURLExternal flow. Optionally share into a channel + post initial comment.",
     action_sets=["slack_files", "slack"],
     input_schema={
-        "file_path": {"type": "string", "description": "Absolute path to local file.", "example": "C:/Users/me/report.pdf"},
-        "channel_id": {"type": "string", "description": "Channel ID to share into (optional).", "example": "C01234567"},
-        "initial_comment": {"type": "string", "description": "Message text with the file (optional).", "example": ""},
-        "title": {"type": "string", "description": "File title (optional).", "example": ""},
-        "thread_ts": {"type": "string", "description": "Reply in a thread (optional).", "example": ""},
-        "filename": {"type": "string", "description": "Override filename (optional).", "example": ""},
+        "file_path": {
+            "type": "string",
+            "description": "Absolute path to local file.",
+            "example": "C:/Users/me/report.pdf",
+        },
+        "channel_id": {
+            "type": "string",
+            "description": "Channel ID to share into (optional).",
+            "example": "C01234567",
+        },
+        "initial_comment": {
+            "type": "string",
+            "description": "Message text with the file (optional).",
+            "example": "",
+        },
+        "title": {
+            "type": "string",
+            "description": "File title (optional).",
+            "example": "",
+        },
+        "thread_ts": {
+            "type": "string",
+            "description": "Reply in a thread (optional).",
+            "example": "",
+        },
+        "filename": {
+            "type": "string",
+            "description": "Override filename (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def upload_slack_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "upload_file_v2",
+        "slack",
+        "upload_file_v2",
         file_path=input_data["file_path"],
         channel_id=input_data.get("channel_id") or None,
         initial_comment=input_data.get("initial_comment") or None,
@@ -645,9 +913,21 @@ def upload_slack_file(input_data: dict) -> dict:
     description="List files in the workspace (optionally filter by channel, user, or types like 'images,zips').",
     action_sets=["slack_files", "slack"],
     input_schema={
-        "channel": {"type": "string", "description": "Filter to channel (optional).", "example": ""},
-        "user": {"type": "string", "description": "Filter to user (optional).", "example": ""},
-        "types": {"type": "string", "description": "Comma-separated types: all, spaces, snippets, images, gdocs, zips, pdfs (optional).", "example": ""},
+        "channel": {
+            "type": "string",
+            "description": "Filter to channel (optional).",
+            "example": "",
+        },
+        "user": {
+            "type": "string",
+            "description": "Filter to user (optional).",
+            "example": "",
+        },
+        "types": {
+            "type": "string",
+            "description": "Comma-separated types: all, spaces, snippets, images, gdocs, zips, pdfs (optional).",
+            "example": "",
+        },
         "count": {"type": "integer", "description": "Max results.", "example": 100},
         "page": {"type": "integer", "description": "Page number.", "example": 1},
     },
@@ -655,8 +935,10 @@ def upload_slack_file(input_data: dict) -> dict:
 )
 def list_slack_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "list_files",
+        "slack",
+        "list_files",
         channel=input_data.get("channel") or None,
         user=input_data.get("user") or None,
         types=input_data.get("types") or None,
@@ -676,6 +958,7 @@ def list_slack_files(input_data: dict) -> dict:
 )
 def get_slack_file_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "get_file_info", file_id=input_data["file_id"])
 
 
@@ -691,6 +974,7 @@ def get_slack_file_info(input_data: dict) -> dict:
 )
 def delete_slack_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "delete_file", file_id=input_data["file_id"])
 
 
@@ -698,17 +982,26 @@ def delete_slack_file(input_data: dict) -> dict:
 # Users + usergroups + presence
 # ------------------------------------------------------------------
 
+
 @action(
     name="list_slack_users",
     description="List users in the Slack workspace.",
     action_sets=["slack_users", "slack"],
     input_schema={
-        "limit": {"type": "integer", "description": "Max users to return.", "example": 100},
+        "limit": {
+            "type": "integer",
+            "description": "Max users to return.",
+            "example": 100,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}, "users": {"type": "array"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "users": {"type": "array"},
+    },
 )
 def list_slack_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "list_users", limit=input_data.get("limit", 100))
 
 
@@ -717,13 +1010,20 @@ def list_slack_users(input_data: dict) -> dict:
     description="Get info about a Slack user.",
     action_sets=["slack_users", "slack"],
     input_schema={
-        "slack_user_id": {"type": "string", "description": "User ID.", "example": "U1234567"},
+        "slack_user_id": {
+            "type": "string",
+            "description": "User ID.",
+            "example": "U1234567",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_user_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "get_user_info", user_id=input_data["slack_user_id"])
+
+    return run_client_sync(
+        "slack", "get_user_info", user_id=input_data["slack_user_id"]
+    )
 
 
 @action(
@@ -731,12 +1031,17 @@ def get_slack_user_info(input_data: dict) -> dict:
     description="Resolve a Slack user by their email address.",
     action_sets=["slack_users", "slack"],
     input_schema={
-        "email": {"type": "string", "description": "Email address.", "example": "alice@example.com"},
+        "email": {
+            "type": "string",
+            "description": "Email address.",
+            "example": "alice@example.com",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def lookup_slack_user_by_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "lookup_user_by_email", email=input_data["email"])
 
 
@@ -751,6 +1056,7 @@ def lookup_slack_user_by_email(input_data: dict) -> dict:
 )
 def get_slack_user_presence(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "get_user_presence", user=input_data["user"])
 
 
@@ -759,14 +1065,21 @@ def get_slack_user_presence(input_data: dict) -> dict:
     description="Set the authenticated user's presence (requires user token xoxp-, not bot token).",
     action_sets=["slack_users"],
     input_schema={
-        "presence": {"type": "string", "description": "auto or away.", "example": "auto"},
+        "presence": {
+            "type": "string",
+            "description": "auto or away.",
+            "example": "auto",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def set_slack_user_presence(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "set_user_presence", presence=input_data["presence"])
+
+    return run_client_sync(
+        "slack", "set_user_presence", presence=input_data["presence"]
+    )
 
 
 @action(
@@ -774,16 +1087,30 @@ def set_slack_user_presence(input_data: dict) -> dict:
     description="List Slack usergroups (@team mentions) in the workspace.",
     action_sets=["slack_users", "slack"],
     input_schema={
-        "include_disabled": {"type": "boolean", "description": "Include disabled groups.", "example": False},
-        "include_count": {"type": "boolean", "description": "Include member counts.", "example": False},
-        "include_users": {"type": "boolean", "description": "Include user list per group.", "example": False},
+        "include_disabled": {
+            "type": "boolean",
+            "description": "Include disabled groups.",
+            "example": False,
+        },
+        "include_count": {
+            "type": "boolean",
+            "description": "Include member counts.",
+            "example": False,
+        },
+        "include_users": {
+            "type": "boolean",
+            "description": "Include user list per group.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_usergroups(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "list_usergroups",
+        "slack",
+        "list_usergroups",
         include_disabled=bool(input_data.get("include_disabled", False)),
         include_count=bool(input_data.get("include_count", False)),
         include_users=bool(input_data.get("include_users", False)),
@@ -795,18 +1122,36 @@ def list_slack_usergroups(input_data: dict) -> dict:
     description="Create a new Slack usergroup.",
     action_sets=["slack_users"],
     input_schema={
-        "name": {"type": "string", "description": "Group name (e.g. 'Marketing').", "example": ""},
-        "handle": {"type": "string", "description": "Handle without @ (optional).", "example": ""},
-        "description": {"type": "string", "description": "Description (optional).", "example": ""},
-        "channels": {"type": "array", "description": "Default channels (optional).", "example": []},
+        "name": {
+            "type": "string",
+            "description": "Group name (e.g. 'Marketing').",
+            "example": "",
+        },
+        "handle": {
+            "type": "string",
+            "description": "Handle without @ (optional).",
+            "example": "",
+        },
+        "description": {
+            "type": "string",
+            "description": "Description (optional).",
+            "example": "",
+        },
+        "channels": {
+            "type": "array",
+            "description": "Default channels (optional).",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def create_slack_usergroup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "create_usergroup",
+        "slack",
+        "create_usergroup",
         name=input_data["name"],
         handle=input_data.get("handle") or None,
         description=input_data.get("description") or None,
@@ -820,18 +1165,36 @@ def create_slack_usergroup(input_data: dict) -> dict:
     action_sets=["slack_users"],
     input_schema={
         "usergroup": {"type": "string", "description": "Usergroup ID.", "example": ""},
-        "name": {"type": "string", "description": "New name (optional).", "example": ""},
-        "handle": {"type": "string", "description": "New handle (optional).", "example": ""},
-        "description": {"type": "string", "description": "New description (optional).", "example": ""},
-        "channels": {"type": "array", "description": "New default channels (optional).", "example": []},
+        "name": {
+            "type": "string",
+            "description": "New name (optional).",
+            "example": "",
+        },
+        "handle": {
+            "type": "string",
+            "description": "New handle (optional).",
+            "example": "",
+        },
+        "description": {
+            "type": "string",
+            "description": "New description (optional).",
+            "example": "",
+        },
+        "channels": {
+            "type": "array",
+            "description": "New default channels (optional).",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def update_slack_usergroup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "update_usergroup",
+        "slack",
+        "update_usergroup",
         usergroup=input_data["usergroup"],
         name=input_data["name"] if "name" in input_data else None,
         handle=input_data["handle"] if "handle" in input_data else None,
@@ -846,14 +1209,20 @@ def update_slack_usergroup(input_data: dict) -> dict:
     action_sets=["slack_users"],
     input_schema={
         "usergroup": {"type": "string", "description": "Usergroup ID.", "example": ""},
-        "include_disabled": {"type": "boolean", "description": "Include disabled users.", "example": False},
+        "include_disabled": {
+            "type": "boolean",
+            "description": "Include disabled users.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_usergroup_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "list_usergroup_users",
+        "slack",
+        "list_usergroup_users",
         usergroup=input_data["usergroup"],
         include_disabled=bool(input_data.get("include_disabled", False)),
     )
@@ -865,16 +1234,23 @@ def list_slack_usergroup_users(input_data: dict) -> dict:
     action_sets=["slack_users"],
     input_schema={
         "usergroup": {"type": "string", "description": "Usergroup ID.", "example": ""},
-        "users": {"type": "array", "description": "List of user IDs to set as members.", "example": []},
+        "users": {
+            "type": "array",
+            "description": "List of user IDs to set as members.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def set_slack_usergroup_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "update_usergroup_users",
-        usergroup=input_data["usergroup"], users=input_data["users"],
+        "slack",
+        "update_usergroup_users",
+        usergroup=input_data["usergroup"],
+        users=input_data["users"],
     )
 
 
@@ -890,7 +1266,10 @@ def set_slack_usergroup_users(input_data: dict) -> dict:
 )
 def enable_slack_usergroup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "enable_usergroup", usergroup=input_data["usergroup"])
+
+    return run_client_sync(
+        "slack", "enable_usergroup", usergroup=input_data["usergroup"]
+    )
 
 
 @action(
@@ -905,12 +1284,16 @@ def enable_slack_usergroup(input_data: dict) -> dict:
 )
 def disable_slack_usergroup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "disable_usergroup", usergroup=input_data["usergroup"])
+
+    return run_client_sync(
+        "slack", "disable_usergroup", usergroup=input_data["usergroup"]
+    )
 
 
 # ------------------------------------------------------------------
 # Workspace: auth / team / search / bookmarks / reminders
 # ------------------------------------------------------------------
+
 
 @action(
     name="get_slack_auth_info",
@@ -921,6 +1304,7 @@ def disable_slack_usergroup(input_data: dict) -> dict:
 )
 def get_slack_auth_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "auth_test")
 
 
@@ -929,13 +1313,20 @@ def get_slack_auth_info(input_data: dict) -> dict:
     description="Get info about the Slack workspace (team name, domain, icon).",
     action_sets=["slack_workspace", "slack"],
     input_schema={
-        "team": {"type": "string", "description": "Team ID (optional, defaults to current).", "example": ""},
+        "team": {
+            "type": "string",
+            "description": "Team ID (optional, defaults to current).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_team_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "get_team_info", team=input_data.get("team") or None)
+
+    return run_client_sync(
+        "slack", "get_team_info", team=input_data.get("team") or None
+    )
 
 
 @action(
@@ -943,16 +1334,23 @@ def get_slack_team_info(input_data: dict) -> dict:
     description="Search for messages in the Slack workspace (requires user token / search:read).",
     action_sets=["slack_workspace", "slack"],
     input_schema={
-        "query": {"type": "string", "description": "Search query.", "example": "project update"},
+        "query": {
+            "type": "string",
+            "description": "Search query.",
+            "example": "project update",
+        },
         "count": {"type": "integer", "description": "Max results.", "example": 20},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def search_slack_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "search_messages",
-        query=input_data["query"], count=input_data.get("count", 20),
+        "slack",
+        "search_messages",
+        query=input_data["query"],
+        count=input_data.get("count", 20),
     )
 
 
@@ -967,7 +1365,10 @@ def search_slack_messages(input_data: dict) -> dict:
 )
 def list_slack_bookmarks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "list_bookmarks", channel_id=input_data["channel_id"])
+
+    return run_client_sync(
+        "slack", "list_bookmarks", channel_id=input_data["channel_id"]
+    )
 
 
 @action(
@@ -976,18 +1377,36 @@ def list_slack_bookmarks(input_data: dict) -> dict:
     action_sets=["slack_workspace", "slack"],
     input_schema={
         "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
-        "title": {"type": "string", "description": "Bookmark title.", "example": "Project doc"},
-        "type": {"type": "string", "description": "Bookmark type (link).", "example": "link"},
-        "link": {"type": "string", "description": "URL (for type=link).", "example": ""},
-        "emoji": {"type": "string", "description": "Emoji shortcode (optional).", "example": ":bookmark:"},
+        "title": {
+            "type": "string",
+            "description": "Bookmark title.",
+            "example": "Project doc",
+        },
+        "type": {
+            "type": "string",
+            "description": "Bookmark type (link).",
+            "example": "link",
+        },
+        "link": {
+            "type": "string",
+            "description": "URL (for type=link).",
+            "example": "",
+        },
+        "emoji": {
+            "type": "string",
+            "description": "Emoji shortcode (optional).",
+            "example": ":bookmark:",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def add_slack_bookmark(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "add_bookmark",
+        "slack",
+        "add_bookmark",
         channel_id=input_data["channel_id"],
         title=input_data["title"],
         type=input_data.get("type", "link"),
@@ -1003,17 +1422,27 @@ def add_slack_bookmark(input_data: dict) -> dict:
     input_schema={
         "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
         "bookmark_id": {"type": "string", "description": "Bookmark ID.", "example": ""},
-        "title": {"type": "string", "description": "New title (optional).", "example": ""},
+        "title": {
+            "type": "string",
+            "description": "New title (optional).",
+            "example": "",
+        },
         "link": {"type": "string", "description": "New URL (optional).", "example": ""},
-        "emoji": {"type": "string", "description": "New emoji (optional).", "example": ""},
+        "emoji": {
+            "type": "string",
+            "description": "New emoji (optional).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def edit_slack_bookmark(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "edit_bookmark",
+        "slack",
+        "edit_bookmark",
         channel_id=input_data["channel_id"],
         bookmark_id=input_data["bookmark_id"],
         title=input_data["title"] if "title" in input_data else None,
@@ -1035,9 +1464,12 @@ def edit_slack_bookmark(input_data: dict) -> dict:
 )
 def remove_slack_bookmark(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "remove_bookmark",
-        channel_id=input_data["channel_id"], bookmark_id=input_data["bookmark_id"],
+        "slack",
+        "remove_bookmark",
+        channel_id=input_data["channel_id"],
+        bookmark_id=input_data["bookmark_id"],
     )
 
 
@@ -1046,18 +1478,33 @@ def remove_slack_bookmark(input_data: dict) -> dict:
     description="Add a Slack reminder. time can be a Unix timestamp or natural-language ('in 15 minutes'). Requires user token (xoxp-) — bot tokens can't create reminders.",
     action_sets=["slack_workspace", "slack"],
     input_schema={
-        "text": {"type": "string", "description": "Reminder text.", "example": "Send the weekly report"},
-        "time": {"type": "string", "description": "Unix timestamp OR natural-language ('in 15 minutes').", "example": "in 15 minutes"},
-        "user": {"type": "string", "description": "User ID (optional, defaults to self).", "example": ""},
+        "text": {
+            "type": "string",
+            "description": "Reminder text.",
+            "example": "Send the weekly report",
+        },
+        "time": {
+            "type": "string",
+            "description": "Unix timestamp OR natural-language ('in 15 minutes').",
+            "example": "in 15 minutes",
+        },
+        "user": {
+            "type": "string",
+            "description": "User ID (optional, defaults to self).",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
 )
 def add_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync(
-        "slack", "add_reminder",
-        text=input_data["text"], time=input_data["time"],
+        "slack",
+        "add_reminder",
+        text=input_data["text"],
+        time=input_data["time"],
         user=input_data.get("user") or None,
     )
 
@@ -1071,6 +1518,7 @@ def add_slack_reminder(input_data: dict) -> dict:
 )
 def list_slack_reminders(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "list_reminders")
 
 
@@ -1085,7 +1533,10 @@ def list_slack_reminders(input_data: dict) -> dict:
 )
 def get_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "get_reminder_info", reminder=input_data["reminder"])
+
+    return run_client_sync(
+        "slack", "get_reminder_info", reminder=input_data["reminder"]
+    )
 
 
 @action(
@@ -1100,7 +1551,10 @@ def get_slack_reminder(input_data: dict) -> dict:
 )
 def complete_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
-    return run_client_sync("slack", "complete_reminder", reminder=input_data["reminder"])
+
+    return run_client_sync(
+        "slack", "complete_reminder", reminder=input_data["reminder"]
+    )
 
 
 @action(
@@ -1115,6 +1569,7 @@ def complete_slack_reminder(input_data: dict) -> dict:
 )
 def delete_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
+
     return run_client_sync("slack", "delete_reminder", reminder=input_data["reminder"])
 
 

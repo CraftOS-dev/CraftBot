@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Google Drive - granular Google integration.
 
 Connect just Drive (without granting Gmail/Calendar/YouTube scopes) by
@@ -9,6 +9,7 @@ Same per-service shape as ``gmail.py`` and ``google_calendar.py`` - the
 only file-level differences are the scope, the API base URL, and the
 REST surface.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -49,6 +50,7 @@ GDRIVE = IntegrationSpec(
 # Handler - auth flow only
 # -----------------------------------------------------------------
 
+
 @register_handler(GDRIVE.name)
 class GoogleDriveHandler(IntegrationHandler):
     spec = GDRIVE
@@ -74,6 +76,7 @@ class GoogleDriveHandler(IntegrationHandler):
 # Client - Drive REST methods (no listener; Drive isn't push-based)
 # -----------------------------------------------------------------
 
+
 @register_client
 class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
     spec = GDRIVE
@@ -98,7 +101,9 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
 
     def list_drive_files(self, folder_id: str, fields: Optional[str] = None) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
+            "GET",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._auth_header(),
             params={
                 "q": f"'{folder_id}' in parents and trashed = false",
                 "fields": fields or "files(id,name,mimeType,parents)",
@@ -107,11 +112,14 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
             transform=lambda d: d.get("files", []),
         )
 
-    def search_drive(self, query: str, max_results: int = 50,
-                     fields: Optional[str] = None) -> Result:
+    def search_drive(
+        self, query: str, max_results: int = 50, fields: Optional[str] = None
+    ) -> Result:
         """Free-form search across all of Drive - uses Drive's q-query syntax."""
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
+            "GET",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._auth_header(),
             params={
                 "q": query,
                 "pageSize": max_results,
@@ -121,34 +129,50 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
             transform=lambda d: d.get("files", []),
         )
 
-    def create_drive_folder(self, name: str, parent_folder_id: Optional[str] = None) -> Result:
-        payload: Dict[str, Any] = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
+    def create_drive_folder(
+        self, name: str, parent_folder_id: Optional[str] = None
+    ) -> Result:
+        payload: Dict[str, Any] = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
         if parent_folder_id:
             payload["parents"] = [parent_folder_id]
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/files", headers=self._headers(),
+            "POST",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._headers(),
             json=payload,
         )
 
     def get_drive_file(self, file_id: str, fields: Optional[str] = None) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}",
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}",
             headers=self._auth_header(),
-            params={"fields": fields or "id,name,mimeType,parents,modifiedTime,webViewLink"},
+            params={
+                "fields": fields or "id,name,mimeType,parents,modifiedTime,webViewLink"
+            },
             expected=(200,),
         )
 
-    def move_drive_file(self, file_id: str, add_parents: str, remove_parents: str) -> Result:
+    def move_drive_file(
+        self, file_id: str, add_parents: str, remove_parents: str
+    ) -> Result:
         params: Dict[str, str] = {"addParents": add_parents, "fields": "id,parents"}
         if remove_parents:
             params["removeParents"] = remove_parents
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}",
-            headers=self._auth_header(), params=params, expected=(200,),
+            "PATCH",
+            f"{DRIVE_API_BASE}/files/{file_id}",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
         )
 
-    def find_drive_folder_by_name(self, name: str,
-                                   parent_folder_id: Optional[str] = None) -> Result:
+    def find_drive_folder_by_name(
+        self, name: str, parent_folder_id: Optional[str] = None
+    ) -> Result:
         q_parts = [
             f"name = '{name}'",
             "mimeType = 'application/vnd.google-apps.folder'",
@@ -157,7 +181,9 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
         if parent_folder_id:
             q_parts.append(f"'{parent_folder_id}' in parents")
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
+            "GET",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._auth_header(),
             params={"q": " and ".join(q_parts), "fields": "files(id,name)"},
             expected=(200,),
             transform=lambda d: (d.get("files") or [None])[0],
@@ -165,71 +191,112 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
 
     def delete_drive_file(self, file_id: str) -> Result:
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/{file_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/{file_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "file_id": file_id},
         )
 
-    def share_drive_file(self, file_id: str, email: str,
-                         role: str = "reader") -> Result:
+    def share_drive_file(
+        self, file_id: str, email: str, role: str = "reader"
+    ) -> Result:
         """Grant a Drive permission. Roles: reader, commenter, writer, owner.
 
         Kept for backwards compat — new code should use create_drive_permission
         which supports more types (group, domain, anyone) and notification opts.
         """
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/files/{file_id}/permissions",
+            "POST",
+            f"{DRIVE_API_BASE}/files/{file_id}/permissions",
             headers=self._headers(),
             json={"type": "user", "role": role, "emailAddress": email},
         )
 
     # ----- Files (extended) -----
 
-    def update_drive_file_metadata(self, file_id: str, name: Optional[str] = None,
-                                   description: Optional[str] = None,
-                                   starred: Optional[bool] = None,
-                                   trashed: Optional[bool] = None) -> Result:
+    def update_drive_file_metadata(
+        self,
+        file_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        starred: Optional[bool] = None,
+        trashed: Optional[bool] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if name is not None: payload["name"] = name
-        if description is not None: payload["description"] = description
-        if starred is not None: payload["starred"] = starred
-        if trashed is not None: payload["trashed"] = trashed
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        if starred is not None:
+            payload["starred"] = starred
+        if trashed is not None:
+            payload["trashed"] = trashed
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}",
-            headers=self._headers(), json=payload, expected=(200,),
-            transform=lambda d: {"id": d.get("id"), "name": d.get("name"), "trashed": d.get("trashed")},
+            "PATCH",
+            f"{DRIVE_API_BASE}/files/{file_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "trashed": d.get("trashed"),
+            },
         )
 
-    def copy_drive_file(self, file_id: str, name: Optional[str] = None,
-                        parent_folder_id: Optional[str] = None) -> Result:
+    def copy_drive_file(
+        self,
+        file_id: str,
+        name: Optional[str] = None,
+        parent_folder_id: Optional[str] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if name: payload["name"] = name
-        if parent_folder_id: payload["parents"] = [parent_folder_id]
+        if name:
+            payload["name"] = name
+        if parent_folder_id:
+            payload["parents"] = [parent_folder_id]
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/files/{file_id}/copy",
-            headers=self._headers(), json=payload, expected=(200,),
-            transform=lambda d: {"id": d.get("id"), "name": d.get("name"), "webViewLink": d.get("webViewLink")},
+            "POST",
+            f"{DRIVE_API_BASE}/files/{file_id}/copy",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "webViewLink": d.get("webViewLink"),
+            },
         )
 
     def empty_drive_trash(self) -> Result:
         # Drive returns 200 with empty JSON {} for this endpoint, not 204.
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/trash",
-            headers=self._auth_header(), expected=(200,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/trash",
+            headers=self._auth_header(),
+            expected=(200,),
             transform=lambda _d: {"emptied": True},
         )
 
     def get_drive_about(self) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/about",
+            "GET",
+            f"{DRIVE_API_BASE}/about",
             headers=self._auth_header(),
-            params={"fields": "user,storageQuota,maxUploadSize,exportFormats,importFormats,canCreateDrives"},
+            params={
+                "fields": "user,storageQuota,maxUploadSize,exportFormats,importFormats,canCreateDrives"
+            },
             expected=(200,),
         )
 
-    def upload_drive_file(self, file_path: str, name: Optional[str] = None,
-                          mime_type: Optional[str] = None,
-                          parent_folder_id: Optional[str] = None) -> Result:
+    def upload_drive_file(
+        self,
+        file_path: str,
+        name: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        parent_folder_id: Optional[str] = None,
+    ) -> Result:
         """Upload a local file to Drive. 2-step: create metadata, then PATCH content.
 
         Avoids multipart/related construction; works with the standard helper
@@ -254,8 +321,11 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
             metadata["parents"] = [parent_folder_id]
 
         create_result = http_request(
-            "POST", f"{DRIVE_API_BASE}/files",
-            headers=self._headers(), json=metadata, expected=(200,),
+            "POST",
+            f"{DRIVE_API_BASE}/files",
+            headers=self._headers(),
+            json=metadata,
+            expected=(200,),
         )
         if "error" in create_result:
             return create_result
@@ -270,21 +340,28 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
                     "Authorization": f"Bearer {self._ensure_token()}",
                     "Content-Type": mime_type,
                 },
-                content=content, timeout=300.0,
+                content=content,
+                timeout=300.0,
             )
             if r.status_code != 200:
                 return {"error": f"Upload error: {r.status_code}", "details": r.text}
             data = r.json()
-            return {"ok": True, "result": {
-                "id": data.get("id"), "name": data.get("name"),
-                "mimeType": data.get("mimeType"), "size": data.get("size"),
-                "webViewLink": data.get("webViewLink"),
-            }}
+            return {
+                "ok": True,
+                "result": {
+                    "id": data.get("id"),
+                    "name": data.get("name"),
+                    "mimeType": data.get("mimeType"),
+                    "size": data.get("size"),
+                    "webViewLink": data.get("webViewLink"),
+                },
+            }
         except Exception as e:
             return {"error": str(e)}
 
-    def update_drive_file_content(self, file_id: str, file_path: str,
-                                  mime_type: Optional[str] = None) -> Result:
+    def update_drive_file_content(
+        self, file_id: str, file_path: str, mime_type: Optional[str] = None
+    ) -> Result:
         """Replace a file's content with a local file."""
         import os
         import mimetypes
@@ -307,15 +384,20 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
                     "Authorization": f"Bearer {self._ensure_token()}",
                     "Content-Type": mime_type,
                 },
-                content=content, timeout=300.0,
+                content=content,
+                timeout=300.0,
             )
             if r.status_code != 200:
                 return {"error": f"Upload error: {r.status_code}", "details": r.text}
             data = r.json()
-            return {"ok": True, "result": {
-                "id": data.get("id"), "name": data.get("name"),
-                "modifiedTime": data.get("modifiedTime"),
-            }}
+            return {
+                "ok": True,
+                "result": {
+                    "id": data.get("id"),
+                    "name": data.get("name"),
+                    "modifiedTime": data.get("modifiedTime"),
+                },
+            }
         except Exception as e:
             return {"error": str(e)}
 
@@ -332,7 +414,10 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
                 timeout=300.0,
             )
             if r.status_code != 200:
-                return {"error": f"Download error: {r.status_code}", "details": r.text[:500]}
+                return {
+                    "error": f"Download error: {r.status_code}",
+                    "details": r.text[:500],
+                }
             save_to = os.path.abspath(save_to)
             parent = os.path.dirname(save_to)
             if parent:
@@ -364,14 +449,24 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
                 timeout=300.0,
             )
             if r.status_code != 200:
-                return {"error": f"Export error: {r.status_code}", "details": r.text[:500]}
+                return {
+                    "error": f"Export error: {r.status_code}",
+                    "details": r.text[:500],
+                }
             save_to = os.path.abspath(save_to)
             parent = os.path.dirname(save_to)
             if parent:
                 os.makedirs(parent, exist_ok=True)
             with open(save_to, "wb") as f:
                 f.write(r.content)
-            return {"ok": True, "result": {"saved_to": save_to, "mimeType": mime_type, "size": len(r.content)}}
+            return {
+                "ok": True,
+                "result": {
+                    "saved_to": save_to,
+                    "mimeType": mime_type,
+                    "size": len(r.content),
+                },
+            }
         except Exception as e:
             return {"error": str(e)}
 
@@ -379,56 +474,88 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
 
     def list_drive_permissions(self, file_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/permissions",
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/permissions",
             headers=self._auth_header(),
-            params={"fields": "permissions(id,type,emailAddress,role,domain,displayName)"},
+            params={
+                "fields": "permissions(id,type,emailAddress,role,domain,displayName)"
+            },
             expected=(200,),
             transform=lambda d: {"permissions": d.get("permissions", [])},
         )
 
     def get_drive_permission(self, file_id: str, permission_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/permissions/{permission_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/permissions/{permission_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
-    def create_drive_permission(self, file_id: str, role: str, perm_type: str = "user",
-                                email_address: Optional[str] = None,
-                                domain: Optional[str] = None,
-                                send_notification: bool = True,
-                                email_message: Optional[str] = None) -> Result:
+    def create_drive_permission(
+        self,
+        file_id: str,
+        role: str,
+        perm_type: str = "user",
+        email_address: Optional[str] = None,
+        domain: Optional[str] = None,
+        send_notification: bool = True,
+        email_message: Optional[str] = None,
+    ) -> Result:
         """perm_type: user|group|domain|anyone. role: reader|commenter|writer|owner."""
         payload: Dict[str, Any] = {"role": role, "type": perm_type}
-        if email_address: payload["emailAddress"] = email_address
-        if domain: payload["domain"] = domain
-        params: Dict[str, Any] = {"sendNotificationEmail": str(send_notification).lower()}
+        if email_address:
+            payload["emailAddress"] = email_address
+        if domain:
+            payload["domain"] = domain
+        params: Dict[str, Any] = {
+            "sendNotificationEmail": str(send_notification).lower()
+        }
         if email_message:
             params["emailMessage"] = email_message
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/files/{file_id}/permissions",
-            headers=self._headers(), json=payload, params=params, expected=(200,),
-            transform=lambda d: {"id": d.get("id"), "role": d.get("role"), "type": d.get("type")},
+            "POST",
+            f"{DRIVE_API_BASE}/files/{file_id}/permissions",
+            headers=self._headers(),
+            json=payload,
+            params=params,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "role": d.get("role"),
+                "type": d.get("type"),
+            },
         )
 
-    def update_drive_permission(self, file_id: str, permission_id: str, role: str) -> Result:
+    def update_drive_permission(
+        self, file_id: str, permission_id: str, role: str
+    ) -> Result:
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}/permissions/{permission_id}",
-            headers=self._headers(), json={"role": role}, expected=(200,),
+            "PATCH",
+            f"{DRIVE_API_BASE}/files/{file_id}/permissions/{permission_id}",
+            headers=self._headers(),
+            json={"role": role},
+            expected=(200,),
             transform=lambda d: {"id": d.get("id"), "role": d.get("role")},
         )
 
     def delete_drive_permission(self, file_id: str, permission_id: str) -> Result:
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/{file_id}/permissions/{permission_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/{file_id}/permissions/{permission_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "permission_id": permission_id},
         )
 
     # ----- Comments -----
 
-    def list_drive_comments(self, file_id: str, include_deleted: bool = False) -> Result:
+    def list_drive_comments(
+        self, file_id: str, include_deleted: bool = False
+    ) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/comments",
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments",
             headers=self._auth_header(),
             params={
                 "fields": "comments(id,content,createdTime,modifiedTime,author,resolved,deleted,quotedFileContent)",
@@ -440,77 +567,106 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
 
     def get_drive_comment(self, file_id: str, comment_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}",
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}",
             headers=self._auth_header(),
-            params={"fields": "id,content,createdTime,modifiedTime,author,resolved,replies"},
+            params={
+                "fields": "id,content,createdTime,modifiedTime,author,resolved,replies"
+            },
             expected=(200,),
         )
 
-    def create_drive_comment(self, file_id: str, content: str,
-                             anchor: Optional[str] = None) -> Result:
+    def create_drive_comment(
+        self, file_id: str, content: str, anchor: Optional[str] = None
+    ) -> Result:
         payload: Dict[str, Any] = {"content": content}
-        if anchor: payload["anchor"] = anchor
+        if anchor:
+            payload["anchor"] = anchor
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/files/{file_id}/comments",
-            headers=self._headers(), json=payload,
+            "POST",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments",
+            headers=self._headers(),
+            json=payload,
             params={"fields": "id,content,createdTime"},
             expected=(200,),
             transform=lambda d: {"id": d.get("id"), "content": d.get("content")},
         )
 
-    def update_drive_comment(self, file_id: str, comment_id: str,
-                             content: Optional[str] = None,
-                             resolved: Optional[bool] = None) -> Result:
+    def update_drive_comment(
+        self,
+        file_id: str,
+        comment_id: str,
+        content: Optional[str] = None,
+        resolved: Optional[bool] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if content is not None: payload["content"] = content
-        if resolved is not None: payload["resolved"] = resolved
+        if content is not None:
+            payload["content"] = content
+        if resolved is not None:
+            payload["resolved"] = resolved
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}",
-            headers=self._headers(), json=payload,
+            "PATCH",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}",
+            headers=self._headers(),
+            json=payload,
             params={"fields": "id,content,resolved"},
             expected=(200,),
         )
 
     def delete_drive_comment(self, file_id: str, comment_id: str) -> Result:
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "comment_id": comment_id},
         )
 
     def list_drive_comment_replies(self, file_id: str, comment_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies",
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies",
             headers=self._auth_header(),
-            params={"fields": "replies(id,content,author,createdTime,modifiedTime,action,deleted)"},
+            params={
+                "fields": "replies(id,content,author,createdTime,modifiedTime,action,deleted)"
+            },
             expected=(200,),
             transform=lambda d: {"replies": d.get("replies", [])},
         )
 
-    def create_drive_comment_reply(self, file_id: str, comment_id: str,
-                                   content: str) -> Result:
+    def create_drive_comment_reply(
+        self, file_id: str, comment_id: str, content: str
+    ) -> Result:
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies",
-            headers=self._headers(), json={"content": content},
+            "POST",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies",
+            headers=self._headers(),
+            json={"content": content},
             params={"fields": "id,content,createdTime"},
             expected=(200,),
             transform=lambda d: {"id": d.get("id"), "content": d.get("content")},
         )
 
-    def update_drive_comment_reply(self, file_id: str, comment_id: str,
-                                   reply_id: str, content: str) -> Result:
+    def update_drive_comment_reply(
+        self, file_id: str, comment_id: str, reply_id: str, content: str
+    ) -> Result:
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies/{reply_id}",
-            headers=self._headers(), json={"content": content},
+            "PATCH",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies/{reply_id}",
+            headers=self._headers(),
+            json={"content": content},
             params={"fields": "id,content"},
             expected=(200,),
         )
 
-    def delete_drive_comment_reply(self, file_id: str, comment_id: str,
-                                   reply_id: str) -> Result:
+    def delete_drive_comment_reply(
+        self, file_id: str, comment_id: str, reply_id: str
+    ) -> Result:
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies/{reply_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/{file_id}/comments/{comment_id}/replies/{reply_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "reply_id": reply_id},
         )
 
@@ -518,82 +674,118 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
 
     def list_drive_revisions(self, file_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/revisions",
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/revisions",
             headers=self._auth_header(),
-            params={"fields": "revisions(id,modifiedTime,keepForever,published,lastModifyingUser,size)"},
+            params={
+                "fields": "revisions(id,modifiedTime,keepForever,published,lastModifyingUser,size)"
+            },
             expected=(200,),
             transform=lambda d: {"revisions": d.get("revisions", [])},
         )
 
     def get_drive_revision(self, file_id: str, revision_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}/revisions/{revision_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{DRIVE_API_BASE}/files/{file_id}/revisions/{revision_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
-    def update_drive_revision(self, file_id: str, revision_id: str,
-                              keep_forever: Optional[bool] = None,
-                              published: Optional[bool] = None,
-                              publish_auto: Optional[bool] = None) -> Result:
+    def update_drive_revision(
+        self,
+        file_id: str,
+        revision_id: str,
+        keep_forever: Optional[bool] = None,
+        published: Optional[bool] = None,
+        publish_auto: Optional[bool] = None,
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if keep_forever is not None: payload["keepForever"] = keep_forever
-        if published is not None: payload["published"] = published
-        if publish_auto is not None: payload["publishAuto"] = publish_auto
+        if keep_forever is not None:
+            payload["keepForever"] = keep_forever
+        if published is not None:
+            payload["published"] = published
+        if publish_auto is not None:
+            payload["publishAuto"] = publish_auto
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}/revisions/{revision_id}",
-            headers=self._headers(), json=payload, expected=(200,),
+            "PATCH",
+            f"{DRIVE_API_BASE}/files/{file_id}/revisions/{revision_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def delete_drive_revision(self, file_id: str, revision_id: str) -> Result:
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/files/{file_id}/revisions/{revision_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/files/{file_id}/revisions/{revision_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "revision_id": revision_id},
         )
 
     # ----- Shared drives -----
 
-    def list_shared_drives(self, page_size: int = 50, q: Optional[str] = None) -> Result:
+    def list_shared_drives(
+        self, page_size: int = 50, q: Optional[str] = None
+    ) -> Result:
         params: Dict[str, Any] = {
             "pageSize": page_size,
             "fields": "drives(id,name,createdTime,colorRgb,hidden)",
         }
-        if q: params["q"] = q
+        if q:
+            params["q"] = q
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/drives",
-            headers=self._auth_header(), params=params, expected=(200,),
+            "GET",
+            f"{DRIVE_API_BASE}/drives",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
             transform=lambda d: {"drives": d.get("drives", [])},
         )
 
     def get_shared_drive(self, drive_id: str) -> Result:
         return http_request(
-            "GET", f"{DRIVE_API_BASE}/drives/{drive_id}",
-            headers=self._auth_header(), expected=(200,),
+            "GET",
+            f"{DRIVE_API_BASE}/drives/{drive_id}",
+            headers=self._auth_header(),
+            expected=(200,),
         )
 
     def create_shared_drive(self, name: str) -> Result:
         import uuid
+
         return http_request(
-            "POST", f"{DRIVE_API_BASE}/drives",
-            headers=self._headers(), json={"name": name},
+            "POST",
+            f"{DRIVE_API_BASE}/drives",
+            headers=self._headers(),
+            json={"name": name},
             params={"requestId": str(uuid.uuid4())},
             expected=(200,),
             transform=lambda d: {"id": d.get("id"), "name": d.get("name")},
         )
 
-    def update_shared_drive(self, drive_id: str, name: Optional[str] = None,
-                            hidden: Optional[bool] = None) -> Result:
+    def update_shared_drive(
+        self, drive_id: str, name: Optional[str] = None, hidden: Optional[bool] = None
+    ) -> Result:
         payload: Dict[str, Any] = {}
-        if name is not None: payload["name"] = name
-        if hidden is not None: payload["hidden"] = hidden
+        if name is not None:
+            payload["name"] = name
+        if hidden is not None:
+            payload["hidden"] = hidden
         return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/drives/{drive_id}",
-            headers=self._headers(), json=payload, expected=(200,),
+            "PATCH",
+            f"{DRIVE_API_BASE}/drives/{drive_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
         )
 
     def delete_shared_drive(self, drive_id: str) -> Result:
         return http_request(
-            "DELETE", f"{DRIVE_API_BASE}/drives/{drive_id}",
-            headers=self._auth_header(), expected=(204,),
+            "DELETE",
+            f"{DRIVE_API_BASE}/drives/{drive_id}",
+            headers=self._auth_header(),
+            expected=(204,),
             transform=lambda _d: {"deleted": True, "drive_id": drive_id},
         )

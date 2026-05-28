@@ -194,16 +194,21 @@ class LarkCalendarClient(BasePlatformClient):
     def get_calendar(self, calendar_id: str) -> Result:
         """Fetch a single calendar's metadata."""
         return http_request(
-            "GET", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}",
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def create_calendar(self, summary: str,
-                        description: str = "",
-                        permissions: str = "private",
-                        color: Optional[int] = None,
-                        summary_alias: str = "") -> Result:
+    def create_calendar(
+        self,
+        summary: str,
+        description: str = "",
+        permissions: str = "private",
+        color: Optional[int] = None,
+        summary_alias: str = "",
+    ) -> Result:
         """Create a secondary calendar owned by the bot.
 
         ``permissions``: private | show_only_free_busy | public.
@@ -219,17 +224,23 @@ class LarkCalendarClient(BasePlatformClient):
         if summary_alias:
             body["summary_alias"] = summary_alias
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars",
-            headers=self._headers(), json=body, expected=(200,),
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars",
+            headers=self._headers(),
+            json=body,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def update_calendar(self, calendar_id: str,
-                        summary: Optional[str] = None,
-                        description: Optional[str] = None,
-                        permissions: Optional[str] = None,
-                        color: Optional[int] = None,
-                        summary_alias: Optional[str] = None) -> Result:
+    def update_calendar(
+        self,
+        calendar_id: str,
+        summary: Optional[str] = None,
+        description: Optional[str] = None,
+        permissions: Optional[str] = None,
+        color: Optional[int] = None,
+        summary_alias: Optional[str] = None,
+    ) -> Result:
         """Patch a calendar. Only fields with non-None values are sent."""
         body: Dict[str, Any] = {}
         if summary is not None:
@@ -245,45 +256,60 @@ class LarkCalendarClient(BasePlatformClient):
         if not body:
             return {"error": "No fields provided to update"}
         return http_request(
-            "PATCH", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}",
-            headers=self._headers(), json=body, expected=(200,),
+            "PATCH",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}",
+            headers=self._headers(),
+            json=body,
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def delete_calendar(self, calendar_id: str) -> Result:
         """Delete a calendar the bot owns."""
         return http_request(
-            "DELETE", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}",
-            headers=self._headers(), expected=(200,),
-            transform=lambda d: d.get("data", d) or {"deleted": True, "calendar_id": calendar_id},
+            "DELETE",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}",
+            headers=self._headers(),
+            expected=(200,),
+            transform=lambda d: (
+                d.get("data", d) or {"deleted": True, "calendar_id": calendar_id}
+            ),
         )
 
-    def search_calendars(self, query: str, page_size: int = 20,
-                         page_token: str = "") -> Result:
+    def search_calendars(
+        self, query: str, page_size: int = 20, page_token: str = ""
+    ) -> Result:
         """Search across calendars the bot can see by name."""
         params: Dict[str, str] = {"page_size": str(min(page_size, 100))}
         if page_token:
             params["page_token"] = page_token
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/search",
-            params=params, headers=self._headers(),
-            json={"query": query}, expected=(200,),
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/search",
+            params=params,
+            headers=self._headers(),
+            json={"query": query},
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def subscribe_calendar(self, calendar_id: str) -> Result:
         """Subscribe to (follow) a shared calendar so it shows up in list_calendars."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/subscribe",
-            headers=self._headers(), expected=(200,),
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/subscribe",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
     def unsubscribe_calendar(self, calendar_id: str) -> Result:
         """Unsubscribe from a shared calendar."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/unsubscribe",
-            headers=self._headers(), expected=(200,),
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/unsubscribe",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -494,37 +520,52 @@ class LarkCalendarClient(BasePlatformClient):
 
     # ----- Event RSVP -----
 
-    def reply_event(self, calendar_id: str, event_id: str,
-                    rsvp_status: str) -> Result:
+    def reply_event(self, calendar_id: str, event_id: str, rsvp_status: str) -> Result:
         """Reply to an event invitation. ``rsvp_status``: accept | decline | tentative."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/reply",
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/reply",
             headers=self._headers(),
             json={"rsvp_status": rsvp_status},
             expected=(200,),
-            transform=lambda d: d.get("data", d) or {"replied": True, "rsvp_status": rsvp_status},
+            transform=lambda d: (
+                d.get("data", d) or {"replied": True, "rsvp_status": rsvp_status}
+            ),
         )
 
     # ----- Event attendees: list / batch delete / chat members -----
 
-    def list_event_attendees(self, calendar_id: str, event_id: str,
-                             page_size: int = 100, page_token: str = "") -> Result:
+    def list_event_attendees(
+        self,
+        calendar_id: str,
+        event_id: str,
+        page_size: int = 100,
+        page_token: str = "",
+    ) -> Result:
         """List attendees on an event."""
         params: Dict[str, str] = {"page_size": str(min(page_size, 200))}
         if page_token:
             params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees",
-            params=params, headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees",
+            params=params,
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def batch_delete_event_attendees(self, calendar_id: str, event_id: str,
-                                     attendee_ids: List[str],
-                                     need_notification: bool = True) -> Result:
+    def batch_delete_event_attendees(
+        self,
+        calendar_id: str,
+        event_id: str,
+        attendee_ids: List[str],
+        need_notification: bool = True,
+    ) -> Result:
         """Remove attendees by attendee_id from an event in one call."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees/batch_delete",
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees/batch_delete",
             headers=self._headers(),
             json={
                 "attendee_ids": attendee_ids,
@@ -534,25 +575,38 @@ class LarkCalendarClient(BasePlatformClient):
             transform=lambda d: d.get("data", d) or {"removed": attendee_ids},
         )
 
-    def list_event_attendee_chat_members(self, calendar_id: str, event_id: str,
-                                         attendee_id: str,
-                                         page_size: int = 100, page_token: str = "") -> Result:
+    def list_event_attendee_chat_members(
+        self,
+        calendar_id: str,
+        event_id: str,
+        attendee_id: str,
+        page_size: int = 100,
+        page_token: str = "",
+    ) -> Result:
         """List the chat members behind a chat-type attendee."""
         params: Dict[str, str] = {"page_size": str(min(page_size, 200))}
         if page_token:
             params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees/{attendee_id}/chat_members",
-            params=params, headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees/{attendee_id}/chat_members",
+            params=params,
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def add_meeting_room_to_event(self, calendar_id: str, event_id: str,
-                                  meeting_room_id: str,
-                                  need_notification: bool = True) -> Result:
+    def add_meeting_room_to_event(
+        self,
+        calendar_id: str,
+        event_id: str,
+        meeting_room_id: str,
+        need_notification: bool = True,
+    ) -> Result:
         """Book a meeting room by attaching it as a resource-type attendee."""
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees",
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees",
             headers=self._headers(),
             json={
                 "attendees": [{"type": "resource", "room_id": meeting_room_id}],
@@ -564,9 +618,15 @@ class LarkCalendarClient(BasePlatformClient):
 
     # ----- Recurring event instances -----
 
-    def list_event_instances(self, calendar_id: str, event_id: str,
-                             start_time: int, end_time: int,
-                             page_size: int = 50, page_token: str = "") -> Result:
+    def list_event_instances(
+        self,
+        calendar_id: str,
+        event_id: str,
+        start_time: int,
+        end_time: int,
+        page_size: int = 50,
+        page_token: str = "",
+    ) -> Result:
         """List concrete instances of a recurring event in a window."""
         params: Dict[str, str] = {
             "start_time": str(start_time),
@@ -576,8 +636,11 @@ class LarkCalendarClient(BasePlatformClient):
         if page_token:
             params["page_token"] = page_token
         return http_request(
-            "GET", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/instances",
-            params=params, headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/events/{event_id}/instances",
+            params=params,
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
@@ -586,20 +649,24 @@ class LarkCalendarClient(BasePlatformClient):
     def list_calendar_acls(self, calendar_id: str) -> Result:
         """List the access-control entries (sharing permissions) on a calendar."""
         return http_request(
-            "GET", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/acls",
-            headers=self._headers(), expected=(200,),
+            "GET",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/acls",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d),
         )
 
-    def create_calendar_acl(self, calendar_id: str, user_id: str,
-                            role: str = "reader") -> Result:
+    def create_calendar_acl(
+        self, calendar_id: str, user_id: str, role: str = "reader"
+    ) -> Result:
         """Share a calendar with a user.
 
         ``role``: owner | reader | writer | free_busy_reader.
         ``user_id`` is the Lark open_id (ou_...).
         """
         return http_request(
-            "POST", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/acls",
+            "POST",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/acls",
             headers=self._headers(),
             json={
                 "role": role,
@@ -612,7 +679,9 @@ class LarkCalendarClient(BasePlatformClient):
     def delete_calendar_acl(self, calendar_id: str, acl_id: str) -> Result:
         """Revoke a sharing permission."""
         return http_request(
-            "DELETE", f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/acls/{acl_id}",
-            headers=self._headers(), expected=(200,),
+            "DELETE",
+            f"{LARK_API_BASE}/calendar/v4/calendars/{calendar_id}/acls/{acl_id}",
+            headers=self._headers(),
+            expected=(200,),
             transform=lambda d: d.get("data", d) or {"deleted": True, "acl_id": acl_id},
         )

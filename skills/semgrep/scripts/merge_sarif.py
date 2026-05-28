@@ -67,7 +67,10 @@ def merge_with_multitool(sarif_files: list[Path]) -> dict | None:
         ]
         result = subprocess.run(cmd, capture_output=True, timeout=120)
         if result.returncode != 0:
-            print(f"SARIF Multitool merge failed: {result.stderr.decode()}", file=sys.stderr)
+            print(
+                f"SARIF Multitool merge failed: {result.stderr.decode()}",
+                file=sys.stderr,
+            )
             return None
 
         return json.loads(tmp_path.read_text())
