@@ -16,7 +16,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: pip
 
       - name: Install ruff
         run: pip install ruff
@@ -36,7 +35,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: pip
 
       - name: Byte-compile source tree
         run: python -m compileall -q app agent_core agents decorators skills
