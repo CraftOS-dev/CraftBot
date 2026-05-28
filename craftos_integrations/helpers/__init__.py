@@ -11,6 +11,7 @@ Submodules:
     result: ``Result`` / ``Ok`` / ``Err`` TypedDict aliases for the envelope —
             use as return annotations for static type-checking benefits.
 """
+
 from .http import arequest, request
 from .result import Err, Ok, Result
 

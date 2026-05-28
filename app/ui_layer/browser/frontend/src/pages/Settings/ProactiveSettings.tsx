@@ -12,6 +12,20 @@ import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import {
+  setTaskEnabled,
+  type ScheduleConfig,
+  type ProactiveTask,
+} from '../../store/slices/proactiveSettingsSlice'
+import {
+  selectSchedulerEnabled,
+  selectSchedules,
+  selectProactiveTasks,
+  selectProactiveHasLoadedMode,
+  selectProactiveHasLoadedConfig,
+  selectProactiveHasLoadedTasks,
+} from '../../store/selectors/proactiveSettings'
 
 // Convert cron expression to human-readable format
 function formatCronExpression(cron: string): string {
@@ -68,31 +82,7 @@ function formatCronExpression(cron: string): string {
   return `Cron: ${cron}`
 }
 
-// Types
-interface ScheduleConfig {
-  id: string
-  name: string
-  schedule: string
-  enabled: boolean
-  priority: number
-  payload?: { type: string; frequency?: string; scope?: string }
-}
-
-interface ProactiveTask {
-  id: string
-  name: string
-  frequency: string
-  instruction: string
-  enabled: boolean
-  priority: number
-  permissionTier: number
-  time?: string
-  day?: string
-  runCount: number
-  lastRun?: string
-  nextRun?: string
-  outcomeHistory: Array<{ timestamp: string; result: string; success: boolean }>
-}
+// Types come from the slice now.
 
 // Helper functions for task display
 function getPriorityLabel(value: number): string {
@@ -286,17 +276,19 @@ function TaskFormModal({ task, onClose, onSave }: TaskFormModalProps) {
 
 export function ProactiveSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
+  const dispatch = useAppDispatch()
 
-  // Scheduler state
-  const [schedulerEnabled, setSchedulerEnabled] = useState(true)
-  const [schedules, setSchedules] = useState<ScheduleConfig[]>([])
-  const [isLoadingScheduler, setIsLoadingScheduler] = useState(true)
+  // Slice-backed
+  const schedulerEnabled = useAppSelector(selectSchedulerEnabled)
+  const schedules = useAppSelector(selectSchedules)
+  const tasks = useAppSelector(selectProactiveTasks)
+  const hasLoadedMode = useAppSelector(selectProactiveHasLoadedMode)
+  const hasLoadedConfig = useAppSelector(selectProactiveHasLoadedConfig)
+  const hasLoadedTasks = useAppSelector(selectProactiveHasLoadedTasks)
+  const isLoadingScheduler = !hasLoadedMode || !hasLoadedConfig
+  const isLoadingTasks = !hasLoadedTasks
 
-  // Proactive tasks state
-  const [tasks, setTasks] = useState<ProactiveTask[]>([])
-  const [isLoadingTasks, setIsLoadingTasks] = useState(true)
-
-  // UI state
+  // UI state (transient)
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [editingTask, setEditingTask] = useState<ProactiveTask | null>(null)
   const [isResettingTasks, setIsResettingTasks] = useState(false)
@@ -305,45 +297,24 @@ export function ProactiveSettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Load data when connected
+  // Side-effect handlers (success animations, modal close, list refresh).
+  // List state is owned by proactiveSettingsSlice via the registry.
   useEffect(() => {
     if (!isConnected) return
 
     const cleanups = [
-      onMessage('proactive_mode_get', (data: unknown) => {
-        const d = data as { success: boolean; enabled: boolean }
-        setIsLoadingScheduler(false)
-        if (d.success) {
-          setSchedulerEnabled(d.enabled)
-        }
-      }),
       onMessage('proactive_mode_set', (data: unknown) => {
-        const d = data as { success: boolean; enabled: boolean }
+        const d = data as { success: boolean }
         if (d.success) {
-          setSchedulerEnabled(d.enabled)
           setSaveStatus('success')
           setTimeout(() => setSaveStatus('idle'), 2000)
-        }
-      }),
-      onMessage('scheduler_config_get', (data: unknown) => {
-        const d = data as { success: boolean; config?: { enabled: boolean; schedules: ScheduleConfig[] } }
-        if (d.success && d.config) {
-          setSchedules(d.config.schedules || [])
         }
       }),
       onMessage('scheduler_config_update', (data: unknown) => {
-        const d = data as { success: boolean; config?: { enabled: boolean; schedules: ScheduleConfig[] } }
-        if (d.success && d.config) {
-          setSchedules(d.config.schedules || [])
+        const d = data as { success: boolean }
+        if (d.success) {
           setSaveStatus('success')
           setTimeout(() => setSaveStatus('idle'), 2000)
-        }
-      }),
-      onMessage('proactive_tasks_get', (data: unknown) => {
-        const d = data as { success: boolean; tasks: ProactiveTask[] }
-        setIsLoadingTasks(false)
-        if (d.success) {
-          setTasks(d.tasks || [])
         }
       }),
       onMessage('proactive_task_add', (data: unknown) => {
@@ -364,30 +335,25 @@ export function ProactiveSettings() {
       }),
       onMessage('proactive_task_remove', (data: unknown) => {
         const d = data as { success: boolean }
-        if (d.success) {
-          send('proactive_tasks_get')
-        }
+        if (d.success) send('proactive_tasks_get')
       }),
       onMessage('proactive_tasks_reset', (data: unknown) => {
         const d = data as { success: boolean }
         setIsResettingTasks(false)
-        if (d.success) {
-          send('proactive_tasks_get')
-        }
+        if (d.success) send('proactive_tasks_get')
       }),
     ]
 
-    send('proactive_mode_get')
-    send('scheduler_config_get')
-    send('proactive_tasks_get')
+    if (!hasLoadedMode) send('proactive_mode_get')
+    if (!hasLoadedConfig) send('scheduler_config_get')
+    if (!hasLoadedTasks) send('proactive_tasks_get')
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage])
+  }, [isConnected, send, onMessage, hasLoadedMode, hasLoadedConfig, hasLoadedTasks])
 
   const getSchedule = (id: string) => schedules.find(s => s.id === id)
 
   const handleToggleScheduler = (enabled: boolean) => {
-    setSchedulerEnabled(enabled)
     send('proactive_mode_set', { enabled })
   }
 
@@ -409,7 +375,7 @@ export function ProactiveSettings() {
 
   const handleToggleTask = (taskId: string, enabled: boolean) => {
     send('proactive_task_update', { taskId, updates: { enabled } })
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, enabled } : t))
+    dispatch(setTaskEnabled({ taskId, enabled }))
   }
 
   const handleDeleteTask = (taskId: string) => {

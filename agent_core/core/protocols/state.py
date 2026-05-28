@@ -6,7 +6,7 @@ This module defines the StateManagerProtocol that specifies the
 interface for state management operations.
 """
 
-from typing import Any, Dict, Optional, Protocol, TYPE_CHECKING
+from typing import Optional, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agent_core import Task

@@ -38,4 +38,8 @@ class ClearCommand(Command):
             if adapter.action_panel:
                 await adapter.action_panel.clear()
 
+        # Drop the agent's persisted conversation memory so a restart does
+        # not resurrect cleared chat from session_storage.
+        await self._controller.agent.clear_conversation_persistence()
+
         return CommandResult(success=True)

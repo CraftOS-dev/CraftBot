@@ -53,12 +53,14 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 
 # Auto-include additional routers from routes/ directory (if any)
-import importlib, pkgutil
+import importlib
+import pkgutil
+
 _routes_dir = Path(__file__).parent / "routes"
 if _routes_dir.exists() and (_routes_dir / "__init__.py").exists():
     for _imp, _mod, _pkg in pkgutil.iter_modules([str(_routes_dir)]):
         _m = importlib.import_module(f"routes.{_mod}")
-        if hasattr(_m, 'router'):
+        if hasattr(_m, "router"):
             app.include_router(_m.router, prefix="/api")
 
 
@@ -131,4 +133,5 @@ if _DIST_DIR.exists() and _DIST_ASSETS.exists():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port={{BACKEND_PORT}})

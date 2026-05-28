@@ -7,7 +7,6 @@ Provides ANSI color formatting for chat messages, tasks, and actions.
 
 import os
 import sys
-from typing import Optional
 
 
 class CLIFormatter:
@@ -32,16 +31,16 @@ class CLIFormatter:
     }
 
     # ANSI escape codes for colors
-    # Using true color (24-bit) for exact color matching with TUI
+    # Using true color (24-bit) for exact color matching
     COLORS = {
-        "user": "\033[1;37m",           # Bold white
-        "agent": "\033[1;38;2;255;79;24m",    # Bold orange (#ff4f18)
-        "task": "\033[1;38;2;255;79;24m",     # Bold orange (#ff4f18)
-        "action": "\033[1;90m",         # Bold gray
-        "error": "\033[1;31m",          # Bold red
-        "system": "\033[1;90m",         # Bold gray
-        "info": "\033[0;37m",           # Normal gray
-        "success": "\033[1;32m",        # Bold green
+        "user": "\033[1;37m",  # Bold white
+        "agent": "\033[1;38;2;255;79;24m",  # Bold orange (#ff4f18)
+        "task": "\033[1;38;2;255;79;24m",  # Bold orange (#ff4f18)
+        "action": "\033[1;90m",  # Bold gray
+        "error": "\033[1;31m",  # Bold red
+        "system": "\033[1;90m",  # Bold gray
+        "info": "\033[0;37m",  # Normal gray
+        "success": "\033[1;32m",  # Bold green
         "reset": "\033[0m",
     }
 
@@ -71,16 +70,16 @@ class CLIFormatter:
             try:
                 # Try colorama first for broad Windows compatibility
                 import colorama
+
                 colorama.init()
             except ImportError:
                 # Fallback: enable VT processing on Windows 10+
                 try:
                     import ctypes
+
                     kernel32 = ctypes.windll.kernel32
                     # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING
-                    kernel32.SetConsoleMode(
-                        kernel32.GetStdHandle(-11), 7
-                    )
+                    kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
                 except Exception:
                     cls._colors_enabled = False
 
@@ -133,9 +132,7 @@ class CLIFormatter:
         return f"{color}[{icon}] Task {status}: {task_name}{reset}"
 
     @classmethod
-    def format_action_start(
-        cls, action_name: str, is_sub_action: bool = False
-    ) -> str:
+    def format_action_start(cls, action_name: str, is_sub_action: bool = False) -> str:
         """Format action start message."""
         color = cls._color("action")
         reset = cls._reset()

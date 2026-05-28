@@ -37,7 +37,7 @@ each 1-2 sentences. Focus on key findings and implications."
 ### Issue 2: Hallucinations or False Information
 
 **Symptoms:**
-- Claude invents facts
+- CraftBot invents facts
 - Confident but incorrect statements
 - Made-up citations or data
 
@@ -49,7 +49,7 @@ each 1-2 sentences. Focus on key findings and implications."
 
 **Solutions:**
 ```
-1. Ask Claude to cite sources
+1. Ask CraftBot to cite sources
 2. Request confidence levels
 3. Ask for caveats and limitations
 4. Provide factual context
@@ -173,7 +173,7 @@ applications, not theory."
 
 ---
 
-### Issue 6: Claude Refuses to Respond
+### Issue 6: CraftBot Refuses to Respond
 
 **Symptoms:**
 - "I can't help with that"

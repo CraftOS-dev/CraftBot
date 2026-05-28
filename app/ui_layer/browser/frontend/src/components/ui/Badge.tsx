@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react'
+import React, { CSSProperties, ReactNode } from 'react'
 import styles from './Badge.module.css'
 
 export type BadgeVariant = 'default' | 'primary' | 'success' | 'warning' | 'error' | 'info'
@@ -8,6 +8,7 @@ interface BadgeProps {
   variant?: BadgeVariant
   dot?: boolean
   className?: string
+  style?: CSSProperties
 }
 
 export function Badge({
@@ -15,6 +16,7 @@ export function Badge({
   variant = 'default',
   dot = false,
   className = '',
+  style,
 }: BadgeProps) {
   const classes = [
     styles.badge,
@@ -26,7 +28,7 @@ export function Badge({
     .join(' ')
 
   return (
-    <span className={classes}>
+    <span className={classes} style={style}>
       {dot && <span className={styles.dot} />}
       {children}
     </span>

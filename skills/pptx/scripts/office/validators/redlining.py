@@ -9,8 +9,7 @@ from pathlib import Path
 
 
 class RedliningValidator:
-
-    def __init__(self, unpacked_dir, original_docx, verbose=False, author="Claude"):
+    def __init__(self, unpacked_dir, original_docx, verbose=False, author="CraftBot"):
         self.unpacked_dir = Path(unpacked_dir)
         self.original_docx = Path(original_docx)
         self.verbose = verbose
@@ -140,8 +139,8 @@ class RedliningValidator:
                         "git",
                         "diff",
                         "--word-diff=plain",
-                        "--word-diff-regex=.",  
-                        "-U0",  
+                        "--word-diff-regex=.",
+                        "-U0",
                         "--no-index",
                         str(original_file),
                         str(modified_file),
@@ -169,7 +168,7 @@ class RedliningValidator:
                         "git",
                         "diff",
                         "--word-diff=plain",
-                        "-U0",  
+                        "-U0",
                         "--no-index",
                         str(original_file),
                         str(modified_file),

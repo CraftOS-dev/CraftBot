@@ -9,7 +9,9 @@ from typing import Any, Mapping
 from diagnostic.framework import ActionTestCase, ExecutionResult, PreparedEnv
 
 
-def _build_subprocess_stub(invocations: list[tuple[list[str], Mapping[str, Any]]]) -> types.ModuleType:
+def _build_subprocess_stub(
+    invocations: list[tuple[list[str], Mapping[str, Any]]],
+) -> types.ModuleType:
     module = types.ModuleType("subprocess")
     module.DEVNULL = object()
     module.CREATE_NEW_CONSOLE = 0
@@ -70,7 +72,10 @@ def get_test_case() -> ActionTestCase:
 
         invocations: list[tuple[list[str], Mapping[str, Any]]] = context["invocations"]
         if len(invocations) != 1:
-            return "incorrect result", f"Expected exactly one launch attempt, saw {len(invocations)}."
+            return (
+                "incorrect result",
+                f"Expected exactly one launch attempt, saw {len(invocations)}.",
+            )
 
         command, kwargs = invocations[0]
         expected = [str(context["exe_path"]), "--flag"]
@@ -78,7 +83,10 @@ def get_test_case() -> ActionTestCase:
             return "incorrect result", f"Command mismatch: {command!r} != {expected!r}."
         cwd = kwargs.get("cwd")
         if cwd != str(context["exe_path"].parent):
-            return "incorrect result", "Process started with unexpected working directory."
+            return (
+                "incorrect result",
+                "Process started with unexpected working directory.",
+            )
 
         return "passed", "Application launch simulated successfully."
 

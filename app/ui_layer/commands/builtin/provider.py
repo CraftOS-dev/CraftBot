@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import os
 from typing import List
 
 from app.ui_layer.commands.base import Command, CommandResult
-from app.tui.settings import save_settings_to_json, get_current_provider, get_api_key_for_provider
+from app.ui_layer.settings.provider_settings import (
+    save_settings_to_json,
+    get_current_provider,
+    get_api_key_for_provider,
+)
 
 
 class ProviderCommand(Command):
@@ -90,7 +93,9 @@ Examples:
         if env_key:
             api_key = get_api_key_for_provider(current)
             if api_key:
-                masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
+                masked = (
+                    api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
+                )
                 lines.append(f"API key: {masked}")
             else:
                 lines.append("API key: Not configured")

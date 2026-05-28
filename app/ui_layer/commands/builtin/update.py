@@ -55,16 +55,12 @@ dependencies, and restart CraftBot automatically."""
             return CommandResult(success=False, message=str(e))
 
         if not update_available:
-            self.emit_message(
-                f"CraftBot is up to date (v{current}).", "system"
-            )
+            self.emit_message(f"CraftBot is up to date (v{current}).", "system")
             return CommandResult(success=True)
 
         # --check flag: report only, don't install
         if "--check" in args:
-            self.emit_message(
-                f"Update available: v{current} → v{latest}", "system"
-            )
+            self.emit_message(f"Update available: v{current} → v{latest}", "system")
             return CommandResult(
                 success=True,
                 data={"updateAvailable": True, "current": current, "latest": latest},

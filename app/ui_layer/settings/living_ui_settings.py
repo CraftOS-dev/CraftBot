@@ -1,10 +1,10 @@
 """Living UI settings management for UI layer.
 
 Provides functions for managing Living UI project settings
-that can be used by any interface adapter (Browser, TUI, CLI).
+that can be used by any interface adapter (Browser, CLI).
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
 def get_living_ui_projects() -> Dict[str, Any]:
@@ -22,16 +22,18 @@ def get_living_ui_projects() -> Dict[str, Any]:
 
         projects = []
         for project in manager.list_projects():
-            projects.append({
-                "id": project.id,
-                "name": project.name,
-                "status": project.status,
-                "port": project.port,
-                "backendPort": project.backend_port,
-                "path": project.path,
-                "autoLaunch": project.auto_launch,
-                "logCleanup": project.log_cleanup,
-            })
+            projects.append(
+                {
+                    "id": project.id,
+                    "name": project.name,
+                    "status": project.status,
+                    "port": project.port,
+                    "backendPort": project.backend_port,
+                    "path": project.path,
+                    "autoLaunch": project.auto_launch,
+                    "logCleanup": project.log_cleanup,
+                }
+            )
 
         return {"success": True, "projects": projects}
     except Exception as e:
@@ -60,9 +62,9 @@ def update_project_setting(project_id: str, setting: str, value: Any) -> Dict[st
         if not project:
             return {"success": False, "error": f"Project not found: {project_id}"}
 
-        if setting == 'autoLaunch':
+        if setting == "autoLaunch":
             project.auto_launch = bool(value)
-        elif setting == 'logCleanup':
+        elif setting == "logCleanup":
             project.log_cleanup = bool(value)
         else:
             return {"success": False, "error": f"Unknown setting: {setting}"}

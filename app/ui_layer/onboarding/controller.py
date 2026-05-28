@@ -10,13 +10,13 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    MCPStep,
+    IntegrationStep,
     SkillsStep,
     HardOnboardingStep,
     StepOption,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_json
+from app.ui_layer.settings.provider_settings import save_settings_to_json
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -69,8 +69,8 @@ class OnboardingFlowController:
         ApiKeyStep,
         AgentNameStep,
         UserProfileStep,
-        MCPStep,
         SkillsStep,
+        IntegrationStep,
     ]
 
     def __init__(self, controller: Optional["UIController"] = None) -> None:
@@ -261,15 +261,19 @@ class OnboardingFlowController:
             agent_name = agent_name_data.get("agent_name") or "Agent"
         else:
             agent_name = agent_name_data or "Agent"
-        selected_mcp_servers = self._state.collected_data.get("mcp", [])
+        # The integrations step is informational — selected integrations are
+        # surfaced for awareness, but OAuth/token connection happens in
+        # Settings → Integrations after onboarding.
         selected_skills = self._state.collected_data.get("skills", [])
 
         # Save provider configuration to settings.json
         from app.onboarding.interfaces.steps import ApiKeyStep
+
         if provider == "remote":
             # api_key holds the Ollama base URL for the remote provider
             remote_url = api_key or "http://localhost:11434"
-            from app.tui.settings import save_remote_endpoint
+            from app.ui_layer.settings.provider_settings import save_remote_endpoint
+
             save_remote_endpoint(remote_url)
         elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
             if proxied_via == "openrouter":
@@ -277,12 +281,21 @@ class OnboardingFlowController:
                 if submitted_or_model:
                     or_model = submitted_or_model
                 else:
-                    from agent_core.core.models.factory import _to_openrouter_slug, _OR_MODEL_MAP
+                    from agent_core.core.models.factory import (
+                        _to_openrouter_slug,
+                        _OR_MODEL_MAP,
+                    )
                     from app.models import MODEL_REGISTRY, InterfaceType
-                    native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM, "")
-                    or_model = _OR_MODEL_MAP.get(provider, {}).get(native_model) or _to_openrouter_slug(provider, native_model)
+
+                    native_model = MODEL_REGISTRY.get(provider, {}).get(
+                        InterfaceType.LLM, ""
+                    )
+                    or_model = _OR_MODEL_MAP.get(provider, {}).get(
+                        native_model
+                    ) or _to_openrouter_slug(provider, native_model)
                 save_settings_to_json("openrouter", api_key)
                 from app.ui_layer.settings.model_settings import update_model_settings
+
                 update_model_settings(llm_model=or_model, vlm_model=or_model)
                 provider = "openrouter"
             else:
@@ -298,27 +311,29 @@ class OnboardingFlowController:
                     success = self._controller.agent.reinitialize_llm(provider)
                     if success:
                         from agent_core.utils.logger import logger
-                        logger.info(f"[ONBOARDING] Reinitialized LLM with provider: {provider}")
+
+                        logger.info(
+                            f"[ONBOARDING] Reinitialized LLM with provider: {provider}"
+                        )
                     else:
                         from agent_core.utils.logger import logger
-                        logger.warning(f"[ONBOARDING] Failed to reinitialize LLM with provider: {provider}")
+
+                        logger.warning(
+                            f"[ONBOARDING] Failed to reinitialize LLM with provider: {provider}"
+                        )
                 except Exception as e:
                     from agent_core.utils.logger import logger
+
                     logger.warning(f"[ONBOARDING] Error reinitializing LLM: {e}")
 
         # Update controller state if available
         if self._controller:
             self._controller.state_store.dispatch("SET_PROVIDER", provider)
 
-        # Apply MCP server selections
-        if selected_mcp_servers:
-            from app.tui.mcp_settings import enable_mcp_server
-            for server_name in selected_mcp_servers:
-                enable_mcp_server(server_name)
-
         # Apply skill selections
         if selected_skills:
-            from app.tui.skill_settings import enable_skill
+            from app.ui_layer.settings.skill_settings import enable_skill
+
             for skill_name in selected_skills:
                 enable_skill(skill_name)
 
@@ -326,6 +341,7 @@ class OnboardingFlowController:
         user_profile = self._state.collected_data.get("user_profile", {})
         if user_profile:
             from app.onboarding.profile_writer import write_profile_to_user_md
+
             write_profile_to_user_md(user_profile)
         else:
             # Fallback: initialize language from OS locale if profile step was skipped
@@ -342,6 +358,7 @@ class OnboardingFlowController:
         )
         if not success:
             from agent_core.utils.logger import logger
+
             logger.error(
                 "[ONBOARDING] Failed to persist hard onboarding state — "
                 "onboarding will re-trigger on next launch. "
@@ -353,6 +370,7 @@ class OnboardingFlowController:
         # before interface starts (and thus before hard onboarding completes)
         if onboarding_manager.needs_soft_onboarding and self._controller:
             import asyncio
+
             asyncio.create_task(self._trigger_soft_onboarding_async())
 
     async def _trigger_soft_onboarding_async(self) -> None:
@@ -369,7 +387,10 @@ class OnboardingFlowController:
         task_id = await agent.trigger_soft_onboarding()
         if task_id:
             from agent_core.utils.logger import logger
-            logger.info(f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}")
+
+            logger.info(
+                f"[ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}"
+            )
 
     def _initialize_user_language(self) -> None:
         """
@@ -392,15 +413,15 @@ class OnboardingFlowController:
                 # Replace the Language field value
                 # Pattern: - **Language**: <value>
                 updated_content = re.sub(
-                    r'(\*\*Language\*\*:\s*)\S+',
-                    f'\\1{os_lang}',
-                    content
+                    r"(\*\*Language\*\*:\s*)\S+", f"\\1{os_lang}", content
                 )
                 user_md_path.write_text(updated_content, encoding="utf-8")
                 from agent_core.utils.logger import logger
+
                 logger.info(f"[ONBOARDING] Initialized USER.md language to: {os_lang}")
             except Exception as e:
                 from agent_core.utils.logger import logger
+
                 logger.warning(f"[ONBOARDING] Failed to update USER.md language: {e}")
 
     def get_progress_text(self) -> str:
@@ -433,7 +454,7 @@ class OnboardingFlowController:
         }
 
         # Include form fields if the step has them (e.g., UserProfileStep)
-        form_fields = getattr(step, 'get_form_fields', lambda: [])()
+        form_fields = getattr(step, "get_form_fields", lambda: [])()
         if form_fields:
             info["form_fields"] = [
                 {
@@ -441,7 +462,12 @@ class OnboardingFlowController:
                     "label": f.label,
                     "field_type": f.field_type,
                     "options": [
-                        {"value": o.value, "label": o.label, "description": o.description, "default": o.default}
+                        {
+                            "value": o.value,
+                            "label": o.label,
+                            "description": o.description,
+                            "default": o.default,
+                        }
                         for o in f.options
                     ],
                     "default": f.default,

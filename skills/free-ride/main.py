@@ -29,16 +29,23 @@ CACHE_DURATION_HOURS = 6
 
 # Free model ranking criteria (higher is better)
 RANKING_WEIGHTS = {
-    "context_length": 0.4,      # Prefer longer context
-    "capabilities": 0.3,        # Prefer more capabilities
-    "recency": 0.2,            # Prefer newer models
-    "provider_trust": 0.1       # Prefer trusted providers
+    "context_length": 0.4,  # Prefer longer context
+    "capabilities": 0.3,  # Prefer more capabilities
+    "recency": 0.2,  # Prefer newer models
+    "provider_trust": 0.1,  # Prefer trusted providers
 }
 
 # Trusted providers (in order of preference)
 TRUSTED_PROVIDERS = [
-    "google", "meta-llama", "mistralai", "deepseek",
-    "nvidia", "qwen", "microsoft", "allenai", "arcee-ai"
+    "google",
+    "meta-llama",
+    "mistralai",
+    "deepseek",
+    "nvidia",
+    "qwen",
+    "microsoft",
+    "allenai",
+    "arcee-ai",
 ]
 
 
@@ -65,10 +72,7 @@ def get_api_key() -> Optional[str]:
 
 def fetch_all_models(api_key: str) -> list:
     """Fetch all models from OpenRouter API."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     try:
         response = requests.get(OPENROUTER_API_URL, headers=headers, timeout=30)
@@ -116,7 +120,9 @@ def calculate_model_score(model: dict) -> float:
     # Capabilities score
     capabilities = model.get("supported_parameters", [])
     capability_count = len(capabilities) if capabilities else 0
-    capability_score = min(capability_count / 10, 1.0)  # Normalize to max 10 capabilities
+    capability_score = min(
+        capability_count / 10, 1.0
+    )  # Normalize to max 10 capabilities
     score += capability_score * RANKING_WEIGHTS["capabilities"]
 
     # Recency score (based on creation date)
@@ -168,10 +174,7 @@ def get_cached_models() -> Optional[list]:
 def save_models_cache(models: list):
     """Save models to cache file."""
     CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    cache = {
-        "cached_at": datetime.now().isoformat(),
-        "models": models
-    }
+    cache = {"cached_at": datetime.now().isoformat(), "models": models}
     CACHE_FILE.write_text(json.dumps(cache, indent=2))
 
 
@@ -216,7 +219,7 @@ def format_model_for_openclaw(model_id: str, with_provider_prefix: bool = True) 
     """
     base_id = model_id
 
-    # Handle openrouter/free special case: "openrouter" is both the routing 
+    # Handle openrouter/free special case: "openrouter" is both the routing
     # prefix OpenClaw adds AND the actual provider name in the API model ID.
     # The API model ID is "openrouter/free" (no :free suffix — it's a router, not a free-tier model).
     #   - with prefix:    "openrouter/openrouter/free" (routing prefix + API ID)
@@ -228,7 +231,7 @@ def format_model_for_openclaw(model_id: str, with_provider_prefix: bool = True) 
 
     # Remove existing openrouter/ routing prefix if present to get the base API ID
     if base_id.startswith("openrouter/"):
-        base_id = base_id[len("openrouter/"):]
+        base_id = base_id[len("openrouter/") :]
 
     # Ensure :free suffix
     if ":free" not in base_id:
@@ -250,7 +253,12 @@ def get_current_fallbacks(config: dict = None) -> list:
     """Get currently configured fallback models."""
     if config is None:
         config = load_openclaw_config()
-    return config.get("agents", {}).get("defaults", {}).get("model", {}).get("fallbacks", [])
+    return (
+        config.get("agents", {})
+        .get("defaults", {})
+        .get("model", {})
+        .get("fallbacks", [])
+    )
 
 
 def ensure_config_structure(config: dict) -> dict:
@@ -276,7 +284,7 @@ def setup_openrouter_auth(config: dict) -> dict:
     if "openrouter:default" not in config["auth"]["profiles"]:
         config["auth"]["profiles"]["openrouter:default"] = {
             "provider": "openrouter",
-            "mode": "api_key"
+            "mode": "api_key",
         }
         print("Added OpenRouter auth profile.")
 
@@ -288,7 +296,7 @@ def update_model_config(
     as_primary: bool = True,
     add_fallbacks: bool = True,
     fallback_count: int = 5,
-    setup_auth: bool = False
+    setup_auth: bool = False,
 ) -> bool:
     """Update OpenClaw config with the specified model.
 
@@ -320,17 +328,19 @@ def update_model_config(
         if api_key:
             free_models = get_free_models(api_key)
 
-            # Get existing fallbacks
-            existing_fallbacks = config["agents"]["defaults"]["model"].get("fallbacks", [])
-
             # Build new fallbacks list
             new_fallbacks = []
 
             # Always add openrouter/free as first fallback (smart router)
             # Skip if it's being set as primary
             free_router = "openrouter/free"
-            free_router_primary = format_model_for_openclaw("openrouter/free", with_provider_prefix=True)
-            if formatted_primary != free_router_primary and formatted_for_list != free_router:
+            free_router_primary = format_model_for_openclaw(
+                "openrouter/free", with_provider_prefix=True
+            )
+            if (
+                formatted_primary != free_router_primary
+                and formatted_for_list != free_router
+            ):
                 new_fallbacks.append(free_router)
                 config["agents"]["defaults"]["models"][free_router] = {}
 
@@ -339,19 +349,28 @@ def update_model_config(
                 if len(new_fallbacks) >= fallback_count:
                     break
 
-                m_formatted = format_model_for_openclaw(m["id"], with_provider_prefix=False)
-                m_formatted_primary = format_model_for_openclaw(m["id"], with_provider_prefix=True)
+                m_formatted = format_model_for_openclaw(
+                    m["id"], with_provider_prefix=False
+                )
+                m_formatted_primary = format_model_for_openclaw(
+                    m["id"], with_provider_prefix=True
+                )
 
                 # Skip openrouter/free (already added as first)
                 if "openrouter/free" in m["id"]:
                     continue
 
                 # Skip if it's the new primary
-                if as_primary and (m_formatted == formatted_for_list or m_formatted_primary == formatted_primary):
+                if as_primary and (
+                    m_formatted == formatted_for_list
+                    or m_formatted_primary == formatted_primary
+                ):
                     continue
 
                 # Skip if it's the current primary (when adding to fallbacks only)
-                current_primary = config["agents"]["defaults"]["model"].get("primary", "")
+                current_primary = config["agents"]["defaults"]["model"].get(
+                    "primary", ""
+                )
                 if not as_primary and m_formatted_primary == current_primary:
                     continue
 
@@ -373,6 +392,7 @@ def update_model_config(
 
 
 # ============== Command Handlers ==============
+
 
 def cmd_list(args):
     """List available free models ranked by quality."""
@@ -413,7 +433,9 @@ def cmd_list(args):
 
         # Check status
         formatted = format_model_for_openclaw(model_id, with_provider_prefix=True)
-        formatted_fallback = format_model_for_openclaw(model_id, with_provider_prefix=False)
+        formatted_fallback = format_model_for_openclaw(
+            model_id, with_provider_prefix=False
+        )
 
         if current and formatted == current:
             status = "[PRIMARY]"
@@ -473,7 +495,7 @@ def cmd_switch(args):
         matched_model,
         as_primary=not as_fallback,
         add_fallbacks=not args.no_fallbacks,
-        setup_auth=args.setup_auth
+        setup_auth=args.setup_auth,
     ):
         config = load_openclaw_config()
 
@@ -541,7 +563,7 @@ def cmd_auto(args):
         print(f"Context length: {context:,} tokens")
         print(f"Quality score: {score:.3f}")
     else:
-        print(f"\nKeeping current primary, adding fallbacks only.")
+        print("\nKeeping current primary, adding fallbacks only.")
         print(f"Best available: {model_id} ({context:,} tokens, score: {score:.3f})")
 
     if update_model_config(
@@ -549,14 +571,16 @@ def cmd_auto(args):
         as_primary=not as_fallback,
         add_fallbacks=True,
         fallback_count=args.fallback_count,
-        setup_auth=args.setup_auth
+        setup_auth=args.setup_auth,
     ):
         config = load_openclaw_config()
 
         if as_fallback:
             print("\nFallbacks configured!")
             print(f"Primary (unchanged): {get_current_model(config)}")
-            print("First fallback: openrouter/free (smart router - auto-selects best available)")
+            print(
+                "First fallback: openrouter/free (smart router - auto-selects best available)"
+            )
         else:
             print("\nOpenClaw config updated!")
             print(f"Primary: {get_current_model(config)}")
@@ -618,8 +642,10 @@ def cmd_status(args):
             age = datetime.now() - cached_at
             hours = age.seconds // 3600
             mins = (age.seconds % 3600) // 60
-            print(f"\nModel Cache: {models_count} models (updated {hours}h {mins}m ago)")
-        except:
+            print(
+                f"\nModel Cache: {models_count} models (updated {hours}h {mins}m ago)"
+            )
+        except Exception:
             print("\nModel Cache: Invalid")
     else:
         print("\nModel Cache: Not created yet")
@@ -667,14 +693,18 @@ def cmd_fallbacks(args):
 
     # Always add openrouter/free as first fallback (smart router)
     free_router = "openrouter/free"
-    free_router_primary = format_model_for_openclaw("openrouter/free", with_provider_prefix=True)
+    free_router_primary = format_model_for_openclaw(
+        "openrouter/free", with_provider_prefix=True
+    )
     if not current or current != free_router_primary:
         fallbacks.append(free_router)
         config["agents"]["defaults"]["models"][free_router] = {}
 
     for m in models:
         formatted = format_model_for_openclaw(m["id"], with_provider_prefix=False)
-        formatted_primary = format_model_for_openclaw(m["id"], with_provider_prefix=True)
+        formatted_primary = format_model_for_openclaw(
+            m["id"], with_provider_prefix=True
+        )
 
         if current and (formatted_primary == current):
             continue
@@ -701,35 +731,60 @@ def cmd_fallbacks(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="freeride",
-        description="FreeRide - Free AI for OpenClaw. Manage free models from OpenRouter."
+        description="FreeRide - Free AI for OpenClaw. Manage free models from OpenRouter.",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # list command
     list_parser = subparsers.add_parser("list", help="List available free models")
-    list_parser.add_argument("--limit", "-n", type=int, default=15,
-                            help="Number of models to show (default: 15)")
-    list_parser.add_argument("--refresh", "-r", action="store_true",
-                            help="Force refresh from API (ignore cache)")
+    list_parser.add_argument(
+        "--limit",
+        "-n",
+        type=int,
+        default=15,
+        help="Number of models to show (default: 15)",
+    )
+    list_parser.add_argument(
+        "--refresh",
+        "-r",
+        action="store_true",
+        help="Force refresh from API (ignore cache)",
+    )
 
     # switch command
     switch_parser = subparsers.add_parser("switch", help="Switch to a specific model")
     switch_parser.add_argument("model", help="Model ID to switch to")
-    switch_parser.add_argument("--fallback-only", "-f", action="store_true",
-                              help="Add to fallbacks only, don't change primary")
-    switch_parser.add_argument("--no-fallbacks", action="store_true",
-                              help="Don't configure fallback models")
-    switch_parser.add_argument("--setup-auth", action="store_true",
-                              help="Also set up OpenRouter auth profile")
+    switch_parser.add_argument(
+        "--fallback-only",
+        "-f",
+        action="store_true",
+        help="Add to fallbacks only, don't change primary",
+    )
+    switch_parser.add_argument(
+        "--no-fallbacks", action="store_true", help="Don't configure fallback models"
+    )
+    switch_parser.add_argument(
+        "--setup-auth", action="store_true", help="Also set up OpenRouter auth profile"
+    )
 
     # auto command
     auto_parser = subparsers.add_parser("auto", help="Auto-select best free model")
-    auto_parser.add_argument("--fallback-count", "-c", type=int, default=5,
-                            help="Number of fallback models (default: 5)")
-    auto_parser.add_argument("--fallback-only", "-f", action="store_true",
-                            help="Add to fallbacks only, don't change primary")
-    auto_parser.add_argument("--setup-auth", action="store_true",
-                            help="Also set up OpenRouter auth profile")
+    auto_parser.add_argument(
+        "--fallback-count",
+        "-c",
+        type=int,
+        default=5,
+        help="Number of fallback models (default: 5)",
+    )
+    auto_parser.add_argument(
+        "--fallback-only",
+        "-f",
+        action="store_true",
+        help="Add to fallbacks only, don't change primary",
+    )
+    auto_parser.add_argument(
+        "--setup-auth", action="store_true", help="Also set up OpenRouter auth profile"
+    )
 
     # status command
     subparsers.add_parser("status", help="Show current configuration")
@@ -738,9 +793,16 @@ def main():
     subparsers.add_parser("refresh", help="Refresh model cache")
 
     # fallbacks command
-    fallbacks_parser = subparsers.add_parser("fallbacks", help="Configure fallback models")
-    fallbacks_parser.add_argument("--count", "-c", type=int, default=5,
-                                 help="Number of fallback models (default: 5)")
+    fallbacks_parser = subparsers.add_parser(
+        "fallbacks", help="Configure fallback models"
+    )
+    fallbacks_parser.add_argument(
+        "--count",
+        "-c",
+        type=int,
+        default=5,
+        help="Number of fallback models (default: 5)",
+    )
 
     args = parser.parse_args()
 

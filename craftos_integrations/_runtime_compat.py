@@ -14,6 +14,7 @@ detected, the original behavior is preserved.
 
 The shim is idempotent and applied once at package import.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,6 +85,7 @@ def apply_asyncio_timeout_shim() -> None:
     # play for this codebase.
     try:
         import sniffio  # type: ignore[import-untyped]
+
         original_sniff = sniffio.current_async_library
 
         def patched_sniff() -> str:

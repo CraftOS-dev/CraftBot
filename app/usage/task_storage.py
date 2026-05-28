@@ -68,6 +68,7 @@ class TaskStorage:
         """
         if db_path is None:
             from app.config import APP_DATA_PATH
+
             usage_dir = Path(APP_DATA_PATH) / ".usage"
             usage_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(usage_dir / "tasks.db")
@@ -124,23 +125,30 @@ class TaskStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO task_events
                 (task_id, task_name, status, start_time, end_time,
                  duration_ms, total_cost, llm_call_count, session_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task.task_id,
-                task.task_name,
-                task.status,
-                task.start_time.isoformat() if isinstance(task.start_time, datetime) else task.start_time,
-                task.end_time.isoformat() if isinstance(task.end_time, datetime) else task.end_time,
-                task.duration_ms,
-                task.total_cost,
-                task.llm_call_count,
-                task.session_id,
-                json.dumps(task.metadata) if task.metadata else None,
-            ))
+            """,
+                (
+                    task.task_id,
+                    task.task_name,
+                    task.status,
+                    task.start_time.isoformat()
+                    if isinstance(task.start_time, datetime)
+                    else task.start_time,
+                    task.end_time.isoformat()
+                    if isinstance(task.end_time, datetime)
+                    else task.end_time,
+                    task.duration_ms,
+                    task.total_cost,
+                    task.llm_call_count,
+                    task.session_id,
+                    json.dumps(task.metadata) if task.metadata else None,
+                ),
+            )
             conn.commit()
             return cursor.lastrowid
 
@@ -218,14 +226,17 @@ class TaskStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     id, task_id, task_name, status, start_time, end_time,
                     duration_ms, total_cost, llm_call_count, session_id, metadata
                 FROM task_events
                 ORDER BY end_time DESC
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
 
             rows = cursor.fetchall()
 

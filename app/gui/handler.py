@@ -1,12 +1,11 @@
 import subprocess
 import json
 import time
-import io
 from typing import Optional, Tuple, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.gui.gui_module import GUIModule
-    
+
 from app.state.agent_state import STATE
 
 # Adjust import path as needed for your project structure
@@ -14,8 +13,10 @@ try:
     from app.logger import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger("GUIHandler")
     logging.basicConfig(level=logging.DEBUG)
+
 
 class GUIHandler:
     """
@@ -31,12 +32,12 @@ class GUIHandler:
 
     # Name of the Python packages required for Linux screen capture
     _LINUX_REQUIRED_PKG = "mss Pillow"
-    
+
     # Magic exit code used by Linux screenshot payload to indicate missing package
     _EXIT_CODE_MISSING_PACKAGE = 10
-    
+
     # PNG file signature (first 4 bytes of a PNG file)
-    _PNG_SIGNATURE = b'\x89PNG'
+    _PNG_SIGNATURE = b"\x89PNG"
 
     # --- Linux Screenshot Payload (Python) ---
     _LINUX_SCREENSHOT_PAYLOAD = """
@@ -98,7 +99,9 @@ try {
         Injects an agent script into the specified Docker container to take
         a screenshot and streams the raw PNG bytes back with a 10x10 pixel grid overlay.
         """
-        logger.debug(f"[GUIHandler] Initiating screen capture for '{container_id}' (debug={debug})...")
+        logger.debug(
+            f"[GUIHandler] Initiating screen capture for '{container_id}' (debug={debug})..."
+        )
         os_type = cls._detect_os(container_id)
 
         if os_type == "linux":
@@ -106,7 +109,9 @@ try {
         elif os_type == "windows":
             img_bytes = cls._get_windows_screen(container_id)
         else:
-            raise RuntimeError(f"Could not determine OS type for container '{container_id}'")
+            raise RuntimeError(
+                f"Could not determine OS type for container '{container_id}'"
+            )
 
         if debug:
             try:
@@ -122,7 +127,9 @@ try {
         return img_bytes
 
     @classmethod
-    def execute_action(cls, container_id: str, action_code: str, input_data: dict, mode: str) -> Dict[str, Any]:
+    def execute_action(
+        cls, container_id: str, action_code: str, input_data: dict, mode: str
+    ) -> Dict[str, Any]:
         """
         Executes an action inside the container.
         Returns a dictionary parsed from the action's JSON stdout.
@@ -135,11 +142,11 @@ try {
             }
 
         os_type = cls._detect_os(container_id)
-        
+
         # We wrap the raw action code in a script that handles data injection,
         # execution, and JSON serialization of results.
         wrapper_script = cls._generate_python_action_wrapper(action_code, input_data)
-        
+
         if os_type == "linux":
             # Assume 'python3' is available on Linux containers
             python_executable = ["python3"]
@@ -149,7 +156,9 @@ try {
         else:
             raise RuntimeError(f"Unknown OS Type: {os_type}")
 
-        logger.debug(f"[GUIHandler] Running action via {python_executable[0]} on {os_type}...")
+        logger.debug(
+            f"[GUIHandler] Running action via {python_executable[0]} on {os_type}..."
+        )
 
         # Set X11 environment for Linux containers so pyautogui/Xlib can
         # connect without an XauthError.  XAUTHORITY is pointed at a
@@ -166,10 +175,10 @@ try {
         stdout, stderr, code = cls._run_docker_exec(
             container_id,
             python_executable,
-            wrapper_script.encode('utf-8'),
+            wrapper_script.encode("utf-8"),
             env=x11_env,
         )
-        
+
         return cls._validate_action_output(stdout, stderr, code)
 
     # ==========================
@@ -182,7 +191,9 @@ try {
         logger.debug("[GUIHandler] Attempting Linux capture...")
         x11_env = {"DISPLAY": ":1", "XAUTHORITY": "/config/.Xauthority"}
         # Ensure .Xauthority exists
-        cls._run_docker_exec(container_id, ["/bin/sh", "-c", "touch /config/.Xauthority"])
+        cls._run_docker_exec(
+            container_id, ["/bin/sh", "-c", "touch /config/.Xauthority"]
+        )
         stdout, stderr, code = cls._run_docker_exec(
             container_id,
             ["python3"],
@@ -191,7 +202,9 @@ try {
         )
 
         if code == cls._EXIT_CODE_MISSING_PACKAGE:
-            logger.debug(f"[GUIHandler] Missing package(s): '{cls._LINUX_REQUIRED_PKG}'. Installing...")
+            logger.debug(
+                f"[GUIHandler] Missing package(s): '{cls._LINUX_REQUIRED_PKG}'. Installing..."
+            )
             # Install all required packages at once
             cls._install_linux_package(container_id, cls._LINUX_REQUIRED_PKG)
             logger.debug("[GUIHandler] Retrying capture after installation...")
@@ -210,9 +223,7 @@ try {
         logger.debug("[GUIHandler] Attempting Windows capture via PowerShell...")
         ps_cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "-"]
         stdout, stderr, code = cls._run_docker_exec(
-            container_id, 
-            ps_cmd, 
-            cls._WINDOWS_SCREENSHOT_PAYLOAD.encode()
+            container_id, ps_cmd, cls._WINDOWS_SCREENSHOT_PAYLOAD.encode()
         )
         return cls._validate_screenshot_output(stdout, stderr, code)
 
@@ -229,13 +240,13 @@ try {
         try:
             # 1. Serialize input_data safely
             input_data_literal = repr(input_data)
-            # 2. Serialize the action_code string itself safely. 
-            #    This ensures that things like '\n' remain as literal backslash-n 
+            # 2. Serialize the action_code string itself safely.
+            #    This ensures that things like '\n' remain as literal backslash-n
             #    characters in the generated script's string, rather than becoming real newlines.
             action_code_literal = repr(action_code)
         except Exception as e:
-             # Fail early if host-side serialization fails
-             raise ValueError(f"Failed to serialize data on host: {e}")
+            # Fail early if host-side serialization fails
+            raise ValueError(f"Failed to serialize data on host: {e}")
 
         # This script runs INSIDE the container
         wrapper = f"""
@@ -306,26 +317,34 @@ except Exception as e:
         return wrapper
 
     @classmethod
-    def _validate_screenshot_output(cls, stdout: bytes, stderr: bytes, code: int) -> bytes:
+    def _validate_screenshot_output(
+        cls, stdout: bytes, stderr: bytes, code: int
+    ) -> bytes:
         """Validator specifically for raw PNG data."""
         if code != 0:
-            err_msg = stderr.decode(errors='replace').strip()
+            err_msg = stderr.decode(errors="replace").strip()
             raise RuntimeError(f"Screenshot failed (Exit {code}). Stderr: {err_msg}")
-        
+
         if not stdout:
-             raise RuntimeError("Agent finished successfully but returned zero data bytes.")
+            raise RuntimeError(
+                "Agent finished successfully but returned zero data bytes."
+            )
 
         if not stdout.startswith(cls._PNG_SIGNATURE):
-             raise RuntimeError("Data returned by agent is not valid PNG format.")
+            raise RuntimeError("Data returned by agent is not valid PNG format.")
 
-        logger.debug(f"[GUIHandler] Successfully retrieved {len(stdout)} bytes of image data.")
+        logger.debug(
+            f"[GUIHandler] Successfully retrieved {len(stdout)} bytes of image data."
+        )
         return stdout
 
     @classmethod
-    def _validate_action_output(cls, stdout: bytes, stderr: bytes, code: int) -> Dict[str, Any]:
+    def _validate_action_output(
+        cls, stdout: bytes, stderr: bytes, code: int
+    ) -> Dict[str, Any]:
         """Validator specifically for JSON action output."""
-        stdout_str = stdout.decode(errors='replace').strip()
-        stderr_str = stderr.decode(errors='replace').strip()
+        stdout_str = stdout.decode(errors="replace").strip()
+        stderr_str = stderr.decode(errors="replace").strip()
 
         # 1. Attempt to parse stdout as JSON
         try:
@@ -338,7 +357,7 @@ except Exception as e:
                 "message": "Container output was not valid JSON.",
                 "stdout": stdout_str,
                 "stderr": stderr_str or f"Exit code: {code}",
-                "returncode": code
+                "returncode": code,
             }
 
         # 2. If the container exited with an error code, ensure the dict indicates error.
@@ -346,15 +365,18 @@ except Exception as e:
         if code != 0:
             logger.warning(f"Action container exited with non-zero code {code}.")
             if not result_dict.get("status") == "error":
-                 # Augment existing dict or create new one if it doesn't look like an error report
-                 result_dict["status"] = "error"
-                 result_dict["message"] = result_dict.get("message", f"Process exited with code {code}")
-                 result_dict["stderr"] = (result_dict.get("stderr", "") + "\n" + stderr_str).strip()
+                # Augment existing dict or create new one if it doesn't look like an error report
+                result_dict["status"] = "error"
+                result_dict["message"] = result_dict.get(
+                    "message", f"Process exited with code {code}"
+                )
+                result_dict["stderr"] = (
+                    result_dict.get("stderr", "") + "\n" + stderr_str
+                ).strip()
 
         # 3. Ensure returncode is included in the final result
         result_dict["returncode"] = code
         return result_dict
-
 
     # ==========================
     # General Helpers
@@ -364,17 +386,30 @@ except Exception as e:
     def _install_linux_package(cls, container_id: str, pkg_name: str):
         """Runs pip install inside the Linux container. Can handle space-separated package names."""
         packages = pkg_name.split()  # Split space-separated packages
-        logger.debug(f"[GUIHandler] Installing '{pkg_name}' in container '{container_id}'...")
+        logger.debug(
+            f"[GUIHandler] Installing '{pkg_name}' in container '{container_id}'..."
+        )
         cmd = ["python3", "-m", "pip", "install", "--quiet"] + packages
         # Note: Using _run_docker_exec without stdin_data
         stdout, stderr, code = cls._run_docker_exec(container_id, cmd, stdin_data=None)
-        
+
         if code != 0:
-                err_msg = stderr.decode(errors='replace').strip() or stdout.decode(errors='replace').strip()
-                raise RuntimeError(f"Failed to install '{pkg_name}'. Exit {code}. Error: {err_msg}")
+            err_msg = (
+                stderr.decode(errors="replace").strip()
+                or stdout.decode(errors="replace").strip()
+            )
+            raise RuntimeError(
+                f"Failed to install '{pkg_name}'. Exit {code}. Error: {err_msg}"
+            )
 
     @classmethod
-    def _run_docker_exec(cls, container_id: str, shell_cmd: list, stdin_data: Optional[bytes] = None, env: Optional[Dict[str, str]] = None) -> Tuple[bytes, bytes, int]:
+    def _run_docker_exec(
+        cls,
+        container_id: str,
+        shell_cmd: list,
+        stdin_data: Optional[bytes] = None,
+        env: Optional[Dict[str, str]] = None,
+    ) -> Tuple[bytes, bytes, int]:
         """Helper to run docker exec piping data in and out."""
         try:
             cmd = ["docker", "exec", "-i"]
@@ -387,27 +422,36 @@ except Exception as e:
                 cmd,
                 stdin=subprocess.PIPE if stdin_data else None,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
             )
             stdout, stderr = process.communicate(input=stdin_data)
             return stdout, stderr, process.returncode
         except FileNotFoundError:
-             raise FileNotFoundError("The 'docker' command was not found on the host system.")
+            raise FileNotFoundError(
+                "The 'docker' command was not found on the host system."
+            )
 
     @classmethod
     def _detect_os(cls, container_id: str) -> str:
         """Probes container to guess OS type."""
         # Try Linux
-        _, _, code_linux = cls._run_docker_exec(container_id, ["/bin/sh", "-c", "uname"])
-        if code_linux == 0: return "linux"
-        
+        _, _, code_linux = cls._run_docker_exec(
+            container_id, ["/bin/sh", "-c", "uname"]
+        )
+        if code_linux == 0:
+            return "linux"
+
         # Try Windows
         _, _, code_win = cls._run_docker_exec(container_id, ["cmd.exe", "/c", "ver"])
-        if code_win == 0: return "windows"
-        
+        if code_win == 0:
+            return "windows"
+
         # Fallback/Testing assumption (Remove in production if detection is robust)
-        logger.warning(f"Could not detect OS for {container_id}, defaulting to Linux based on previous examples.")
-        return "linux" 
+        logger.warning(
+            f"Could not detect OS for {container_id}, defaulting to Linux based on previous examples."
+        )
+        return "linux"
+
 
 # ==========================================
 # Example Usage (Testing the fix)
@@ -424,7 +468,7 @@ if __name__ == "__main__":
 
     # --- Test 2: Action Execution (The fix) ---
     print("\n--- Testing Action Execution ---")
-    
+
     # This is the raw code body from your example action
     sample_action_code = """
 def mouse_double_click(input_data: dict) -> dict:
@@ -444,20 +488,18 @@ def mouse_double_click(input_data: dict) -> dict:
     except Exception as e:
         return {'status': 'error', 'message': str(e)}
 """
-    
+
     sample_input = {"code": "print('Hello from inside the container action!')"}
 
     try:
         # Execute the action and get a dict back
         result_dict = GUIHandler.execute_action(
-            GUIHandler.TARGET_CONTAINER, 
-            sample_action_code, 
-            sample_input
+            GUIHandler.TARGET_CONTAINER, sample_action_code, sample_input
         )
-        
+
         print("Action Execution Result (Dictionary):")
         print(json.dumps(result_dict, indent=2))
-        
+
         if result_dict.get("status") == "success":
             print("\nSUCCESS: Action executed and returned a dict correctly.")
         else:

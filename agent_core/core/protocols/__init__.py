@@ -29,7 +29,10 @@ from agent_core.core.protocols.action import (
 )
 from agent_core.core.protocols.memory import MemoryManagerProtocol
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
-from agent_core.core.protocols.event_stream import EventStreamProtocol, EventStreamManagerProtocol
+from agent_core.core.protocols.event_stream import (
+    EventStreamProtocol,
+    EventStreamManagerProtocol,
+)
 from agent_core.core.protocols.task_manager import TaskManagerProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol

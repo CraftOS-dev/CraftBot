@@ -61,7 +61,7 @@ services:
       - agent-net
 
   # ──────────────────────────────────────────────
-  # Main Agent (Python TUI)
+  # Main Agent (Python)
   # ──────────────────────────────────────────────
   agent:
     build:

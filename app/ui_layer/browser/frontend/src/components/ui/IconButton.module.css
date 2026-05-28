@@ -40,12 +40,12 @@
 
 /* Active State */
 .active {
-  color: var(--color-primary);
-  background: var(--color-primary-subtle);
+  color: var(--text-primary);
+  background: var(--bg-selected);
 }
 
 .active:hover:not(:disabled) {
-  background: var(--color-primary-light);
+  background: var(--bg-selected-hover);
 }
 
 /* Sizes */

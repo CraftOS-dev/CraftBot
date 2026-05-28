@@ -36,6 +36,11 @@ from app.usage.action_storage import (
     get_action_storage,
 )
 
+from app.usage.skill_storage import (
+    SkillStorage,
+    get_skill_storage,
+)
+
 __all__ = [
     # Storage
     "UsageEvent",
@@ -57,4 +62,7 @@ __all__ = [
     "StoredActionItem",
     "ActionStorage",
     "get_action_storage",
+    # Skill Storage
+    "SkillStorage",
+    "get_skill_storage",
 ]

@@ -13,6 +13,7 @@ integration ids + display names + first tokens). False positives are
 cheap (~200 tokens of extra context); false negatives are the whole
 reason this exists.
 """
+
 from __future__ import annotations
 
 import re

@@ -38,7 +38,9 @@ class Action:
         parallelizable: Whether this action can run in parallel with others
     """
 
-    DEFAULT_TIMEOUT: int = 6000  # 100 minutes max timeout (GUI mode might need more time)
+    DEFAULT_TIMEOUT: int = (
+        6000  # 100 minutes max timeout (GUI mode might need more time)
+    )
 
     def __init__(
         self,

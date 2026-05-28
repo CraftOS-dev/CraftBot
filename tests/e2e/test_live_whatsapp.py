@@ -83,8 +83,7 @@ def test_live_whatsapp_send_ping_to_me():
 
     assert recent, (
         f"no outgoing whatsapp message landed in your self-chat after "
-        f"the test window. trace: {log_path}\n\n"
-        + format_agent_trace(agent)
+        f"the test window. trace: {log_path}\n\n" + format_agent_trace(agent)
     )
 
 
@@ -105,7 +104,8 @@ def test_live_whatsapp_threads_user_content_through():
         )
         await asyncio.sleep(2.0)
         return await whatsapp.recent_messages_in_self_chat(
-            since_ts=test_start_ts, contains=sentinel,
+            since_ts=test_start_ts,
+            contains=sentinel,
         )
 
     recent = asyncio.run(_run())
@@ -118,8 +118,7 @@ def test_live_whatsapp_threads_user_content_through():
     assert recent, (
         f"no whatsapp message containing the sentinel arrived. The agent "
         f"may have paraphrased instead of threading the exact phrase. "
-        f"sentinel={sentinel!r}. trace: {log_path}\n\n"
-        + format_agent_trace(agent)
+        f"sentinel={sentinel!r}. trace: {log_path}\n\n" + format_agent_trace(agent)
     )
 
 
@@ -141,7 +140,8 @@ def test_live_whatsapp_sends_unicode_body():
         )
         await asyncio.sleep(2.0)
         return await whatsapp.recent_messages_in_self_chat(
-            since_ts=test_start_ts, contains=rocket,
+            since_ts=test_start_ts,
+            contains=rocket,
         )
 
     recent = asyncio.run(_run())
@@ -324,8 +324,7 @@ def test_live_whatsapp_third_party_message_is_notification_only():
     assert not llm_calls, (
         f"agent invoked the LLM ({len(llm_calls)} call(s)) for a third-"
         f"party whatsapp message. The notification-only branch should have "
-        f"short-circuited. trace: {log_path}\n\n"
-        + format_agent_trace(agent)
+        f"short-circuited. trace: {log_path}\n\n" + format_agent_trace(agent)
     )
     assert not invoked, (
         f"agent invoked actions {invoked} for a third-party whatsapp "

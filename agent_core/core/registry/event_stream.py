@@ -36,6 +36,7 @@ class EventStreamRegistry(ComponentRegistry["EventStreamProtocol"]):
     Note: In most cases, use EventStreamManagerRegistry instead,
     as it handles per-task stream management automatically.
     """
+
     pass
 
 
@@ -46,6 +47,7 @@ class EventStreamManagerRegistry(ComponentRegistry["EventStreamManagerProtocol"]
     Each project (CraftBot, CraftBot) registers their manager
     at startup. Shared code uses get() to access the manager.
     """
+
     pass
 
 

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Lightbulb } from 'lucide-react'
 import type { LivingUITodo } from '../../types'
 import { useRotatingHint } from '../../hooks'
-import { CraftBotPet } from './CraftBotPet'
+import { CraftBotMascot } from '@mascot'
 import styles from './LivingUIPage.module.css'
 
 interface Props {
@@ -76,10 +76,9 @@ export function CreationProgress({ projectName, todos }: Props) {
 
   return (
     <div className={styles.creationProgress}>
-      <CraftBotPet
+      <CraftBotMascot
         state="creating"
         progress={view.progress}
-        indeterminate={view.indeterminate}
         completedCount={view.completed}
       />
       <p className={styles.creationTitle}>Creating {projectName}</p>

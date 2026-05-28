@@ -45,7 +45,17 @@ class ClearTasksCommand(Command):
             )
             return CommandResult(success=False)
 
+        terminal_statuses = {"completed", "error", "cancelled"}
+        terminal_task_ids = [
+            item.id
+            for item in adapter.action_panel.get_items()
+            if item.item_type == "task" and item.status in terminal_statuses
+        ]
+
         removed = await adapter.action_panel.clear_terminal_tasks()
+
+        if terminal_task_ids:
+            self._controller.agent.clear_task_persistence(terminal_task_ids)
 
         if removed:
             self.emit_message(

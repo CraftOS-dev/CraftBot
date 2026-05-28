@@ -41,6 +41,7 @@ WEEKDAYS = {
 
 class ScheduleParseError(Exception):
     """Raised when a schedule expression cannot be parsed."""
+
     pass
 
 
@@ -53,63 +54,43 @@ class ScheduleParser:
 
     # Pattern for "every day at TIME"
     DAILY_PATTERN = re.compile(
-        r"^every\s+day\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
-        re.IGNORECASE
+        r"^every\s+day\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$", re.IGNORECASE
     )
 
     # Pattern for "every WEEKDAY at TIME"
     WEEKLY_PATTERN = re.compile(
         r"^every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
     # Pattern for "every N hours"
-    HOURLY_PATTERN = re.compile(
-        r"^every\s+(\d+)\s+hours?$",
-        re.IGNORECASE
-    )
+    HOURLY_PATTERN = re.compile(r"^every\s+(\d+)\s+hours?$", re.IGNORECASE)
 
     # Pattern for "every N minutes"
-    MINUTE_PATTERN = re.compile(
-        r"^every\s+(\d+)\s+minutes?$",
-        re.IGNORECASE
-    )
+    MINUTE_PATTERN = re.compile(r"^every\s+(\d+)\s+minutes?$", re.IGNORECASE)
 
     # Pattern for "every N seconds" (useful for testing)
-    SECOND_PATTERN = re.compile(
-        r"^every\s+(\d+)\s+seconds?$",
-        re.IGNORECASE
-    )
+    SECOND_PATTERN = re.compile(r"^every\s+(\d+)\s+seconds?$", re.IGNORECASE)
 
     # Pattern for cron expression (5 fields: minute hour day month weekday)
-    CRON_PATTERN = re.compile(
-        r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$"
-    )
+    CRON_PATTERN = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$")
 
     # One-time patterns
     # Pattern for "at TIME" or "at TIME today"
     AT_TIME_PATTERN = re.compile(
-        r"^at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+today)?$",
-        re.IGNORECASE
+        r"^at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+today)?$", re.IGNORECASE
     )
 
     # Pattern for "tomorrow at TIME"
     TOMORROW_PATTERN = re.compile(
-        r"^tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$",
-        re.IGNORECASE
+        r"^tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$", re.IGNORECASE
     )
 
     # Pattern for "in N hours"
-    IN_HOURS_PATTERN = re.compile(
-        r"^in\s+(\d+)\s+hours?$",
-        re.IGNORECASE
-    )
+    IN_HOURS_PATTERN = re.compile(r"^in\s+(\d+)\s+hours?$", re.IGNORECASE)
 
     # Pattern for "in N minutes"
-    IN_MINUTES_PATTERN = re.compile(
-        r"^in\s+(\d+)\s+minutes?$",
-        re.IGNORECASE
-    )
+    IN_MINUTES_PATTERN = re.compile(r"^in\s+(\d+)\s+minutes?$", re.IGNORECASE)
 
     @classmethod
     def parse(cls, expression: str) -> ScheduleExpression:
@@ -246,7 +227,9 @@ class ScheduleParser:
         try:
             croniter(expression)
         except (KeyError, ValueError) as e:
-            raise ScheduleParseError(f"Invalid cron expression: {expression}. Error: {e}")
+            raise ScheduleParseError(
+                f"Invalid cron expression: {expression}. Error: {e}"
+            )
 
         return ScheduleExpression(
             schedule_type="cron",
@@ -287,7 +270,9 @@ class ScheduleParser:
             hour = cls._convert_to_24h(hour, ampm)
 
             tomorrow = now + timedelta(days=1)
-            scheduled = tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            scheduled = tomorrow.replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
 
             return ScheduleExpression(
                 schedule_type="once",
@@ -335,9 +320,7 @@ class ScheduleParser:
 
     @classmethod
     def calculate_next_fire_time(
-        cls,
-        schedule: ScheduleExpression,
-        from_time: Optional[float] = None
+        cls, schedule: ScheduleExpression, from_time: Optional[float] = None
     ) -> float:
         """
         Calculate the next fire time for a schedule.
@@ -378,12 +361,7 @@ class ScheduleParser:
             raise ValueError(f"Unknown schedule type: {schedule.schedule_type}")
 
     @classmethod
-    def _next_daily_fire(
-        cls,
-        now: datetime,
-        hour: int,
-        minute: int
-    ) -> float:
+    def _next_daily_fire(cls, now: datetime, hour: int, minute: int) -> float:
         """Calculate next fire time for daily schedule."""
         scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
@@ -395,11 +373,7 @@ class ScheduleParser:
 
     @classmethod
     def _next_weekly_fire(
-        cls,
-        now: datetime,
-        weekday: int,
-        hour: int,
-        minute: int
+        cls, now: datetime, weekday: int, hour: int, minute: int
     ) -> float:
         """Calculate next fire time for weekly schedule."""
         # Find next occurrence of the weekday

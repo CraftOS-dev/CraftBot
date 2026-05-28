@@ -16,7 +16,7 @@ def _build_requests_stub(recorded_calls: list[Mapping[str, Any]]) -> types.Modul
             self.status_code = 200
             self.ok = True
             self.headers = {"Content-Type": "application/json"}
-            self.text = "{\"ok\": true}"
+            self.text = '{"ok": true}'
             self.url = "https://api.example.test/v1/items?limit=5"
 
         def json(self) -> Mapping[str, Any]:
@@ -67,13 +67,19 @@ def get_test_case() -> ActionTestCase:
         if payload.get("final_url") != "https://api.example.test/v1/items?limit=5":
             return "incorrect result", "final_url does not reflect stub response URL."
         if payload.get("message") not in ("", None):
-            return "incorrect result", "Message should be empty for successful response."
+            return (
+                "incorrect result",
+                "Message should be empty for successful response.",
+            )
 
         calls = context["calls"]
         if len(calls) != 1:
             return "incorrect result", f"Expected one HTTP request, saw {len(calls)}."
         call = calls[0]
-        if call.get("method") != "GET" or call.get("url") != "https://api.example.test/v1/items":
+        if (
+            call.get("method") != "GET"
+            or call.get("url") != "https://api.example.test/v1/items"
+        ):
             return "incorrect result", "Method or URL recorded incorrectly."
         if call.get("params") != {"limit": "5"}:
             return "incorrect result", "Query parameters were not forwarded."

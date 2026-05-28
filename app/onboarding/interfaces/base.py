@@ -11,14 +11,14 @@ class OnboardingInterface(ABC):
     """
     Abstract interface for onboarding implementations.
 
-    Any UI (TUI, browser, future interfaces) can implement this
+    Any UI (browser, CLI, future interfaces) can implement this
     to provide their own onboarding experience while using the
     shared onboarding logic.
 
     Example implementation:
-        class TUIOnboarding(OnboardingInterface):
+        class BrowserOnboarding(OnboardingInterface):
             async def run_hard_onboarding(self) -> Dict[str, Any]:
-                # Show Textual wizard screens
+                # Show wizard screens
                 ...
 
             async def trigger_soft_onboarding(self) -> str:
@@ -36,7 +36,7 @@ class OnboardingInterface(ABC):
         - API key input
         - User name (optional)
         - Agent name (optional)
-        - MCP servers to enable (optional)
+        - External app integrations to set up (optional)
         - Skills to enable (optional)
 
         Returns:
@@ -46,7 +46,7 @@ class OnboardingInterface(ABC):
                 "api_key": str,         # API key for the provider
                 "user_name": str,       # User's preferred name
                 "agent_name": str,      # Agent's given name
-                "mcp_servers": list,    # List of enabled MCP server names
+                "integrations": list,   # List of integration ids the user picked
                 "skills": list,         # List of enabled skill names
                 "completed": bool,      # Whether onboarding completed (not cancelled)
             }

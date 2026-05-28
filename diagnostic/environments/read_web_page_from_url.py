@@ -162,7 +162,10 @@ def get_test_case() -> ActionTestCase:
         if payload.get("content") != "Markdown body":
             return "incorrect result", "Content did not use trafilatura extract output."
         if "html" in payload:
-            return "incorrect result", "HTML should be omitted when include_html is False."
+            return (
+                "incorrect result",
+                "HTML should be omitted when include_html is False.",
+            )
 
         calls = context["calls"]
         if not calls:
@@ -171,7 +174,10 @@ def get_test_case() -> ActionTestCase:
         if first_call.get("url") != context["final_url"]:
             return "incorrect result", "Request executed against unexpected URL."
         if not first_call.get("stream"):
-            return "incorrect result", "Expected stream=True to be passed to requests.get."
+            return (
+                "incorrect result",
+                "Expected stream=True to be passed to requests.get.",
+            )
 
         return "passed", "Web page retrieved and parsed using stubs."
 
