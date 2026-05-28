@@ -1,6 +1,6 @@
 from agent_core import action
- 
- 
+
+
 @action(
     name="read_pdf",
     description=(
@@ -61,9 +61,7 @@ from agent_core import action
                 },
                 "pages": [{"page_number": 1, "width": 595.28, "height": 841.89}],
                 "text": "Invoice #1042\nBill To: John Smith",
-                "tables": [
-                    [["Description", "Amount"], ["Web Dev", "$1,500.00"]]
-                ],
+                "tables": [[["Description", "Amount"], ["Web Dev", "$1,500.00"]]],
             },
         },
         "message": {
@@ -84,16 +82,16 @@ def read_pdf_file(input_data: dict) -> dict:
     import sys
     import subprocess
     import importlib
- 
+
     # ── Helpers ───────────────────────────────────────────────────────────
     def _json(status, message="", content=None):
         return {"status": status, "message": message, "content": content or ""}
- 
+
     _FIELD_RE = re.compile(r"(?:_{4,}|\.{4,}|—{3,}|–{3,})")
- 
+
     def _is_form_blank(text):
         return bool(text and _FIELD_RE.search(text.strip()))
- 
+
     def _parse_page_range(pr, total):
         """
         Parse '1', '1-3', '2,4,6' into a sorted list of 1-based page numbers.
@@ -110,7 +108,7 @@ def read_pdf_file(input_data: dict) -> dict:
                 if "-" in part:
                     s, e = part.split("-", 1)
                     start = max(1, int(s.strip()))
-                    end   = min(total, int(e.strip()))
+                    end = min(total, int(e.strip()))
                     if start > end:
                         # e.g. '5-2' — reversed range, treat as invalid
                         return None
@@ -122,7 +120,7 @@ def read_pdf_file(input_data: dict) -> dict:
         except (ValueError, AttributeError):
             return None
         return sorted(pages)
- 
+
     def _words_to_elements(words, page_num, pw, ph):
         """
         Convert pdfplumber word list to v1-compatible element format.
@@ -149,16 +147,18 @@ def read_pdf_file(input_data: dict) -> dict:
                 "x1": round(max(0.0, min(1.0, x1 / pw)), 4),
                 "y1": round(max(0.0, min(1.0, y1_bl / ph)), 4),
             }
-            out.append({
-                "page_number": page_num,
-                "element_type": "text",
-                "text": w["text"],
-                "bbox_abs": abs_bbox,
-                "bbox_norm": norm_bbox,
-                "is_form_field_candidate": _is_form_blank(w["text"]),
-            })
+            out.append(
+                {
+                    "page_number": page_num,
+                    "element_type": "text",
+                    "text": w["text"],
+                    "bbox_abs": abs_bbox,
+                    "bbox_norm": norm_bbox,
+                    "is_form_field_candidate": _is_form_blank(w["text"]),
+                }
+            )
         return out
- 
+
     def _docling_to_elements(raw, page_dims):
         """
         Convert docling export_to_dict() output to v1-compatible element list.
@@ -195,25 +195,27 @@ def read_pdf_file(input_data: dict) -> dict:
                 "x1": round(max(0.0, min(1.0, abs_bbox["x1"] / pw)), 4),
                 "y1": round(max(0.0, min(1.0, abs_bbox["y1"] / ph)), 4),
             }
-            out.append({
-                "page_number": pn,
-                "element_type": label,
-                "text": text_val,
-                "bbox_abs": abs_bbox,
-                "bbox_norm": norm_bbox,
-                "is_form_field_candidate": _is_form_blank(text_val),
-            })
+            out.append(
+                {
+                    "page_number": pn,
+                    "element_type": label,
+                    "text": text_val,
+                    "bbox_abs": abs_bbox,
+                    "bbox_norm": norm_bbox,
+                    "is_form_field_candidate": _is_form_blank(text_val),
+                }
+            )
         return out
- 
+
     # ── Input extraction ──────────────────────────────────────────────────
     simulated_mode = bool(input_data.get("simulated_mode", False))
-    file_path      = str(input_data.get("file_path", "")).strip()
-    mode           = str(input_data.get("mode", "text")).strip().lower()
-    page_range     = str(input_data.get("page_range", "")).strip()
- 
+    file_path = str(input_data.get("file_path", "")).strip()
+    mode = str(input_data.get("mode", "text")).strip().lower()
+    page_range = str(input_data.get("page_range", "")).strip()
+
     if mode not in ("text", "layout"):
         mode = "text"
- 
+
     # ── Simulated mode ────────────────────────────────────────────────────
     if simulated_mode:
         base_content = {
@@ -226,18 +228,26 @@ def read_pdf_file(input_data: dict) -> dict:
             "pages": [{"page_number": 1, "width": 595.28, "height": 841.89}],
         }
         if mode == "layout":
-            base_content["elements"] = [{
-                "page_number": 1,
-                "element_type": "text",
-                "text": "Test PDF content",
-                "bbox_abs": {"x0": 10.0, "y0": 20.0, "x1": 100.0, "y1": 40.0, "coord_origin": "BOTTOMLEFT"},
-                "bbox_norm": {"x0": 0.05, "y0": 0.02, "x1": 0.2, "y1": 0.05},
-                "is_form_field_candidate": False,
-            }]
+            base_content["elements"] = [
+                {
+                    "page_number": 1,
+                    "element_type": "text",
+                    "text": "Test PDF content",
+                    "bbox_abs": {
+                        "x0": 10.0,
+                        "y0": 20.0,
+                        "x1": 100.0,
+                        "y1": 40.0,
+                        "coord_origin": "BOTTOMLEFT",
+                    },
+                    "bbox_norm": {"x0": 0.05, "y0": 0.02, "x1": 0.2, "y1": 0.05},
+                    "is_form_field_candidate": False,
+                }
+            ]
         else:
             base_content["text"] = "Test PDF content"
         return _json("success", "", base_content)
- 
+
     # ── Dependency bootstrap (executor pre-installs via requirement=) ─────
     def _ensure(pkg, import_as=None):
         try:
@@ -251,14 +261,14 @@ def read_pdf_file(input_data: dict) -> dict:
                 )
             except Exception:
                 pass  # executor pre-installs via requirement=; failure here is non-fatal
- 
+
     _ensure("pdfplumber")
     _ensure("pypdfium2")
     _ensure("docling")
- 
+
     import pdfplumber
     import pypdfium2
- 
+
     # ── Validation ────────────────────────────────────────────────────────
     if not file_path:
         return _json("error", "'file_path' is required.")
@@ -279,37 +289,42 @@ def read_pdf_file(input_data: dict) -> dict:
             "sections first using a tool like qpdf, then read each part separately "
             "using the page_range parameter.",
         )
- 
+
     # ── Primary extraction: pdfplumber ────────────────────────────────────
     try:
-        pages_out    = []
-        text_parts   = []
+        pages_out = []
+        text_parts = []
         all_elements = []
-        all_tables   = []
+        all_tables = []
         scanned_page_nums = []  # pages where pdfplumber found no text
- 
+
         with pdfplumber.open(file_path) as doc:
-            total_pages  = len(doc.pages)
+            total_pages = len(doc.pages)
             target_pages = _parse_page_range(page_range, total_pages)
- 
+
             if target_pages is None:
-                return _json("error", f"Invalid page_range format: '{page_range}'. Use '1', '1-3', or '2,4,6'.")
- 
+                return _json(
+                    "error",
+                    f"Invalid page_range format: '{page_range}'. Use '1', '1-3', or '2,4,6'.",
+                )
+
             for i, page in enumerate(doc.pages):
                 pn = i + 1
                 if pn not in target_pages:
                     continue
- 
+
                 pw = page.width
                 ph = page.height
-                pages_out.append({
-                    "page_number": pn,
-                    "width": round(pw, 2),
-                    "height": round(ph, 2),
-                })
- 
+                pages_out.append(
+                    {
+                        "page_number": pn,
+                        "width": round(pw, 2),
+                        "height": round(ph, 2),
+                    }
+                )
+
                 page_text = page.extract_text() or ""
- 
+
                 if page_text.strip():
                     # Digital page — pdfplumber can handle it
                     if mode == "text":
@@ -327,10 +342,10 @@ def read_pdf_file(input_data: dict) -> dict:
                     # target page is empty. A single blank page in a digital PDF
                     # should not cause a full docling run.
                     scanned_page_nums.append(pn)
- 
+
         engine = "pdfplumber"
         engine_warning = ""
- 
+
         # ── Fallback: docling for scanned pages ───────────────────────────
         # Only triggered when ALL target pages have no extractable text,
         # which reliably signals a scanned or image-only PDF.
@@ -341,13 +356,16 @@ def read_pdf_file(input_data: dict) -> dict:
             try:
                 from docling.document_converter import DocumentConverter
                 from docling.datamodel.base_models import ConversionStatus
- 
-                conv   = DocumentConverter()
+
+                conv = DocumentConverter()
                 result = conv.convert(file_path)
- 
-                if result.status in (ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS):
+
+                if result.status in (
+                    ConversionStatus.SUCCESS,
+                    ConversionStatus.PARTIAL_SUCCESS,
+                ):
                     engine = "docling"
- 
+
                     if mode == "text":
                         # export_to_markdown gives clean, LLM-ready text
                         fallback_text = result.document.export_to_markdown() or ""
@@ -356,19 +374,20 @@ def read_pdf_file(input_data: dict) -> dict:
                     else:
                         # layout mode: use docling's bbox data
                         raw = result.document.export_to_dict()
- 
+
                         # Rebuild page dims map from the pages we extracted
                         page_dims = {
                             p["page_number"]: {"w": p["width"], "h": p["height"]}
                             for p in pages_out
                         }
- 
+
                         # If pages_out is empty (fully scanned, pdfplumber got nothing)
                         # pull page dimensions from pypdfium2
                         if not pages_out:
                             pdf2 = pypdfium2.PdfDocument(file_path)
                             target_pages_set = set(
-                                _parse_page_range(page_range, len(pdf2)) or range(1, len(pdf2) + 1)
+                                _parse_page_range(page_range, len(pdf2))
+                                or range(1, len(pdf2) + 1)
                             )
                             for idx in range(len(pdf2)):
                                 pn = idx + 1
@@ -376,13 +395,15 @@ def read_pdf_file(input_data: dict) -> dict:
                                     continue
                                 pg = pdf2.get_page(idx)
                                 w, h = pg.get_size()
-                                pages_out.append({
-                                    "page_number": pn,
-                                    "width": round(float(w), 2),
-                                    "height": round(float(h), 2),
-                                })
+                                pages_out.append(
+                                    {
+                                        "page_number": pn,
+                                        "width": round(float(w), 2),
+                                        "height": round(float(h), 2),
+                                    }
+                                )
                                 page_dims[pn] = {"w": float(w), "h": float(h)}
- 
+
                         docling_elements = _docling_to_elements(raw, page_dims)
                         # Filter to target pages only — use the set already computed
                         # at extraction time, which holds original 1-based page numbers.
@@ -391,43 +412,46 @@ def read_pdf_file(input_data: dict) -> dict:
                         # range for any page_range that doesn't start at 1.
                         target_set = set(target_pages)
                         all_elements.extend(
-                            e for e in docling_elements
+                            e
+                            for e in docling_elements
                             if e["page_number"] in target_set
                         )
                 else:
-                    engine_warning = "Scanned pages detected but OCR extraction returned no content."
- 
+                    engine_warning = (
+                        "Scanned pages detected but OCR extraction returned no content."
+                    )
+
             except Exception as exc:
                 # docling unavailable or failed — surface what pdfplumber got
                 # (empty for scanned PDFs) and warn via metadata.
                 engine_warning = f"Scanned pages detected but OCR fallback failed: {type(exc).__name__}."
- 
+
         # ── Build output ──────────────────────────────────────────────────
         meta = {
-            "file_name":   os.path.basename(file_path),
-            "mimetype":    "application/pdf",
-            "page_count":  total_pages,
-            "engine":      engine,
+            "file_name": os.path.basename(file_path),
+            "mimetype": "application/pdf",
+            "page_count": total_pages,
+            "engine": engine,
         }
         if engine_warning:
             meta["engine_warning"] = engine_warning
- 
+
         if mode == "text":
             content = {
                 "document_metadata": meta,
-                "pages":             pages_out,
-                "text":              "\n\n".join(text_parts),
+                "pages": pages_out,
+                "text": "\n\n".join(text_parts),
             }
             if all_tables:
                 content["tables"] = all_tables
         else:
             content = {
                 "document_metadata": meta,
-                "pages":             pages_out,
-                "elements":          all_elements,
+                "pages": pages_out,
+                "elements": all_elements,
             }
- 
+
         return _json("success", "", content)
- 
+
     except Exception as exc:
         return _json("error", f"{type(exc).__name__}: {exc}")
