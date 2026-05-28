@@ -31,6 +31,7 @@ conda-forge builds inside this host, ``asyncio.current_task()`` can return
 ``TypeError: cannot create weak reference to 'NoneType' object``. Sync httpx
 + a worker thread sidesteps anyio's task-tracking entirely.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,8 +44,11 @@ from .result import Result
 _DEFAULT_EXPECTED = (200, 201)
 
 
-def _shape(r: httpx.Response, expected: Iterable[int],
-           transform: Optional[Callable[[Any], Any]]) -> Result:
+def _shape(
+    r: httpx.Response,
+    expected: Iterable[int],
+    transform: Optional[Callable[[Any], Any]],
+) -> Result:
     if r.status_code in expected:
         try:
             data = r.json()
@@ -72,9 +76,14 @@ def request(
     """Sync REST helper. Returns ``{ok, result}`` or ``{error, details}``."""
     try:
         r = httpx.request(
-            method, url,
-            headers=headers, json=json, params=params,
-            data=data, files=files, timeout=timeout,
+            method,
+            url,
+            headers=headers,
+            json=json,
+            params=params,
+            data=data,
+            files=files,
+            timeout=timeout,
         )
         return _shape(r, expected, transform)
     except Exception as e:
@@ -103,8 +112,14 @@ async def arequest(
     """
     return await asyncio.to_thread(
         request,
-        method, url,
-        headers=headers, json=json, params=params,
-        data=data, files=files,
-        expected=expected, transform=transform, timeout=timeout,
+        method,
+        url,
+        headers=headers,
+        json=json,
+        params=params,
+        data=data,
+        files=files,
+        expected=expected,
+        transform=transform,
+        timeout=timeout,
     )

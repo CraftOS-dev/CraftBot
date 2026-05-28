@@ -19,6 +19,7 @@ clearer mental model). Both use the same JSON-of-dataclass shape.
 The directory location comes from ``ConfigStore.project_root``, which the
 host sets via ``configure(project_root=...)``.
 """
+
 from __future__ import annotations
 
 import json
@@ -49,6 +50,7 @@ def _credentials_dir() -> Path:
 # ════════════════════════════════════════════════════════════════════════
 # Internal: shared I/O for both credentials and config
 # ════════════════════════════════════════════════════════════════════════
+
 
 def _load_dataclass(filename: str, cls: Type[T], kind: str) -> Optional[T]:
     """Read a JSON file and instantiate ``cls`` with the matching fields.
@@ -97,6 +99,7 @@ def _remove(filename: str, kind: str) -> bool:
 # Credentials API
 # ════════════════════════════════════════════════════════════════════════
 
+
 def has_credential(filename: str) -> bool:
     return (_credentials_dir() / filename).exists()
 
@@ -116,6 +119,7 @@ def remove_credential(filename: str) -> bool:
 # ════════════════════════════════════════════════════════════════════════
 # Config API — same on-disk layout, different filename convention
 # ════════════════════════════════════════════════════════════════════════
+
 
 def has_config(filename: str) -> bool:
     return (_credentials_dir() / filename).exists()

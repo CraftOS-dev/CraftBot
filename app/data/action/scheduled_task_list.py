@@ -9,17 +9,14 @@ from agent_core import action
     output_schema={
         "schedules": {
             "type": "array",
-            "description": "List of scheduled tasks with their details"
+            "description": "List of scheduled tasks with their details",
         },
-        "total_count": {
-            "type": "integer",
-            "description": "Total number of schedules"
-        },
+        "total_count": {"type": "integer", "description": "Total number of schedules"},
         "active_count": {
             "type": "integer",
-            "description": "Number of enabled schedules"
-        }
-    }
+            "description": "Number of enabled schedules",
+        },
+    },
 )
 def scheduled_task_list(input_data: dict) -> dict:
     """List all scheduled tasks."""
@@ -28,38 +25,38 @@ def scheduled_task_list(input_data: dict) -> dict:
 
     scheduler = iai.InternalActionInterface.scheduler
     if scheduler is None:
-        return {
-            "status": "error",
-            "error": "Scheduler not initialized"
-        }
+        return {"status": "error", "error": "Scheduler not initialized"}
 
     try:
         schedules = scheduler.list_schedules()
 
         schedule_data = []
         for s in schedules:
-            schedule_data.append({
-                "id": s.id,
-                "name": s.name,
-                "instruction": s.instruction,
-                "schedule": s.schedule.raw_expression,
-                "enabled": s.enabled,
-                "priority": s.priority,
-                "mode": s.mode,
-                "last_run": datetime.fromtimestamp(s.last_run).isoformat() if s.last_run else None,
-                "next_run": datetime.fromtimestamp(s.next_run).isoformat() if s.next_run else None,
-                "run_count": s.run_count,
-            })
+            schedule_data.append(
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "instruction": s.instruction,
+                    "schedule": s.schedule.raw_expression,
+                    "enabled": s.enabled,
+                    "priority": s.priority,
+                    "mode": s.mode,
+                    "last_run": datetime.fromtimestamp(s.last_run).isoformat()
+                    if s.last_run
+                    else None,
+                    "next_run": datetime.fromtimestamp(s.next_run).isoformat()
+                    if s.next_run
+                    else None,
+                    "run_count": s.run_count,
+                }
+            )
 
         return {
             "status": "ok",
             "schedules": schedule_data,
             "total_count": len(schedules),
-            "active_count": sum(1 for s in schedules if s.enabled)
+            "active_count": sum(1 for s in schedules if s.enabled),
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}

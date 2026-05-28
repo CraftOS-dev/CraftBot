@@ -1,4 +1,5 @@
 """Diagnostic tool for validating action implementations."""
+
 from __future__ import annotations
 
 import argparse
@@ -102,7 +103,9 @@ class ActionDiagnoser:
         for action_name in action_names:
             action = self.actions.get(action_name)
             if not action:
-                empty_result = ExecutionResult(raw_output="", stderr="", parsed_output={})
+                empty_result = ExecutionResult(
+                    raw_output="", stderr="", parsed_output={}
+                )
                 record = DiagnosticRecord(
                     action=action_name,
                     status="skip",
@@ -117,7 +120,9 @@ class ActionDiagnoser:
 
             testcase = self.testcases.get(action_name)
             if not testcase:
-                empty_result = ExecutionResult(raw_output="", stderr="", parsed_output={})
+                empty_result = ExecutionResult(
+                    raw_output="", stderr="", parsed_output={}
+                )
                 record = DiagnosticRecord(
                     action=action_name,
                     status="skip",
@@ -148,7 +153,9 @@ class ActionDiagnoser:
         slug = slugify(record.action)
         timestamp = record.timestamp.strftime("%Y%m%dT%H%M%S%f")
         path = LOG_DIR / f"{timestamp}_{slug}.log.json"
-        path.write_text(json.dumps(record.to_json(), indent=2, ensure_ascii=False), encoding="utf-8")
+        path.write_text(
+            json.dumps(record.to_json(), indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:

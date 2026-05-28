@@ -170,7 +170,7 @@ CraftBot 嵌入在每一個 Living UI 中,並且**對其狀態保持感知**:它
 
 **替代方案:** 改用不需要 Node.js 的 TUI 模式:
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### 安裝時相依套件失敗

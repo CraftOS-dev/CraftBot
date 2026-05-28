@@ -9,7 +9,7 @@ Uses watchdog library for efficient file system monitoring.
 import asyncio
 import threading
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Any
+from typing import Callable, Dict, Optional, Any
 from dataclasses import dataclass
 
 from agent_core.utils.logger import logger
@@ -17,7 +17,8 @@ from agent_core.utils.logger import logger
 # Try to import watchdog, fall back to polling if not available
 try:
     from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+    from watchdog.events import FileSystemEventHandler
+
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
@@ -27,6 +28,7 @@ except ImportError:
 @dataclass
 class WatchedConfig:
     """Configuration for a watched file."""
+
     path: Path
     reload_callback: Callable[[], Any]
     last_modified: float = 0.0
@@ -60,8 +62,7 @@ class ConfigFileHandler(FileSystemEventHandler if WATCHDOG_AVAILABLE else object
 
         # Create new timer
         timer = threading.Timer(
-            self._debounce_delay,
-            lambda: self._watcher._trigger_reload(file_path)
+            self._debounce_delay, lambda: self._watcher._trigger_reload(file_path)
         )
         self._debounce_timers[path_str] = timer
         timer.start()
@@ -105,7 +106,7 @@ class ConfigWatcher:
         self,
         config_path: Path,
         reload_callback: Callable[[], Any],
-        name: Optional[str] = None
+        name: Optional[str] = None,
     ) -> None:
         """
         Register a config file to watch.
@@ -121,7 +122,7 @@ class ConfigWatcher:
         self._watched_configs[str(config_path)] = WatchedConfig(
             path=config_path,
             reload_callback=reload_callback,
-            last_modified=config_path.stat().st_mtime if config_path.exists() else 0.0
+            last_modified=config_path.stat().st_mtime if config_path.exists() else 0.0,
         )
 
         logger.info(f"[CONFIG_WATCHER] Registered watch for {name}: {config_path}")
@@ -164,8 +165,10 @@ class ConfigWatcher:
 
     def _start_polling(self) -> None:
         """Start polling-based file watching (fallback)."""
+
         def poll_loop():
             import time
+
             while self._running:
                 for path_str, config in self._watched_configs.items():
                     try:
@@ -211,8 +214,7 @@ class ConfigWatcher:
 
         # Create new debounced timer
         timer = threading.Timer(
-            self._debounce_delay,
-            lambda: self._trigger_reload(file_path)
+            self._debounce_delay, lambda: self._trigger_reload(file_path)
         )
         self._debounce_timers[path_str] = timer
         timer.start()
@@ -225,7 +227,9 @@ class ConfigWatcher:
             return
 
         config = self._watched_configs[path_str]
-        logger.info(f"[CONFIG_WATCHER] Detected change in {file_path.name}, triggering reload")
+        logger.info(
+            f"[CONFIG_WATCHER] Detected change in {file_path.name}, triggering reload"
+        )
 
         try:
             callback = config.reload_callback
@@ -234,8 +238,12 @@ class ConfigWatcher:
             if asyncio.iscoroutinefunction(callback):
                 if self._event_loop and self._event_loop.is_running():
                     # Schedule in the event loop (non-blocking)
-                    future = asyncio.run_coroutine_threadsafe(callback(), self._event_loop)
-                    future.add_done_callback(lambda f: f.exception())  # Suppress unhandled exception warning
+                    future = asyncio.run_coroutine_threadsafe(
+                        callback(), self._event_loop
+                    )
+                    future.add_done_callback(
+                        lambda f: f.exception()
+                    )  # Suppress unhandled exception warning
                 else:
                     asyncio.run(callback())
             else:

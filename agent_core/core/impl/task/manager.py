@@ -66,7 +66,9 @@ OnTaskRemovePersistHook = Callable[[str], None]  # (task_id)
 
 # Chatserver hooks (WCA only)
 OnTaskCreatedChatserverHook = Callable[[Task], None]
-OnTodoTransitionHook = Callable[[List[tuple]], None]  # List of (todo, old_status, new_status)
+OnTodoTransitionHook = Callable[
+    [List[tuple]], None
+]  # List of (todo, old_status, new_status)
 OnTaskEndedChatserverHook = Callable[[Task, str, Optional[str]], Awaitable[None]]
 FinalizeTodosChatserverHook = Callable[[Task, str], Awaitable[None]]
 
@@ -214,6 +216,37 @@ class TaskManager:
         """Check if any task is currently running."""
         return any(t.status == "running" for t in self.tasks.values())
 
+    def get_active_task_ids(self) -> List[str]:
+        """Return IDs of tasks that should keep their session caches alive.
+
+        Used by the agent after a provider switch to know which tasks need
+        their session caches rebuilt under the new provider. A task is
+        "active" if it hasn't terminated — so `running` and `paused` count,
+        but `completed` / `error` / `cancelled` do not.
+        """
+        terminal = {"completed", "error", "cancelled"}
+        return [tid for tid, t in self.tasks.items() if t.status not in terminal]
+
+    def rebuild_session_caches(self, task_id: str) -> None:
+        """Re-register session caches for an existing task.
+
+        Used after a provider switch — `LLMInterface.reinitialize()` wipes
+        `_session_system_prompts` and the provider-specific message-history
+        buffers, so we need to call back into the same registration path
+        that ran at task creation. The system prompt is re-derived freshly
+        from `context_engine.make_prompt()`, so any state changes since the
+        original registration (todos, action sets, etc.) are picked up
+        automatically.
+
+        Args:
+            task_id: ID of the task whose sessions should be re-registered.
+        """
+        if not self.llm_interface or not self.context_engine:
+            return
+        if task_id not in self.tasks:
+            return
+        self._create_session_caches(task_id)
+
     def set_current_session(self, session_id: str) -> None:
         """Set the current session ID for the active property (CraftBot)."""
         self._current_session_id = session_id
@@ -254,7 +287,7 @@ class TaskManager:
                            event stream. If provided, logs as "user message"
                            before the task_start event.
             original_platform: Optional platform where the original message came from
-                              (e.g., "CraftBot TUI", "Telegram", "Whatsapp").
+                              (e.g., "CraftBot CLI", "Telegram", "Whatsapp").
 
         Returns:
             The unique task identifier.
@@ -271,11 +304,14 @@ class TaskManager:
         # Note: compile_action_list always includes "core" set automatically
         selected_sets = action_sets or []
         from app.action.action_set import action_set_manager
+
         visibility_mode = "GUI" if self._get_gui_mode() else "CLI"
         compiled_actions = action_set_manager.compile_action_list(
             selected_sets, mode=visibility_mode
         )
-        logger.debug(f"[TaskManager] Compiled {len(compiled_actions)} actions from sets: {selected_sets}")
+        logger.debug(
+            f"[TaskManager] Compiled {len(compiled_actions)} actions from sets: {selected_sets}"
+        )
 
         # Get conversation_id via hook (WCA) or None (CraftBot)
         conversation_id = self._get_conversation_id()
@@ -361,11 +397,17 @@ class TaskManager:
                 LLMCallType.GUI_REASONING,
                 LLMCallType.GUI_ACTION_SELECTION,
             ]:
-                cache_id = self.llm_interface.create_session_cache(task_id, call_type, system_prompt)
+                cache_id = self.llm_interface.create_session_cache(
+                    task_id, call_type, system_prompt
+                )
                 if cache_id:
-                    logger.debug(f"[TaskManager] Created session cache {cache_id} for task {task_id}:{call_type}")
+                    logger.debug(
+                        f"[TaskManager] Created session cache {cache_id} for task {task_id}:{call_type}"
+                    )
         except Exception as e:
-            logger.warning(f"[TaskManager] Failed to create session caches for task {task_id}: {e}")
+            logger.warning(
+                f"[TaskManager] Failed to create session caches for task {task_id}: {e}"
+            )
 
     # ─────────────────────── Todo Management ─────────────────────────────────
 
@@ -391,7 +433,9 @@ class TaskManager:
         def _clean_content(s: str) -> str:
             return re.sub(
                 r"\s*-\s*(completed|in_progress|in progress|pending|done)\s*$",
-                "", s, flags=re.IGNORECASE
+                "",
+                s,
+                flags=re.IGNORECASE,
             ).strip()
 
         # Build lookup of existing todos by cleaned content to preserve IDs
@@ -440,7 +484,9 @@ class TaskManager:
             in_progress_todo.id if in_progress_todo else None,
         )
 
-        logger.debug(f"[TaskManager] Updated {len(self.active.todos)} todos, {len(transitions)} transitions")
+        logger.debug(
+            f"[TaskManager] Updated {len(self.active.todos)} todos, {len(transitions)} transitions"
+        )
         return [t.to_dict() for t in self.active.todos]
 
     def get_todos(self) -> List[Dict[str, Any]]:
@@ -544,7 +590,9 @@ class TaskManager:
 
         self._sync_state_manager(self.active)
 
-        logger.debug(f"[TaskManager] Added action sets {sets_to_add}, now have {len(self.active.compiled_actions)} actions")
+        logger.debug(
+            f"[TaskManager] Added action sets {sets_to_add}, now have {len(self.active.compiled_actions)} actions"
+        )
         return {
             "success": True,
             "current_sets": self.active.action_sets,
@@ -572,7 +620,9 @@ class TaskManager:
 
         self._sync_state_manager(self.active)
 
-        logger.debug(f"[TaskManager] Removed action sets {sets_to_remove_filtered}, now have {len(self.active.compiled_actions)} actions")
+        logger.debug(
+            f"[TaskManager] Removed action sets {sets_to_remove_filtered}, now have {len(self.active.compiled_actions)} actions"
+        )
         return {
             "success": True,
             "current_sets": self.active.action_sets,
@@ -600,7 +650,7 @@ class TaskManager:
         status: str,
         note: Optional[str],
         summary: Optional[str] = None,
-        errors: Optional[List[str]] = None
+        errors: Optional[List[str]] = None,
     ) -> None:
         """Finalize a task with the given status."""
         task.status = status
@@ -621,7 +671,7 @@ class TaskManager:
         self._log_to_task_history(task, note)
 
         # Reset skip_unprocessed_logging flag
-        if hasattr(self.event_stream_manager, 'set_skip_unprocessed_logging'):
+        if hasattr(self.event_stream_manager, "set_skip_unprocessed_logging"):
             self.event_stream_manager.set_skip_unprocessed_logging(False)
 
         # Finalize remaining todos via chatserver hook (WCA)
@@ -658,7 +708,9 @@ class TaskManager:
             try:
                 self._on_task_remove_persist(task.id)
             except Exception as e:
-                logger.warning(f"[TaskManager] Failed to remove persisted task {task.id}: {e}")
+                logger.warning(
+                    f"[TaskManager] Failed to remove persisted task {task.id}: {e}"
+                )
 
         # Clean up session-specific state (multi-task isolation)
         StateSession.end(task.id)
@@ -673,7 +725,9 @@ class TaskManager:
 
         # Only reset global agent state if NO other tasks are running
         # This prevents ending one parallel task from corrupting state for others
-        has_other_running_tasks = any(t.status == "running" for t in self.tasks.values())
+        has_other_running_tasks = any(
+            t.status == "running" for t in self.tasks.values()
+        )
         if not has_other_running_tasks:
             self._set_agent_property("current_task_id", "")
             self._set_agent_property("action_count", 0)
@@ -693,13 +747,20 @@ class TaskManager:
         self._cleanup_task_temp_dir(task)
 
         # Check if this was a soft onboarding task that completed successfully
-        if status == "completed" and "user-profile-interview" in (task.selected_skills or []):
+        if status == "completed" and "user-profile-interview" in (
+            task.selected_skills or []
+        ):
             try:
                 from app.onboarding import onboarding_manager
+
                 onboarding_manager.mark_soft_complete()
-                logger.info("[ONBOARDING] Soft onboarding task completed, marked as complete")
+                logger.info(
+                    "[ONBOARDING] Soft onboarding task completed, marked as complete"
+                )
             except Exception as e:
-                logger.warning(f"[ONBOARDING] Failed to mark soft onboarding complete: {e}")
+                logger.warning(
+                    f"[ONBOARDING] Failed to mark soft onboarding complete: {e}"
+                )
 
         # Skill creator/improver workflow finished — reload SkillManager so
         # the new (or edited) skill is invocable immediately, and delete the
@@ -708,12 +769,16 @@ class TaskManager:
             # Always clean up the SOURCE file, regardless of completion status
             try:
                 if self.agent_file_system_path:
-                    src_path = self.agent_file_system_path / f"SKILL_SOURCE_{task.id}.md"
+                    src_path = (
+                        self.agent_file_system_path / f"SKILL_SOURCE_{task.id}.md"
+                    )
                     if src_path.exists():
                         src_path.unlink()
                         logger.info(f"[SKILL_CREATOR] Removed {src_path.name}")
             except Exception as e:
-                logger.warning(f"[SKILL_CREATOR] Failed to remove SKILL_SOURCE for {task.id}: {e}")
+                logger.warning(
+                    f"[SKILL_CREATOR] Failed to remove SKILL_SOURCE for {task.id}: {e}"
+                )
 
             # Reload skills only on success — a failed/cancelled task is
             # unlikely to have left the skill in a useful state, but reloading
@@ -721,6 +786,7 @@ class TaskManager:
             if status == "completed":
                 try:
                     from agent_core.core.impl.skill.manager import SkillManager
+
                     skill_manager = SkillManager()
                     await skill_manager.reload()
                     logger.info(
@@ -862,7 +928,9 @@ class TaskManager:
             shutil.rmtree(task.temp_dir, ignore_errors=True)
             logger.debug(f"[TaskManager] Cleaned up temp dir for task {task.id}")
         except Exception:
-            logger.warning(f"[TaskManager] Failed to clean temp dir for {task.id}", exc_info=True)
+            logger.warning(
+                f"[TaskManager] Failed to clean temp dir for {task.id}", exc_info=True
+            )
 
     def cleanup_all_temp_dirs(self, exclude: Optional[set] = None) -> int:
         """Remove temporary directories in workspace/tmp/, optionally excluding some.
@@ -883,14 +951,23 @@ class TaskManager:
                     try:
                         shutil.rmtree(item, ignore_errors=True)
                         cleaned_count += 1
-                        logger.debug(f"[TaskManager] Cleaned up leftover temp dir: {item.name}")
+                        logger.debug(
+                            f"[TaskManager] Cleaned up leftover temp dir: {item.name}"
+                        )
                     except Exception:
-                        logger.warning(f"[TaskManager] Failed to clean leftover temp dir: {item.name}", exc_info=True)
+                        logger.warning(
+                            f"[TaskManager] Failed to clean leftover temp dir: {item.name}",
+                            exc_info=True,
+                        )
 
             if cleaned_count > 0:
-                logger.info(f"[TaskManager] Cleaned up {cleaned_count} leftover temp directories on startup")
+                logger.info(
+                    f"[TaskManager] Cleaned up {cleaned_count} leftover temp directories on startup"
+                )
         except Exception:
-            logger.warning("[TaskManager] Failed to enumerate temp directories", exc_info=True)
+            logger.warning(
+                "[TaskManager] Failed to enumerate temp directories", exc_info=True
+            )
 
         return cleaned_count
 

@@ -101,6 +101,7 @@ class ActionStorage:
         """
         if db_path is None:
             from app.config import APP_DATA_PATH
+
             usage_dir = Path(APP_DATA_PATH) / ".usage"
             usage_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(usage_dir / "actions.db")
@@ -135,15 +136,23 @@ class ActionStorage:
             cursor.execute("PRAGMA table_info(action_items)")
             existing_columns = {row[1] for row in cursor.fetchall()}
             if "selected_skills" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN selected_skills TEXT")
+                cursor.execute(
+                    "ALTER TABLE action_items ADD COLUMN selected_skills TEXT"
+                )
             if "workflow_id" not in existing_columns:
                 cursor.execute("ALTER TABLE action_items ADD COLUMN workflow_id TEXT")
             if "input_tokens" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN input_tokens INTEGER")
+                cursor.execute(
+                    "ALTER TABLE action_items ADD COLUMN input_tokens INTEGER"
+                )
             if "output_tokens" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN output_tokens INTEGER")
+                cursor.execute(
+                    "ALTER TABLE action_items ADD COLUMN output_tokens INTEGER"
+                )
             if "cache_tokens" not in existing_columns:
-                cursor.execute("ALTER TABLE action_items ADD COLUMN cache_tokens INTEGER")
+                cursor.execute(
+                    "ALTER TABLE action_items ADD COLUMN cache_tokens INTEGER"
+                )
 
             # Create indexes for common queries
             cursor.execute("""
@@ -175,30 +184,33 @@ class ActionStorage:
         skills_json = json.dumps(item.selected_skills) if item.selected_skills else None
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO action_items
                 (id, name, status, item_type, parent_id, created_at,
                  completed_at, input_data, output_data, error_message,
                  selected_skills, workflow_id,
                  input_tokens, output_tokens, cache_tokens)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                item.id,
-                item.name,
-                item.status,
-                item.item_type,
-                item.parent_id,
-                item.created_at,
-                item.completed_at,
-                item.input_data,
-                item.output_data,
-                item.error_message,
-                skills_json,
-                item.workflow_id,
-                item.input_tokens,
-                item.output_tokens,
-                item.cache_tokens,
-            ))
+            """,
+                (
+                    item.id,
+                    item.name,
+                    item.status,
+                    item.item_type,
+                    item.parent_id,
+                    item.created_at,
+                    item.completed_at,
+                    item.input_data,
+                    item.output_data,
+                    item.error_message,
+                    skills_json,
+                    item.workflow_id,
+                    item.input_tokens,
+                    item.output_tokens,
+                    item.cache_tokens,
+                ),
+            )
             conn.commit()
 
     def update_item_status(
@@ -312,7 +324,8 @@ class ActionStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             # Get last N items ordered by created_at DESC, then reverse
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
                        selected_skills, workflow_id,
@@ -320,7 +333,9 @@ class ActionStorage:
                 FROM action_items
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
             rows = cursor.fetchall()
 
             items = [
@@ -359,14 +374,17 @@ class ActionStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
                        selected_skills, workflow_id,
                        input_tokens, output_tokens, cache_tokens
                 FROM action_items
                 WHERE id = ?
-            """, (item_id,))
+            """,
+                (item_id,),
+            )
             row = cursor.fetchone()
 
             if row:
@@ -462,10 +480,7 @@ class ActionStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM action_items WHERE id = ?",
-                (item_id,)
-            )
+            cursor.execute("DELETE FROM action_items WHERE id = ?", (item_id,))
             conn.commit()
             return cursor.rowcount > 0
 
@@ -484,21 +499,28 @@ class ActionStorage:
             Number of items updated.
         """
         import time as time_module
+
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             if exclude:
                 placeholders = ",".join("?" for _ in exclude)
-                cursor.execute(f"""
+                cursor.execute(
+                    f"""
                     UPDATE action_items
                     SET status = 'cancelled', completed_at = ?
                     WHERE status = 'running' AND id NOT IN ({placeholders})
-                """, (time_module.time(), *exclude))
+                """,
+                    (time_module.time(), *exclude),
+                )
             else:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE action_items
                     SET status = 'cancelled', completed_at = ?
                     WHERE status = 'running'
-                """, (time_module.time(),))
+                """,
+                    (time_module.time(),),
+                )
             conn.commit()
             return cursor.rowcount
 
@@ -518,20 +540,24 @@ class ActionStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             # Get recent task IDs
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id FROM action_items
                 WHERE item_type = 'task'
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (task_limit,))
+            """,
+                (task_limit,),
+            )
             task_ids = [row[0] for row in cursor.fetchall()]
 
             if not task_ids:
                 return []
 
             # Get those tasks + all their child actions
-            placeholders = ','.join('?' * len(task_ids))
-            cursor.execute(f"""
+            placeholders = ",".join("?" * len(task_ids))
+            cursor.execute(
+                f"""
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
                        selected_skills, workflow_id,
@@ -539,7 +565,9 @@ class ActionStorage:
                 FROM action_items
                 WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
                 ORDER BY created_at ASC
-            """, task_ids + task_ids)
+            """,
+                task_ids + task_ids,
+            )
             rows = cursor.fetchall()
 
             return [
@@ -581,19 +609,23 @@ class ActionStorage:
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             # Get older task IDs
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id FROM action_items
                 WHERE item_type = 'task' AND created_at < ?
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (before_timestamp, task_limit))
+            """,
+                (before_timestamp, task_limit),
+            )
             task_ids = [row[0] for row in cursor.fetchall()]
 
             if not task_ids:
                 return []
 
-            placeholders = ','.join('?' * len(task_ids))
-            cursor.execute(f"""
+            placeholders = ",".join("?" * len(task_ids))
+            cursor.execute(
+                f"""
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
                        selected_skills, workflow_id,
@@ -601,7 +633,9 @@ class ActionStorage:
                 FROM action_items
                 WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
                 ORDER BY created_at ASC
-            """, task_ids + task_ids)
+            """,
+                task_ids + task_ids,
+            )
             rows = cursor.fetchall()
 
             return [

@@ -26,7 +26,10 @@ from typing import TYPE_CHECKING
 from agent_core.core.registry.base import ComponentRegistry
 
 if TYPE_CHECKING:
-    from agent_core.core.protocols.action import ActionExecutorProtocol, ActionManagerProtocol
+    from agent_core.core.protocols.action import (
+        ActionExecutorProtocol,
+        ActionManagerProtocol,
+    )
 
 
 class ActionExecutorRegistry(ComponentRegistry["ActionExecutorProtocol"]):
@@ -36,6 +39,7 @@ class ActionExecutorRegistry(ComponentRegistry["ActionExecutorProtocol"]):
     Each project (CraftBot, CraftBot) registers their executor
     at startup. Shared code uses get() to access the executor.
     """
+
     pass
 
 
@@ -46,6 +50,7 @@ class ActionManagerRegistry(ComponentRegistry["ActionManagerProtocol"]):
     Each project (CraftBot, CraftBot) registers their manager
     at startup. Shared code uses get() to access the manager.
     """
+
     pass
 
 

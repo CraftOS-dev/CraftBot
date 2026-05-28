@@ -18,7 +18,7 @@ from agent_core import Trigger, TriggerQueue
 from agent_core.utils.logger import logger
 
 from .parser import ScheduleParser, ScheduleParseError
-from .types import ScheduledTask, ScheduleExpression, SchedulerConfig
+from .types import ScheduledTask, SchedulerConfig
 
 
 class SchedulerManager:
@@ -83,7 +83,9 @@ class SchedulerManager:
                 if schedule.enabled:
                     await self._start_schedule_loop(schedule_id)
 
-        logger.info(f"[SCHEDULER] Started {len(self._scheduler_tasks)} schedule loop(s)")
+        logger.info(
+            f"[SCHEDULER] Started {len(self._scheduler_tasks)} schedule loop(s)"
+        )
 
     async def shutdown(self) -> None:
         """Stop all scheduler loops gracefully."""
@@ -306,10 +308,7 @@ class SchedulerManager:
             Dictionary with status, session_id, and message
         """
         if not self._trigger_queue:
-            return {
-                "status": "error",
-                "error": "Trigger queue not initialized"
-            }
+            return {"status": "error", "error": "Trigger queue not initialized"}
 
         # Generate unique session ID
         session_id = f"immediate_{uuid.uuid4().hex[:8]}_{int(time.time())}"
@@ -338,7 +337,9 @@ class SchedulerManager:
         # Queue the trigger
         await self._trigger_queue.put(trigger)
 
-        logger.info(f"[SCHEDULER] Queued immediate trigger: {name} (session: {session_id})")
+        logger.info(
+            f"[SCHEDULER] Queued immediate trigger: {name} (session: {session_id})"
+        )
 
         return {
             "status": "ok",
@@ -346,7 +347,7 @@ class SchedulerManager:
             "name": name,
             "recurring": False,
             "scheduled_for": "immediate",
-            "message": f"Task '{name}' queued for immediate execution (session: {session_id})"
+            "message": f"Task '{name}' queued for immediate execution (session: {session_id})",
         }
 
     def get_status(self) -> Dict[str, Any]:
@@ -361,8 +362,12 @@ class SchedulerManager:
                     "name": s.name,
                     "enabled": s.enabled,
                     "schedule": s.schedule.raw_expression,
-                    "last_run": datetime.fromtimestamp(s.last_run).isoformat() if s.last_run else None,
-                    "next_run": datetime.fromtimestamp(s.next_run).isoformat() if s.next_run else None,
+                    "last_run": datetime.fromtimestamp(s.last_run).isoformat()
+                    if s.last_run
+                    else None,
+                    "next_run": datetime.fromtimestamp(s.next_run).isoformat()
+                    if s.next_run
+                    else None,
                     "run_count": s.run_count,
                 }
                 for s in self._schedules.values()
@@ -401,7 +406,7 @@ class SchedulerManager:
             return {
                 "success": True,
                 "message": f"Reloaded {len(self._schedules)} schedules",
-                "total": len(self._schedules)
+                "total": len(self._schedules),
             }
         except Exception as e:
             logger.error(f"[SCHEDULER] Reload failed: {e}")
@@ -452,10 +457,14 @@ class SchedulerManager:
             try:
                 schedule = self._schedules.get(schedule_id)
                 if not schedule:
-                    logger.warning(f"[SCHEDULER] Schedule {schedule_id} not found, exiting loop")
+                    logger.warning(
+                        f"[SCHEDULER] Schedule {schedule_id} not found, exiting loop"
+                    )
                     break
                 if not schedule.enabled:
-                    logger.info(f"[SCHEDULER] Schedule {schedule_id} disabled, exiting loop")
+                    logger.info(
+                        f"[SCHEDULER] Schedule {schedule_id} disabled, exiting loop"
+                    )
                     break
 
                 # Calculate next fire time
@@ -468,7 +477,9 @@ class SchedulerManager:
                 # Calculate sleep duration
                 delay = next_fire - now
                 if delay > 0:
-                    next_fire_str = datetime.fromtimestamp(next_fire).strftime("%Y-%m-%d %H:%M:%S")
+                    next_fire_str = datetime.fromtimestamp(next_fire).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                     logger.info(
                         f"[SCHEDULER] {schedule_id} ({schedule.name}) sleeping until {next_fire_str} "
                         f"({delay:.1f}s / {delay / 60:.1f}min)"
@@ -477,15 +488,23 @@ class SchedulerManager:
 
                 # Check if still running and schedule still exists
                 schedule = self._schedules.get(schedule_id)
-                logger.info(f"[SCHEDULER] {schedule_id} woke up, checking conditions before fire")
+                logger.info(
+                    f"[SCHEDULER] {schedule_id} woke up, checking conditions before fire"
+                )
                 if not schedule:
-                    logger.warning(f"[SCHEDULER] {schedule_id} schedule was removed while sleeping")
+                    logger.warning(
+                        f"[SCHEDULER] {schedule_id} schedule was removed while sleeping"
+                    )
                     break
                 if not schedule.enabled:
-                    logger.info(f"[SCHEDULER] {schedule_id} was disabled while sleeping")
+                    logger.info(
+                        f"[SCHEDULER] {schedule_id} was disabled while sleeping"
+                    )
                     break
                 if not self._is_running:
-                    logger.info(f"[SCHEDULER] {schedule_id} scheduler stopped while sleeping")
+                    logger.info(
+                        f"[SCHEDULER] {schedule_id} scheduler stopped while sleeping"
+                    )
                     break
 
                 # Fire the schedule
@@ -505,6 +524,7 @@ class SchedulerManager:
             except Exception as e:
                 logger.error(f"[SCHEDULER] Error in loop for {schedule_id}: {e}")
                 import traceback
+
                 logger.error(f"[SCHEDULER] Traceback: {traceback.format_exc()}")
                 # Wait before retrying to avoid tight error loops
                 await asyncio.sleep(60)
@@ -518,7 +538,9 @@ class SchedulerManager:
         Creates a Trigger and puts it into the TriggerQueue.
         """
         if not self._trigger_queue:
-            logger.warning("[SCHEDULER] No trigger queue configured, cannot fire schedule")
+            logger.warning(
+                "[SCHEDULER] No trigger queue configured, cannot fire schedule"
+            )
             return
 
         # Update runtime state

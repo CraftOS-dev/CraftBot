@@ -6,7 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   SkipForward,
-  // Icons for MCP servers and Skills
+  // Icons for Integrations and Skills
   Folder,
   Search,
   Github,
@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import { Button } from '../../components/ui'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { IntegrationsSettings } from '../Settings/IntegrationsSettings'
 import type { OnboardingStep, OnboardingStepOption, OnboardingFormField } from '../../types'
 import styles from './OnboardingPage.module.css'
 
@@ -55,7 +56,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Sheet,
 }
 
-const STEP_NAMES = ['Provider', 'API Key', 'Agent Name', 'User Profile', 'MCP Servers', 'Skills']
+const STEP_NAMES = ['Provider', 'API Key', 'Agent Name', 'User Profile', 'Skills', 'Integrations']
 
 // ── Ollama local-setup component ─────────────────────────────────────────────
 
@@ -407,7 +408,7 @@ export function OnboardingPage() {
           }
           return defaults
         })
-      } else if (onboardingStep.name === 'mcp' || onboardingStep.name === 'skills') {
+      } else if (onboardingStep.name === 'skills') {
         setSelectedValue(Array.isArray(onboardingStep.default) ? onboardingStep.default : [])
       } else if (onboardingStep.options.length > 0) {
         const defaultOption = onboardingStep.options.find(opt => opt.default)
@@ -479,7 +480,7 @@ export function OnboardingPage() {
 
   const handleOptionSelect = useCallback((value: string) => {
     if (!onboardingStep) return
-    if (onboardingStep.name === 'mcp' || onboardingStep.name === 'skills') {
+    if (onboardingStep.name === 'skills') {
       setSelectedValue(prev => {
         const arr = Array.isArray(prev) ? prev : []
         return arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value]
@@ -499,6 +500,10 @@ export function OnboardingPage() {
       submitOnboardingStep(ollamaUrl)
     } else if (isProxiedStep) {
       submitOnboardingStep({ api_key: textValue, via: proxiedVia, or_model: proxiedVia === 'openrouter' ? orModel : '' })
+    } else if (onboardingStep.name === 'integrations') {
+      // Panel step — the embedded IntegrationsSettings handles its own
+      // connect flows. Just advance.
+      submitOnboardingStep('')
     } else if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
       submitOnboardingStep(formValues)
     } else if (onboardingStep.options.length > 0) {
@@ -510,7 +515,7 @@ export function OnboardingPage() {
 
   const handleSkip = useCallback(() => skipOnboardingStep(), [skipOnboardingStep])
 
-  // Ctrl+S to skip optional steps (matches TUI behavior)
+  // Ctrl+S to skip optional steps
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -526,9 +531,10 @@ export function OnboardingPage() {
 
   const handleBack = useCallback(() => goBackOnboardingStep(), [goBackOnboardingStep])
 
-  const isMultiSelect = onboardingStep?.name === 'mcp' || onboardingStep?.name === 'skills'
+  const isMultiSelect = onboardingStep?.name === 'skills'
+  const isIntegrationsStep = onboardingStep?.name === 'integrations'
   const isFormStep = !!(onboardingStep?.form_fields && onboardingStep.form_fields.length > 0)
-  const isWideStep = isMultiSelect || isFormStep
+  const isWideStep = isMultiSelect || isFormStep || isIntegrationsStep
   const isLastStep = onboardingStep ? onboardingStep.index === onboardingStep.total - 1 : false
 
   const isOllamaStep =
@@ -540,6 +546,7 @@ export function OnboardingPage() {
     if (isOllamaStep) {
       return ollamaConnected || (localLLM.phase === 'connected' && !!localLLM.testResult?.success)
     }
+    if (isIntegrationsStep) return true  // Connection is optional — Next always works
     if (isFormStep) return true  // All form fields are optional
     if (onboardingStep.options.length > 0) {
       return isMultiSelect ? true : !!selectedValue
@@ -575,6 +582,16 @@ export function OnboardingPage() {
             defaultUrl={ollamaUrl}
             onConnected={handleOllamaConnected}
           />
+        </div>
+      )
+    }
+
+    // External app integrations — embed the full Settings → Integrations
+    // panel so the user can connect any integration in place.
+    if (isIntegrationsStep) {
+      return (
+        <div className={`${styles.formGroup} ${styles.integrationsPanel}`}>
+          <IntegrationsSettings hideHeader />
         </div>
       )
     }
@@ -891,7 +908,7 @@ export function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => { setProxiedVia('direct'); setTextValue('') }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent, #e07b39)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-primary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
               >
                 ← Use direct {providerDisplay} API instead
               </button>
@@ -899,7 +916,7 @@ export function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => { setProxiedVia('openrouter'); setTextValue('') }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent, #e07b39)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-primary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
               >
                 Having connection issues? Use OpenRouter instead →
               </button>

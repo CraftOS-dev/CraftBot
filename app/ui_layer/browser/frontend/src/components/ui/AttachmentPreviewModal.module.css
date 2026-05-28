@@ -1,0 +1,69 @@
+.modal {
+  background: var(--bg-secondary);
+}
+
+.metaBar {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+/* No fixed dimensions: the viewer hugs whichever content branch renders.
+   Centering keeps a small image visually anchored when the modal's
+   min-width forces the box wider than the image's intrinsic size. */
+.viewer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Image sizes to its intrinsic dimensions, capped at the viewport. The
+   modal (size_auto, width: fit-content) wraps to whichever is smaller. */
+.image {
+  display: block;
+  max-width: min(88vw, 1060px);
+  max-height: calc(92vh - 100px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* PDF/text have no intrinsic width, so we give them a sensible default
+   that's wide enough to be readable but not the whole screen. */
+.pdf {
+  width: min(1280px, 92vw);
+  height: calc(92vh - 100px);
+  border: none;
+  background: var(--bg-primary);
+  display: block;
+}
+
+.text {
+  width: min(1280px, 92vw);
+  height: calc(92vh - 100px);
+  margin: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  white-space: pre;
+  box-sizing: border-box;
+}
+
+.message {
+  padding: var(--space-6) var(--space-8);
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  min-width: 280px;
+  max-width: 520px;
+}

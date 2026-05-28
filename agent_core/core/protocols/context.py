@@ -6,7 +6,7 @@ This module defines the ContextEngineProtocol that specifies the
 interface for prompt construction.
 """
 
-from typing import Any, Dict, Optional, Protocol, Tuple
+from typing import Dict, Optional, Protocol, Tuple
 
 
 class ContextEngineProtocol(Protocol):

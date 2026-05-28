@@ -174,9 +174,9 @@ If you see **"npm not found in PATH"** when running `python run.py`:
 2. Install and restart your terminal
 3. Run `python run.py` again
 
-**Alternative:** Use TUI mode instead (no Node.js needed):
+**Alternative:** Use CLI mode instead (no Node.js needed):
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### Installation Fails with Dependencies

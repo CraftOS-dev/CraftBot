@@ -12,6 +12,7 @@ Architecture:
          ├─ exposes WizardAPI (install/start/stop/...) as window.pywebview.api
          └─ webview.start() blocks until the user closes the window
 """
+
 from __future__ import annotations
 
 import os

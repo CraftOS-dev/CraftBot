@@ -55,7 +55,7 @@
 }
 
 .danger:hover:not(:disabled) {
-  background: #DC2626;
+  background: color-mix(in srgb, var(--color-error) 88%, black);
 }
 
 /* Sizes */

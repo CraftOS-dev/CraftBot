@@ -13,11 +13,10 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    MCPStep,
     SkillsStep,
 )
 from app.onboarding import onboarding_manager
-from app.tui.settings import save_settings_to_json
+from app.ui_layer.settings.provider_settings import save_settings_to_json
 from app.logger import logger
 
 if TYPE_CHECKING:
@@ -32,7 +31,7 @@ class CLIHardOnboarding(OnboardingInterface):
     1. LLM Provider selection
     2. API Key input
     3. Agent name (optional)
-    4. MCP server selection (optional)
+    4. External app integration selection (optional)
     5. Skills selection (optional)
 
     Note: User name is collected during soft onboarding (conversational interview).
@@ -106,6 +105,7 @@ class CLIHardOnboarding(OnboardingInterface):
                     # For password input, try to use getpass
                     try:
                         import getpass
+
                         loop = asyncio.get_event_loop()
                         value = await loop.run_in_executor(
                             None, getpass.getpass, prompt
@@ -147,7 +147,9 @@ class CLIHardOnboarding(OnboardingInterface):
             marker = "x" if opt.value in selections else " "
             print(f"  {i}. [{marker}] {opt.label}")
 
-        print("\nEnter numbers to toggle (comma-separated), or press Enter to continue:")
+        print(
+            "\nEnter numbers to toggle (comma-separated), or press Enter to continue:"
+        )
 
         try:
             choice = await self._async_input("> ")
@@ -204,7 +206,9 @@ class CLIHardOnboarding(OnboardingInterface):
                         label += f" - {opt.description}"
                     print(label)
                 try:
-                    choice = await self._async_input(f"  Enter number [1-{len(f.options)}]: ")
+                    choice = await self._async_input(
+                        f"  Enter number [1-{len(f.options)}]: "
+                    )
                 except (EOFError, KeyboardInterrupt):
                     choice = ""
                 choice = choice.strip()
@@ -222,7 +226,9 @@ class CLIHardOnboarding(OnboardingInterface):
                 print(f"\n  {f.label}:")
                 for i, opt in enumerate(f.options, 1):
                     print(f"    {i}. [ ] {opt.label} - {opt.description}")
-                print("  Enter numbers to select (comma-separated), or press Enter to skip:")
+                print(
+                    "  Enter numbers to select (comma-separated), or press Enter to skip:"
+                )
                 try:
                     choice = await self._async_input("  > ")
                 except (EOFError, KeyboardInterrupt):
@@ -287,24 +293,6 @@ class CLIHardOnboarding(OnboardingInterface):
             else:
                 self._collected_data["user_profile"] = {}
 
-            # Step 5: MCP servers (optional)
-            mcp_step = MCPStep()
-            mcp_options = mcp_step.get_options()
-            if mcp_options:
-                print("\nWould you like to configure MCP servers? (y/N)")
-                try:
-                    configure_mcp = await self._async_input("> ")
-                except (EOFError, KeyboardInterrupt):
-                    configure_mcp = "n"
-
-                if configure_mcp.lower().startswith("y"):
-                    mcp_servers = await self._select_multiple(mcp_step)
-                    self._collected_data["mcp_servers"] = mcp_servers
-                else:
-                    self._collected_data["mcp_servers"] = []
-            else:
-                self._collected_data["mcp_servers"] = []
-
             # Step 5: Skills (optional)
             skills_step = SkillsStep()
             skills_options = skills_step.get_options()
@@ -322,6 +310,13 @@ class CLIHardOnboarding(OnboardingInterface):
                     self._collected_data["skills"] = []
             else:
                 self._collected_data["skills"] = []
+
+            # Step 6: External app integrations (optional, web-only panel)
+            print(
+                "\nExternal app integrations (Gmail, Slack, GitHub, Notion, etc.)"
+                " are set up in the browser interface under Settings → Integrations."
+            )
+            self._collected_data["integrations"] = ""
 
             self._collected_data["completed"] = True
             self.on_complete()
@@ -356,12 +351,15 @@ class CLIHardOnboarding(OnboardingInterface):
         profile_data = self._collected_data.get("user_profile", {})
         if profile_data:
             from app.onboarding.profile_writer import write_profile_to_user_md
+
             write_profile_to_user_md(profile_data)
 
         # Mark hard onboarding as complete
         agent_name = self._collected_data.get("agent_name", "Agent")
         user_name = profile_data.get("user_name") if profile_data else None
-        onboarding_manager.mark_hard_complete(user_name=user_name, agent_name=agent_name)
+        onboarding_manager.mark_hard_complete(
+            user_name=user_name, agent_name=agent_name
+        )
 
         logger.info("[CLI ONBOARDING] Hard onboarding completed successfully")
 
@@ -370,6 +368,7 @@ class CLIHardOnboarding(OnboardingInterface):
         # before interface starts (and thus before hard onboarding completes)
         if onboarding_manager.needs_soft_onboarding:
             import asyncio
+
             asyncio.create_task(self._trigger_soft_onboarding_async())
 
     async def _trigger_soft_onboarding_async(self) -> None:
@@ -380,13 +379,17 @@ class CLIHardOnboarding(OnboardingInterface):
         the task and fires a trigger to start it.
         """
         if not self._cli._agent:
-            logger.warning("[CLI ONBOARDING] Cannot trigger soft onboarding: no agent reference")
+            logger.warning(
+                "[CLI ONBOARDING] Cannot trigger soft onboarding: no agent reference"
+            )
             return
 
         agent = self._cli._agent
         task_id = await agent.trigger_soft_onboarding()
         if task_id:
-            logger.info(f"[CLI ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}")
+            logger.info(
+                f"[CLI ONBOARDING] Soft onboarding triggered after hard onboarding: {task_id}"
+            )
 
     async def trigger_soft_onboarding(self) -> Optional[str]:
         """Trigger soft onboarding by creating the interview task."""

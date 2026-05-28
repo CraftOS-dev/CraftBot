@@ -1,4 +1,5 @@
 """Diagnostic environment for the "find in file content" action."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +8,9 @@ from typing import Any, Mapping, Tuple
 from diagnostic.framework import ActionTestCase, ExecutionResult, PreparedEnv
 
 
-def prepare_find_in_file_content(tmp_path: Path, action: Mapping[str, Any]) -> PreparedEnv:  # noqa: ARG001
+def prepare_find_in_file_content(
+    tmp_path: Path, action: Mapping[str, Any]
+) -> PreparedEnv:  # noqa: ARG001
     target_file = tmp_path / "log.txt"
     lines = [
         "Startup complete",

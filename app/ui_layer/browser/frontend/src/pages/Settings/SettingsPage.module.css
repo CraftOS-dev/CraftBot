@@ -67,7 +67,7 @@
 
 .categoryItem.active .categoryIcon {
   background: var(--color-primary-light);
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .categoryInfo {
@@ -108,6 +108,7 @@
 /* Settings Section */
 .settingsSection {
   max-width: 600px;
+  margin: 0 auto;
 }
 
 .sectionHeader {
@@ -162,9 +163,16 @@
 
 .formGroup select {
   cursor: pointer;
-  appearance: auto;
-  background-image: none;
-  padding-right: var(--space-6);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 14px;
+  padding-right: var(--space-8);
+}
+
+[data-theme="light"] .formGroup select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .formGroup select option {
@@ -176,7 +184,7 @@
 .formGroup input:focus,
 .formGroup select:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
   background-color: var(--bg-tertiary);
 }
 
@@ -245,6 +253,7 @@
 .toggle {
   width: 40px;
   height: 22px;
+  flex-shrink: 0;
   appearance: none;
   background: var(--color-gray-600);
   border-radius: var(--radius-full);
@@ -534,9 +543,73 @@
 /* Manage Modal Styles */
 .manageSubtitle {
   font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  /* No margin-bottom: modalBody is flex with gap, so spacing to the next
+     element is handled by the gap, not a per-item margin (which would
+     double up). */
+}
+
+/* Divider above any section heading that follows another section in the
+   manage modal (e.g. "Configure" after "Connected Accounts"). The
+   modalBody's flex gap already provides separation; we only add a tight
+   padding-top + rule for the visual break. */
+.manageSubtitle ~ .manageSubtitle {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-primary);
+}
+
+/* Save / action row at the bottom of the ConfigForm inside the manage modal.
+   connectForm is a flex column with gap, so we don't add margin-top here
+   (that would double the spacing). Just a tight rule above the action. */
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-primary);
+}
+
+/* Checkbox field row inside the ConfigForm.
+   The box is aligned to the first line of text and stays put as the
+   description wraps — no awkward center-alignment of a tall block to a
+   16px box. Label is the field's primary text; help sits below in muted
+   hint styling, matching the look of non-checkbox fields. */
+.checkboxRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+  padding: var(--space-1) 0;
+}
+
+.checkboxRow input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.checkboxText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.checkboxLabel {
+  font-size: var(--text-sm);
   font-weight: var(--font-medium);
   color: var(--text-primary);
-  margin-bottom: var(--space-3);
+  line-height: var(--leading-tight);
+}
+
+.checkboxHint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
 }
 
 .noAccounts {
@@ -1153,7 +1226,7 @@
 
 .formGroup textarea:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 /* Modal-specific hint text - more visible */
@@ -1234,17 +1307,27 @@
 /* Filter Select */
 .filterSelect {
   padding: var(--space-2) var(--space-3);
+  padding-right: var(--space-8);
   background: var(--bg-tertiary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 14px;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: var(--text-sm);
   cursor: pointer;
+  appearance: none;
+}
+
+[data-theme="light"] .filterSelect {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .filterSelect:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 /* Memory List */
@@ -1554,7 +1637,7 @@
 
 .searchInput:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .searchInput::placeholder {
@@ -1717,7 +1800,7 @@
   background: var(--bg-tertiary);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .skillInfoBadges {
@@ -1778,7 +1861,7 @@
 
 .skillContentEditor:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .skillContentEditor::placeholder {
@@ -1892,9 +1975,9 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: 1px solid #f59e0b;
+  border: 1px solid var(--color-warning);
   border-radius: var(--radius-md);
-  background: rgba(245, 158, 11, 0.08);
+  background: var(--color-warning-subtle);
 }
 
 .ollamaInstallText {
@@ -1944,7 +2027,7 @@
   transition: all var(--transition-fast);
 }
 .retryOllamaBtn:hover {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   color: var(--text-primary);
 }
 
@@ -1987,11 +2070,11 @@
   border-radius: 3px;
   background: linear-gradient(
     90deg,
-    var(--color-primary) 0%,
-    var(--color-primary) 40%,
-    color-mix(in srgb, var(--color-primary) 60%, white) 50%,
-    var(--color-primary) 60%,
-    var(--color-primary) 100%
+    var(--text-primary) 0%,
+    var(--text-primary) 40%,
+    color-mix(in srgb, var(--text-primary) 60%, white) 50%,
+    var(--text-primary) 60%,
+    var(--text-primary) 100%
   );
   background-size: 200% 100%;
   animation: ollamaInstallShimmer 1.8s linear infinite;
@@ -2020,9 +2103,9 @@
 
 .downloadModelBtn {
   font-size: var(--text-sm);
-  color: var(--color-primary);
+  color: var(--text-primary);
   background: none;
-  border: 1px dashed var(--color-primary);
+  border: 1px dashed var(--text-primary);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
@@ -2073,7 +2156,7 @@
 }
 .pullModelSearch:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .pullModelList {
@@ -2110,7 +2193,7 @@
 }
 .pullModelBadge {
   font-size: 10px;
-  background: var(--color-primary);
+  background: var(--text-primary);
   color: white;
   border-radius: var(--radius-sm);
   padding: 1px 6px;
@@ -2155,7 +2238,7 @@
 }
 .pullProgressFill {
   height: 100%;
-  background: var(--color-primary);
+  background: var(--text-primary);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -2259,7 +2342,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--color-primary);
+  color: var(--text-primary);
   text-decoration: none;
 }
 
@@ -2350,13 +2433,13 @@
 }
 
 .orPickerChipActive {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
   color: var(--color-white);
 }
 
 .orPickerChipActive:hover:not(:disabled) {
-  background: var(--color-primary);
+  background: var(--text-primary);
   color: var(--color-white);
 }
 
@@ -2397,7 +2480,7 @@
 
 .orPickerError button {
   background: transparent;
-  color: var(--color-primary);
+  color: var(--text-primary);
   border: 1px solid var(--border-primary);
   padding: 3px 10px;
   border-radius: var(--radius-sm);
@@ -2428,7 +2511,7 @@
 
 .orPickerRowSelected {
   background: var(--color-primary-light);
-  border-left: 3px solid var(--color-primary);
+  border-left: 3px solid var(--text-primary);
   padding-left: 9px;
 }
 

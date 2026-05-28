@@ -1,7 +1,7 @@
 import React, { memo, useState, useMemo, useRef, useEffect } from 'react'
 import { Reply } from 'lucide-react'
-import { MarkdownContent, AttachmentDisplay, IconButton } from '../../components/ui'
-import type { ChatMessage as ChatMessageType } from '../../types'
+import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
+import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import styles from './ChatPage.module.css'
 
@@ -38,6 +38,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   onOptionClick,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   // The selection is owned by the message prop (the single source of truth).
   // The ref is a one-shot guard to suppress double-dispatch between the click
   // and the next render cycle, and is re-synced whenever the prop changes so
@@ -120,6 +121,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
             attachments={message.attachments}
             onOpenFile={onOpenFile}
             onOpenFolder={onOpenFolder}
+            onPreview={setPreviewAttachment}
           />
         </div>
       )}
@@ -155,6 +157,11 @@ export const ChatMessageItem = memo(function ChatMessageItem({
       ) : (
         bubbleContainer
       )}
+      <AttachmentPreviewModal
+        isOpen={previewAttachment !== null}
+        attachment={previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
     </div>
   )
 }, (prev, next) =>

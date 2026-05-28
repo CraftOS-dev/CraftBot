@@ -1,5 +1,5 @@
 {
-  "version": "1.3.1",
+  "version": "1.3.2",
   "general": {
     "agent_name": "CraftBot",
     "os_language": "en"
@@ -80,5 +80,6 @@
     "google": true,
     "byteplus": true,
     "openrouter": false
-  }
+  },
+  "aws_credentials": {}
 }

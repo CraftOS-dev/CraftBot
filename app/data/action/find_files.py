@@ -1,5 +1,6 @@
 from agent_core import action
 
+
 @action(
     name="find_files",
     description="Finds files by name or pattern across the system. Supports wildcards and recursive search. Use absolute paths for base_directory.",
@@ -10,45 +11,37 @@ from agent_core import action
         "pattern": {
             "type": "string",
             "example": "*.pdf",
-            "description": "The file name or glob pattern to match. Supports wildcards like * and ?"
+            "description": "The file name or glob pattern to match. Supports wildcards like * and ?",
         },
         "recursive": {
             "type": "boolean",
             "example": True,
-            "description": "Whether to search directories recursively. Default is true."
+            "description": "Whether to search directories recursively. Default is true.",
         },
         "base_directory": {
             "type": "string",
             "example": "/home/user/Documents",
-            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., /home/user/Documents or /Users/name/Desktop)."
-        }
+            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., /home/user/Documents or /Users/name/Desktop).",
+        },
     },
     output_schema={
-        "status": {
-            "type": "string",
-            "example": "success"
-        },
+        "status": {"type": "string", "example": "success"},
         "matches": {
             "type": "array",
-            "items": {
-                "type": "string"
-            },
+            "items": {"type": "string"},
             "example": [
                 "/home/user/Documents/file1.pdf",
-                "/home/user/Documents/reports/file2.pdf"
-            ]
+                "/home/user/Documents/reports/file2.pdf",
+            ],
         },
-        "message": {
-            "type": "string",
-            "example": "No files matched."
-        }
+        "message": {"type": "string", "example": "No files matched."},
     },
     test_payload={
         "pattern": "*.pdf",
         "recursive": True,
         "base_directory": "/home/user/Documents",
-        "simulated_mode": True
-    }
+        "simulated_mode": True,
+    },
 )
 def find_file_by_name(input_data: dict) -> dict:
     import os
@@ -73,20 +66,24 @@ def find_file_by_name(input_data: dict) -> dict:
         return {
             "status": "error",
             "matches": [],
-            "message": f"Base directory does not exist: {base_directory}"
+            "message": f"Base directory does not exist: {base_directory}",
         }
 
     if not os.path.isdir(base_directory):
         return {
             "status": "error",
             "matches": [],
-            "message": f"Base directory is not a directory: {base_directory}"
+            "message": f"Base directory is not a directory: {base_directory}",
         }
 
     # Normalize the pattern (if user passes a path, only use its basename as the match pattern)
     pattern = os.path.expanduser(pattern)
     pattern = os.path.normpath(pattern)
-    file_pattern = os.path.basename(pattern) if (os.path.isabs(pattern) or os.sep in pattern) else pattern
+    file_pattern = (
+        os.path.basename(pattern)
+        if (os.path.isabs(pattern) or os.sep in pattern)
+        else pattern
+    )
 
     matches = []
     for root, dirs, files in os.walk(base_directory):
@@ -104,7 +101,9 @@ def find_file_by_name(input_data: dict) -> dict:
     return {
         "status": "success",
         "matches": matches,
-        "message": "" if matches else f"No files matching '{file_pattern}' were found in '{base_directory}'."
+        "message": ""
+        if matches
+        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
     }
 
 
@@ -118,45 +117,37 @@ def find_file_by_name(input_data: dict) -> dict:
         "pattern": {
             "type": "string",
             "example": "*.pdf",
-            "description": "The file name or glob pattern to match. Supports wildcards like * and ?"
+            "description": "The file name or glob pattern to match. Supports wildcards like * and ?",
         },
         "recursive": {
             "type": "boolean",
             "example": True,
-            "description": "Whether to search directories recursively. Default is true."
+            "description": "Whether to search directories recursively. Default is true.",
         },
         "base_directory": {
             "type": "string",
             "example": "C:/Users/user/Documents",
-            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., C:/Users/user/Documents or D:/Projects)."
-        }
+            "description": "Absolute path to the base directory to start searching from. Use full absolute paths (e.g., C:/Users/user/Documents or D:/Projects).",
+        },
     },
     output_schema={
-        "status": {
-            "type": "string",
-            "example": "success"
-        },
+        "status": {"type": "string", "example": "success"},
         "matches": {
             "type": "array",
-            "items": {
-                "type": "string"
-            },
+            "items": {"type": "string"},
             "example": [
                 "C:/Users/user/Documents/file1.pdf",
-                "C:/Users/user/Documents/reports/file2.pdf"
-            ]
+                "C:/Users/user/Documents/reports/file2.pdf",
+            ],
         },
-        "message": {
-            "type": "string",
-            "example": "No files matched."
-        }
+        "message": {"type": "string", "example": "No files matched."},
     },
     test_payload={
         "pattern": "*.pdf",
         "recursive": True,
         "base_directory": "C:/Users/user/Documents",
-        "simulated_mode": True
-    }
+        "simulated_mode": True,
+    },
 )
 def find_file_by_name_windows(input_data: dict) -> dict:
     import os
@@ -182,14 +173,14 @@ def find_file_by_name_windows(input_data: dict) -> dict:
         return {
             "status": "error",
             "matches": [],
-            "message": f"Base directory does not exist: {base_directory}"
+            "message": f"Base directory does not exist: {base_directory}",
         }
 
     if not os.path.isdir(base_directory):
         return {
             "status": "error",
             "matches": [],
-            "message": f"Base directory is not a directory: {base_directory}"
+            "message": f"Base directory is not a directory: {base_directory}",
         }
 
     pattern = pattern.replace("/", "\\")
@@ -197,7 +188,11 @@ def find_file_by_name_windows(input_data: dict) -> dict:
     pattern = os.path.normpath(pattern)
 
     # If user passes a path, only match on the basename
-    file_pattern = os.path.basename(pattern) if (os.path.isabs(pattern) or ("\\" in pattern)) else pattern
+    file_pattern = (
+        os.path.basename(pattern)
+        if (os.path.isabs(pattern) or ("\\" in pattern))
+        else pattern
+    )
 
     matches = []
     for root, dirs, files in os.walk(base_directory):
@@ -214,5 +209,7 @@ def find_file_by_name_windows(input_data: dict) -> dict:
     return {
         "status": "success",
         "matches": matches,
-        "message": "" if matches else f"No files matching '{file_pattern}' were found in '{base_directory}'."
+        "message": ""
+        if matches
+        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
     }

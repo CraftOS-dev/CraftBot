@@ -24,7 +24,7 @@ function App() {
         alignItems: 'center',
         justifyContent: 'center',
         height: '100vh',
-        background: '#131313',
+        background: '#191919',
         flexDirection: 'column',
         gap: '48px',
         userSelect: 'none',

@@ -42,8 +42,8 @@
 }
 
 .stepDot.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
+  background: #FF4F18;
+  border-color: #FF4F18;
   color: var(--color-white);
 }
 
@@ -82,7 +82,7 @@
 }
 
 .stepConnector.active {
-  background: var(--color-primary);
+  background: #FF4F18;
 }
 
 /* Main Content */
@@ -144,22 +144,50 @@
   padding-right: var(--space-2);
 }
 
+/* Embedded IntegrationsSettings panel — the panel ships its own inner
+   max-height scroll for the integrations list, but inside the onboarding
+   card the available height is smaller, so we let the whole panel scroll
+   here and disable the inner scroll (uses a global selector to reach into
+   the foreign CSS-module class). */
+.integrationsPanel {
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.integrationsPanel :global([class*="integrationsList"]) {
+  max-height: none;
+  overflow: visible;
+}
+
+/* The embedded panel's root (.settingsSection) ships with a 600px max-width
+   and auto margins for the Settings page. Inside the onboarding card those
+   constraints leave dead space on the right, so we let it fill the card.
+   Scoped to .integrationsPanel — the Settings page is untouched. */
+.integrationsPanel :global([class*="settingsSection"]) {
+  max-width: none;
+  margin: 0;
+}
+
 /* Scrollbar styling */
-.optionsList::-webkit-scrollbar {
+.optionsList::-webkit-scrollbar,
+.integrationsPanel::-webkit-scrollbar {
   width: 6px;
 }
 
-.optionsList::-webkit-scrollbar-track {
+.optionsList::-webkit-scrollbar-track,
+.integrationsPanel::-webkit-scrollbar-track {
   background: var(--bg-tertiary);
   border-radius: var(--radius-full);
 }
 
-.optionsList::-webkit-scrollbar-thumb {
+.optionsList::-webkit-scrollbar-thumb,
+.integrationsPanel::-webkit-scrollbar-thumb {
   background: var(--border-secondary);
   border-radius: var(--radius-full);
 }
 
-.optionsList::-webkit-scrollbar-thumb:hover {
+.optionsList::-webkit-scrollbar-thumb:hover,
+.integrationsPanel::-webkit-scrollbar-thumb:hover {
   background: var(--border-hover);
 }
 
@@ -188,7 +216,7 @@
 }
 
 .optionItem.selected {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   background: var(--color-primary-subtle);
 }
 
@@ -208,7 +236,7 @@
 }
 
 .optionItem.selected .optionRadio {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
 }
 
 .optionRadio::after {
@@ -216,7 +244,7 @@
   width: 8px;
   height: 8px;
   border-radius: var(--radius-full);
-  background: var(--color-primary);
+  background: var(--text-primary);
   opacity: 0;
   transition: opacity var(--transition-base);
 }
@@ -241,8 +269,8 @@
 }
 
 .optionItem.selected .optionCheckbox {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
+  border-color: var(--text-primary);
+  background: var(--text-primary);
   color: var(--color-white);
 }
 
@@ -271,7 +299,7 @@
 }
 
 .optionItem.selected .optionIcon {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .optionDescription {
@@ -312,7 +340,7 @@
 
 .textInput:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .textInput::placeholder {
@@ -473,14 +501,14 @@
   width: 6px;
   height: 6px;
   border-radius: var(--radius-full);
-  background: var(--color-primary);
+  background: var(--text-primary);
   opacity: 0;
   transition: opacity var(--transition-base);
 }
 
 .formSelectOptionInline.selected .optionRadio,
 .formSelectOptionVertical.selected .optionRadio {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
 }
 
 .formSelectOptionInline.selected .optionRadio::after,
@@ -519,7 +547,7 @@
 }
 
 .formSelectOptionInline.selected {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   background: var(--color-primary-subtle);
 }
 
@@ -549,7 +577,7 @@
 }
 
 .formSelectOptionVertical.selected {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   background: var(--color-primary-subtle);
 }
 
@@ -570,7 +598,7 @@
 
 .formDropdown:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .formDropdown option {
@@ -619,7 +647,7 @@
 }
 
 .formCheckboxItem.selected {
-  border-color: var(--color-primary);
+  border-color: var(--text-primary);
   background: var(--color-primary-subtle);
 }
 
@@ -638,8 +666,8 @@
 }
 
 .formCheckboxItem.selected .optionCheckbox {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
+  border-color: var(--text-primary);
+  background: var(--text-primary);
   color: var(--color-white, #fff);
 }
 
@@ -697,7 +725,7 @@
   width: 32px;
   height: 32px;
   border: 3px solid var(--border-primary);
-  border-top-color: var(--color-primary);
+  border-top-color: var(--text-primary);
   border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
 }
@@ -923,7 +951,7 @@
 
 .ollamaInput:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .ollamaError {
@@ -944,7 +972,7 @@
   width: 16px;
   height: 16px;
   border: 2px solid var(--border-primary);
-  border-top-color: var(--color-primary);
+  border-top-color: var(--text-primary);
   border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
   flex-shrink: 0;
@@ -967,11 +995,11 @@
   border-radius: 3px;
   background: linear-gradient(
     90deg,
-    var(--color-primary) 0%,
-    var(--color-primary) 40%,
-    color-mix(in srgb, var(--color-primary) 60%, white) 50%,
-    var(--color-primary) 60%,
-    var(--color-primary) 100%
+    var(--text-primary) 0%,
+    var(--text-primary) 40%,
+    color-mix(in srgb, var(--text-primary) 60%, white) 50%,
+    var(--text-primary) 60%,
+    var(--text-primary) 100%
   );
   background-size: 200% 100%;
   animation: installShimmer 1.8s linear infinite;
@@ -1037,7 +1065,7 @@
 .downloadProgressFill {
   height: 100%;
   border-radius: 3px;
-  background: var(--color-primary);
+  background: var(--text-primary);
   transition: width 0.3s ease;
 }
 
@@ -1077,7 +1105,7 @@
 }
 
 .modelSearchInput:focus {
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .modelList {
@@ -1121,7 +1149,7 @@
 }
 
 .modelOption input[type="radio"] {
-  accent-color: var(--color-primary);
+  accent-color: var(--text-primary);
   flex-shrink: 0;
 }
 
@@ -1137,8 +1165,8 @@
 
 .modelOptionBadge {
   font-size: var(--text-xs);
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  color: var(--text-primary);
+  background: var(--bg-selected);
   border-radius: var(--radius-sm);
   padding: 1px 6px;
   white-space: nowrap;
@@ -1156,7 +1184,7 @@
   }
 
   .optionItem.selected:hover {
-    border-color: var(--color-primary);
+    border-color: var(--text-primary);
     background: var(--color-primary-subtle);
   }
 

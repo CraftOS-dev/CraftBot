@@ -17,7 +17,7 @@ class MenuCommand(Command):
 
     @property
     def description(self) -> str:
-        return "Show the main menu (TUI/Browser only)"
+        return "Show the main menu (Browser only)"
 
     @property
     def hidden(self) -> bool:

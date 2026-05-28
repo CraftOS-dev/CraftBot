@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
-import ReactDOM from 'react-dom'
 import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, ChevronDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
-import { Button, IconButton, StatusIndicator } from '../ui'
+import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator, AttachmentPreviewModal } from '../ui'
+import type { SlashCommandAutocompleteHandle } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
 import styles from './Chat.module.css'
@@ -128,6 +128,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<PendingAttachment | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const autocompleteRef = useRef<SlashCommandAutocompleteHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Voice input state
@@ -189,14 +190,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [langOpen])
-
-  // Close preview on Escape
-  useEffect(() => {
-    if (!previewAttachment) return
-    const handler = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setPreviewAttachment(null) }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [previewAttachment])
 
   // Track scroll position + direction, and load older messages on scroll-to-top.
   // The scroll-to-bottom button surfaces when the user is scrolling *toward*
@@ -404,8 +397,29 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && !e.shiftKey) {
+      if (autocompleteRef.current?.handleTab()) {
+        e.preventDefault()
+        return
+      }
+    }
+    if (e.key === 'ArrowUp') {
+      if (autocompleteRef.current?.handleUpArrow()) {
+        e.preventDefault()
+        return
+      }
+    }
+    if (e.key === 'ArrowDown') {
+      if (autocompleteRef.current?.handleDownArrow()) {
+        e.preventDefault()
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (autocompleteRef.current?.handleEnter()) {
+        return
+      }
       handleSend()
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const history = inputHistoryRef.current
@@ -422,6 +436,10 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         setInput(history[historyIndexRef.current])
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
+        if (autocompleteRef.current?.handleDownArrow()) {
+          e.preventDefault()
+          return
+        }
         if (historyIndexRef.current === -1) return
         if (historyIndexRef.current < history.length - 1) {
           historyIndexRef.current++
@@ -526,21 +544,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     })
   }
 
-  const pdfBlobUrl = useMemo(() => {
-    if (!previewAttachment) return null
-    const isPdf = previewAttachment.type === 'application/pdf' || previewAttachment.name.toLowerCase().endsWith('.pdf')
-    if (!isPdf) return null
-    try {
-      const bytes = Uint8Array.from(atob(previewAttachment.content), c => c.charCodeAt(0))
-      const blob = new Blob([bytes], { type: 'application/pdf' })
-      return URL.createObjectURL(blob)
-    } catch { return null }
-  }, [previewAttachment])
-
-  useEffect(() => {
-    return () => { if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl) }
-  }, [pdfBlobUrl])
-
   return (
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
@@ -549,8 +552,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
             <div className={styles.emptyState}>
               <div className={styles.emptyIcon}>
                 <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-                  <rect width="32" height="32" rx="6" fill="var(--color-primary-light)"/>
-                  <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round"/>
+                  <rect width="32" height="32" rx="6" fill="var(--bg-selected)"/>
+                  <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--text-primary)" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </div>
               <h3>{emptyMessage || 'Start a conversation'}</h3>
@@ -625,13 +628,13 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
           </button>
         )}
       </div>
-
+      
       {/* Status bar */}
       <div className={styles.statusBar}>
         <StatusIndicator status={status.state} size="sm" variant="dot" />
         <span>{status.message}</span>
       </div>
-
+      
       {/* Input area */}
       <div className={styles.inputArea}>
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
@@ -727,7 +730,15 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
               ))}
             </div>
           )}
-
+          
+          <SlashCommandAutocomplete
+            ref={autocompleteRef}
+            input={input}
+            onSelectItem={(name) => {
+              setInput(`/${name}`)
+              inputRef.current?.focus()
+            }}
+          />
           <textarea
             ref={inputRef}
             className={`${styles.input}${isListening ? ` ${styles.inputListening}` : ''}`}
@@ -741,7 +752,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
             inputMode="text"
           />
         </div>
-
         <Button
           icon={<Send size={16} />}
           onClick={handleSend}
@@ -749,72 +759,11 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         />
       </div>
 
-      {previewAttachment && ReactDOM.createPortal(
-        (() => {
-          const isImage = previewAttachment.type.startsWith('image/')
-          const isPdf = previewAttachment.type === 'application/pdf' || previewAttachment.name.toLowerCase().endsWith('.pdf')
-          const isText = !isPdf && (previewAttachment.type.startsWith('text/') ||
-            ['application/json', 'application/xml', 'application/javascript',
-             'application/typescript', 'application/yaml', 'application/toml',
-             'application/csv', 'application/x-sh'].includes(previewAttachment.type) ||
-            /\.(txt|md|csv|json|xml|yaml|yml|toml|sh|py|js|ts|jsx|tsx|css|html|htm|env|log|ini|cfg|conf)$/i.test(previewAttachment.name))
-
-          let textContent = ''
-          let lineCount = 0
-          if (isText) {
-            try {
-              const bytes = Uint8Array.from(atob(previewAttachment.content), c => c.charCodeAt(0))
-              textContent = new TextDecoder('utf-8').decode(bytes)
-              lineCount = textContent.split('\n').length
-            } catch { textContent = '' }
-          }
-
-          return (
-            <div className={styles.previewOverlay} onClick={() => setPreviewAttachment(null)}>
-              <div className={styles.previewModal} onClick={e => e.stopPropagation()}>
-                <div className={styles.previewHeader}>
-                  <div className={styles.previewHeaderLeft}>
-                    <span className={styles.previewFileName} title={previewAttachment.name}>
-                      {previewAttachment.name}
-                    </span>
-                    <span className={styles.previewMeta}>
-                      {formatFileSize(previewAttachment.size)}
-                      {isText && lineCount > 0 && <> · {lineCount} line{lineCount !== 1 ? 's' : ''}</>}
-                      {isText && <> · Formatting may be inconsistent from source</>}
-                    </span>
-                  </div>
-                  <button className={styles.previewClose} onClick={() => setPreviewAttachment(null)} title="Close (Esc)">
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {isImage ? (
-                  <img
-                    src={`data:${previewAttachment.type};base64,${previewAttachment.content}`}
-                    alt={previewAttachment.name}
-                    className={styles.previewImage}
-                  />
-                ) : isPdf && pdfBlobUrl ? (
-                  <iframe
-                    src={pdfBlobUrl}
-                    className={styles.previewPdf}
-                    title={previewAttachment.name}
-                  />
-                ) : isText && textContent ? (
-                  <pre className={styles.previewTextContent}>{textContent}</pre>
-                ) : (
-                  <div className={styles.previewFileInfo}>
-                    <p className={styles.previewUnavailableText}>
-                      Preview isn't available for {previewAttachment.name} ({formatFileSize(previewAttachment.size)}).
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })(),
-        document.body
-      )}
+      <AttachmentPreviewModal
+        isOpen={previewAttachment !== null}
+        attachment={previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
     </div>
   )
 }

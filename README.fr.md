@@ -176,7 +176,7 @@ Si vous voyez **« npm not found in PATH »** en lançant `python run.py` :
 
 **Alternative :** utilisez le mode TUI, qui ne nécessite pas Node.js :
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### L'installation échoue à cause des dépendances

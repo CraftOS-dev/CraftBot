@@ -8,7 +8,15 @@ Import in your models.py:
 
 import secrets
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from models import Base
 
@@ -24,7 +32,9 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    memberships = relationship("Membership", back_populates="user", cascade="all, delete-orphan")
+    memberships = relationship(
+        "Membership", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def to_dict(self):
         return {
@@ -59,16 +69,23 @@ class Membership(Base):
             user_id=1, resource_type="project", resource_id=5
         ).first() is not None
     """
+
     __tablename__ = "memberships"
     __table_args__ = (
-        UniqueConstraint("user_id", "resource_type", "resource_id", name="uq_membership"),
+        UniqueConstraint(
+            "user_id", "resource_type", "resource_id", name="uq_membership"
+        ),
     )
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    resource_type = Column(String(50), nullable=False)  # "project", "board", "team", etc.
+    resource_type = Column(
+        String(50), nullable=False
+    )  # "project", "board", "team", etc.
     resource_id = Column(Integer, nullable=False, index=True)
-    role = Column(String(50), default="member")  # "owner", "admin", "editor", "viewer", "member"
+    role = Column(
+        String(50), default="member"
+    )  # "owner", "admin", "editor", "viewer", "member"
     invite_code = Column(String(64), nullable=True)  # For pending invites
     joined_at = Column(DateTime, default=datetime.utcnow)
 
@@ -101,6 +118,7 @@ class Invite(Base):
         membership = Membership(user_id=2, resource_type=invite.resource_type,
                                 resource_id=invite.resource_id, role=invite.default_role)
     """
+
     __tablename__ = "invites"
 
     id = Column(Integer, primary_key=True)
@@ -115,8 +133,14 @@ class Invite(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     @classmethod
-    def create(cls, resource_type: str, resource_id: int, created_by: int,
-               default_role: str = "member", max_uses: int = None):
+    def create(
+        cls,
+        resource_type: str,
+        resource_id: int,
+        created_by: int,
+        default_role: str = "member",
+        max_uses: int = None,
+    ):
         return cls(
             code=secrets.token_urlsafe(16),
             resource_type=resource_type,

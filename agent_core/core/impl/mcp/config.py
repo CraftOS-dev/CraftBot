@@ -17,15 +17,15 @@ from agent_core.utils.logger import logger
 class MCPServerConfig:
     """Configuration for a single MCP server."""
 
-    name: str                                    # Server identifier (e.g., "filesystem")
-    description: str = ""                        # Human-readable description
-    transport: str = "stdio"                     # "stdio" | "sse" | "websocket"
-    command: Optional[str] = None                # For stdio: executable path
+    name: str  # Server identifier (e.g., "filesystem")
+    description: str = ""  # Human-readable description
+    transport: str = "stdio"  # "stdio" | "sse" | "websocket"
+    command: Optional[str] = None  # For stdio: executable path
     args: List[str] = field(default_factory=list)  # For stdio: command arguments
-    url: Optional[str] = None                    # For sse/websocket: server URL
+    url: Optional[str] = None  # For sse/websocket: server URL
     env: Dict[str, str] = field(default_factory=dict)  # Environment variables
-    enabled: bool = True                         # Enable/disable toggle
-    action_set_name: Optional[str] = None        # Custom set name (defaults to mcp_{name})
+    enabled: bool = True  # Enable/disable toggle
+    action_set_name: Optional[str] = None  # Custom set name (defaults to mcp_{name})
 
     def __post_init__(self):
         """Validate configuration after initialization."""

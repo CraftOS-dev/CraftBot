@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -83,7 +82,9 @@ def parse_date(value: str) -> Optional[date]:
         return None
 
 
-def filter_by_days(entries: List[Dict[str, Any]], days: Optional[int]) -> List[Dict[str, Any]]:
+def filter_by_days(
+    entries: List[Dict[str, Any]], days: Optional[int]
+) -> List[Dict[str, Any]]:
     if not days:
         return entries
     cutoff = date.today() - timedelta(days=days - 1)
@@ -119,7 +120,9 @@ def aggregate_costs(entries: Iterable[Dict[str, Any]]) -> Dict[str, float]:
     return totals
 
 
-def pick_current_model(entries: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+def pick_current_model(
+    entries: List[Dict[str, Any]],
+) -> Tuple[Optional[str], Optional[str]]:
     if not entries:
         return None, None
     sorted_entries = sorted(
@@ -139,12 +142,16 @@ def pick_current_model(entries: List[Dict[str, Any]]) -> Tuple[Optional[str], Op
                     scored.append(ModelCost(model=model, cost=float(cost)))
             if scored:
                 scored.sort(key=lambda item: item.cost, reverse=True)
-                return scored[0].model, entry.get("date") if isinstance(entry.get("date"), str) else None
+                return scored[0].model, entry.get("date") if isinstance(
+                    entry.get("date"), str
+                ) else None
         models_used = entry.get("modelsUsed")
         if isinstance(models_used, list) and models_used:
             last = models_used[-1]
             if isinstance(last, str):
-                return last, entry.get("date") if isinstance(entry.get("date"), str) else None
+                return last, entry.get("date") if isinstance(
+                    entry.get("date"), str
+                ) else None
     return None, None
 
 
@@ -154,7 +161,9 @@ def usd(value: Optional[float]) -> str:
     return f"${value:,.2f}"
 
 
-def latest_day_cost(entries: List[Dict[str, Any]], model: str) -> Tuple[Optional[str], Optional[float]]:
+def latest_day_cost(
+    entries: List[Dict[str, Any]], model: str
+) -> Tuple[Optional[str], Optional[float]]:
     if not entries:
         return None, None
     sorted_entries = sorted(
@@ -169,7 +178,11 @@ def latest_day_cost(entries: List[Dict[str, Any]], model: str) -> Tuple[Optional
             if not isinstance(item, dict):
                 continue
             if item.get("modelName") == model:
-                cost = item.get("cost") if isinstance(item.get("cost"), (int, float)) else None
+                cost = (
+                    item.get("cost")
+                    if isinstance(item.get("cost"), (int, float))
+                    else None
+                )
                 day = entry.get("date") if isinstance(entry.get("date"), str) else None
                 return day, float(cost) if cost is not None else None
     return None, None
@@ -228,20 +241,32 @@ def build_json_all(provider: str, totals: Dict[str, float]) -> Dict[str, Any]:
         "mode": "all",
         "models": [
             {"model": model, "totalCostUSD": cost}
-            for model, cost in sorted(totals.items(), key=lambda item: item[1], reverse=True)
+            for model, cost in sorted(
+                totals.items(), key=lambda item: item[1], reverse=True
+            )
         ],
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Summarize CodexBar model usage from local cost logs.")
+    parser = argparse.ArgumentParser(
+        description="Summarize CodexBar model usage from local cost logs."
+    )
     parser.add_argument("--provider", choices=["codex", "claude"], default="codex")
     parser.add_argument("--mode", choices=["current", "all"], default="current")
-    parser.add_argument("--model", help="Explicit model name to report instead of auto-current.")
-    parser.add_argument("--input", help="Path to codexbar cost JSON (or '-' for stdin).")
-    parser.add_argument("--days", type=int, help="Limit to last N days (based on daily rows).")
+    parser.add_argument(
+        "--model", help="Explicit model name to report instead of auto-current."
+    )
+    parser.add_argument(
+        "--input", help="Path to codexbar cost JSON (or '-' for stdin)."
+    )
+    parser.add_argument(
+        "--days", type=int, help="Limit to last N days (based on daily rows)."
+    )
     parser.add_argument("--format", choices=["text", "json"], default="text")
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
+    parser.add_argument(
+        "--pretty", action="store_true", help="Pretty-print JSON output."
+    )
 
     args = parser.parse_args()
 

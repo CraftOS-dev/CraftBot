@@ -33,6 +33,7 @@ def log_events(
     Decorator to log function start, success, failure.
     Adds a unique ID per call for tracing.
     """
+
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -106,4 +107,5 @@ def log_events(
                 raise
 
         return wrapper
+
     return decorator

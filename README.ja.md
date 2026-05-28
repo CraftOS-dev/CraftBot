@@ -170,7 +170,7 @@ CraftBotはすべてのLiving UIに組み込まれており、**状態を常に�
 
 **代替手段:** Node.jsが不要なTUIモードを使う:
 ```bash
-python run.py --tui
+python run.py --cli
 ```
 
 ### 依存関係のせいでインストールに失敗する

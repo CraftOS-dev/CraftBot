@@ -1,4 +1,5 @@
 """Diagnostic environment for the "keyboard typing" action."""
+
 from __future__ import annotations
 
 import types

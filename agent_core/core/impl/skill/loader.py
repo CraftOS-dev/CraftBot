@@ -7,7 +7,7 @@ Handles discovery and parsing of SKILL.md files from the filesystem.
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 import yaml
 
@@ -19,13 +19,12 @@ class SkillLoader:
     """Loads and parses skill definitions from filesystem."""
 
     # Regex pattern to extract YAML frontmatter from SKILL.md
-    FRONTMATTER_PATTERN = re.compile(
-        r'^---\s*\n(.*?)\n---\s*\n(.*)$',
-        re.DOTALL
-    )
+    FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 
     @staticmethod
-    def discover_skills(search_dirs: List[Path], config: Optional[SkillsConfig] = None) -> List[Skill]:
+    def discover_skills(
+        search_dirs: List[Path], config: Optional[SkillsConfig] = None
+    ) -> List[Skill]:
         """
         Find all valid skill directories and parse SKILL.md files.
 
@@ -95,7 +94,9 @@ class SkillLoader:
         match = SkillLoader.FRONTMATTER_PATTERN.match(content)
 
         if not match:
-            raise ValueError(f"Invalid SKILL.md format (missing frontmatter): {skill_path}")
+            raise ValueError(
+                f"Invalid SKILL.md format (missing frontmatter): {skill_path}"
+            )
 
         frontmatter_str = match.group(1)
         instructions = match.group(2).strip()
@@ -117,8 +118,10 @@ class SkillLoader:
             # Try to extract description from first paragraph
             first_para = instructions.split("\n\n")[0] if instructions else ""
             # Remove markdown headers
-            first_para = re.sub(r'^#+\s+.*\n', '', first_para).strip()
-            frontmatter["description"] = first_para[:200] if first_para else "No description"
+            first_para = re.sub(r"^#+\s+.*\n", "", first_para).strip()
+            frontmatter["description"] = (
+                first_para[:200] if first_para else "No description"
+            )
 
         # Create metadata
         metadata = SkillMetadata.from_dict(frontmatter)
@@ -164,7 +167,7 @@ class SkillLoader:
                 return args_list[index]
             return ""  # Return empty if index out of range
 
-        result = re.sub(r'\$ARGUMENTS\[(\d+)\]', replace_indexed, result)
+        result = re.sub(r"\$ARGUMENTS\[(\d+)\]", replace_indexed, result)
 
         # Replace $N shorthand
         def replace_shorthand(match):
@@ -173,10 +176,10 @@ class SkillLoader:
                 return args_list[index]
             return ""
 
-        result = re.sub(r'\$(\d+)(?!\d)', replace_shorthand, result)
+        result = re.sub(r"\$(\d+)(?!\d)", replace_shorthand, result)
 
         # Replace $ARGUMENTS (full string) last
-        result = result.replace('$ARGUMENTS', arguments)
+        result = result.replace("$ARGUMENTS", arguments)
 
         return result
 

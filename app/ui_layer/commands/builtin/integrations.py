@@ -56,7 +56,11 @@ class IntegrationCommand(Command):
         # Surface handler-specific subcommands (login-qr, invite, etc.)
         handler = get_handler(self._integration_name)
         if handler:
-            extras = [s for s in getattr(handler, "subcommands", []) if s not in {"login", "logout", "status"}]
+            extras = [
+                s
+                for s in getattr(handler, "subcommands", [])
+                if s not in {"login", "logout", "status"}
+            ]
             if extras:
                 lines.append("")
                 lines.append("Integration-specific subcommands:")
@@ -136,7 +140,9 @@ class IntegrationCommand(Command):
             fields = get_integration_fields(self._integration_name)
 
             # Token-based: args should provide credential values in field order
-            if auth_type in ("token", "both", "token_with_interactive") and (args or fields):
+            if auth_type in ("token", "both", "token_with_interactive") and (
+                args or fields
+            ):
                 credentials: dict[str, str] = {}
                 for i, field in enumerate(fields):
                     if i < len(args):
@@ -158,12 +164,16 @@ class IntegrationCommand(Command):
 
             # OAuth-based
             if auth_type in ("oauth", "both"):
-                success, message = await connect_integration_oauth(self._integration_name)
+                success, message = await connect_integration_oauth(
+                    self._integration_name
+                )
                 return CommandResult(success=success, message=message)
 
             # Interactive (QR code, etc.)
             if auth_type in ("interactive", "token_with_interactive"):
-                success, message = await connect_integration_interactive(self._integration_name)
+                success, message = await connect_integration_interactive(
+                    self._integration_name
+                )
                 return CommandResult(success=success, message=message)
 
             return CommandResult(

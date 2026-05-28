@@ -12,17 +12,18 @@ import { useToast } from '../../contexts/ToastContext'
 import { useConfirmModal } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
-
-// Types
-interface MCPServerConfig {
-  name: string
-  description: string
-  enabled: boolean
-  transport: string
-  command?: string
-  action_set: string
-  env: Record<string, string>
-}
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import {
+  setLoading as setMcpLoading,
+  setEnabled as setMcpEnabled,
+  removeServer as removeMcpServer,
+  type MCPServerConfig,
+} from '../../store/slices/mcpSettingsSlice'
+import {
+  selectMcpServers,
+  selectMcpIsLoading,
+  selectMcpHasLoaded,
+} from '../../store/selectors/mcpSettings'
 
 interface MCPItem {
   name: string
@@ -37,10 +38,12 @@ interface MCPItem {
 export function MCPSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
+  const dispatch = useAppDispatch()
 
-  // State
-  const [servers, setServers] = useState<MCPServerConfig[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  // Slice-backed: list state cached across remounts.
+  const servers = useAppSelector(selectMcpServers)
+  const hasLoaded = useAppSelector(selectMcpHasLoaded)
+  const isLoading = useAppSelector(selectMcpIsLoading) || !hasLoaded
 
   // Search and reload
   const [searchQuery, setSearchQuery] = useState('')
@@ -60,31 +63,19 @@ export function MCPSettings() {
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
 
-  // Load data when connected
+  // Subscribe to side-effect messages (toasts, modal close). The list state
+  // itself is updated by the slice via the registry.
   useEffect(() => {
     if (!isConnected) return
 
     const cleanups = [
-      onMessage('mcp_list', (data: unknown) => {
-        const d = data as { success: boolean; servers?: MCPServerConfig[]; error?: string }
-        setIsLoading(false)
-        if (d.success && d.servers) {
-          setServers(d.servers)
-        } else if (d.error) {
-          showToast('error', d.error)
-        }
-      }),
       onMessage('mcp_enable', (data: unknown) => {
-        const d = data as { success: boolean; message?: string; error?: string }
-        if (!d.success) {
-          showToast('error', d.error || 'Failed to enable server')
-        }
+        const d = data as { success: boolean; error?: string }
+        if (!d.success) showToast('error', d.error || 'Failed to enable server')
       }),
       onMessage('mcp_disable', (data: unknown) => {
-        const d = data as { success: boolean; message?: string; error?: string }
-        if (!d.success) {
-          showToast('error', d.error || 'Failed to disable server')
-        }
+        const d = data as { success: boolean; error?: string }
+        if (!d.success) showToast('error', d.error || 'Failed to disable server')
       }),
       onMessage('mcp_remove', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
@@ -110,9 +101,7 @@ export function MCPSettings() {
       }),
       onMessage('mcp_get_env', (data: unknown) => {
         const d = data as { success: boolean; name: string; env?: Record<string, string> }
-        if (d.success && d.env) {
-          setEnvValues(d.env)
-        }
+        if (d.success && d.env) setEnvValues(d.env)
       }),
       onMessage('mcp_update_env', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string }
@@ -127,10 +116,14 @@ export function MCPSettings() {
       }),
     ]
 
-    send('mcp_list')
+    // Fetch list only on first mount (cached across re-mounts thereafter).
+    if (!hasLoaded) {
+      dispatch(setMcpLoading(true))
+      send('mcp_list')
+    }
 
     return () => cleanups.forEach(c => c())
-  }, [isConnected, send, onMessage])
+  }, [isConnected, send, onMessage, hasLoaded, dispatch, showToast])
 
   // Build MCP list
   const mcpList: MCPItem[] = servers
@@ -169,7 +162,7 @@ export function MCPSettings() {
     } else {
       send('mcp_disable', { name })
     }
-    setServers(prev => prev.map(s => s.name === name ? { ...s, enabled } : s))
+    dispatch(setMcpEnabled({ name, enabled }))
   }
 
   const handleRemoveServer = (name: string) => {
@@ -180,7 +173,7 @@ export function MCPSettings() {
       variant: 'danger',
     }, () => {
       send('mcp_remove', { name })
-      setServers(prev => prev.filter(s => s.name !== name))
+      dispatch(removeMcpServer(name))
     })
   }
 

@@ -12,6 +12,7 @@ a release), and zip extraction with EXE discovery.
 All functions take the dependencies they need as arguments — there is no
 module-level state pulled from craftbot.py, which keeps imports one-way.
 """
+
 from __future__ import annotations
 
 import os
@@ -30,8 +31,10 @@ _PLATFORM = sys.platform
 def agent_asset_name() -> str:
     """Filename of the per-platform zip we expect at the GitHub release."""
     plat = (
-        "windows" if _PLATFORM == "win32"
-        else "macos" if _PLATFORM == "darwin"
+        "windows"
+        if _PLATFORM == "win32"
+        else "macos"
+        if _PLATFORM == "darwin"
         else "linux"
     )
     return f"CraftBot-agent-{plat}.zip"
