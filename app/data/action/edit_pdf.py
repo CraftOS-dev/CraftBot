@@ -1,5 +1,6 @@
 from agent_core import action
 
+
 @action(
     name="edit_pdf",
     description=(
@@ -64,12 +65,41 @@ from agent_core import action
                 "  fill_field: fill an AcroForm field. Fields: field_name(str), value(str)"
             ),
             "example": [
-                {"type": "highlight", "pattern": "Invoice", "page": "all", "color": "#fef08a"},
-                {"type": "add_text", "page": 1, "text": "PAID", "x": 200, "y": 400,
-                 "font_size": 36, "color": "#16a34a"},
-                {"type": "redact", "page": 1, "x0": 31.2, "y0": 791.3, "x1": 86.3, "y1": 807.3},
-                {"type": "replace_text", "pattern": "Q3", "replacement": "Q4", "page": "all"},
-                {"type": "watermark", "text": "DRAFT", "color": "#bbbbbb", "opacity": 0.2},
+                {
+                    "type": "highlight",
+                    "pattern": "Invoice",
+                    "page": "all",
+                    "color": "#fef08a",
+                },
+                {
+                    "type": "add_text",
+                    "page": 1,
+                    "text": "PAID",
+                    "x": 200,
+                    "y": 400,
+                    "font_size": 36,
+                    "color": "#16a34a",
+                },
+                {
+                    "type": "redact",
+                    "page": 1,
+                    "x0": 31.2,
+                    "y0": 791.3,
+                    "x1": 86.3,
+                    "y1": 807.3,
+                },
+                {
+                    "type": "replace_text",
+                    "pattern": "Q3",
+                    "replacement": "Q4",
+                    "page": "all",
+                },
+                {
+                    "type": "watermark",
+                    "text": "DRAFT",
+                    "color": "#bbbbbb",
+                    "opacity": 0.2,
+                },
             ],
         },
     },
@@ -111,7 +141,6 @@ from agent_core import action
 def edit_pdf_file(input_data: dict) -> dict:
     import os
     import sys
-    import re
     import subprocess
     import importlib
 
@@ -147,28 +176,28 @@ def edit_pdf_file(input_data: dict) -> dict:
             h = "".join(c * 2 for c in h)
         if len(h) != 6:
             return (0.0, 0.0, 0.0)
-        return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+        return tuple(int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
     def _color_int_to_rgb(color_int):
         """Convert PyMuPDF integer color to (r,g,b) float tuple."""
         r = ((color_int >> 16) & 0xFF) / 255.0
-        g = ((color_int >> 8)  & 0xFF) / 255.0
-        b = ( color_int        & 0xFF) / 255.0
+        g = ((color_int >> 8) & 0xFF) / 255.0
+        b = (color_int & 0xFF) / 255.0
         return (r, g, b)
 
     # Base14 fonts always available in PyMuPDF — no embedding needed
     _BASE14 = {
-        "Helvetica":             "helv",
-        "Helvetica-Bold":        "hebo",
+        "Helvetica": "helv",
+        "Helvetica-Bold": "hebo",
         "Helvetica-BoldOblique": "hebi",
-        "Times-Roman":           "tiro",
-        "Times-Bold":            "tibo",
-        "Times-Italic":          "tiit",
-        "Times-BoldItalic":      "tibi",
-        "Courier":               "cour",
-        "Courier-Bold":          "cobo",
-        "Courier-Oblique":       "coit",
-        "Courier-BoldOblique":   "cobi",
+        "Times-Roman": "tiro",
+        "Times-Bold": "tibo",
+        "Times-Italic": "tiit",
+        "Times-BoldItalic": "tibi",
+        "Courier": "cour",
+        "Courier-Bold": "cobo",
+        "Courier-Oblique": "coit",
+        "Courier-BoldOblique": "cobi",
     }
 
     def _best_font(pdf_font_name):
@@ -179,21 +208,29 @@ def edit_pdf_file(input_data: dict) -> dict:
         if pdf_font_name in _BASE14:
             return _BASE14[pdf_font_name], False
         n = pdf_font_name.lower()
-        is_bold   = any(x in n for x in ("bold", "demi", "black", "heavy"))
+        is_bold = any(x in n for x in ("bold", "demi", "black", "heavy"))
         is_italic = any(x in n for x in ("italic", "oblique", "slant"))
         if "times" in n or "roman" in n or "serif" in n:
-            if is_bold and is_italic: return "tibi", True
-            if is_bold:               return "tibo", True
-            if is_italic:             return "tiit", True
+            if is_bold and is_italic:
+                return "tibi", True
+            if is_bold:
+                return "tibo", True
+            if is_italic:
+                return "tiit", True
             return "tiro", True
         if "courier" in n or "mono" in n or "typewriter" in n:
-            if is_bold and is_italic: return "cobi", True
-            if is_bold:               return "cobo", True
-            if is_italic:             return "coit", True
+            if is_bold and is_italic:
+                return "cobi", True
+            if is_bold:
+                return "cobo", True
+            if is_italic:
+                return "coit", True
             return "cour", True
         # Default: Helvetica family
-        if is_bold and is_italic: return "hebi", True
-        if is_bold:               return "hebo", True
+        if is_bold and is_italic:
+            return "hebi", True
+        if is_bold:
+            return "hebo", True
         return "helv", True
 
     def _bl_to_rect(x0, y0, x1, y1, ph):
@@ -204,6 +241,7 @@ def edit_pdf_file(input_data: dict) -> dict:
         Conversion: y_mupdf = ph - y_bottomleft
         """
         import fitz
+
         return fitz.Rect(x0, ph - y1, x1, ph - y0)
 
     def _resolve_pages(page_spec, total_pages):
@@ -227,6 +265,7 @@ def edit_pdf_file(input_data: dict) -> dict:
         Returns the span dict or None.
         """
         import fitz
+
         best_span = None
         best_area = 0.0
         for block in page.get_text("dict")["blocks"]:
@@ -243,9 +282,9 @@ def edit_pdf_file(input_data: dict) -> dict:
 
     # ── Input extraction ──────────────────────────────────────────────────
     simulated_mode = bool(input_data.get("simulated_mode", False))
-    file_path      = str(input_data.get("file_path",    "")).strip()
-    output_path    = str(input_data.get("output_path",  "")).strip()
-    operations     = input_data.get("operations", [])
+    file_path = str(input_data.get("file_path", "")).strip()
+    output_path = str(input_data.get("output_path", "")).strip()
+    operations = input_data.get("operations", [])
 
     if not isinstance(operations, list):
         operations = []
@@ -255,8 +294,8 @@ def edit_pdf_file(input_data: dict) -> dict:
         return _json("success", output_path=output_path, ops_applied=len(operations))
 
     # ── Dependency bootstrap ──────────────────────────────────────────────
-    _ensure("pymupdf",  "fitz")
-    _ensure("pypdf",    "pypdf")
+    _ensure("pymupdf", "fitz")
+    _ensure("pypdf", "pypdf")
 
     import fitz
     import pypdf
@@ -285,7 +324,13 @@ def edit_pdf_file(input_data: dict) -> dict:
         return _json("error", "'operations' list is required and must not be empty.")
 
     # Detect reflow operations — these require create_pdf routing
-    _REFLOW_OPS = {"rephrase_text", "insert_section", "insert_table", "reformat", "reflow"}
+    _REFLOW_OPS = {
+        "rephrase_text",
+        "insert_section",
+        "insert_table",
+        "reformat",
+        "reflow",
+    }
     reflow_ops = [op.get("type") for op in operations if op.get("type") in _REFLOW_OPS]
     if reflow_ops:
         return _json(
@@ -298,36 +343,39 @@ def edit_pdf_file(input_data: dict) -> dict:
 
     # ── Apply operations ──────────────────────────────────────────────────
     try:
-        doc       = fitz.open(file_path)
+        doc = fitz.open(file_path)
         total_pgs = len(doc)
-        warnings  = []
-        ops_done  = 0
+        warnings = []
+        ops_done = 0
 
         for i, op in enumerate(operations):
             op_type = str(op.get("type", "")).strip().lower()
-            op_tag  = f"op[{i}] '{op_type}'"
+            op_tag = f"op[{i}] '{op_type}'"
 
             try:
-
                 # ── add_text ─────────────────────────────────────────────
                 if op_type == "add_text":
                     page_idx = int(op.get("page", 1)) - 1
                     if not (0 <= page_idx < total_pgs):
-                        warnings.append(f"{op_tag}: page {op.get('page')} out of range.")
+                        warnings.append(
+                            f"{op_tag}: page {op.get('page')} out of range."
+                        )
                         continue
                     page = doc[page_idx]
-                    ph   = page.rect.height
+                    ph = page.rect.height
                     # x,y are BOTTOMLEFT — convert y to TOPLEFT
-                    x    = float(op.get("x", 0))
+                    x = float(op.get("x", 0))
                     y_bl = float(op.get("y", 0))
                     y_tl = ph - y_bl
-                    text      = str(op.get("text", ""))
+                    text = str(op.get("text", ""))
                     font_size = float(op.get("font_size", 12))
-                    color     = _hex_to_rgb(op.get("color", "#000000"))
+                    color = _hex_to_rgb(op.get("color", "#000000"))
                     font_code, _ = _best_font(op.get("font", "Helvetica"))
                     page.insert_text(
-                        fitz.Point(x, y_tl), text,
-                        fontname=font_code, fontsize=font_size,
+                        fitz.Point(x, y_tl),
+                        text,
+                        fontname=font_code,
+                        fontsize=font_size,
                         color=color,
                     )
                     ops_done += 1
@@ -336,9 +384,9 @@ def edit_pdf_file(input_data: dict) -> dict:
                 elif op_type == "redact":
                     fill_color = _hex_to_rgb(op.get("fill_color", "#000000"))
                     if "pattern" in op:
-                        pattern    = str(op["pattern"])
-                        page_idxs  = _resolve_pages(op.get("page", "all"), total_pgs)
-                        hit_count  = 0
+                        pattern = str(op["pattern"])
+                        page_idxs = _resolve_pages(op.get("page", "all"), total_pgs)
+                        hit_count = 0
                         for pi in page_idxs:
                             page = doc[pi]
                             hits = page.search_for(pattern)
@@ -353,12 +401,16 @@ def edit_pdf_file(input_data: dict) -> dict:
                     else:
                         page_idx = int(op.get("page", 1)) - 1
                         if not (0 <= page_idx < total_pgs):
-                            warnings.append(f"{op_tag}: page out of range."); continue
+                            warnings.append(f"{op_tag}: page out of range.")
+                            continue
                         page = doc[page_idx]
-                        ph   = page.rect.height
-                        r    = _bl_to_rect(
-                            float(op["x0"]), float(op["y0"]),
-                            float(op["x1"]), float(op["y1"]), ph
+                        ph = page.rect.height
+                        r = _bl_to_rect(
+                            float(op["x0"]),
+                            float(op["y0"]),
+                            float(op["x1"]),
+                            float(op["y1"]),
+                            ph,
                         )
                         page.add_redact_annot(r, fill=fill_color)
                         page.apply_redactions()
@@ -372,10 +424,14 @@ def edit_pdf_file(input_data: dict) -> dict:
                         "strikeout": "add_strikeout_annot",
                     }
                     fn_name = annot_fns[op_type]
-                    color   = _hex_to_rgb(op.get("color", "#ffff00")) if op_type == "highlight" else None
+                    color = (
+                        _hex_to_rgb(op.get("color", "#ffff00"))
+                        if op_type == "highlight"
+                        else None
+                    )
 
                     if "pattern" in op:
-                        pattern   = str(op["pattern"])
+                        pattern = str(op["pattern"])
                         page_idxs = _resolve_pages(op.get("page", "all"), total_pgs)
                         hit_count = 0
                         for pi in page_idxs:
@@ -393,12 +449,16 @@ def edit_pdf_file(input_data: dict) -> dict:
                     else:
                         page_idx = int(op.get("page", 1)) - 1
                         if not (0 <= page_idx < total_pgs):
-                            warnings.append(f"{op_tag}: page out of range."); continue
+                            warnings.append(f"{op_tag}: page out of range.")
+                            continue
                         page = doc[page_idx]
-                        ph   = page.rect.height
-                        r    = _bl_to_rect(
-                            float(op["x0"]), float(op["y0"]),
-                            float(op["x1"]), float(op["y1"]), ph
+                        ph = page.rect.height
+                        r = _bl_to_rect(
+                            float(op["x0"]),
+                            float(op["y0"]),
+                            float(op["x1"]),
+                            float(op["y1"]),
+                            ph,
                         )
                         annot = getattr(page, fn_name)(r)
                         if color:
@@ -408,11 +468,12 @@ def edit_pdf_file(input_data: dict) -> dict:
 
                 # ── replace_text (font-matched seamless replacement) ──────
                 elif op_type == "replace_text":
-                    pattern     = str(op.get("pattern", ""))
+                    pattern = str(op.get("pattern", ""))
                     replacement = str(op.get("replacement", ""))
-                    page_idxs   = _resolve_pages(op.get("page", "all"), total_pgs)
+                    page_idxs = _resolve_pages(op.get("page", "all"), total_pgs)
                     if not pattern:
-                        warnings.append(f"{op_tag}: 'pattern' is required."); continue
+                        warnings.append(f"{op_tag}: 'pattern' is required.")
+                        continue
                     hit_count = 0
                     for pi in page_idxs:
                         page = doc[pi]
@@ -420,9 +481,9 @@ def edit_pdf_file(input_data: dict) -> dict:
                         for h in hits:
                             span = _get_span_at_rect(page, h)
                             if span:
-                                font_name  = span["font"]
-                                font_size  = span["size"]
-                                color_rgb  = _color_int_to_rgb(span["color"])
+                                font_name = span["font"]
+                                font_size = span["size"]
+                                color_rgb = _color_int_to_rgb(span["color"])
                                 font_code, was_fb = _best_font(font_name)
                                 if was_fb:
                                     warnings.append(
@@ -439,7 +500,8 @@ def edit_pdf_file(input_data: dict) -> dict:
                             # Reinsert with same properties
                             insert_pt = fitz.Point(h.x0, h.y1 - 2)
                             page.insert_text(
-                                insert_pt, replacement,
+                                insert_pt,
+                                replacement,
                                 fontname=font_code,
                                 fontsize=font_size,
                                 color=color_rgb,
@@ -451,29 +513,34 @@ def edit_pdf_file(input_data: dict) -> dict:
 
                 # ── add_text_near (form fill: insert value after label) ────
                 elif op_type == "add_text_near":
-                    label     = str(op.get("label", ""))
-                    value     = str(op.get("value", ""))
-                    page_idx  = int(op.get("page", 1)) - 1
-                    offset_x  = float(op.get("offset_x", 5))
+                    label = str(op.get("label", ""))
+                    value = str(op.get("value", ""))
+                    page_idx = int(op.get("page", 1)) - 1
+                    offset_x = float(op.get("offset_x", 5))
                     font_size = float(op.get("font_size", 11))
-                    color     = _hex_to_rgb(op.get("color", "#000000"))
+                    color = _hex_to_rgb(op.get("color", "#000000"))
                     font_code, _ = _best_font(op.get("font", "Helvetica"))
                     if not label:
-                        warnings.append(f"{op_tag}: 'label' is required."); continue
+                        warnings.append(f"{op_tag}: 'label' is required.")
+                        continue
                     if not (0 <= page_idx < total_pgs):
-                        warnings.append(f"{op_tag}: page out of range."); continue
+                        warnings.append(f"{op_tag}: page out of range.")
+                        continue
                     page = doc[page_idx]
                     hits = page.search_for(label)
                     if not hits:
-                        warnings.append(f"{op_tag}: label '{label}' not found on page {page_idx+1}.")
+                        warnings.append(
+                            f"{op_tag}: label '{label}' not found on page {page_idx + 1}."
+                        )
                         continue
                     label_rect = hits[0]
-                    insert_pt  = fitz.Point(
+                    insert_pt = fitz.Point(
                         label_rect.x1 + offset_x,
                         label_rect.y1 - 2,  # baseline approx
                     )
                     page.insert_text(
-                        insert_pt, value,
+                        insert_pt,
+                        value,
                         fontname=font_code,
                         fontsize=font_size,
                         color=color,
@@ -482,18 +549,19 @@ def edit_pdf_file(input_data: dict) -> dict:
 
                 # ── watermark ─────────────────────────────────────────────
                 elif op_type == "watermark":
-                    text      = str(op.get("text", "CONFIDENTIAL"))
+                    text = str(op.get("text", "CONFIDENTIAL"))
                     font_size = float(op.get("font_size", 52))
-                    color     = _hex_to_rgb(op.get("color", "#bbbbbb"))
+                    color = _hex_to_rgb(op.get("color", "#bbbbbb"))
                     # opacity in insert_textbox: blend into color lightness
-                    opacity   = float(op.get("opacity", 0.25))
+                    opacity = float(op.get("opacity", 0.25))
                     # Blend color toward white to simulate opacity
-                    blended   = tuple(c + (1.0 - c) * (1.0 - opacity) for c in color)
+                    blended = tuple(c + (1.0 - c) * (1.0 - opacity) for c in color)
                     for page in doc:
                         pw, ph = page.rect.width, page.rect.height
-                        rect   = fitz.Rect(40, ph / 2 - 60, pw - 40, ph / 2 + 60)
+                        rect = fitz.Rect(40, ph / 2 - 60, pw - 40, ph / 2 + 60)
                         page.insert_textbox(
-                            rect, text,
+                            rect,
+                            text,
                             fontsize=font_size,
                             color=blended,
                             align=fitz.TEXT_ALIGN_CENTER,
@@ -503,11 +571,13 @@ def edit_pdf_file(input_data: dict) -> dict:
                 # ── rotate_page ───────────────────────────────────────────
                 elif op_type == "rotate_page":
                     page_idx = int(op.get("page", 1)) - 1
-                    degrees  = int(op.get("degrees", 90))
+                    degrees = int(op.get("degrees", 90))
                     if not (0 <= page_idx < total_pgs):
-                        warnings.append(f"{op_tag}: page out of range."); continue
+                        warnings.append(f"{op_tag}: page out of range.")
+                        continue
                     if degrees not in (90, 180, 270, -90, -180, -270):
-                        warnings.append(f"{op_tag}: degrees must be 90, 180, or 270."); continue
+                        warnings.append(f"{op_tag}: degrees must be 90, 180, or 270.")
+                        continue
                     # Normalize to 0-360
                     degrees = degrees % 360
                     current = doc[page_idx].rotation
@@ -531,7 +601,7 @@ def edit_pdf_file(input_data: dict) -> dict:
 
         # ── Write PyMuPDF output ──────────────────────────────────────────
         abs_output = os.path.abspath(output_path)
-        parent     = os.path.dirname(abs_output)
+        parent = os.path.dirname(abs_output)
         if parent:
             os.makedirs(parent, exist_ok=True)
 
@@ -539,7 +609,9 @@ def edit_pdf_file(input_data: dict) -> dict:
         doc.close()
 
         # ── Post-process: AcroForm fill_field via pypdf ───────────────────
-        acroform_ops = [op for op in operations if str(op.get("type", "")).lower() == "fill_field"]
+        acroform_ops = [
+            op for op in operations if str(op.get("type", "")).lower() == "fill_field"
+        ]
         if acroform_ops:
             try:
                 reader = pypdf.PdfReader(abs_output)
@@ -547,9 +619,9 @@ def edit_pdf_file(input_data: dict) -> dict:
                 writer.append(reader)
                 existing_fields = reader.get_fields() or {}
                 for op in acroform_ops:
-                    op_tag = f"op[fill_field]"
+                    op_tag = "op[fill_field]"
                     field_name = str(op.get("field_name", ""))
-                    value      = str(op.get("value", ""))
+                    value = str(op.get("value", ""))
                     if not field_name:
                         warnings.append(f"{op_tag}: 'field_name' is required.")
                         continue
