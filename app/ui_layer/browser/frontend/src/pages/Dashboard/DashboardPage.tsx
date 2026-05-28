@@ -16,7 +16,8 @@ import {
   Bot,
   Building2,
   Hash,
-  Plug2
+  Plug2,
+  Globe
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { Badge, StatusIndicator } from '../../components/ui'
@@ -585,7 +586,7 @@ export function DashboardPage() {
         {/* Integrations Panel */}
         <div className={styles.panel}>
           <div className={styles.panelHeader}>
-            <Plug2 size={16} />
+            <Globe size={16} />
             <h3>Integrations</h3>
           </div>
           <div className={styles.panelContent}>
