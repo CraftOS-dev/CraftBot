@@ -84,7 +84,7 @@
   justify-content: space-between;
   padding: var(--space-2) var(--space-4);
   background: var(--color-primary-subtle);
-  border-bottom: 1px solid var(--color-primary);
+  border-bottom: 1px solid var(--text-primary);
 }
 
 .batchCount {
@@ -93,7 +93,7 @@
   gap: var(--space-2);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .batchActions {
@@ -146,7 +146,7 @@
 }
 
 .fileSearchInput:focus {
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 .fileCount {
@@ -183,7 +183,7 @@
 
 .colCheckbox input[type="checkbox"] {
   cursor: pointer;
-  accent-color: var(--color-primary);
+  accent-color: var(--text-primary);
 }
 
 .colName {
@@ -252,7 +252,7 @@
 
 .fileCheckbox input[type="checkbox"] {
   cursor: pointer;
-  accent-color: var(--color-primary);
+  accent-color: var(--text-primary);
   pointer-events: none;
 }
 
@@ -307,7 +307,7 @@
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-sm);
   background: var(--bg-primary);
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--text-primary);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   outline: none;
@@ -619,7 +619,7 @@
 }
 
 .dialogInput:focus {
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 /* ─────────────────────────────────────────────────────────────────────

@@ -18,8 +18,8 @@
 }
 
 .primary {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
+  background: var(--bg-selected);
+  color: var(--text-primary);
 }
 
 .success {

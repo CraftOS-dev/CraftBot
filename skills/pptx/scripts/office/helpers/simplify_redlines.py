@@ -170,7 +170,7 @@ def _get_authors_from_docx(docx_path: Path) -> dict[str, int]:
 
 
 def infer_author(
-    modified_dir: Path, original_docx: Path, default: str = "Claude"
+    modified_dir: Path, original_docx: Path, default: str = "CraftBot"
 ) -> str:
     modified_xml = modified_dir / "word" / "document.xml"
     modified_authors = get_tracked_change_authors(modified_xml)

@@ -54,13 +54,15 @@ p {
 }
 
 a {
-  color: var(--color-primary);
-  text-decoration: none;
-  transition: color var(--transition-fast);
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-secondary);
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--transition-fast);
 }
 
 a:hover {
-  color: var(--color-primary-hover);
+  text-decoration-color: var(--text-primary);
 }
 
 code, pre {
@@ -93,7 +95,7 @@ input, textarea, select {
 }
 
 input:focus, textarea:focus, select:focus {
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 input::placeholder, textarea::placeholder {
@@ -114,18 +116,18 @@ input::placeholder, textarea::placeholder {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-gray-700);
+  background: var(--border-secondary);
   border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-gray-600);
+  background: var(--border-hover);
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-gray-700) transparent;
+  scrollbar-color: var(--border-secondary) transparent;
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -167,7 +169,7 @@ input::placeholder, textarea::placeholder {
  * ───────────────────────────────────────────────────────────────────── */
 
 ::selection {
-  background: var(--color-primary-light);
+  background: var(--bg-selected-hover);
   color: var(--text-primary);
 }
 

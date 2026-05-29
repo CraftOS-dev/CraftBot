@@ -503,6 +503,8 @@ class SlackClient(BasePlatformClient):
         title: Optional[str] = None,
         initial_comment: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Legacy files.upload — kept for backwards compat. New code should use upload_file_v2,
+        which uses the modern 3-step files.getUploadURLExternal flow."""
         cred = self._load()
         form_data: Dict[str, Any] = {"channels": ",".join(channels)}
         if filename:
@@ -527,3 +529,555 @@ class SlackClient(BasePlatformClient):
         finally:
             if files:
                 files["file"].close()
+
+    # ------------------------------------------------------------------
+    # Messages: edit / delete / ephemeral / schedule / permalink / threads
+    # ------------------------------------------------------------------
+
+    def update_message(
+        self,
+        channel: str,
+        ts: str,
+        text: Optional[str] = None,
+        blocks: Optional[List[Dict[str, Any]]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"channel": channel, "ts": ts}
+        if text is not None:
+            payload["text"] = text
+        if blocks is not None:
+            payload["blocks"] = blocks
+        if attachments is not None:
+            payload["attachments"] = attachments
+        return _slack_call("POST", "chat.update", self._headers(), json=payload)
+
+    def delete_message(self, channel: str, ts: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "chat.delete", self._headers(), json={"channel": channel, "ts": ts}
+        )
+
+    def post_ephemeral(
+        self,
+        channel: str,
+        user: str,
+        text: str,
+        blocks: Optional[List[Dict[str, Any]]] = None,
+        thread_ts: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"channel": channel, "user": user, "text": text}
+        if blocks is not None:
+            payload["blocks"] = blocks
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        return _slack_call("POST", "chat.postEphemeral", self._headers(), json=payload)
+
+    def schedule_message(
+        self,
+        channel: str,
+        post_at: int,
+        text: str,
+        blocks: Optional[List[Dict[str, Any]]] = None,
+        thread_ts: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """post_at is a unix timestamp."""
+        payload: Dict[str, Any] = {"channel": channel, "post_at": post_at, "text": text}
+        if blocks is not None:
+            payload["blocks"] = blocks
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        return _slack_call(
+            "POST", "chat.scheduleMessage", self._headers(), json=payload
+        )
+
+    def delete_scheduled_message(
+        self, channel: str, scheduled_message_id: str
+    ) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "chat.deleteScheduledMessage",
+            self._headers(),
+            json={"channel": channel, "scheduled_message_id": scheduled_message_id},
+        )
+
+    def list_scheduled_messages(
+        self, channel: Optional[str] = None, limit: int = 100
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"limit": limit}
+        if channel:
+            payload["channel"] = channel
+        return _slack_call(
+            "POST", "chat.scheduledMessages.list", self._headers(), json=payload
+        )
+
+    def get_permalink(self, channel: str, message_ts: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET",
+            "chat.getPermalink",
+            self._headers(),
+            params={"channel": channel, "message_ts": message_ts},
+        )
+
+    def get_thread_replies(
+        self, channel: str, ts: str, limit: int = 100, cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"channel": channel, "ts": ts, "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return _slack_call(
+            "GET", "conversations.replies", self._headers(), params=params
+        )
+
+    # ----- Reactions -----
+
+    def add_reaction(self, channel: str, timestamp: str, name: str) -> Dict[str, Any]:
+        """name is the emoji name without colons (e.g. 'thumbsup')."""
+        return _slack_call(
+            "POST",
+            "reactions.add",
+            self._headers(),
+            json={"channel": channel, "timestamp": timestamp, "name": name},
+        )
+
+    def remove_reaction(
+        self, channel: str, timestamp: str, name: str
+    ) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "reactions.remove",
+            self._headers(),
+            json={"channel": channel, "timestamp": timestamp, "name": name},
+        )
+
+    def get_reactions(
+        self, channel: str, timestamp: str, full: bool = True
+    ) -> Dict[str, Any]:
+        return _slack_call(
+            "GET",
+            "reactions.get",
+            self._headers(),
+            params={
+                "channel": channel,
+                "timestamp": timestamp,
+                "full": str(full).lower(),
+            },
+        )
+
+    def list_user_reactions(
+        self, user: Optional[str] = None, count: int = 100
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"count": count, "full": "true"}
+        if user:
+            params["user"] = user
+        return _slack_call("GET", "reactions.list", self._headers(), params=params)
+
+    # ----- Pins -----
+
+    def pin_message(self, channel: str, timestamp: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "pins.add",
+            self._headers(),
+            json={"channel": channel, "timestamp": timestamp},
+        )
+
+    def unpin_message(self, channel: str, timestamp: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "pins.remove",
+            self._headers(),
+            json={"channel": channel, "timestamp": timestamp},
+        )
+
+    def list_pins(self, channel: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET", "pins.list", self._headers(), params={"channel": channel}
+        )
+
+    # ------------------------------------------------------------------
+    # Conversations: archive / rename / topic / purpose / join / leave / kick / members
+    # ------------------------------------------------------------------
+
+    def archive_channel(self, channel: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "conversations.archive", self._headers(), json={"channel": channel}
+        )
+
+    def unarchive_channel(self, channel: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "conversations.unarchive",
+            self._headers(),
+            json={"channel": channel},
+        )
+
+    def rename_channel(self, channel: str, name: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "conversations.rename",
+            self._headers(),
+            json={"channel": channel, "name": name},
+        )
+
+    def set_channel_topic(self, channel: str, topic: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "conversations.setTopic",
+            self._headers(),
+            json={"channel": channel, "topic": topic},
+        )
+
+    def set_channel_purpose(self, channel: str, purpose: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "conversations.setPurpose",
+            self._headers(),
+            json={"channel": channel, "purpose": purpose},
+        )
+
+    def join_channel(self, channel: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "conversations.join", self._headers(), json={"channel": channel}
+        )
+
+    def leave_channel(self, channel: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "conversations.leave", self._headers(), json={"channel": channel}
+        )
+
+    def kick_user(self, channel: str, user: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "conversations.kick",
+            self._headers(),
+            json={"channel": channel, "user": user},
+        )
+
+    def close_conversation(self, channel: str) -> Dict[str, Any]:
+        """Close a DM / MPDM / private channel (per Slack's `conversations.close`)."""
+        return _slack_call(
+            "POST", "conversations.close", self._headers(), json={"channel": channel}
+        )
+
+    def list_channel_members(
+        self, channel: str, limit: int = 100, cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"channel": channel, "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return _slack_call(
+            "GET", "conversations.members", self._headers(), params=params
+        )
+
+    # ------------------------------------------------------------------
+    # Files (modern 3-step upload + list / info / delete)
+    # ------------------------------------------------------------------
+
+    def list_files(
+        self,
+        channel: Optional[str] = None,
+        user: Optional[str] = None,
+        types: Optional[str] = None,
+        count: int = 100,
+        page: int = 1,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"count": count, "page": page}
+        if channel:
+            params["channel"] = channel
+        if user:
+            params["user"] = user
+        if types:
+            params["types"] = types
+        return _slack_call("GET", "files.list", self._headers(), params=params)
+
+    def get_file_info(self, file_id: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET", "files.info", self._headers(), params={"file": file_id}
+        )
+
+    def delete_file(self, file_id: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "files.delete", self._headers(), json={"file": file_id}
+        )
+
+    def get_upload_url_external(
+        self,
+        filename: str,
+        length: int,
+        snippet_type: Optional[str] = None,
+        alt_txt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Step 1 of the modern upload flow. Returns upload_url + file_id."""
+        params: Dict[str, Any] = {"filename": filename, "length": length}
+        if snippet_type:
+            params["snippet_type"] = snippet_type
+        if alt_txt:
+            params["alt_txt"] = alt_txt
+        return _slack_call(
+            "GET", "files.getUploadURLExternal", self._headers(), params=params
+        )
+
+    def complete_upload_external(
+        self,
+        files: List[Dict[str, Any]],
+        channel_id: Optional[str] = None,
+        initial_comment: Optional[str] = None,
+        thread_ts: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Step 3 of the modern upload flow. files is [{id, title?, alt_txt?}, ...]."""
+        payload: Dict[str, Any] = {"files": files}
+        if channel_id:
+            payload["channel_id"] = channel_id
+        if initial_comment:
+            payload["initial_comment"] = initial_comment
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        return _slack_call(
+            "POST", "files.completeUploadExternal", self._headers(), json=payload
+        )
+
+    def upload_file_v2(
+        self,
+        file_path: str,
+        channel_id: Optional[str] = None,
+        initial_comment: Optional[str] = None,
+        title: Optional[str] = None,
+        thread_ts: Optional[str] = None,
+        filename: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """High-level: full 3-step modern upload of a local file in one call."""
+        import os
+        import httpx
+
+        file_path = os.path.abspath(file_path)
+        if not os.path.isfile(file_path):
+            return {"error": f"File not found: {file_path}"}
+        if not filename:
+            filename = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path)
+
+        step1 = self.get_upload_url_external(filename, file_size)
+        if "error" in step1:
+            return step1
+        upload_url = step1.get("upload_url")
+        file_id = step1.get("file_id")
+        if not upload_url or not file_id:
+            return {"error": "files.getUploadURLExternal returned no upload_url"}
+
+        try:
+            with open(file_path, "rb") as f:
+                r = httpx.post(upload_url, content=f.read(), timeout=300.0)
+            if r.status_code != 200:
+                return {
+                    "error": f"Upload to signed URL failed: {r.status_code}",
+                    "details": r.text[:500],
+                }
+        except Exception as e:
+            return {"error": str(e)}
+
+        files_arr: List[Dict[str, Any]] = [{"id": file_id}]
+        if title:
+            files_arr[0]["title"] = title
+        return self.complete_upload_external(
+            files_arr,
+            channel_id=channel_id,
+            initial_comment=initial_comment,
+            thread_ts=thread_ts,
+        )
+
+    # ------------------------------------------------------------------
+    # Users: presence + usergroups
+    # ------------------------------------------------------------------
+
+    def get_user_presence(self, user: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET", "users.getPresence", self._headers(), params={"user": user}
+        )
+
+    def set_user_presence(self, presence: str) -> Dict[str, Any]:
+        """Only works with user tokens (xoxp-), not bot tokens. presence: auto | away."""
+        return _slack_call(
+            "POST", "users.setPresence", self._headers(), json={"presence": presence}
+        )
+
+    def lookup_user_by_email(self, email: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET", "users.lookupByEmail", self._headers(), params={"email": email}
+        )
+
+    def list_usergroups(
+        self,
+        include_disabled: bool = False,
+        include_count: bool = False,
+        include_users: bool = False,
+    ) -> Dict[str, Any]:
+        return _slack_call(
+            "GET",
+            "usergroups.list",
+            self._headers(),
+            params={
+                "include_disabled": str(include_disabled).lower(),
+                "include_count": str(include_count).lower(),
+                "include_users": str(include_users).lower(),
+            },
+        )
+
+    def create_usergroup(
+        self,
+        name: str,
+        handle: Optional[str] = None,
+        description: Optional[str] = None,
+        channels: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"name": name}
+        if handle:
+            payload["handle"] = handle
+        if description:
+            payload["description"] = description
+        if channels:
+            payload["channels"] = ",".join(channels)
+        return _slack_call("POST", "usergroups.create", self._headers(), json=payload)
+
+    def update_usergroup(
+        self,
+        usergroup: str,
+        name: Optional[str] = None,
+        handle: Optional[str] = None,
+        description: Optional[str] = None,
+        channels: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"usergroup": usergroup}
+        if name is not None:
+            payload["name"] = name
+        if handle is not None:
+            payload["handle"] = handle
+        if description is not None:
+            payload["description"] = description
+        if channels is not None:
+            payload["channels"] = ",".join(channels)
+        return _slack_call("POST", "usergroups.update", self._headers(), json=payload)
+
+    def enable_usergroup(self, usergroup: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "usergroups.enable", self._headers(), json={"usergroup": usergroup}
+        )
+
+    def disable_usergroup(self, usergroup: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "usergroups.disable", self._headers(), json={"usergroup": usergroup}
+        )
+
+    def list_usergroup_users(
+        self, usergroup: str, include_disabled: bool = False
+    ) -> Dict[str, Any]:
+        return _slack_call(
+            "GET",
+            "usergroups.users.list",
+            self._headers(),
+            params={
+                "usergroup": usergroup,
+                "include_disabled": str(include_disabled).lower(),
+            },
+        )
+
+    def update_usergroup_users(
+        self, usergroup: str, users: List[str]
+    ) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "usergroups.users.update",
+            self._headers(),
+            json={"usergroup": usergroup, "users": ",".join(users)},
+        )
+
+    # ------------------------------------------------------------------
+    # Workspace / team / bookmarks / reminders
+    # ------------------------------------------------------------------
+
+    def auth_test(self) -> Dict[str, Any]:
+        return _slack_call("POST", "auth.test", self._headers())
+
+    def get_team_info(self, team: Optional[str] = None) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if team:
+            params["team"] = team
+        return _slack_call("GET", "team.info", self._headers(), params=params)
+
+    def list_bookmarks(self, channel_id: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET", "bookmarks.list", self._headers(), params={"channel_id": channel_id}
+        )
+
+    def add_bookmark(
+        self,
+        channel_id: str,
+        title: str,
+        type: str = "link",
+        link: Optional[str] = None,
+        emoji: Optional[str] = None,
+        entity_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "channel_id": channel_id,
+            "title": title,
+            "type": type,
+        }
+        if link:
+            payload["link"] = link
+        if emoji:
+            payload["emoji"] = emoji
+        if entity_id:
+            payload["entity_id"] = entity_id
+        return _slack_call("POST", "bookmarks.add", self._headers(), json=payload)
+
+    def edit_bookmark(
+        self,
+        channel_id: str,
+        bookmark_id: str,
+        title: Optional[str] = None,
+        link: Optional[str] = None,
+        emoji: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"channel_id": channel_id, "bookmark_id": bookmark_id}
+        if title is not None:
+            payload["title"] = title
+        if link is not None:
+            payload["link"] = link
+        if emoji is not None:
+            payload["emoji"] = emoji
+        return _slack_call("POST", "bookmarks.edit", self._headers(), json=payload)
+
+    def remove_bookmark(self, channel_id: str, bookmark_id: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST",
+            "bookmarks.remove",
+            self._headers(),
+            json={"channel_id": channel_id, "bookmark_id": bookmark_id},
+        )
+
+    def add_reminder(
+        self, text: str, time: Any, user: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """time is a unix timestamp OR a natural-language string ("in 15 minutes").
+        Requires xoxp- user token + reminders:write scope; bot tokens can't create reminders."""
+        payload: Dict[str, Any] = {"text": text, "time": time}
+        if user:
+            payload["user"] = user
+        return _slack_call("POST", "reminders.add", self._headers(), json=payload)
+
+    def list_reminders(self) -> Dict[str, Any]:
+        return _slack_call("POST", "reminders.list", self._headers())
+
+    def complete_reminder(self, reminder: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "reminders.complete", self._headers(), json={"reminder": reminder}
+        )
+
+    def delete_reminder(self, reminder: str) -> Dict[str, Any]:
+        return _slack_call(
+            "POST", "reminders.delete", self._headers(), json={"reminder": reminder}
+        )
+
+    def get_reminder_info(self, reminder: str) -> Dict[str, Any]:
+        return _slack_call(
+            "GET", "reminders.info", self._headers(), params={"reminder": reminder}
+        )

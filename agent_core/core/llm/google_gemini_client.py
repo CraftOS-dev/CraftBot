@@ -164,6 +164,73 @@ class GeminiClient:
             "cached_tokens": cached_tokens,
         }
 
+    def generate_text_multiturn(
+        self,
+        model: str,
+        *,
+        contents: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        json_mode: bool = False,
+    ) -> Dict[str, Any]:
+        """Generate text from a pre-built multi-turn `contents` array.
+
+        This is the cache-friendly companion to ``generate_text``: by sending
+        the growing user/model history as ``contents`` each call, Gemini's
+        implicit caching matches the longest stable prefix automatically and
+        serves the matched portion from cache (90% discount on Gemini 2.5).
+
+        Args:
+            model: Model identifier (e.g. ``gemini-2.5-pro``).
+            contents: List of ``{"role": "user"|"model", "parts": [...]}``
+                dicts representing the full conversation history plus the new
+                user turn at the end.
+            system_prompt: Optional system instruction (sent in
+                ``systemInstruction`` field, not part of contents).
+            temperature: Sampling temperature.
+            max_output_tokens: Output token cap.
+            json_mode: Force JSON response.
+
+        Returns:
+            Same shape as ``generate_text``.
+        """
+        generation_config: Dict[str, Any] = {}
+        if temperature is not None:
+            generation_config["temperature"] = temperature
+        if max_output_tokens is not None:
+            generation_config["maxOutputTokens"] = max_output_tokens
+        if json_mode:
+            generation_config["responseMimeType"] = "application/json"
+
+        payload: Dict[str, Any] = {"contents": contents}
+        if system_prompt:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system_prompt}],
+            }
+        if generation_config:
+            payload["generationConfig"] = generation_config
+
+        response = self._post_json(
+            f"{_normalise_model_name(model)}:generateContent", payload
+        )
+
+        usage_metadata = response.get("usageMetadata", {})
+        total_tokens = usage_metadata.get("totalTokenCount", 0)
+        prompt_tokens = usage_metadata.get("promptTokenCount", 0)
+        completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
+        cached_tokens = usage_metadata.get("cachedContentTokenCount", 0)
+
+        content = self._extract_text(response)
+
+        return {
+            "tokens_used": total_tokens,
+            "content": content,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cached_tokens": cached_tokens,
+        }
+
     def generate_multimodal(
         self,
         model: str,

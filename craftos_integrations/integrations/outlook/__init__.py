@@ -457,3 +457,644 @@ class OutlookClient(BasePlatformClient):
                 detail.get("result", e_info) if "error" not in detail else e_info
             )
         return {"ok": True, "result": detailed}
+
+    # ----- Helper: build a Recipient list payload -----
+
+    @staticmethod
+    def _recipients(addresses: Optional[List[str]]) -> List[Dict[str, Any]]:
+        if not addresses:
+            return []
+        return [
+            {"emailAddress": {"address": a.strip()}}
+            for a in addresses
+            if a and a.strip()
+        ]
+
+    # ----- Message lifecycle: reply / forward / move / copy / delete / flag -----
+
+    def reply_to_message(
+        self, message_id: str, comment: str, to_recipients: Optional[List[str]] = None
+    ) -> Result:
+        """Send a reply to the sender immediately. Returns 202."""
+        payload: Dict[str, Any] = {"comment": comment}
+        if to_recipients:
+            payload["message"] = {"toRecipients": self._recipients(to_recipients)}
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/reply",
+            headers=self._headers(),
+            json=payload,
+            expected=(202,),
+            transform=lambda _d: {"replied": True, "message_id": message_id},
+        )
+
+    def reply_all_to_message(self, message_id: str, comment: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/replyAll",
+            headers=self._headers(),
+            json={"comment": comment},
+            expected=(202,),
+            transform=lambda _d: {"replied_all": True, "message_id": message_id},
+        )
+
+    def forward_message(
+        self, message_id: str, to_recipients: List[str], comment: str = ""
+    ) -> Result:
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/forward",
+            headers=self._headers(),
+            json={"comment": comment, "toRecipients": self._recipients(to_recipients)},
+            expected=(202,),
+            transform=lambda _d: {
+                "forwarded": True,
+                "message_id": message_id,
+                "to": to_recipients,
+            },
+        )
+
+    def create_reply_draft(self, message_id: str, comment: str = "") -> Result:
+        """Create a draft pre-populated as a reply; returns the draft so it can be edited then sent."""
+        payload: Dict[str, Any] = {}
+        if comment:
+            payload["comment"] = comment
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/createReply",
+            headers=self._headers(),
+            json=payload,
+            expected=(201,),
+            transform=lambda d: {
+                "draft_id": d.get("id"),
+                "conversationId": d.get("conversationId"),
+            },
+        )
+
+    def create_forward_draft(
+        self, message_id: str, to_recipients: List[str], comment: str = ""
+    ) -> Result:
+        payload: Dict[str, Any] = {
+            "comment": comment,
+            "toRecipients": self._recipients(to_recipients),
+        }
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/createForward",
+            headers=self._headers(),
+            json=payload,
+            expected=(201,),
+            transform=lambda d: {
+                "draft_id": d.get("id"),
+                "conversationId": d.get("conversationId"),
+            },
+        )
+
+    def create_draft(
+        self,
+        subject: str,
+        body: str,
+        to: Optional[List[str]] = None,
+        cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+        html: bool = False,
+    ) -> Result:
+        """Create a draft message. POST /me/messages returns 201 + draft resource."""
+        message: Dict[str, Any] = {
+            "subject": subject,
+            "body": {"contentType": "HTML" if html else "Text", "content": body},
+        }
+        if to:
+            message["toRecipients"] = self._recipients(to)
+        if cc:
+            message["ccRecipients"] = self._recipients(cc)
+        if bcc:
+            message["bccRecipients"] = self._recipients(bcc)
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages",
+            headers=self._headers(),
+            json=message,
+            expected=(201,),
+            transform=lambda d: {
+                "draft_id": d.get("id"),
+                "subject": d.get("subject"),
+                "conversationId": d.get("conversationId"),
+            },
+        )
+
+    def update_draft(
+        self,
+        message_id: str,
+        subject: Optional[str] = None,
+        body: Optional[str] = None,
+        html: bool = False,
+        to: Optional[List[str]] = None,
+        cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+    ) -> Result:
+        payload: Dict[str, Any] = {}
+        if subject is not None:
+            payload["subject"] = subject
+        if body is not None:
+            payload["body"] = {
+                "contentType": "HTML" if html else "Text",
+                "content": body,
+            }
+        if to is not None:
+            payload["toRecipients"] = self._recipients(to)
+        if cc is not None:
+            payload["ccRecipients"] = self._recipients(cc)
+        if bcc is not None:
+            payload["bccRecipients"] = self._recipients(bcc)
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "subject": d.get("subject")},
+        )
+
+    def send_draft(self, message_id: str) -> Result:
+        """Send an existing draft. Returns 202."""
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/send",
+            headers=self._headers(),
+            expected=(202,),
+            transform=lambda _d: {"sent": True, "message_id": message_id},
+        )
+
+    def delete_message(self, message_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "message_id": message_id},
+        )
+
+    def move_message(self, message_id: str, destination_folder_id: str) -> Result:
+        """Move a message to a folder. destination_folder_id can be a well-known name (inbox, drafts, sentitems, deleteditems, archive, junkemail) or a custom folder ID. Returns 201."""
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/move",
+            headers=self._headers(),
+            json={"destinationId": destination_folder_id},
+            expected=(201,),
+            transform=lambda d: {
+                "moved": True,
+                "new_id": d.get("id"),
+                "parent_folder_id": d.get("parentFolderId"),
+            },
+        )
+
+    def copy_message(self, message_id: str, destination_folder_id: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/copy",
+            headers=self._headers(),
+            json={"destinationId": destination_folder_id},
+            expected=(201,),
+            transform=lambda d: {"copied": True, "new_id": d.get("id")},
+        )
+
+    def mark_as_unread(self, message_id: str) -> Result:
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            headers=self._headers(),
+            json={"isRead": False},
+            expected=(200,),
+            transform=lambda _d: {"marked_unread": True, "message_id": message_id},
+        )
+
+    def flag_message(self, message_id: str, flag_status: str = "flagged") -> Result:
+        """flag_status: notFlagged | complete | flagged."""
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            headers=self._headers(),
+            json={"flag": {"flagStatus": flag_status}},
+            expected=(200,),
+            transform=lambda _d: {"flag_status": flag_status, "message_id": message_id},
+        )
+
+    def set_message_categories(self, message_id: str, categories: List[str]) -> Result:
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}",
+            headers=self._headers(),
+            json={"categories": categories},
+            expected=(200,),
+            transform=lambda _d: {"categories": categories, "message_id": message_id},
+        )
+
+    def search_messages(
+        self, query: str, top: int = 25, folder: Optional[str] = None
+    ) -> Result:
+        """OData $search across messages (subject, body, attachments). Sorted by relevance."""
+        url = (
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder}/messages"
+            if folder
+            else f"{GRAPH_API_BASE}/me/messages"
+        )
+        return http_request(
+            "GET",
+            url,
+            headers=self._auth_header(),
+            params={
+                "$search": f'"{query}"',
+                "$top": top,
+                "$select": "id,from,subject,bodyPreview,receivedDateTime,isRead",
+            },
+            expected=(200,),
+            transform=lambda d: {
+                "results": [
+                    {
+                        "id": m.get("id"),
+                        "from": (m.get("from") or {})
+                        .get("emailAddress", {})
+                        .get("address", ""),
+                        "subject": m.get("subject", ""),
+                        "received": m.get("receivedDateTime", ""),
+                        "preview": m.get("bodyPreview", ""),
+                        "is_read": m.get("isRead", False),
+                    }
+                    for m in d.get("value", [])
+                ]
+            },
+        )
+
+    # ----- Attachments -----
+
+    def list_attachments(self, message_id: str) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/attachments",
+            headers=self._auth_header(),
+            params={"$select": "id,name,contentType,size,isInline"},
+            expected=(200,),
+            transform=lambda d: {
+                "attachments": [
+                    {
+                        "id": a.get("id"),
+                        "name": a.get("name"),
+                        "contentType": a.get("contentType"),
+                        "size": a.get("size"),
+                        "is_inline": a.get("isInline", False),
+                    }
+                    for a in d.get("value", [])
+                ]
+            },
+        )
+
+    def get_attachment(self, message_id: str, attachment_id: str) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/attachments/{attachment_id}",
+            headers=self._auth_header(),
+            expected=(200,),
+        )
+
+    def download_attachment(
+        self, message_id: str, attachment_id: str, save_to: str
+    ) -> Result:
+        """Download an attachment to a local path. Decodes contentBytes (base64)."""
+        import os
+        import base64
+
+        meta = self.get_attachment(message_id, attachment_id)
+        if "error" in meta:
+            return meta
+        data = meta["result"]
+        content_b64 = data.get("contentBytes")
+        if not content_b64:
+            return {
+                "error": "Attachment has no contentBytes (may be itemAttachment or referenceAttachment, not fileAttachment)"
+            }
+        try:
+            save_to = os.path.abspath(save_to)
+            parent = os.path.dirname(save_to)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(save_to, "wb") as f:
+                f.write(base64.b64decode(content_b64))
+            return {
+                "ok": True,
+                "result": {"saved_to": save_to, "size": os.path.getsize(save_to)},
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def add_attachment(
+        self, message_id: str, file_path: str, content_type: Optional[str] = None
+    ) -> Result:
+        """Attach a local file to a DRAFT message (under 3 MB; large files need session upload)."""
+        import os
+        import base64
+        import mimetypes
+
+        file_path = os.path.abspath(file_path)
+        if not os.path.isfile(file_path):
+            return {"error": f"File not found: {file_path}"}
+        if not content_type:
+            content_type, _ = mimetypes.guess_type(file_path)
+            if not content_type:
+                content_type = "application/octet-stream"
+
+        with open(file_path, "rb") as f:
+            content = base64.b64encode(f.read()).decode("ascii")
+
+        payload = {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": os.path.basename(file_path),
+            "contentType": content_type,
+            "contentBytes": content,
+        }
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/attachments",
+            headers=self._headers(),
+            json=payload,
+            expected=(201,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "size": d.get("size"),
+            },
+        )
+
+    def delete_attachment(self, message_id: str, attachment_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GRAPH_API_BASE}/me/messages/{message_id}/attachments/{attachment_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "attachment_id": attachment_id},
+        )
+
+    # ----- Folders (MailFolder CRUD + traversal) -----
+
+    def get_folder(self, folder_id: str) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder_id}",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "name": d.get("displayName"),
+                "parentFolderId": d.get("parentFolderId"),
+                "total": d.get("totalItemCount"),
+                "unread": d.get("unreadItemCount"),
+            },
+        )
+
+    def create_folder(
+        self, display_name: str, parent_folder_id: str = "msgfolderroot"
+    ) -> Result:
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/mailFolders/{parent_folder_id}/childFolders",
+            headers=self._headers(),
+            json={"displayName": display_name},
+            expected=(201,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("displayName")},
+        )
+
+    def update_folder(self, folder_id: str, display_name: str) -> Result:
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder_id}",
+            headers=self._headers(),
+            json={"displayName": display_name},
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("displayName")},
+        )
+
+    def delete_folder(self, folder_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "folder_id": folder_id},
+        )
+
+    def list_child_folders(self, folder_id: str = "msgfolderroot") -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder_id}/childFolders",
+            headers=self._auth_header(),
+            params={"$select": "id,displayName,totalItemCount,unreadItemCount"},
+            expected=(200,),
+            transform=lambda d: {
+                "folders": [
+                    {
+                        "id": f.get("id"),
+                        "name": f.get("displayName"),
+                        "total": f.get("totalItemCount"),
+                        "unread": f.get("unreadItemCount"),
+                    }
+                    for f in d.get("value", [])
+                ]
+            },
+        )
+
+    def list_folder_messages(
+        self, folder_id: str, n: int = 25, unread_only: bool = False
+    ) -> Result:
+        params: Dict[str, Any] = {
+            "$top": n,
+            "$orderby": "receivedDateTime desc",
+            "$select": "id,from,subject,receivedDateTime,isRead,bodyPreview",
+        }
+        if unread_only:
+            params["$filter"] = "isRead eq false"
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailFolders/{folder_id}/messages",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
+            transform=lambda d: {
+                "messages": [
+                    {
+                        "id": m.get("id"),
+                        "from": (m.get("from") or {})
+                        .get("emailAddress", {})
+                        .get("address", ""),
+                        "subject": m.get("subject", ""),
+                        "received": m.get("receivedDateTime", ""),
+                        "is_read": m.get("isRead", False),
+                        "preview": m.get("bodyPreview", ""),
+                    }
+                    for m in d.get("value", [])
+                ]
+            },
+        )
+
+    # ----- Mailbox settings (out-of-office, timezone, locale) -----
+
+    def get_mailbox_settings(self) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailboxSettings",
+            headers=self._auth_header(),
+            expected=(200,),
+        )
+
+    def update_mailbox_settings(self, settings: Dict[str, Any]) -> Result:
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/mailboxSettings",
+            headers=self._headers(),
+            json=settings,
+            expected=(200,),
+        )
+
+    def get_automatic_replies(self) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailboxSettings/automaticRepliesSetting",
+            headers=self._auth_header(),
+            expected=(200,),
+        )
+
+    def update_automatic_replies(
+        self,
+        status: str,
+        internal_reply: Optional[str] = None,
+        external_reply: Optional[str] = None,
+        external_audience: str = "all",
+        scheduled_start: Optional[str] = None,
+        scheduled_end: Optional[str] = None,
+    ) -> Result:
+        """status: disabled | alwaysEnabled | scheduled. external_audience: none|contactsOnly|all."""
+        payload: Dict[str, Any] = {
+            "automaticRepliesSetting": {
+                "status": status,
+                "externalAudience": external_audience,
+            }
+        }
+        ars = payload["automaticRepliesSetting"]
+        if internal_reply is not None:
+            ars["internalReplyMessage"] = internal_reply
+        if external_reply is not None:
+            ars["externalReplyMessage"] = external_reply
+        if scheduled_start and scheduled_end:
+            ars["scheduledStartDateTime"] = {
+                "dateTime": scheduled_start,
+                "timeZone": "UTC",
+            }
+            ars["scheduledEndDateTime"] = {"dateTime": scheduled_end, "timeZone": "UTC"}
+        return http_request(
+            "PATCH",
+            f"{GRAPH_API_BASE}/me/mailboxSettings",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "status": d.get("automaticRepliesSetting", {}).get("status")
+            },
+        )
+
+    # ----- Inbox rules -----
+
+    def list_inbox_rules(self) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/mailFolders/inbox/messageRules",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "rules": [
+                    {
+                        "id": r.get("id"),
+                        "name": r.get("displayName"),
+                        "sequence": r.get("sequence"),
+                        "enabled": r.get("isEnabled"),
+                    }
+                    for r in d.get("value", [])
+                ]
+            },
+        )
+
+    def create_inbox_rule(
+        self,
+        display_name: str,
+        conditions: Dict[str, Any],
+        actions: Dict[str, Any],
+        sequence: int = 1,
+        is_enabled: bool = True,
+    ) -> Result:
+        payload = {
+            "displayName": display_name,
+            "sequence": sequence,
+            "isEnabled": is_enabled,
+            "conditions": conditions,
+            "actions": actions,
+        }
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/mailFolders/inbox/messageRules",
+            headers=self._headers(),
+            json=payload,
+            expected=(201,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("displayName")},
+        )
+
+    def delete_inbox_rule(self, rule_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GRAPH_API_BASE}/me/mailFolders/inbox/messageRules/{rule_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "rule_id": rule_id},
+        )
+
+    # ----- Categories (Outlook master categories) -----
+
+    def list_categories(self) -> Result:
+        return http_request(
+            "GET",
+            f"{GRAPH_API_BASE}/me/outlook/masterCategories",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "categories": [
+                    {
+                        "id": c.get("id"),
+                        "displayName": c.get("displayName"),
+                        "color": c.get("color"),
+                    }
+                    for c in d.get("value", [])
+                ]
+            },
+        )
+
+    def create_category(self, display_name: str, color: str = "preset0") -> Result:
+        """color: preset0..preset24 (see Microsoft Graph categoryColor enum)."""
+        return http_request(
+            "POST",
+            f"{GRAPH_API_BASE}/me/outlook/masterCategories",
+            headers=self._headers(),
+            json={"displayName": display_name, "color": color},
+            expected=(201,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "displayName": d.get("displayName"),
+                "color": d.get("color"),
+            },
+        )
+
+    def delete_category(self, category_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GRAPH_API_BASE}/me/outlook/masterCategories/{category_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "category_id": category_id},
+        )

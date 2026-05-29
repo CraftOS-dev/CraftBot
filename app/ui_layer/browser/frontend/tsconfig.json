@@ -17,9 +17,17 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
-    }
+      "@/*": ["src/*"],
+      "@mascot": ["../../components/Mascot"],
+      "@mascot/*": ["../../components/Mascot/*"],
+      "react": ["node_modules/@types/react", "node_modules/react"],
+      "react/jsx-runtime": ["node_modules/@types/react/jsx-runtime"],
+      "react/jsx-dev-runtime": ["node_modules/@types/react/jsx-dev-runtime"],
+      "react/*": ["node_modules/react/*"],
+      "lucide-react": ["node_modules/lucide-react"]
+    },
+    "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["src"],
+  "include": ["src", "../../components/Mascot/**/*"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Sparkles, Download, Loader2, Package, FolderInput, Upload, Check, Search } from 'lucide-react'
+import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Check, Search } from 'lucide-react'
 import { Button } from './Button'
 import { Modal } from './Modal'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
@@ -296,7 +296,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
 
   const tabsConfig = [
-    { id: 'marketplace' as const, label: 'Marketplace', icon: <Package size={14} /> },
+    { id: 'marketplace' as const, label: 'Marketplace', icon: <Store size={14} /> },
     { id: 'custom' as const, label: 'Create Custom', icon: <Sparkles size={14} /> },
     { id: 'import' as const, label: 'Import', icon: <FolderInput size={14} /> },
   ]

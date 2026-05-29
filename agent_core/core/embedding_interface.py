@@ -55,6 +55,7 @@ class EmbeddingInterface:
         self.client = ctx["client"]
         self._gemini_client = ctx["gemini_client"]
         self.remote_url = ctx["remote_url"]
+        self._bedrock_client = ctx.get("bedrock_client")
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -79,6 +80,8 @@ class EmbeddingInterface:
             return self._get_ollama_embedding(text)
         elif self.provider == "byteplus":
             return self._get_byteplus_embedding(text)
+        elif self.provider == "bedrock":
+            return self._get_bedrock_embedding(text)
         elif self.provider == "anthropic":
             raise NotImplementedError(
                 "Anthropic does not provide native embedding models. "
@@ -135,6 +138,34 @@ class EmbeddingInterface:
             return data.get("embedding")
         except Exception as e:
             logger.exception(f"Error calling BytePlus Embedding API: {e}")
+            return None
+
+    def _get_bedrock_embedding(self, text: str) -> Optional[List[float]]:
+        """Invoke an embedding model on AWS Bedrock.
+
+        Titan Text Embeddings (v1 / v2) accept `{"inputText": "..."}` and
+        return `{"embedding": [floats]}`. The invoke_model API is used here
+        (Converse doesn't expose embeddings).
+        """
+        if not self._bedrock_client:
+            raise RuntimeError("Bedrock client was not initialised.")
+
+        try:
+            import json as _json
+
+            payload = {"inputText": text}
+            response = self._bedrock_client.invoke_model(
+                modelId=self.model,
+                body=_json.dumps(payload),
+                accept="application/json",
+                contentType="application/json",
+            )
+            body = response.get("body")
+            raw = body.read() if hasattr(body, "read") else body
+            result = _json.loads(raw)
+            return result.get("embedding")
+        except Exception as e:
+            logger.exception(f"Error calling Bedrock Embedding API: {e}")
             return None
 
     def _get_ollama_embedding(self, text: str) -> Optional[List[float]]:

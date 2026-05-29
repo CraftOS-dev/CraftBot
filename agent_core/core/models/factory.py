@@ -12,6 +12,11 @@ from openai import OpenAI
 from anthropic import Anthropic
 from typing import Optional
 
+try:
+    import boto3  # type: ignore[import]
+except ImportError:  # pragma: no cover — boto3 is an optional extra
+    boto3 = None  # type: ignore[assignment]
+
 from agent_core.core.models.types import InterfaceType
 from agent_core.core.models.model_registry import MODEL_REGISTRY
 from agent_core.core.models.provider_config import PROVIDER_CONFIG
@@ -136,6 +141,7 @@ class ModelFactory:
             "remote_url": resolved_base_url if provider == "remote" else None,
             "byteplus": None,
             "anthropic_client": None,
+            "bedrock_client": None,
             "initialized": False,
         }
 
@@ -154,6 +160,7 @@ class ModelFactory:
                 "remote_url": None,
                 "byteplus": None,
                 "anthropic_client": None,
+                "bedrock_client": None,
                 "initialized": True,
             }
 
@@ -171,6 +178,7 @@ class ModelFactory:
                 "remote_url": None,
                 "byteplus": None,
                 "anthropic_client": None,
+                "bedrock_client": None,
                 "initialized": True,
             }
 
@@ -188,6 +196,7 @@ class ModelFactory:
                 "remote_url": None,
                 "byteplus": None,
                 "anthropic_client": Anthropic(api_key=api_key),
+                "bedrock_client": None,
                 "initialized": True,
             }
 
@@ -208,6 +217,7 @@ class ModelFactory:
                     "base_url": resolved_base_url,
                 },
                 "anthropic_client": None,
+                "bedrock_client": None,
                 "initialized": True,
             }
 
@@ -223,6 +233,7 @@ class ModelFactory:
                 "remote_url": resolved_base_url,
                 "byteplus": None,
                 "anthropic_client": None,
+                "bedrock_client": None,
                 "initialized": True,
             }
 
@@ -247,6 +258,7 @@ class ModelFactory:
                         "remote_url": None,
                         "byteplus": None,
                         "anthropic_client": None,
+                        "bedrock_client": None,
                         "initialized": True,
                     }
 
@@ -263,6 +275,66 @@ class ModelFactory:
                 "remote_url": None,
                 "byteplus": None,
                 "anthropic_client": None,
+                "bedrock_client": None,
+                "initialized": True,
+            }
+
+        if provider == "bedrock":
+            # Bedrock uses the boto3 credential chain. CraftBot stores AWS
+            # credentials in settings.json (not env vars), so we pull them via
+            # app.config — mirroring how the OpenRouter fallback path also
+            # reaches into app.config to read its stored key.
+            #
+            # `base_url` carries the region through the factory plumbing
+            # (api_key/base_url are the only fields the callers thread through).
+            # If unset, fall back to settings → AWS_REGION env → default.
+            region = resolved_base_url or "us-east-1"
+            access_key = secret_key = session_token = None
+            try:
+                from app.config import get_aws_credentials  # type: ignore
+
+                creds = get_aws_credentials()
+                access_key = creds.get("access_key_id") or None
+                secret_key = creds.get("secret_access_key") or None
+                session_token = creds.get("session_token") or None
+                region = creds.get("region") or region
+            except Exception:
+                # Falling back to boto3's default credential chain (env, IAM
+                # role, SSO profile). Useful when running on an EC2/ECS host.
+                pass
+
+            if boto3 is None:
+                if deferred:
+                    return empty_context
+                raise ImportError(
+                    "boto3 is required for the Bedrock provider. "
+                    "Install with `pip install boto3`."
+                )
+
+            try:
+                client_kwargs = {"region_name": region}
+                if access_key and secret_key:
+                    client_kwargs["aws_access_key_id"] = access_key
+                    client_kwargs["aws_secret_access_key"] = secret_key
+                    if session_token:
+                        client_kwargs["aws_session_token"] = session_token
+                bedrock_client = boto3.client("bedrock-runtime", **client_kwargs)
+            except Exception as exc:
+                if deferred:
+                    return empty_context
+                raise EnvironmentError(
+                    f"Failed to create Bedrock client: {exc}"
+                ) from exc
+
+            return {
+                "provider": provider,
+                "model": model,
+                "client": None,
+                "gemini_client": None,
+                "remote_url": None,
+                "byteplus": None,
+                "anthropic_client": None,
+                "bedrock_client": bedrock_client,
                 "initialized": True,
             }
 

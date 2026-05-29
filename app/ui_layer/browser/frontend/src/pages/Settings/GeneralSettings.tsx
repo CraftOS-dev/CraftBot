@@ -641,8 +641,8 @@ export function GeneralSettings() {
       {/* Version & Updates Section */}
       <div className={styles.dangerZone} style={{ background: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
         <div className={styles.dangerHeader}>
-          <Download size={18} style={{ color: 'var(--color-primary)' }} />
-          <h4 style={{ color: 'var(--color-primary)' }}>Version & Updates</h4>
+          <Download size={18} style={{ color: 'var(--text-primary)' }} />
+          <h4 style={{ color: 'var(--text-primary)' }}>Version & Updates</h4>
         </div>
         <p className={styles.dangerDescription}>
           {isCheckingUpdate ? (<>

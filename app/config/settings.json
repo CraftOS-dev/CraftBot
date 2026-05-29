@@ -14,10 +14,10 @@
     "item_word_limit": 150
   },
   "model": {
-    "llm_provider": "byteplus",
-    "vlm_provider": "byteplus",
-    "llm_model": "seed-2-0-pro-260328",
-    "vlm_model": "seed-2-0-pro-260328",
+    "llm_provider": "anthropic",
+    "vlm_provider": "anthropic",
+    "llm_model": "claude-sonnet-4-5-20250929",
+    "vlm_model": "claude-sonnet-4-5-20250929",
     "slow_mode": true,
     "slow_mode_tpm_limit": 25000
   },
@@ -25,7 +25,7 @@
     "openai": "",
     "anthropic": "",
     "google": "",
-    "byteplus": "62a75ab1-0f00-4d4e-8873-23551e624375",
+    "byteplus": "",
     "openrouter": ""
   },
   "endpoints": {
@@ -80,5 +80,6 @@
     "google": true,
     "byteplus": true,
     "openrouter": false
-  }
+  },
+  "aws_credentials": {}
 }

@@ -90,6 +90,18 @@ PROVIDER_INFO = {
         "base_url_env": "REMOTE_MODEL_URL",
         "requires_api_key": False,
     },
+    "bedrock": {
+        "name": "AWS Bedrock",
+        # Bedrock uses the boto3 credential chain — there is no single key,
+        # so `requires_api_key` is False and the frontend renders an AWS
+        # credentials block instead (access key / secret key / region).
+        "requires_api_key": False,
+        "is_bedrock": True,
+        # Region is exposed via the base_url slot so the existing plumbing
+        # threads it through. The frontend uses `is_bedrock` to swap the
+        # generic "Server URL" field for an AWS-specific form.
+        "base_url_env": "AWS_REGION",
+    },
 }
 
 
@@ -175,6 +187,7 @@ def get_available_providers() -> Dict[str, Any]:
                     "vlm_model": vlm_model,
                     "has_vlm": vlm_model is not None,
                     "supports_catalog": info.get("supports_catalog", False),
+                    "is_bedrock": info.get("is_bedrock", False),
                 }
             )
 
@@ -249,6 +262,32 @@ def get_model_settings() -> Dict[str, Any]:
         if endpoints_settings.get("openrouter_base_url"):
             base_urls["openrouter"] = endpoints_settings["openrouter_base_url"]
 
+        # Bedrock: surface the region through the same base_urls map so the
+        # frontend can use the existing field. AWS creds status is reported
+        # in a separate `aws_credentials` block below.
+        aws_region = endpoints_settings.get("aws_region", "us-east-1")
+        base_urls["bedrock"] = aws_region
+
+        aws_settings = settings.get("aws_credentials", {}) or {}
+        has_access_key = bool(aws_settings.get("access_key_id"))
+        has_secret_key = bool(aws_settings.get("secret_access_key"))
+        aws_creds_status = {
+            "has_access_key_id": has_access_key,
+            "has_secret_access_key": has_secret_key,
+            "has_session_token": bool(aws_settings.get("session_token")),
+            "masked_access_key_id": _mask_api_key(
+                aws_settings.get("access_key_id", "")
+            ),
+            "region": aws_region,
+        }
+        # Reflect AWS creds in the api_keys map too so the existing "Configured"
+        # badge logic in the frontend lights up for bedrock without special
+        # casing. has_key = both keys present (or boto3 chain available).
+        api_keys["bedrock"] = {
+            "has_key": has_access_key and has_secret_key,
+            "masked_key": aws_creds_status["masked_access_key_id"] or "(boto3 chain)",
+        }
+
         return {
             "success": True,
             "llm_provider": llm_provider,
@@ -257,6 +296,7 @@ def get_model_settings() -> Dict[str, Any]:
             "vlm_model": vlm_model,
             "api_keys": api_keys,
             "base_urls": base_urls,
+            "aws_credentials": aws_creds_status,
         }
     except Exception as e:
         return {
@@ -274,6 +314,7 @@ def update_model_settings(
     provider_for_key: Optional[str] = None,
     base_url: Optional[str] = None,
     provider_for_url: Optional[str] = None,
+    aws_credentials: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Update model settings.
 
@@ -300,6 +341,8 @@ def update_model_settings(
             settings["api_keys"] = {}
         if "endpoints" not in settings:
             settings["endpoints"] = {}
+        if "aws_credentials" not in settings:
+            settings["aws_credentials"] = {}
 
         # Update providers
         # When provider changes, clear the model override so default model is used
@@ -345,6 +388,19 @@ def update_model_settings(
                 settings["endpoints"]["remote_model_url"] = base_url
             elif provider_for_url == "openrouter":
                 settings["endpoints"]["openrouter_base_url"] = base_url
+            elif provider_for_url == "bedrock":
+                # Bedrock's "base URL" slot carries the AWS region.
+                settings["endpoints"]["aws_region"] = base_url
+
+        # Update AWS credentials block (bedrock-only)
+        if aws_credentials:
+            for field in ("access_key_id", "secret_access_key", "session_token"):
+                value = aws_credentials.get(field)
+                if value is not None:
+                    settings["aws_credentials"][field] = value
+            region = aws_credentials.get("region")
+            if region:
+                settings["endpoints"]["aws_region"] = region
 
         # Clear remote URL when switching away from remote so stale values don't persist
         if (
@@ -382,6 +438,7 @@ def test_connection(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    aws_credentials: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Test connection to a provider.
 
@@ -411,13 +468,23 @@ def test_connection(
                 api_key = api_keys_settings.get(settings_key)
 
         # If no base URL provided, try to get it from settings.json
-        if base_url is None and provider in ["byteplus", "remote", "openrouter"]:
+        if base_url is None and provider in [
+            "byteplus",
+            "remote",
+            "openrouter",
+            "bedrock",
+        ]:
             if provider == "byteplus":
                 base_url = endpoints_settings.get("byteplus_base_url")
             elif provider == "remote":
                 base_url = endpoints_settings.get("remote_model_url")
             elif provider == "openrouter":
                 base_url = endpoints_settings.get("openrouter_base_url")
+            elif provider == "bedrock":
+                # `base_url` carries the AWS region through the existing
+                # plumbing — the connection tester reads boto3 creds from
+                # settings.json directly via app.config.get_aws_credentials.
+                base_url = endpoints_settings.get("aws_region", "us-east-1")
 
         # Run connection test
         result = test_provider_connection(
@@ -425,6 +492,7 @@ def test_connection(
             api_key=api_key,
             base_url=base_url,
             model=model,
+            aws_credentials=aws_credentials,
         )
 
         return result

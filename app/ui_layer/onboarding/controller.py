@@ -10,7 +10,7 @@ from app.onboarding.interfaces.steps import (
     ApiKeyStep,
     AgentNameStep,
     UserProfileStep,
-    MCPStep,
+    IntegrationStep,
     SkillsStep,
     HardOnboardingStep,
     StepOption,
@@ -46,7 +46,7 @@ class OnboardingFlowController:
 
     Interfaces implement the presentation layer and call this controller
     for the business logic. This ensures consistent onboarding behavior
-    across CLI and Browser interfaces.
+    across CLI, TUI, and Browser interfaces.
 
     Example:
         controller = OnboardingFlowController(ui_controller)
@@ -69,8 +69,8 @@ class OnboardingFlowController:
         ApiKeyStep,
         AgentNameStep,
         UserProfileStep,
-        MCPStep,
         SkillsStep,
+        IntegrationStep,
     ]
 
     def __init__(self, controller: Optional["UIController"] = None) -> None:
@@ -261,7 +261,9 @@ class OnboardingFlowController:
             agent_name = agent_name_data.get("agent_name") or "Agent"
         else:
             agent_name = agent_name_data or "Agent"
-        selected_mcp_servers = self._state.collected_data.get("mcp", [])
+        # The integrations step is informational — selected integrations are
+        # surfaced for awareness, but OAuth/token connection happens in
+        # Settings → Integrations after onboarding.
         selected_skills = self._state.collected_data.get("skills", [])
 
         # Save provider configuration to settings.json
@@ -327,13 +329,6 @@ class OnboardingFlowController:
         # Update controller state if available
         if self._controller:
             self._controller.state_store.dispatch("SET_PROVIDER", provider)
-
-        # Apply MCP server selections
-        if selected_mcp_servers:
-            from app.ui_layer.settings.mcp_settings import enable_mcp_server
-
-            for server_name in selected_mcp_servers:
-                enable_mcp_server(server_name)
 
         # Apply skill selections
         if selected_skills:

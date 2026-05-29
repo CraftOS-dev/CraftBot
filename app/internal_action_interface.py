@@ -480,6 +480,17 @@ class InternalActionInterface:
             # Merge: skill-recommended + LLM-selected (deduplicated)
             all_action_sets = list(dict.fromkeys(skill_action_sets + llm_action_sets))
             logger.info(f"[TASK] Pre-selected skills (via command): {selected_skills}")
+            try:
+                from app.ui_layer.metrics.collector import MetricsCollector
+
+                collector = MetricsCollector.get_instance()
+                if collector:
+                    logger.info("[TASK] Pre-selected skills collector initialized")
+                    for skill_name in selected_skills:
+                        collector.record_skill_invocation(skill_name)
+            except Exception:
+                pass
+
         else:
             # Select skills and action sets in a single LLM call (optimized)
             # Skills are selected first, then action sets with knowledge of skill recommendations
@@ -901,7 +912,6 @@ class InternalActionInterface:
                             collector.record_skill_invocation(skill_name)
                 except Exception:
                     pass  # Don't fail skill selection if metrics recording fails
-
             return valid_skills, valid_sets
 
         except json.JSONDecodeError as e:

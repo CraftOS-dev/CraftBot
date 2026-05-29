@@ -253,14 +253,17 @@ const ConfigForm = ({
 
       case 'checkbox':
         return (
-          <label htmlFor={id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+          <label htmlFor={id} className={styles.checkboxRow}>
             <input
               id={id}
               type="checkbox"
               checked={Boolean(cur)}
               onChange={e => setField(field.key, e.target.checked)}
             />
-            <span>{field.help || field.label}</span>
+            <span className={styles.checkboxText}>
+              <span className={styles.checkboxLabel}>{field.label}</span>
+              {field.help && <span className={styles.checkboxHint}>{field.help}</span>}
+            </span>
           </label>
         )
 
@@ -308,17 +311,17 @@ const ConfigForm = ({
   return (
     <div className={styles.connectForm}>
       {schema.map(field => (
-        <div key={field.key} className={styles.fieldGroup}>
+        <div key={field.key} className={styles.formGroup}>
           {/* Checkbox renders its own label (next to the box). For every
               other type the label sits above the input. */}
           {field.type !== 'checkbox' && (
-            <label htmlFor={`cfg-${integrationId}-${field.key}`} className={styles.fieldLabel}>
+            <label htmlFor={`cfg-${integrationId}-${field.key}`}>
               {field.label}
             </label>
           )}
           {renderField(field)}
           {field.help && field.type !== 'checkbox' && (
-            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>{field.help}</p>
+            <p className={styles.hint}>{field.help}</p>
           )}
         </div>
       ))}

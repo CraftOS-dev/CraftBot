@@ -11,11 +11,20 @@ export interface ProviderInfo {
   vlm_model: string | null
   has_vlm: boolean
   supports_catalog?: boolean
+  is_bedrock?: boolean
 }
 
 export interface ApiKeyStatus {
   has_key: boolean
   masked_key: string
+}
+
+export interface AwsCredentialsStatus {
+  has_access_key_id: boolean
+  has_secret_access_key: boolean
+  has_session_token: boolean
+  masked_access_key_id: string
+  region: string
 }
 
 interface ModelSettingsState {
@@ -28,6 +37,7 @@ interface ModelSettingsState {
   slowModeEnabled: boolean
   ollamaModels: string[]
   ollamaAvailable: boolean | null
+  awsCredentials: AwsCredentialsStatus | null
   hasLoadedProviders: boolean
   hasLoadedSettings: boolean
   hasLoadedSlowMode: boolean
@@ -43,6 +53,7 @@ const initialState: ModelSettingsState = {
   slowModeEnabled: false,
   ollamaModels: [],
   ollamaAvailable: null,
+  awsCredentials: null,
   hasLoadedProviders: false,
   hasLoadedSettings: false,
   hasLoadedSlowMode: false,
@@ -62,13 +73,20 @@ const modelSettingsSlice = createSlice({
       vlmModel: string
       apiKeys: Record<string, ApiKeyStatus>
       baseUrls: Record<string, string>
+      awsCredentials?: AwsCredentialsStatus | null
     }>) {
       state.provider = action.payload.provider
       state.currentLlmModel = action.payload.llmModel
       state.currentVlmModel = action.payload.vlmModel
       state.apiKeys = action.payload.apiKeys
       state.baseUrls = action.payload.baseUrls
+      if (action.payload.awsCredentials !== undefined) {
+        state.awsCredentials = action.payload.awsCredentials
+      }
       state.hasLoadedSettings = true
+    },
+    setAwsCredentials(state, action: PayloadAction<AwsCredentialsStatus | null>) {
+      state.awsCredentials = action.payload
     },
     setProvider(state, action: PayloadAction<string>) {
       state.provider = action.payload
@@ -106,6 +124,7 @@ export const {
   setBaseUrls,
   setSlowModeEnabled,
   setOllamaModels,
+  setAwsCredentials,
 } = modelSettingsSlice.actions
 
 export default modelSettingsSlice.reducer
@@ -123,6 +142,7 @@ register('model_settings_get', (data, dispatch) => {
     vlm_model: string | null
     api_keys: Record<string, ApiKeyStatus>
     base_urls: Record<string, string>
+    aws_credentials?: AwsCredentialsStatus | null
   }
   if (d.success) {
     dispatch(setSettings({
@@ -131,6 +151,7 @@ register('model_settings_get', (data, dispatch) => {
       vlmModel: d.vlm_model || '',
       apiKeys: d.api_keys || {},
       baseUrls: d.base_urls || {},
+      awsCredentials: d.aws_credentials ?? null,
     }))
   }
 })
@@ -143,6 +164,7 @@ register('model_settings_update', (data, dispatch) => {
     vlm_model?: string | null
     api_keys?: Record<string, ApiKeyStatus>
     base_urls?: Record<string, string>
+    aws_credentials?: AwsCredentialsStatus | null
   }
   if (!d.success) return
   if (d.llm_provider) dispatch(setProvider(d.llm_provider))
@@ -150,6 +172,7 @@ register('model_settings_update', (data, dispatch) => {
   if (d.base_urls) dispatch(setBaseUrls(d.base_urls))
   if (d.llm_model !== undefined) dispatch(setCurrentLlmModel(d.llm_model || ''))
   if (d.vlm_model !== undefined) dispatch(setCurrentVlmModel(d.vlm_model || ''))
+  if (d.aws_credentials !== undefined) dispatch(setAwsCredentials(d.aws_credentials))
 })
 
 register('slow_mode_get', (data, dispatch) => {

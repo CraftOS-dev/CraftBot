@@ -77,6 +77,7 @@ from agent_core import (
     MemoryFileWatcher,
     create_memory_processing_task,
     WorkflowLockManager,
+    LLMCallType,
 )
 from app.context_engine import ContextEngine
 from app.state.state_manager import StateManager
@@ -2928,6 +2929,53 @@ class AgentBase:
             logger.info(
                 f"[AGENT] LLM and VLM reinitialized with provider: {self.llm.provider}"
             )
+
+            # Rebuild session caches for any task that was mid-flight when
+            # the provider switched. `LLMInterface.reinitialize()` wipes
+            # `_session_system_prompts` and all per-provider message-history
+            # buffers — without this rebuild step, `has_session_cache()`
+            # would return False for the rest of every active task and the
+            # router would fall back to the single-turn path, defeating
+            # session caching for the remainder of the task.
+            #
+            # Re-deriving the system prompt via `context_engine.make_prompt()`
+            # (inside `_create_session_caches`) means the new provider sees
+            # the *current* compiled prompt — so any todos / action-set
+            # changes since the original registration are picked up too.
+            #
+            # We also reset the event-stream sync point so the next call
+            # under the new provider hits the router's "first call" branch
+            # and resends the FULL prompt + accumulated event stream,
+            # establishing a fresh session-cache prefix instead of sending
+            # a tiny delta against an empty history.
+            try:
+                active_task_ids = (
+                    self.task_manager.get_active_task_ids() if self.task_manager else []
+                )
+                if active_task_ids:
+                    for task_id in active_task_ids:
+                        self.task_manager.rebuild_session_caches(task_id)
+                        if self.context_engine:
+                            for call_type in (
+                                LLMCallType.REASONING,
+                                LLMCallType.ACTION_SELECTION,
+                                LLMCallType.GUI_REASONING,
+                                LLMCallType.GUI_ACTION_SELECTION,
+                            ):
+                                self.context_engine.reset_event_stream_sync(
+                                    call_type, session_id=task_id
+                                )
+                    logger.info(
+                        f"[AGENT] Rebuilt session caches for "
+                        f"{len(active_task_ids)} active task(s) under new "
+                        f"provider {self.llm.provider}"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"[AGENT] Failed to rebuild session caches after "
+                    f"provider switch: {e}"
+                )
+
             # Update GUI module provider if needed (only if GUI mode is enabled)
             gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
             if (

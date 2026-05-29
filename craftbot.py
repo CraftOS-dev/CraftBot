@@ -513,10 +513,7 @@ def cmd_start(extra_args: List[str]) -> None:
         else:
             _create_desktop_shortcut_unix()
 
-    open_browser = (
-        "--cli" not in run_args
-        and "--no-open-browser" not in extra_args
-    )
+    open_browser = "--cli" not in run_args and "--no-open-browser" not in extra_args
     if open_browser:
         print(f"  {DIM}░░{RESET} {ORANGE}{BROWSER_URL}{RESET}")
         _open_browser_detached(BROWSER_URL)

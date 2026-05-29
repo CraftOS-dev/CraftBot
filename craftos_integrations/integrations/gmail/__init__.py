@@ -438,3 +438,657 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 detail.get("result", detail) if "error" not in detail else detail
             )
         return {"ok": True, "result": emails}
+
+    # ----- Messages: search / modify / trash / untrash / delete / batch -----
+
+    def search_messages(
+        self,
+        query: str,
+        max_results: int = 25,
+        label_ids: Optional[List[str]] = None,
+        include_spam_trash: bool = False,
+    ) -> Result:
+        """Search messages by Gmail's q syntax (e.g. 'from:alice subject:invoice newer_than:7d')."""
+        params: Dict[str, Any] = {
+            "q": query,
+            "maxResults": max_results,
+            "includeSpamTrash": str(include_spam_trash).lower(),
+        }
+        if label_ids:
+            params["labelIds"] = label_ids
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
+            transform=lambda d: {
+                "messages": d.get("messages", []),
+                "resultSizeEstimate": d.get("resultSizeEstimate", 0),
+            },
+        )
+
+    def modify_message_labels(
+        self,
+        message_id: str,
+        add_label_ids: Optional[List[str]] = None,
+        remove_label_ids: Optional[List[str]] = None,
+    ) -> Result:
+        payload: Dict[str, Any] = {}
+        if add_label_ids:
+            payload["addLabelIds"] = add_label_ids
+        if remove_label_ids:
+            payload["removeLabelIds"] = remove_label_ids
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}/modify",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "labelIds": d.get("labelIds", [])},
+        )
+
+    def trash_message(self, message_id: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}/trash",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "trashed": True},
+        )
+
+    def untrash_message(self, message_id: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}/untrash",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "trashed": False},
+        )
+
+    def delete_message(self, message_id: str) -> Result:
+        """Permanently delete. Use trash_message for soft delete."""
+        return http_request(
+            "DELETE",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "message_id": message_id},
+        )
+
+    def batch_modify_messages(
+        self,
+        message_ids: List[str],
+        add_label_ids: Optional[List[str]] = None,
+        remove_label_ids: Optional[List[str]] = None,
+    ) -> Result:
+        payload: Dict[str, Any] = {"ids": message_ids}
+        if add_label_ids:
+            payload["addLabelIds"] = add_label_ids
+        if remove_label_ids:
+            payload["removeLabelIds"] = remove_label_ids
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/batchModify",
+            headers=self._headers(),
+            json=payload,
+            expected=(204,),
+            transform=lambda _d: {"modified": len(message_ids)},
+        )
+
+    def batch_delete_messages(self, message_ids: List[str]) -> Result:
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/batchDelete",
+            headers=self._headers(),
+            json={"ids": message_ids},
+            expected=(204,),
+            transform=lambda _d: {"deleted": len(message_ids)},
+        )
+
+    # ----- Reply / forward (build proper RFC 2822 message and send via threadId) -----
+
+    def _fetch_reply_headers(self, message_id: str) -> Dict[str, str]:
+        """Fetch original message metadata + Message-ID/Subject/From headers."""
+        result = http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}",
+            headers=self._auth_header(),
+            params=[
+                ("format", "metadata"),
+                ("metadataHeaders", "From"),
+                ("metadataHeaders", "To"),
+                ("metadataHeaders", "Cc"),
+                ("metadataHeaders", "Subject"),
+                ("metadataHeaders", "Message-ID"),
+                ("metadataHeaders", "References"),
+            ],
+            expected=(200,),
+        )
+        if "error" in result:
+            return {"_error": result["error"], "_thread_id": ""}
+        data = result["result"]
+        headers = {
+            h["name"]: h["value"] for h in data.get("payload", {}).get("headers", [])
+        }
+        headers["_thread_id"] = data.get("threadId", "")
+        return headers
+
+    def reply_to_message(
+        self,
+        message_id: str,
+        body: str,
+        reply_all: bool = False,
+        attachments: Optional[List[str]] = None,
+    ) -> Result:
+        info = self._fetch_reply_headers(message_id)
+        if info.get("_error"):
+            return {"error": info["_error"]}
+        cred = self._load()
+
+        orig_subject = info.get("Subject", "")
+        reply_subject = (
+            orig_subject
+            if orig_subject.lower().startswith("re:")
+            else f"Re: {orig_subject}"
+        )
+        msg_id_hdr = info.get("Message-ID") or info.get("Message-Id", "")
+        references = info.get("References", "")
+        thread_id = info["_thread_id"]
+
+        # Default: reply to sender. If reply_all, also CC the original To/Cc minus self.
+        from_addr = info.get("From", "")
+        cc_addrs: List[str] = []
+        if reply_all:
+            for hdr in ("To", "Cc"):
+                if info.get(hdr):
+                    cc_addrs.extend([a.strip() for a in info[hdr].split(",")])
+            self_email = (cred.email or "").lower()
+            cc_addrs = [a for a in cc_addrs if a and self_email not in a.lower()]
+
+        msg = MIMEMultipart()
+        msg["to"] = from_addr
+        msg["from"] = cred.email
+        msg["subject"] = reply_subject
+        if cc_addrs:
+            msg["cc"] = ", ".join(cc_addrs)
+        if msg_id_hdr:
+            msg["In-Reply-To"] = msg_id_hdr
+            msg["References"] = (
+                (references + " " + msg_id_hdr).strip() if references else msg_id_hdr
+            )
+        msg.attach(MIMEText(body, "plain"))
+
+        if attachments:
+            for file_path in attachments:
+                if not os.path.isfile(file_path):
+                    continue
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if mime_type is None:
+                    mime_type = "application/octet-stream"
+                maintype, subtype = mime_type.split("/", 1)
+                with open(file_path, "rb") as f:
+                    part = MIMEBase(maintype, subtype)
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{os.path.basename(file_path)}"',
+                    )
+                    msg.attach(part)
+
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        payload: Dict[str, Any] = {"raw": raw}
+        if thread_id:
+            payload["threadId"] = thread_id
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/send",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "threadId": d.get("threadId"),
+                "replied_to": message_id,
+            },
+        )
+
+    def forward_message(
+        self,
+        message_id: str,
+        to: str,
+        body: str = "",
+        attachments: Optional[List[str]] = None,
+    ) -> Result:
+        info = self._fetch_reply_headers(message_id)
+        if info.get("_error"):
+            return {"error": info["_error"]}
+        cred = self._load()
+
+        orig_subject = info.get("Subject", "")
+        fwd_subject = (
+            orig_subject
+            if orig_subject.lower().startswith("fwd:")
+            else f"Fwd: {orig_subject}"
+        )
+        thread_id = info["_thread_id"]
+
+        msg = MIMEMultipart()
+        msg["to"] = to
+        msg["from"] = cred.email
+        msg["subject"] = fwd_subject
+        msg.attach(MIMEText(body, "plain"))
+
+        if attachments:
+            for file_path in attachments:
+                if not os.path.isfile(file_path):
+                    continue
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if mime_type is None:
+                    mime_type = "application/octet-stream"
+                maintype, subtype = mime_type.split("/", 1)
+                with open(file_path, "rb") as f:
+                    part = MIMEBase(maintype, subtype)
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{os.path.basename(file_path)}"',
+                    )
+                    msg.attach(part)
+
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        payload: Dict[str, Any] = {"raw": raw}
+        if thread_id:
+            payload["threadId"] = thread_id
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/messages/send",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "threadId": d.get("threadId"),
+                "forwarded": message_id,
+                "to": to,
+            },
+        )
+
+    # ----- Threads -----
+
+    def list_threads(
+        self,
+        query: Optional[str] = None,
+        label_ids: Optional[List[str]] = None,
+        max_results: int = 25,
+    ) -> Result:
+        params: Dict[str, Any] = {"maxResults": max_results}
+        if query:
+            params["q"] = query
+        if label_ids:
+            params["labelIds"] = label_ids
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/threads",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
+            transform=lambda d: {
+                "threads": d.get("threads", []),
+                "resultSizeEstimate": d.get("resultSizeEstimate", 0),
+            },
+        )
+
+    def get_thread(self, thread_id: str, fmt: str = "metadata") -> Result:
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/threads/{thread_id}",
+            headers=self._auth_header(),
+            params={"format": fmt},
+            expected=(200,),
+        )
+
+    def modify_thread_labels(
+        self,
+        thread_id: str,
+        add_label_ids: Optional[List[str]] = None,
+        remove_label_ids: Optional[List[str]] = None,
+    ) -> Result:
+        payload: Dict[str, Any] = {}
+        if add_label_ids:
+            payload["addLabelIds"] = add_label_ids
+        if remove_label_ids:
+            payload["removeLabelIds"] = remove_label_ids
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/threads/{thread_id}/modify",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "messages": len(d.get("messages", [])),
+            },
+        )
+
+    def trash_thread(self, thread_id: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/threads/{thread_id}/trash",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "trashed": True},
+        )
+
+    def untrash_thread(self, thread_id: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/threads/{thread_id}/untrash",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "trashed": False},
+        )
+
+    def delete_thread(self, thread_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GMAIL_API_BASE}/users/me/threads/{thread_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "thread_id": thread_id},
+        )
+
+    # ----- Drafts -----
+
+    def list_drafts(self, max_results: int = 25, query: Optional[str] = None) -> Result:
+        params: Dict[str, Any] = {"maxResults": max_results}
+        if query:
+            params["q"] = query
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/drafts",
+            headers=self._auth_header(),
+            params=params,
+            expected=(200,),
+            transform=lambda d: {"drafts": d.get("drafts", [])},
+        )
+
+    def get_draft(self, draft_id: str, fmt: str = "metadata") -> Result:
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/drafts/{draft_id}",
+            headers=self._auth_header(),
+            params={"format": fmt},
+            expected=(200,),
+        )
+
+    def create_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        cc: Optional[str] = None,
+        bcc: Optional[str] = None,
+        attachments: Optional[List[str]] = None,
+    ) -> Result:
+        cred = self._load()
+        msg = MIMEMultipart()
+        msg["to"] = to
+        msg["from"] = cred.email
+        msg["subject"] = subject
+        if cc:
+            msg["cc"] = cc
+        if bcc:
+            msg["bcc"] = bcc
+        msg.attach(MIMEText(body, "plain"))
+
+        if attachments:
+            for file_path in attachments:
+                if not os.path.isfile(file_path):
+                    continue
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if mime_type is None:
+                    mime_type = "application/octet-stream"
+                maintype, subtype = mime_type.split("/", 1)
+                with open(file_path, "rb") as f:
+                    part = MIMEBase(maintype, subtype)
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{os.path.basename(file_path)}"',
+                    )
+                    msg.attach(part)
+
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/drafts",
+            headers=self._headers(),
+            json={"message": {"raw": raw}},
+            expected=(200,),
+            transform=lambda d: {
+                "id": d.get("id"),
+                "message_id": d.get("message", {}).get("id"),
+            },
+        )
+
+    def update_draft(
+        self,
+        draft_id: str,
+        to: str,
+        subject: str,
+        body: str,
+        cc: Optional[str] = None,
+        bcc: Optional[str] = None,
+        attachments: Optional[List[str]] = None,
+    ) -> Result:
+        """Replaces the draft content (PUT)."""
+        cred = self._load()
+        msg = MIMEMultipart()
+        msg["to"] = to
+        msg["from"] = cred.email
+        msg["subject"] = subject
+        if cc:
+            msg["cc"] = cc
+        if bcc:
+            msg["bcc"] = bcc
+        msg.attach(MIMEText(body, "plain"))
+
+        if attachments:
+            for file_path in attachments:
+                if not os.path.isfile(file_path):
+                    continue
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if mime_type is None:
+                    mime_type = "application/octet-stream"
+                maintype, subtype = mime_type.split("/", 1)
+                with open(file_path, "rb") as f:
+                    part = MIMEBase(maintype, subtype)
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{os.path.basename(file_path)}"',
+                    )
+                    msg.attach(part)
+
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        return http_request(
+            "PUT",
+            f"{GMAIL_API_BASE}/users/me/drafts/{draft_id}",
+            headers=self._headers(),
+            json={"message": {"raw": raw}},
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id")},
+        )
+
+    def send_draft(self, draft_id: str) -> Result:
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/drafts/send",
+            headers=self._headers(),
+            json={"id": draft_id},
+            expected=(200,),
+            transform=lambda d: {
+                "sent": True,
+                "message_id": d.get("id"),
+                "draft_id": draft_id,
+            },
+        )
+
+    def delete_draft(self, draft_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GMAIL_API_BASE}/users/me/drafts/{draft_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "draft_id": draft_id},
+        )
+
+    # ----- Labels -----
+
+    def list_labels(self) -> Result:
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/labels",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "labels": [
+                    {
+                        "id": lbl.get("id"),
+                        "name": lbl.get("name"),
+                        "type": lbl.get("type"),
+                        "messageListVisibility": lbl.get("messageListVisibility"),
+                        "labelListVisibility": lbl.get("labelListVisibility"),
+                    }
+                    for lbl in d.get("labels", [])
+                ]
+            },
+        )
+
+    def get_label(self, label_id: str) -> Result:
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/labels/{label_id}",
+            headers=self._auth_header(),
+            expected=(200,),
+        )
+
+    def create_label(
+        self,
+        name: str,
+        label_list_visibility: str = "labelShow",
+        message_list_visibility: str = "show",
+        background_color: Optional[str] = None,
+        text_color: Optional[str] = None,
+    ) -> Result:
+        payload: Dict[str, Any] = {
+            "name": name,
+            "labelListVisibility": label_list_visibility,
+            "messageListVisibility": message_list_visibility,
+        }
+        if background_color and text_color:
+            payload["color"] = {
+                "backgroundColor": background_color,
+                "textColor": text_color,
+            }
+        return http_request(
+            "POST",
+            f"{GMAIL_API_BASE}/users/me/labels",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("name")},
+        )
+
+    def update_label(
+        self,
+        label_id: str,
+        name: Optional[str] = None,
+        label_list_visibility: Optional[str] = None,
+        message_list_visibility: Optional[str] = None,
+        background_color: Optional[str] = None,
+        text_color: Optional[str] = None,
+    ) -> Result:
+        payload: Dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if label_list_visibility is not None:
+            payload["labelListVisibility"] = label_list_visibility
+        if message_list_visibility is not None:
+            payload["messageListVisibility"] = message_list_visibility
+        if background_color and text_color:
+            payload["color"] = {
+                "backgroundColor": background_color,
+                "textColor": text_color,
+            }
+        return http_request(
+            "PATCH",
+            f"{GMAIL_API_BASE}/users/me/labels/{label_id}",
+            headers=self._headers(),
+            json=payload,
+            expected=(200,),
+            transform=lambda d: {"id": d.get("id"), "name": d.get("name")},
+        )
+
+    def delete_label(self, label_id: str) -> Result:
+        return http_request(
+            "DELETE",
+            f"{GMAIL_API_BASE}/users/me/labels/{label_id}",
+            headers=self._auth_header(),
+            expected=(204,),
+            transform=lambda _d: {"deleted": True, "label_id": label_id},
+        )
+
+    # ----- Attachments -----
+
+    def download_attachment(
+        self, message_id: str, attachment_id: str, save_to: str
+    ) -> Result:
+        """Download an attachment to a local path. Decodes Gmail's urlsafe base64 data."""
+        import os as _os
+
+        result = http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/messages/{message_id}/attachments/{attachment_id}",
+            headers=self._auth_header(),
+            expected=(200,),
+        )
+        if "error" in result:
+            return result
+        data_b64 = result["result"].get("data", "")
+        if not data_b64:
+            return {"error": "Attachment had no data field"}
+        try:
+            save_to = _os.path.abspath(save_to)
+            parent = _os.path.dirname(save_to)
+            if parent:
+                _os.makedirs(parent, exist_ok=True)
+            with open(save_to, "wb") as f:
+                f.write(base64.urlsafe_b64decode(data_b64.encode("ascii")))
+            return {
+                "ok": True,
+                "result": {"saved_to": save_to, "size": _os.path.getsize(save_to)},
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    # ----- Profile -----
+
+    def get_profile(self) -> Result:
+        return http_request(
+            "GET",
+            f"{GMAIL_API_BASE}/users/me/profile",
+            headers=self._auth_header(),
+            expected=(200,),
+            transform=lambda d: {
+                "emailAddress": d.get("emailAddress"),
+                "messagesTotal": d.get("messagesTotal"),
+                "threadsTotal": d.get("threadsTotal"),
+                "historyId": d.get("historyId"),
+            },
+        )

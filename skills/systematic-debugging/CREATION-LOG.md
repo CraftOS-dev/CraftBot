@@ -99,7 +99,7 @@ Bulletproof skill that:
 
 ## Key Insight
 
-**Most important bulletproofing:** Anti-patterns section showing exact shortcuts that feel justified in the moment. When Claude thinks "I'll just add this one quick fix", seeing that exact pattern listed as wrong creates cognitive friction.
+**Most important bulletproofing:** Anti-patterns section showing exact shortcuts that feel justified in the moment. When CraftBot thinks "I'll just add this one quick fix", seeing that exact pattern listed as wrong creates cognitive friction.
 
 ## Usage Example
 

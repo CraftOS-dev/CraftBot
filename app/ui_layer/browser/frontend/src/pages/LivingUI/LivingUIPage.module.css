@@ -1,5 +1,18 @@
 /* Living UI Page Styles */
 
+/* LivingUI deliberately keeps the pre-existing warm off-white panel color
+   (#FAFAF8) in light mode, so its workspace chrome stays visually distinct
+   from the rest of the app — which uses a much-closer-to-white
+   --bg-secondary. Dark-mode rules below resolve via the token and are not
+   affected. */
+[data-theme="light"] .menuBar,
+[data-theme="light"] .hintsBox,
+[data-theme="light"] .chatPanel,
+[data-theme="light"] .message.system,
+[data-theme="light"] .notFound p {
+  background: #FAFAF8;
+}
+
 .container {
   display: flex;
   flex-direction: column;
@@ -33,7 +46,7 @@
 }
 
 .projectIcon {
-  color: var(--color-primary);
+  color: var(--text-primary);
   flex-shrink: 0;
 }
 
@@ -65,7 +78,7 @@
 }
 
 .status.ready {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .status.stopped {
@@ -89,7 +102,7 @@
   padding: 1px var(--space-2);
   border-radius: var(--radius-full);
   background: var(--color-primary-subtle);
-  color: var(--color-primary);
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
@@ -156,121 +169,6 @@
   color: var(--text-muted);
 }
 
-/* CraftBot Pet */
-.petWrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: var(--space-2);
-}
-
-.petFloat {
-  display: inline-flex;
-  transform-origin: 50% 85%;
-}
-
-.petBreathe {
-  transform-origin: 50% 60%;
-}
-
-.petSleepBreathe {
-  transform-origin: 50% 60%;
-}
-
-.petEye {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: petBlink 4.5s infinite;
-}
-
-.petEyeLeft {
-  animation-delay: 0ms;
-}
-
-.petEyeRight {
-  animation-delay: 120ms;
-}
-
-.petEyeClosed {
-  transform-origin: center;
-  transform-box: fill-box;
-  transform: scaleY(0.08);
-}
-
-.petAntennaPulse {
-  transform-origin: center;
-  transform-box: fill-box;
-}
-
-.petBlushPulse {
-}
-
-.petWiggle {
-}
-
-/* Body silhouette is near-white — in light mode it blends into the bg,
-   so stroke a thin outline. Dark mode needs no outline. */
-.petBody {
-  stroke: none;
-}
-
-[data-theme="light"] .petBody {
-  stroke: var(--text-muted, var(--border-secondary));
-  stroke-width: 3;
-  paint-order: stroke fill;
-}
-
-.petSleepZ {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: petSleepZ 2.4s ease-in-out infinite;
-  opacity: 0;
-}
-
-.petSleepZDelayed {
-  animation-delay: 1.2s;
-}
-
-@keyframes petFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-
-@keyframes petBreathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.015); }
-}
-
-@keyframes petBlink {
-  0%, 92%, 100% { transform: scaleY(1); }
-  95%, 97% { transform: scaleY(0.05); }
-}
-
-@keyframes petAntennaPulse {
-  0%, 100% { opacity: 0.45; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.12); }
-}
-
-@keyframes petBlushPulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 0.9; }
-}
-
-@keyframes petWiggle {
-  0% { transform: translateY(0) rotate(0deg); }
-  20% { transform: translateY(-4px) rotate(-6deg); }
-  45% { transform: translateY(-2px) rotate(6deg); }
-  70% { transform: translateY(-1px) rotate(-3deg); }
-  100% { transform: translateY(0) rotate(0deg); }
-}
-
-@keyframes petSleepZ {
-  0% { opacity: 0; transform: translateY(0); }
-  30% { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-14px); }
-}
-
-
 /* Creation Progress */
 .creationProgress {
   display: flex;
@@ -323,7 +221,7 @@
 
 .progressFill {
   height: 100%;
-  background: var(--color-primary);
+  background: var(--text-primary);
   border-radius: var(--radius-full);
   transition: width 400ms ease-out;
 }
@@ -333,7 +231,7 @@
   background: linear-gradient(
     90deg,
     var(--border-primary) 0%,
-    var(--color-primary) 50%,
+    var(--text-primary) 50%,
     var(--border-primary) 100%
   );
   animation: progressShimmer 1.6s ease-in-out infinite;
@@ -368,7 +266,7 @@
 .hintIcon {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .rotatingHint {
@@ -592,7 +490,7 @@
 }
 
 .chatInput textarea:focus {
-  border-color: var(--color-primary);
+  border-color: var(--border-hover);
 }
 
 /* Not Found */

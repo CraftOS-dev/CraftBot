@@ -323,16 +323,334 @@ class WhatsAppWebClient(BasePlatformClient):
         return {"status": "success" if result.get("success") else "error", **result}
 
     async def send_media(
-        self, recipient: str, media_path: str, caption: Optional[str] = None
+        self,
+        recipient: str,
+        media_path: str,
+        caption: Optional[str] = None,
+        send_as_sticker: bool = False,
+        send_as_voice: bool = False,
+        send_as_document: bool = False,
+        quoted_message_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if caption:
-            return await self.send_message(
-                recipient, f"[Media: {media_path}]\n{caption}"
-            )
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        resolved = self._resolve_recipient(recipient)
+        result = await bridge.send_media(
+            to=resolved,
+            file_path=media_path,
+            caption=caption,
+            send_as_sticker=send_as_sticker,
+            send_as_voice=send_as_voice,
+            send_as_document=send_as_document,
+            quoted_message_id=quoted_message_id,
+        )
+        msg_id = result.get("message_id")
+        if msg_id:
+            self._agent_sent_ids.add(msg_id)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def send_location(
+        self, recipient: str, latitude: float, longitude: float, description: str = ""
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        resolved = self._resolve_recipient(recipient)
+        result = await bridge.send_location(resolved, latitude, longitude, description)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def send_reply(
+        self, recipient: str, text: str, quoted_message_id: str
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        resolved = self._resolve_recipient(recipient)
+        prefixed = f"{self._agent_prefix}{text}"
+        result = await bridge.send_reply(resolved, prefixed, quoted_message_id)
+        msg_id = result.get("message_id")
+        if msg_id:
+            self._agent_sent_ids.add(msg_id)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def edit_message(self, message_id: str, new_body: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.edit_message(message_id, new_body)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def delete_message(
+        self, message_id: str, everyone: bool = False
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.delete_message(message_id, everyone)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def forward_message(self, message_id: str, recipient: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        resolved = self._resolve_recipient(recipient)
+        result = await bridge.forward_message(message_id, resolved)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def react_message(self, message_id: str, emoji: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.react_message(message_id, emoji)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def star_message(
+        self, message_id: str, starred: bool = True
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.star_message(message_id, starred)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def download_message_media(
+        self, message_id: str, dest_path: str
+    ) -> Dict[str, Any]:
+        """Download attached media from a message to a local path."""
+        import base64 as _b64
+
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.download_message_media(message_id)
+        if not result.get("success"):
+            return {"status": "error", **result}
+        data_b64 = result.get("data_b64", "")
+        if not data_b64:
+            return {"status": "error", "error": "No media data returned"}
+        try:
+            dest_path = os.path.abspath(dest_path)
+            parent = os.path.dirname(dest_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(dest_path, "wb") as f:
+                f.write(_b64.b64decode(data_b64))
+            return {
+                "status": "success",
+                "saved_to": dest_path,
+                "mimetype": result.get("mimetype", ""),
+                "filename": result.get("filename", ""),
+                "size": os.path.getsize(dest_path),
+            }
+        except OSError as e:
+            return {"status": "error", "error": str(e)}
+
+    async def get_quoted_message(self, message_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.get_quoted_message(message_id)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    # ----- Chat operations -----
+
+    async def mark_chat_read(self, chat_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.mark_chat_read(chat_id))}
+
+    async def mark_chat_unread(self, chat_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.mark_chat_unread(chat_id))}
+
+    async def archive_chat(self, chat_id: str, archive: bool = True) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.archive_chat(chat_id, archive))}
+
+    async def pin_chat(self, chat_id: str, pin: bool = True) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.pin_chat(chat_id, pin))}
+
+    async def mute_chat(
+        self, chat_id: str, mute: bool = True, unmute_date: Optional[int] = None
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
         return {
-            "status": "error",
-            "error": "Media sending not yet supported via bridge",
+            "status": "success",
+            **(await bridge.mute_chat(chat_id, mute, unmute_date)),
         }
+
+    async def clear_chat_messages(self, chat_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.clear_chat_messages(chat_id))}
+
+    async def delete_chat(self, chat_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.delete_chat(chat_id))}
+
+    async def send_typing_state(
+        self, chat_id: str, state: str = "typing"
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.send_typing_state(chat_id, state))}
+
+    # ----- Groups -----
+
+    async def create_group(self, name: str, participants: list) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        result = await bridge.create_group(name, participants)
+        return {"status": "success" if result.get("success") else "error", **result}
+
+    async def group_add_participants(
+        self, group_id: str, participants: list
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.group_add_participants(group_id, participants)),
+        }
+
+    async def group_remove_participants(
+        self, group_id: str, participants: list
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.group_remove_participants(group_id, participants)),
+        }
+
+    async def group_promote_participants(
+        self, group_id: str, participants: list
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.group_promote_participants(group_id, participants)),
+        }
+
+    async def group_demote_participants(
+        self, group_id: str, participants: list
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.group_demote_participants(group_id, participants)),
+        }
+
+    async def group_set_subject(self, group_id: str, subject: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.group_set_subject(group_id, subject)),
+        }
+
+    async def group_set_description(
+        self, group_id: str, description: str
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.group_set_description(group_id, description)),
+        }
+
+    async def group_get_info(self, group_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.group_get_info(group_id))}
+
+    async def group_leave(self, group_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.group_leave(group_id))}
+
+    async def group_invite_code(self, group_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.group_invite_code(group_id))}
+
+    async def group_revoke_invite(self, group_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.group_revoke_invite(group_id))}
+
+    async def accept_group_invite(self, invite_code: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.accept_group_invite(invite_code))}
+
+    # ----- Contacts -----
+
+    async def block_contact(
+        self, contact_id: str, block: bool = True
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.block_contact(contact_id, block))}
+
+    async def get_profile_pic_url(self, contact_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.get_profile_pic_url(contact_id))}
+
+    async def get_contact(self, contact_id: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.get_contact(contact_id))}
+
+    async def get_all_contacts(
+        self, my_contacts_only: bool = True, limit: int = 500
+    ) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {
+            "status": "success",
+            **(await bridge.get_all_contacts(my_contacts_only, limit)),
+        }
+
+    async def check_number_on_whatsapp(self, number: str) -> Dict[str, Any]:
+        bridge = self._get_bridge()
+        if not bridge.is_ready:
+            return {"status": "error", "error": "Bridge not ready"}
+        return {"status": "success", **(await bridge.check_number_on_whatsapp(number))}
 
     async def get_chat_messages(
         self, phone_number: str, limit: int = 50
