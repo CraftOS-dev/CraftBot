@@ -1238,10 +1238,45 @@ class ActionRouter:
         # Cap at 10 actions
         actions = actions[:10]
 
+        dropped_actions = []
+
+        # A message that waits for a user reply keeps the task parked until the
+        # user responds — so ending the task in the same batch is contradictory.
+        # task_end tears down the session, which means the user's reply can never
+        # be routed back to the waiting task (it gets orphaned into a new session).
+        # Resolve the conflict in favour of waiting: drop task_end, keep the task
+        # alive. The agent should end the task only AFTER the user replies.
+        def _wants_reply(action_dict: Dict[str, Any]) -> bool:
+            v = (action_dict.get("parameters") or {}).get("wait_for_user_reply")
+            if isinstance(v, str):
+                return v.strip().lower() == "true"
+            return bool(v)
+
+        waits_for_reply = any(_wants_reply(a) for a in actions)
+        if waits_for_reply and any(a.get("action_name") == "task_end" for a in actions):
+            kept = []
+            for action_dict in actions:
+                if action_dict.get("action_name") == "task_end":
+                    dropped_action = action_dict.copy()
+                    dropped_action["_error"] = (
+                        "Action dropped: cannot end the task in the same step as a "
+                        "message with wait_for_user_reply=true. The task must stay "
+                        "active to receive the user's reply — call task_end only "
+                        "after the user has responded."
+                    )
+                    dropped_actions.append(dropped_action)
+                    logger.warning(
+                        "[PARALLEL] Dropping task_end paired with "
+                        "wait_for_user_reply=true — keeping task parked so the "
+                        "user's reply can be routed back to it."
+                    )
+                else:
+                    kept.append(action_dict)
+            actions = kept
+
         # Check for non-parallelizable actions by looking up each action's parallelizable attribute
         # If found, we need to keep the non-parallelizable action (not just the first action)
         non_parallel_action = None
-        dropped_actions = []
         for action_dict in actions:
             action_name = action_dict.get("action_name", "")
             if action_name:
