@@ -61,7 +61,53 @@ En plus d'être un agent IA capable de créer et d'opérer ses propres outils Sa
 
 ## 🧰 Premiers pas
 
-Prérequis : Python 3.10+ · Node.js 18+ pour le mode navigateur
+- **Bring Your Own Key (BYOK)** — Système flexible de fournisseurs LLM prenant en charge OpenAI, Google Gemini, Anthropic Claude, BytePlus et les modèles locaux Ollama. Basculez facilement entre fournisseurs.
+- **Système de mémoire** — Distille et consolide les événements de la journée à minuit.
+- **Agent proactif** — Apprend vos préférences, habitudes et objectifs de vie. Puis planifie et lance des tâches (avec votre accord, bien sûr) pour vous aider à progresser.
+- **Living UI** — Créez, importez ou faites évoluer des applications personnalisées qui vivent au sein de CraftBot. L'agent reste conscient de l'état de l'UI et peut lire, écrire et agir directement sur ses données.
+- **Intégration d'outils externes** — Connectez-vous à Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord et Telegram (d'autres à venir !) avec des identifiants intégrés et le support OAuth.
+- **MCP** — Intégration du Model Context Protocol pour étendre les capacités de l'agent avec des outils et services externes.
+- **Skills** — Framework de skills extensible avec des skills intégrées pour la planification de tâches, la recherche, la revue de code, les opérations git, etc.
+- **Multiplateforme** — Prise en charge complète de Windows, macOS et Linux avec des variantes de code spécifiques à chaque plateforme et la conteneurisation Docker.
+
+> [!IMPORTANT]
+> **Le mode GUI est déprécié.** CraftBot ne prend plus en charge le mode GUI (automatisation de bureau). Utilisez plutôt le mode Browser ou CLI.
+
+<div align="center">
+    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
+	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
+---
+
+
+## 🧰 Pour commencer
+
+### Prérequis
+- Python **3.10+**
+- `git` (nécessaire pour cloner le dépôt)
+- Une clé API pour le fournisseur LLM de votre choix (OpenAI, Gemini ou Anthropic)
+- `Node.js` **18+** (optionnel — requis uniquement pour l'interface navigateur)
+- `conda` (optionnel — s'il est introuvable, l'installateur propose d'installer Miniconda automatiquement)
+
+### Quelle option choisir ?
+
+> **Vous hésitez ? Optez pour l'Option 1.** Elle gère tout pour vous.
+
+| | Option 1 — Service | Option 2 — Conda | Option 3 — Manuel |
+|---|---|---|---|
+| **Pour qui** | La plupart des utilisateurs, débutants, tests | Utilisateurs Conda souhaitant des environnements isolés | Utilisateurs avancés, Python personnalisé, contrôle total |
+| **Gère Python/l'environnement automatiquement ?** | ✅ Automatique | ✅ Automatique | ❌ Vous le gérez |
+| **Tourne en arrière-plan ?** | ✅ Oui, en tant que service | ❌ Non | ❌ Non |
+| **Comment démarrer** | `python craftbot.py install` | `python install.py --conda` | `python install.py` |
+
+---
+
+### ⭐ Option 1 — Installation en service (Recommandée)
+
+**Choisissez cette option si :** vous voulez que CraftBot fonctionne directement — service en arrière-plan, démarrage automatique à la connexion, raccourci sur le bureau, aucune étape manuelle.
+
+`craftbot.py` gère tout : environnement Python, dépendances, gestion du processus en arrière-plan et enregistrement du démarrage automatique.
 
 ```bash
 # 1. Cloner le dépôt
@@ -98,7 +144,80 @@ python craftbot.py uninstall  # Arrête, supprime le démarrage auto et désinst
 - D'un CRM sur mesure, conçu exactement à la forme de votre workflow ?
 - D'un tableau de bord d'entreprise que CraftBot puisse lire et piloter pour vous ?
 
-Lancez-le sous forme de Living UI qui tourne aux côtés de CraftBot et grandit au rythme de vos besoins.
+```bash
+# 1. Clonez le dépôt
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. Installez dans un environnement conda
+python install.py --conda
+
+# 3. Lancez CraftBot
+conda run -n craftbot python run.py
+
+# Si conda n'est pas dans le PATH (Windows uniquement) :
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+> [!NOTE]
+> Chaque fois que vous voulez lancer CraftBot, utilisez `conda run -n craftbot python run.py`. Il n'y a pas de service en arrière-plan — vous le démarrez et l'arrêtez vous-même.
+
+---
+
+### Option 3 — Installation manuelle (pip)
+
+**Choisissez cette option si :** vous souhaitez un contrôle total sur votre environnement Python et préférez gérer CraftBot vous-même, sans service automatique ni processus en arrière-plan.
+
+`install.py` (sans options) effectue une installation pip standard dans l'environnement Python actif. Vous démarrez et arrêtez CraftBot manuellement avec `run.py`.
+
+```bash
+# 1. Clonez le dépôt
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. Installez les dépendances dans votre environnement Python actif
+python install.py
+
+# 3. Lancez CraftBot
+python run.py
+```
+
+La première exécution vous guidera dans la configuration de vos clés API et préférences.
+
+> [!NOTE]
+> Si Node.js n'est pas installé, l'installateur fournira des instructions étape par étape. Vous pouvez aussi ignorer complètement le mode navigateur et utiliser le mode CLI — sans Node.js : `python run.py --cli`
+
+### Que pouvez-vous faire tout de suite ?
+- Discuter avec l'agent naturellement
+- Lui demander d'exécuter des tâches complexes en plusieurs étapes
+- Taper `/help` pour voir les commandes disponibles
+- Vous connecter à Google, Slack, Notion et plus
+
+### 🖥️ Modes d'interface
+
+<div align="center">
+    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
+</div>
+
+CraftBot propose plusieurs modes d'UI. Choisissez selon vos préférences :
+
+| Mode | Commande | Prérequis | Idéal pour |
+|------|---------|--------------|----------|
+| **Browser** | `python run.py` | Node.js 18+ | Interface web moderne, la plus simple à utiliser |
+| **CLI** | `python run.py --cli` | Aucun | Ligne de commande, léger |
+
+Le **mode navigateur** est le mode par défaut et recommandé. Si vous n'avez pas Node.js, l'installateur vous guidera pour l'installer, ou vous pouvez utiliser le **mode CLI**.
+
+---
+
+## 🧬 Living UI
+
+**Living UI est un système/une application/un tableau de bord qui évolue avec vos besoins.**
+
+Besoin d'un tableau kanban avec un copilote IA intégré ? D'un CRM sur mesure taillé
+exactement pour votre flux de travail ? D'un tableau de bord d'entreprise que CraftBot
+peut lire et piloter pour vous ? Lancez-le comme une Living UI — elle tourne aux côtés
+de CraftBot et grandit au rythme de vos besoins.
 
 <div align="center">
     <img src="assets/living-ui-example.png" alt="Living UI example" width="1280"/>
@@ -150,20 +269,140 @@ Nous cherchons activement des développeurs qui souhaitent mettre en avant leurs
 - **📊 Habit Tracker** — Mettez en place et suivez vos habitudes. Un calendrier d'activité façon GitHub pour suivre vos habitudes comme on suit ses commits.
 - **🐦 Luolinglo** — Ce n'est pas Duolingo, mais vous pouvez y apprendre de nouvelles langues, créer des flashcards et vous entraîner avec CraftBot.
 
-**[Explorer le marketplace de Living UI et y contribuer →](https://craftos.net/marketplace)**
+## 🧩 Aperçu de l'architecture
+
+| Composant | Description |
+|-----------|-------------|
+| **Agent Base** | Couche d'orchestration centrale qui gère le cycle de vie des tâches, coordonne les composants et pilote la boucle agentique principale. |
+| **LLM Interface** | Interface unifiée prenant en charge plusieurs fournisseurs LLM (OpenAI, Gemini, Anthropic, BytePlus, Ollama). |
+| **Context Engine** | Génère des prompts optimisés avec support du cache KV. |
+| **Action Manager** | Récupère et exécute les actions depuis la bibliothèque. Les actions personnalisées sont faciles à étendre. |
+| **Action Router** | Sélectionne intelligemment l'action la plus adaptée aux exigences de la tâche et résout les paramètres d'entrée via le LLM au besoin. |
+| **Event Stream** | Système de publication d'événements en temps réel pour le suivi de la progression des tâches, les mises à jour d'UI et le monitoring d'exécution. |
+| **Memory Manager** | Mémoire sémantique basée sur le RAG via ChromaDB. Gère le découpage, l'embedding, la récupération et les mises à jour incrémentales. |
+| **State Manager** | Gestion globale de l'état pour suivre le contexte d'exécution de l'agent, l'historique de conversation et la configuration d'exécution. |
+| **Task Manager** | Gère les définitions de tâches, permet des modes simples et complexes, crée des to-dos et suit les workflows multi-étapes. |
+| **Skill Manager** | Charge et injecte des skills enfichables dans le contexte de l'agent. |
+| **MCP Adapter** | Intégration Model Context Protocol qui convertit les outils MCP en actions natives. |
 
 ---
- 
-# CraftBot face aux alternatives
- 
-|                                  | v0 / Lovable / Bolt | OpenClaw | Claude Code | **CraftBot**                            |
-| -------------------------------- | ------------------- | -------------------- | -------------------- | --------------------------------------- |
-| **Construit des apps sur mesure**           | ✅ One-shot         | 🚫                   | ✅ (manuel)          | ✅ Conversationnel                       |
-| **L'agent pilote l'app**       | 🚫                  | ⚠️ Via appels d'outils      | 🚫                   | ✅ Embarqué dans chaque Living UI         |
-| **Mémoire d'agent persistante**      | 🚫                  | ✅            | ✅                   | ✅ RAG + système de fichiers d'agent + distillation        |
-| **Auto-hébergeable**     | ⚠️ Partiel         | ✅                   | 🚫 SaaS              | ✅ MIT, sur votre machine                    |
-| **Indépendant du modèle**     | ✅         | ✅                   | ⚠️ Partiel              | ✅ Principaux fournisseurs + OpenRouter                    |
- 
+
+## 🔜 Roadmap
+
+- [X] **Module de mémoire** — Terminé.
+- [ ] **Intégration d'outils externes** — En cours d'ajout !
+- [X] **Couche MCP** — Terminée.
+- [X] **Couche Skills** — Terminée.
+- [ ] **Comportement proactif** — En cours
+
+---
+
+## 📋 Référence des commandes
+
+### install.py
+
+| Flag | Description |
+|------|-------------|
+| `--conda` | Utiliser un environnement conda (optionnel) |
+
+### run.py
+
+| Flag | Description |
+|------|-------------|
+| (aucun) | Lancer en mode **Browser** (recommandé, nécessite Node.js) |
+| `--cli` | Lancer en mode **CLI** (léger) |
+
+### craftbot.py
+
+| Commande | Description |
+|---------|-------------|
+| `install` | Installe les deps, enregistre le démarrage automatique et lance CraftBot |
+| `start` | Démarre CraftBot en arrière-plan |
+| `stop` | Arrête CraftBot |
+| `restart` | Arrête puis redémarre |
+| `status` | Affiche l'état d'exécution et celui du démarrage automatique |
+| `logs [-n N]` | Affiche les N dernières lignes de log (par défaut : 50) |
+| `uninstall` | Supprime l'enregistrement du démarrage automatique |
+
+**Exemples d'installation :**
+```bash
+# Installation simple via pip (sans conda)
+python install.py
+
+# Avec environnement conda (recommandé pour les utilisateurs de conda)
+python install.py --conda
+```
+
+**Exécuter CraftBot :**
+
+```powershell
+# Mode Browser (par défaut, nécessite Node.js)
+python run.py
+
+# Mode CLI (léger)
+python run.py --cli
+
+# Avec environnement conda
+conda run -n craftbot python run.py
+
+# Ou en utilisant le chemin complet si conda n'est pas dans le PATH
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+**Linux/macOS (Bash) :**
+```bash
+# Mode Browser (par défaut, nécessite Node.js)
+python run.py
+
+# Mode CLI (léger)
+python run.py --cli
+
+# Avec environnement conda
+conda run -n craftbot python run.py
+```
+
+### 🔧 Service en arrière-plan (recommandé)
+
+Exécutez CraftBot en tant que service en arrière-plan pour qu'il continue de fonctionner même après la fermeture du terminal. Un raccourci de bureau est créé automatiquement pour rouvrir le navigateur à tout moment.
+
+```bash
+# Installer les dépendances, enregistrer le démarrage automatique à la connexion et lancer CraftBot
+python craftbot.py install
+```
+
+C'est tout. Le terminal se ferme tout seul, CraftBot tourne en arrière-plan et le navigateur s'ouvre automatiquement.
+
+```bash
+# Autres commandes du service :
+python craftbot.py start    # Démarre CraftBot en arrière-plan
+python craftbot.py status   # Vérifie s'il tourne
+python craftbot.py stop     # Arrête CraftBot
+python craftbot.py restart  # Redémarre CraftBot
+python craftbot.py logs     # Affiche les logs récents
+```
+
+| Commande | Description |
+|---------|-------------|
+| `python craftbot.py install` | Installe les dépendances, enregistre le démarrage automatique à la connexion, lance CraftBot, ouvre le navigateur et ferme le terminal automatiquement |
+| `python craftbot.py start` | Démarre CraftBot en arrière-plan — redémarre automatiquement s'il est déjà lancé (le terminal se ferme tout seul) |
+| `python craftbot.py stop` | Arrête CraftBot |
+| `python craftbot.py restart` | Arrête puis démarre CraftBot |
+| `python craftbot.py status` | Vérifie si CraftBot tourne et si le démarrage automatique est activé |
+| `python craftbot.py logs` | Affiche les logs récents (`-n 100` pour plus de lignes) |
+| `python craftbot.py uninstall` | Arrête CraftBot, supprime le démarrage automatique, désinstalle les paquets pip et purge le cache pip |
+
+> [!TIP]
+> Après `craftbot.py start` ou `craftbot.py install`, un **raccourci CraftBot sur le bureau** est créé automatiquement. Si vous fermez le navigateur par accident, double-cliquez sur le raccourci pour le rouvrir.
+
+> [!NOTE]
+> **Installation :** L'installateur fournit maintenant des indications claires si des dépendances manquent. Si Node.js est introuvable, on vous proposera de l'installer ou de basculer en mode CLI. L'installation détecte automatiquement la disponibilité du GPU et bascule en mode CPU si nécessaire.
+
+> [!TIP]
+> **Première configuration :** CraftBot vous guidera dans une séquence d'onboarding pour configurer les clés API, le nom de l'agent, les MCP et les Skills.
+
+> [!NOTE]
+> **Playwright Chromium :** Optionnel pour l'intégration WhatsApp Web. Si l'installation échoue, l'agent fonctionnera toujours pour les autres tâches. Installez-le manuellement plus tard avec : `playwright install chromium`
+
 ---
 
 ## 🔧 Dépannage et problèmes courants
@@ -174,7 +413,7 @@ Si vous voyez **« npm not found in PATH »** en lançant `python run.py` :
 2. Installez-la et redémarrez votre terminal
 3. Relancez `python run.py`
 
-**Alternative :** utilisez le mode TUI, qui ne nécessite pas Node.js :
+**Alternative :** Utilisez le mode CLI (Node.js non requis) :
 ```bash
 python run.py --cli
 ```

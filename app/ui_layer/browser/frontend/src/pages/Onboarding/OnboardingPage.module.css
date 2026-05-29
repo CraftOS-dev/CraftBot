@@ -42,8 +42,8 @@
 }
 
 .stepDot.active {
-  background: #FF4F18;
-  border-color: #FF4F18;
+  background: var(--text-primary);
+  border-color: var(--text-primary);
   color: var(--color-white);
 }
 
@@ -82,7 +82,7 @@
 }
 
 .stepConnector.active {
-  background: #FF4F18;
+  background: var(--text-primary);
 }
 
 /* Main Content */
@@ -157,15 +157,6 @@
 .integrationsPanel :global([class*="integrationsList"]) {
   max-height: none;
   overflow: visible;
-}
-
-/* The embedded panel's root (.settingsSection) ships with a 600px max-width
-   and auto margins for the Settings page. Inside the onboarding card those
-   constraints leave dead space on the right, so we let it fill the card.
-   Scoped to .integrationsPanel — the Settings page is untouched. */
-.integrationsPanel :global([class*="settingsSection"]) {
-  max-width: none;
-  margin: 0;
 }
 
 /* Scrollbar styling */
