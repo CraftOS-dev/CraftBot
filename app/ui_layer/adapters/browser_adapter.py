@@ -987,6 +987,7 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_progress=self.broadcast_living_ui_progress,
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
+            broadcast_created=self.broadcast_living_ui_created,
         )
 
         # Subscribe the Living UI module to TaskManager todo updates so that
@@ -3049,6 +3050,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
             return False
+
+    async def broadcast_living_ui_created(self, project: Dict[str, Any]) -> None:
+        """Broadcast that a Living UI project was created (called from agent action).
+
+        Mirrors the modal create flow's broadcast so a chat-created Living UI is
+        registered in the browser's project list and shows its build progress.
+        """
+        await self._broadcast(
+            {
+                "type": "living_ui_create",
+                "data": {
+                    "success": True,
+                    "projectId": project.get("id", ""),
+                    "project": project,
+                },
+            }
+        )
 
     async def broadcast_living_ui_progress(
         self, project_id: str, phase: str, progress: int, message: str

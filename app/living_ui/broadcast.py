@@ -21,6 +21,9 @@ from ._state import get_living_ui_manager
 
 # Registered async callbacks into the browser adapter.
 _broadcast_ready_callback: Optional[Callable[[str, str, int], Awaitable[bool]]] = None
+_broadcast_created_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = (
+    None
+)
 _broadcast_progress_callback: Optional[
     Callable[[str, str, int, str], Awaitable[None]]
 ] = None
@@ -41,6 +44,7 @@ def register_broadcast_callbacks(
         Callable[[str, List[Dict[str, Any]]], Awaitable[None]]
     ] = None,
     broadcast_data_changed: Optional[Callable[[str], Awaitable[None]]] = None,
+    broadcast_created: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 
@@ -48,10 +52,12 @@ def register_broadcast_callbacks(
     """
     global \
         _broadcast_ready_callback, \
+        _broadcast_created_callback, \
         _broadcast_progress_callback, \
         _broadcast_todos_callback
     global _broadcast_data_changed_callback, _main_loop
     _broadcast_ready_callback = broadcast_ready
+    _broadcast_created_callback = broadcast_created
     _broadcast_progress_callback = broadcast_progress
     _broadcast_todos_callback = broadcast_todos
     _broadcast_data_changed_callback = broadcast_data_changed
@@ -71,6 +77,23 @@ async def broadcast_living_ui_ready(project_id: str, url: str, port: int) -> boo
         return await _broadcast_ready_callback(project_id, url, port)
     logger.warning(
         f"[LIVING_UI] broadcast_living_ui_ready called but callback is None "
+        f"(manager={get_living_ui_manager() is not None})"
+    )
+    return False
+
+
+async def broadcast_living_ui_created(project: Dict[str, Any]) -> bool:
+    """Broadcast that a Living UI project was created (and registered).
+
+    Used by the agent's scaffold action so a chat-created Living UI shows up
+    in the browser's project list immediately, mirroring the modal flow.
+    Returns True on success.
+    """
+    if _broadcast_created_callback:
+        await _broadcast_created_callback(project)
+        return True
+    logger.warning(
+        f"[LIVING_UI] broadcast_living_ui_created called but callback is None "
         f"(manager={get_living_ui_manager() is not None})"
     )
     return False
