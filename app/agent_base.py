@@ -1356,6 +1356,9 @@ class AgentBase:
                 task.waiting_for_user_reply = wait_for_reply
                 if wait_for_reply:
                     logger.info(f"[TASK] Task {task_id} is now waiting for user reply")
+                # Persist immediately so a restart can't restore a stale flag and
+                # resume a waiting task in the background (issue #281).
+                self._persist_task_state(task)
 
         # Check if parallel actions created multiple tasks
         parallel_results = action_output.get("parallel_results")
@@ -1641,6 +1644,8 @@ class AgentBase:
         task = self.task_manager.tasks.get(session_id) if self.task_manager else None
         if task:
             task.waiting_for_user_reply = True
+            # Persist immediately (issue #281) so a restart keeps this paused.
+            self._persist_task_state(task)
 
         # Update UI task status to "paused" - directly await to ensure
         # the WebSocket broadcast completes before the react loop cleans up.
@@ -1703,6 +1708,7 @@ class AgentBase:
 
         # Clear waiting flag
         task.waiting_for_user_reply = False
+        self._persist_task_state(task)
 
         # Log to event stream as system message
         task_label = f' for task "{task.name}"' if task.name else ""
@@ -2230,6 +2236,9 @@ class AgentBase:
                     logger.info(
                         f"[TASK] Task {session_id} no longer waiting for user reply"
                     )
+                    # Persist the cleared flag (issue #281) so a restart resumes
+                    # this now-active task instead of leaving it stuck waiting.
+                    self._persist_task_state(task)
                 if platform and task.source_platform != platform:
                     logger.info(
                         f"[TASK] Task {session_id} source_platform switched "
@@ -3252,6 +3261,29 @@ class AgentBase:
 
         except Exception as e:
             logger.warning(f"[PERSIST] Session persistence failed: {e}")
+
+    def _persist_task_state(self, task) -> None:
+        """Persist a single task's state to SessionStorage immediately.
+
+        Called whenever a task's ``waiting_for_user_reply`` flag changes. The
+        flag otherwise only reaches disk via the next task-manager persist hook
+        or the graceful-shutdown pass — so a waiting task that goes idle (no
+        further task events) keeps a stale ``False`` on disk. If the app is then
+        force-quit before graceful shutdown, a restart restores the task as
+        not-waiting and resumes it in the background. Persisting on every flag
+        change keeps the on-disk state authoritative. See issue #281.
+        """
+        if not task:
+            return
+        try:
+            from app.usage.session_storage import get_session_storage
+
+            get_session_storage().persist_task(task)
+        except Exception as e:
+            logger.warning(
+                f"[PERSIST] Failed to persist waiting state for task "
+                f"{getattr(task, 'id', '?')}: {e}"
+            )
 
     async def _schedule_restored_task_triggers(self) -> None:
         """
