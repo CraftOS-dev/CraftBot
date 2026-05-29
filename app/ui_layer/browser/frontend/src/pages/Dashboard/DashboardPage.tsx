@@ -12,11 +12,9 @@ import {
   Timer,
   PlayCircle,
   Hammer,
-  Wrench,
   Bot,
   Building2,
   Hash,
-  Plug2,
   Globe
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'

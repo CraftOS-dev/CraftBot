@@ -970,7 +970,7 @@ class MetricsCollector:
             return SkillMetrics()
 
     def _get_integration_metrics(self) -> IntegrationMetrics:
-        """Get integration metrics using the same data source as the integration list handler."""
+        """Get integration metrics."""
         try:
             from craftos_integrations import list_integrations_sync
 
@@ -991,6 +991,7 @@ class MetricsCollector:
                     )
                 )
 
+            # Get top integrations usage
             top_integrations = [
                 UsageCount(name=name, count=count)
                 for name, count in self.get_top_integrations(3)
