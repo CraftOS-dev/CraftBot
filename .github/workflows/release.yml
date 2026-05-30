@@ -7,67 +7,8 @@ on:
 
 permissions:
   contents: write
-  packages: write
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # ──────────────────────────────────────────────
-  # Build and push Docker images to GHCR
-  # ──────────────────────────────────────────────
-  docker:
-    name: Docker (${{ matrix.image_suffix }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image_suffix: agent
-            dockerfile: Dockerfile
-            context: .
-          - image_suffix: omniparser
-            dockerfile: docker/omniparser/Dockerfile
-            context: .
-          - image_suffix: desktop
-            dockerfile: app/gui/Dockerfile
-            context: app/gui
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image_suffix }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   # ──────────────────────────────────────────────
   # Build platform binaries with PyInstaller
   # ──────────────────────────────────────────────
@@ -149,7 +90,7 @@ jobs:
       - name: Create default config.json
         shell: bash
         run: |
-          echo "{\"use_conda\": false, \"gui_mode_enabled\": false}" > config.json
+          echo "{}" > config.json
 
       - name: Write VERSION file from git tag
         shell: bash
@@ -206,7 +147,7 @@ jobs:
   # ──────────────────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [docker, pyinstaller]
+    needs: [pyinstaller]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

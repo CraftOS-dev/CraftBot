@@ -18,7 +18,6 @@ from datetime import datetime
 from app.logger import logger
 from pathlib import Path
 from app.config import AGENT_WORKSPACE_ROOT
-from app.gui.gui_module import GUI_MODE_ACTIONS
 from app.memory import MemoryManager
 import mss
 import mss.tools
@@ -26,7 +25,6 @@ import os
 
 if TYPE_CHECKING:
     from app.context_engine import ContextEngine
-    from app.gui.gui_module import GUIModule
     from app.scheduler import SchedulerManager
     from app.proactive import ProactiveManager
 
@@ -44,7 +42,6 @@ class InternalActionInterface:
     state_manager: Optional[StateManager] = None
     vlm_interface: Optional[VLMInterface] = None
     context_engine: Optional["ContextEngine"] = None
-    gui_module: Optional["GUIModule"] = None
     memory_manager: Optional[MemoryManager] = None
     scheduler: Optional["SchedulerManager"] = None
     proactive_manager: Optional["ProactiveManager"] = None
@@ -58,7 +55,6 @@ class InternalActionInterface:
         state_manager: StateManager,
         vlm_interface: Optional[VLMInterface] = None,
         context_engine: Optional["ContextEngine"] = None,
-        gui_module: Optional["GUIModule"] = None,
         memory_manager: MemoryManager | None = None,
         scheduler: Optional["SchedulerManager"] = None,
         ui_adapter: Optional[Any] = None,
@@ -75,7 +71,6 @@ class InternalActionInterface:
         cls.state_manager = state_manager
         cls.vlm_interface = vlm_interface
         cls.context_engine = context_engine
-        cls.gui_module = gui_module
         cls.memory_manager = memory_manager
         cls.scheduler = scheduler
         cls.ui_adapter = ui_adapter
@@ -390,35 +385,6 @@ class InternalActionInterface:
                 )
             else:
                 logger.debug("[CLI MODE] No saved CLI actions to restore")
-
-    @classmethod
-    def switch_to_GUI_mode(cls):
-        """Switch to GUI mode with hardcoded action list."""
-        # Check if GUI mode is globally enabled
-        gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
-        if not gui_globally_enabled:
-            logger.warning("[GUI MODE] Cannot switch - GUI mode is globally disabled")
-            raise RuntimeError(
-                "GUI mode is disabled. Restart with --enable-gui to enable."
-            )
-
-        STATE.update_gui_mode(True)
-
-        # Replace compiled_actions with hardcoded GUI mode actions
-        if cls.task_manager and cls.task_manager.active:
-            task = cls.task_manager.active
-
-            # Save current CLI actions before switching (only if not already saved)
-            if not task._saved_cli_actions:
-                task._saved_cli_actions = task.compiled_actions.copy()
-                logger.info(
-                    f"[GUI MODE] Saved {len(task._saved_cli_actions)} CLI actions for restoration"
-                )
-
-            task.compiled_actions = GUI_MODE_ACTIONS.copy()
-            logger.info(
-                f"[GUI MODE] Set compiled_actions to {len(GUI_MODE_ACTIONS)} hardcoded GUI actions"
-            )
 
     # ───────────────── Task Management ─────────────────
 

@@ -3,7 +3,7 @@
 Shared LLM (Large Language Model) interface for agent_core.
 
 This module provides the LLMInterface class that handles LLM
-calls across different providers (OpenAI, Gemini, Anthropic, BytePlus, Ollama).
+calls across different providers (OpenAI, Gemini, Anthropic, BytePlus).
 
 Hooks allow runtime-specific behavior:
 - Token counting via get_token_count/set_token_count hooks
@@ -88,12 +88,12 @@ def _model_supports_prefill(model: str) -> bool:
 class LLMInterface:
     """LLM interface with multi-provider support and hook-based customization.
 
-    Supports OpenAI, Gemini, Anthropic, BytePlus, and remote Ollama.
+    Supports OpenAI, Gemini, Anthropic, and BytePlus.
     Uses hooks for state access and usage reporting to decouple from
     runtime-specific state management.
 
     Args:
-        provider: LLM provider name ("openai", "gemini", "anthropic", "byteplus", "remote").
+        provider: LLM provider name ("openai", "gemini", "anthropic", "byteplus").
         model: Model name override.
         temperature: Sampling temperature.
         max_tokens: Maximum tokens in response.
@@ -421,8 +421,6 @@ class LLMInterface:
                 "openrouter",
             ):
                 response = self._generate_openai(system_prompt, user_prompt)
-            elif self.provider == "remote":
-                response = self._generate_ollama(system_prompt, user_prompt)
             elif self.provider == "gemini":
                 response = self._generate_gemini(system_prompt, user_prompt)
             elif self.provider == "byteplus":
@@ -1706,78 +1704,6 @@ class LLMInterface:
         else:
             result["content"] = content or ""
 
-        return result
-
-    @profile("llm_ollama_call", OperationCategory.LLM)
-    def _generate_ollama(
-        self, system_prompt: str | None, user_prompt: str
-    ) -> Dict[str, Any]:
-        token_count_input = token_count_output = 0
-        total_tokens = 0
-        status = "failed"
-        content: Optional[str] = None
-        exc_obj: Optional[Exception] = None
-
-        try:
-            payload = {
-                "model": self.model,
-                "prompt": user_prompt,
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "temperature": self.temperature,
-                },
-            }
-            if system_prompt:
-                payload["system"] = system_prompt
-            url: str = f"{self.remote_url.rstrip('/')}/api/generate"
-            response = requests.post(url, json=payload, timeout=600)
-            response.raise_for_status()
-            result = response.json()
-
-            content = result.get("response", "").strip()
-            token_count_input = result.get("prompt_eval_count", 0)
-            token_count_output = result.get("eval_count", 0)
-            total_tokens = token_count_input + token_count_output
-            status = "success"
-        except Exception as exc:
-            exc_obj = exc
-            logger.error(f"Error calling Ollama API: {exc}")
-
-        self._call_log_to_db(
-            system_prompt,
-            user_prompt,
-            content if content is not None else str(exc_obj),
-            status,
-            token_count_input,
-            token_count_output,
-        )
-
-        # Report usage (no caching for Ollama)
-        self._report_usage_async(
-            "llm_ollama", "remote", self.model, token_count_input, token_count_output, 0
-        )
-
-        result = {"tokens_used": total_tokens or 0}
-        if exc_obj:
-            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
-            result["error"] = error_str
-            # Classify once and stash the LLMErrorInfo object so the
-            # outer `_generate_response_sync` can put `info.message`
-            # (the rich detailed string) into the RuntimeError it raises,
-            # and attach the info to LLMConsecutiveFailureError at the
-            # 5-failure threshold. The classifier is wrapped in try/except
-            # so it can never break the error path itself.
-            try:
-                result["error_info_obj"] = classify_llm_error(
-                    exc_obj, provider=self.provider, model=self.model
-                )
-            except Exception:
-                pass
-            result["content"] = ""
-            logger.error(f"[OLLAMA_ERROR] {error_str}")
-        else:
-            result["content"] = content or ""
         return result
 
     @profile("llm_gemini_call", OperationCategory.LLM)

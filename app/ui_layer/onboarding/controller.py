@@ -269,13 +269,7 @@ class OnboardingFlowController:
         # Save provider configuration to settings.json
         from app.onboarding.interfaces.steps import ApiKeyStep
 
-        if provider == "remote":
-            # api_key holds the Ollama base URL for the remote provider
-            remote_url = api_key or "http://localhost:11434"
-            from app.ui_layer.settings.provider_settings import save_remote_endpoint
-
-            save_remote_endpoint(remote_url)
-        elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
+        if provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
             if proxied_via == "openrouter":
                 # User chose to go via OpenRouter — save key as openrouter and set model slug.
                 if submitted_or_model:

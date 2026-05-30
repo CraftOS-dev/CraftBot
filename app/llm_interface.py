@@ -3,7 +3,7 @@
 app.llm_interface
 
 All LLM calls have to go through this interface
-Currently support llm call to open ai api, google gemini, and remote call to Ollama
+Currently support llm call to open ai api and google gemini
 """
 
 from __future__ import annotations
@@ -808,7 +808,6 @@ class LLMInterface:
     Supported providers
     -------------------
     * ``openai``  – OpenAI Chat Completions API
-    * ``remote``  – Local Ollama HTTP endpoint (``/api/generate``)
     * ``gemini``  – Google Generative AI (Gemini) API
     * ``byteplus`` – BytePlus ModelArk Chat Completions API
     * ``anthropic`` – Anthropic Claude API
@@ -1007,8 +1006,6 @@ class LLMInterface:
 
         if self.provider == "openai":
             response = self._generate_openai(system_prompt, user_prompt)
-        elif self.provider == "remote":
-            response = self._generate_ollama(system_prompt, user_prompt)
         elif self.provider == "gemini":
             response = self._generate_gemini(system_prompt, user_prompt)
         elif self.provider == "byteplus":
@@ -1977,47 +1974,6 @@ class LLMInterface:
             "content": content or "",
             "cached_tokens": cached_tokens,
         }
-
-    @profile("llm_ollama_call", OperationCategory.LLM)
-    def _generate_ollama(self, system_prompt: str | None, user_prompt: str) -> str:
-        token_count_input = token_count_output = 0
-        status = "failed"
-        content: Optional[str] = None
-        exc_obj: Optional[Exception] = None
-
-        try:
-            payload = {
-                "model": self.model,
-                "system": system_prompt,
-                "prompt": user_prompt,
-                "stream": False,
-                "options": {
-                    "temperature": self.temperature,
-                },
-            }
-            url: str = f"{self.remote_url.rstrip('/')}/api/generate"
-            response = requests.post(url, json=payload, timeout=600)
-            response.raise_for_status()
-            result = response.json()
-
-            content = result.get("response", "").strip()
-            total_tokens = result.get("usage", {}).get("total_tokens", 0)
-            token_count_input = result.get("prompt_eval_count", 0)
-            token_count_output = result.get("eval_count", 0)
-            status = "success"
-        except Exception as exc:
-            exc_obj = exc
-            logger.error(f"Error calling Ollama API: {exc}")
-
-        self._log_to_db(
-            system_prompt,
-            user_prompt,
-            content if content is not None else str(exc_obj),
-            status,
-            token_count_input,
-            token_count_output,
-        )
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
     @profile("llm_gemini_call", OperationCategory.LLM)
     def _generate_gemini(

@@ -118,9 +118,8 @@ def set_gui_execute_hook(hook: Callable[[str, str, Dict, str], Dict]) -> None:
 
     Example:
         # CraftBot startup:
-        from app.gui.handler import GUIHandler
         set_gui_execute_hook(
-            lambda target, code, data, mode: GUIHandler.execute_action(target, code, data, mode)
+            lambda target, code, data, mode: my_executor(target, code, data, mode)
         )
     """
     global _gui_execute_hook

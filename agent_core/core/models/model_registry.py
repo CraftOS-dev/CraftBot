@@ -24,11 +24,6 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "seed-2-0-pro-260328",
         InterfaceType.EMBEDDING: "skylark-embedding-vision-250615",
     },
-    "remote": {
-        InterfaceType.LLM: "llama3.2:3b",
-        InterfaceType.VLM: "llava:7b",
-        InterfaceType.EMBEDDING: "nomic-embed-text",
-    },
     "minimax": {
         InterfaceType.LLM: "MiniMax-Text-01",
         InterfaceType.VLM: "MiniMax-VL-01",

@@ -529,7 +529,7 @@ class ActionRouter:
             query: Task-level instruction for the next step.
             action_type: Optional action type hint supplied to the LLM.
             GUI_mode: Whether the user is interacting through a GUI.
-            reasoning: Pre-computed reasoning from VLM/OmniParser about screen state.
+            reasoning: Pre-computed reasoning from VLM about screen state.
             session_id: Optional session ID for session-specific state lookup.
 
         Returns:

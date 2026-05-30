@@ -104,7 +104,6 @@ def _get_default_settings() -> Dict[str, Any]:
             "openrouter": "",
         },
         "endpoints": {
-            "remote_model_url": "",
             "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
             "google_api_base": "",
             "google_api_version": "",
@@ -118,11 +117,6 @@ def _get_default_settings() -> Dict[str, Any]:
         },
         "web_search": {
             "google_cse_id": "",
-        },
-        "gui": {
-            "enabled": True,
-            "use_omniparser": False,
-            "omniparser_url": "http://127.0.0.1:7861",
         },
     }
 
@@ -245,7 +239,7 @@ def get_base_url(provider: str) -> Optional[str]:
     """Get base URL for a provider.
 
     Args:
-        provider: Provider name (byteplus, remote)
+        provider: Provider name (byteplus, openrouter, bedrock)
 
     Returns:
         Base URL string or None if not configured
@@ -256,9 +250,6 @@ def get_base_url(provider: str) -> Optional[str]:
     if provider == "byteplus":
         url = endpoints.get("byteplus_base_url", "")
         return url if url else "https://ark.ap-southeast.bytepluses.com/api/v3"
-    elif provider == "remote":
-        url = endpoints.get("remote_model_url", "")
-        return url if url else "http://localhost:11434"
     elif provider == "gemini" or provider == "google":
         return endpoints.get("google_api_base") or None
     elif provider == "openrouter":

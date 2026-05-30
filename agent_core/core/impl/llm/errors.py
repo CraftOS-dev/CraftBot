@@ -112,7 +112,6 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
     "grok": "Grok",
     "moonshot": "Moonshot",
     "minimax": "MiniMax",
-    "remote": "Ollama",
     "bedrock": "AWS Bedrock",
 }
 
@@ -896,8 +895,6 @@ def _append_hint(
         return f"{base}. Try again later."
 
     if category == ErrorCategory.CONNECTION:
-        if provider == "remote":
-            return f"{base}. Check that Ollama is running."
         if "network" in raw_lower or "connection" in raw_lower:
             return f"{base}."
         return f"{base}. Check your network connection."

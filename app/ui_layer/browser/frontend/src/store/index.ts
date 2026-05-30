@@ -4,7 +4,6 @@ import messagesReducer from './slices/messagesSlice'
 import tasksReducer from './slices/tasksSlice'
 import dashboardReducer from './slices/dashboardSlice'
 import onboardingReducer from './slices/onboardingSlice'
-import localLlmReducer from './slices/localLlmSlice'
 import livingUiReducer from './slices/livingUiSlice'
 import agentReducer from './slices/agentSlice'
 import workspaceReducer from './slices/workspaceSlice'
@@ -26,7 +25,6 @@ export const store = configureStore({
     tasks: tasksReducer,
     dashboard: dashboardReducer,
     onboarding: onboardingReducer,
-    localLlm: localLlmReducer,
     livingUi: livingUiReducer,
     agent: agentReducer,
     workspace: workspaceReducer,

@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
   Check,
   AlertCircle,
@@ -22,11 +21,6 @@ import {
   ClipboardList,
   Cloud,
   Sheet,
-  Download,
-  Play,
-  Wifi,
-  WifiOff,
-  RefreshCw,
   Upload,
   Trash2,
   type LucideIcon,
@@ -58,270 +52,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
 const STEP_NAMES = ['Provider', 'API Key', 'Agent Name', 'User Profile', 'Skills', 'Integrations']
 
-// ── Ollama local-setup component ─────────────────────────────────────────────
-
-interface OllamaSetupProps {
-  defaultUrl: string
-  onConnected: (url: string) => void
-}
-
-function OllamaSetup({ defaultUrl, onConnected }: OllamaSetupProps) {
-  const { localLLM, checkLocalLLM, testLocalLLMConnection, installLocalLLM, startLocalLLM, pullOllamaModel } = useWebSocket()
-  const [url, setUrl] = useState(defaultUrl)
-  const [selectedModel, setSelectedModel] = useState('llama3.2:3b')
-  const [modelSearch, setModelSearch] = useState('')
-
-  // Auto-check on mount
-  useEffect(() => {
-    checkLocalLLM()
-  }, [checkLocalLLM])
-
-  // Pre-select the recommended model when the list loads
-  useEffect(() => {
-    if (localLLM.suggestedModels.length > 0) {
-      const rec = localLLM.suggestedModels.find(m => m.recommended)
-      if (rec) setSelectedModel(rec.name)
-    }
-  }, [localLLM.suggestedModels])
-
-  // Notify parent when connected
-  useEffect(() => {
-    if (localLLM.phase === 'connected' && localLLM.testResult?.success) {
-      onConnected(url)
-    }
-  }, [localLLM.phase, localLLM.testResult, url, onConnected])
-
-  const { phase, installProgress, testResult, error } = localLLM
-
-  const isWorking = phase === 'checking' || phase === 'installing' || phase === 'starting' || phase === 'pulling_model'
-
-  // ── Checking ──
-  if (phase === 'idle' || phase === 'checking') {
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaChecking}>
-          <div className={styles.spinner} />
-          <span>Checking if Ollama is running…</span>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Not installed ──
-  if (phase === 'not_installed') {
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <WifiOff size={18} className={styles.iconError} />
-          <span className={styles.ollamaStatusLabel}>Ollama is not installed</span>
-        </div>
-        <p className={styles.ollamaHint}>
-          Ollama lets you run AI models locally — no cloud needed. We'll install it automatically for you.
-        </p>
-        <Button variant="primary" onClick={installLocalLLM} icon={<Download size={16} />}>
-          Install Ollama
-        </Button>
-      </div>
-    )
-  }
-
-  // ── Installing ──
-  if (phase === 'installing') {
-    const pct = getOllamaInstallPercent(installProgress)
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <div className={styles.spinnerSmall} />
-          <span className={styles.ollamaStatusLabel}>Installing Ollama…</span>
-          <span className={styles.installPct}>{pct}%</span>
-        </div>
-        <div className={styles.installProgressBar}>
-          <div className={styles.installProgressFill} style={{ width: `${pct}%` }} />
-        </div>
-        <div className={styles.installLog}>
-          {installProgress.length === 0 && <span className={styles.installLogLine}>Starting…</span>}
-          {installProgress.map((line, i) => (
-            <span key={i} className={styles.installLogLine}>{line}</span>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  // ── Installed but not running ──
-  if (phase === 'not_running') {
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <WifiOff size={18} className={styles.iconWarning} />
-          <span className={styles.ollamaStatusLabel}>Ollama is installed but not running</span>
-        </div>
-        <p className={styles.ollamaHint}>Click below to start the Ollama server.</p>
-        <Button variant="primary" onClick={startLocalLLM} icon={<Play size={16} />}>
-          Start Ollama
-        </Button>
-      </div>
-    )
-  }
-
-  // ── Starting ──
-  if (phase === 'starting') {
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <div className={styles.spinnerSmall} />
-          <span className={styles.ollamaStatusLabel}>Starting Ollama…</span>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Error ──
-  if (phase === 'error') {
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <AlertCircle size={18} className={styles.iconError} />
-          <span className={styles.ollamaStatusLabel}>Something went wrong</span>
-        </div>
-        {error && <p className={styles.ollamaHint}>{error}</p>}
-        <Button variant="secondary" onClick={checkLocalLLM} icon={<RefreshCw size={16} />}>
-          Retry
-        </Button>
-      </div>
-    )
-  }
-
-  // ── Select model ──
-  if (phase === 'selecting_model') {
-    const allModels = localLLM.suggestedModels.length > 0 ? localLLM.suggestedModels : []
-    const filteredModels = allModels.filter(m =>
-      m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
-      m.label.toLowerCase().includes(modelSearch.toLowerCase())
-    )
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <Wifi size={18} className={styles.iconMuted} />
-          <span className={styles.ollamaStatusLabel}>Ollama is running — no models yet</span>
-        </div>
-        <p className={styles.ollamaHint}>Select a model to download so you can start chatting:</p>
-        <input
-          className={styles.modelSearchInput}
-          type="text"
-          placeholder="Find model..."
-          value={modelSearch}
-          onChange={e => setModelSearch(e.target.value)}
-        />
-        <div className={styles.modelList}>
-          {filteredModels.map(m => (
-            <label key={m.name} className={`${styles.modelOption} ${selectedModel === m.name ? styles.modelOptionSelected : ''}`}>
-              <input
-                type="radio"
-                name="ollama_model"
-                value={m.name}
-                checked={selectedModel === m.name}
-                onChange={() => setSelectedModel(m.name)}
-              />
-              <span className={styles.modelOptionName}>{m.label}</span>
-              <span className={styles.modelOptionSize}>{m.size}</span>
-              {m.recommended && <span className={styles.modelOptionBadge}>Recommended</span>}
-            </label>
-          ))}
-          {filteredModels.length === 0 && (
-            <p className={styles.ollamaHint}>No models match "{modelSearch}"</p>
-          )}
-        </div>
-        <Button variant="primary" onClick={() => pullOllamaModel(selectedModel)} disabled={!selectedModel} icon={<Download size={16} />}>
-          Download {selectedModel || 'Model'}
-        </Button>
-      </div>
-    )
-  }
-
-  // ── Pulling model ──
-  if (phase === 'pulling_model') {
-    const bytes = localLLM.pullBytes
-    const fmtBytes = (n: number) => {
-      if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`
-      if (n >= 1048576) return `${(n / 1048576).toFixed(0)} MB`
-      return `${(n / 1024).toFixed(0)} KB`
-    }
-    const latestStatus = localLLM.pullProgress[localLLM.pullProgress.length - 1] ?? 'Starting download…'
-    return (
-      <div className={styles.ollamaBox}>
-        <div className={styles.ollamaStatusRow}>
-          <div className={styles.spinnerSmall} />
-          <span className={styles.ollamaStatusLabel}>Downloading {selectedModel}…</span>
-        </div>
-        {bytes && bytes.total > 0 ? (
-          <>
-            <div className={styles.downloadProgressBar}>
-              <div className={styles.downloadProgressFill} style={{ width: `${bytes.percent}%` }} />
-            </div>
-            <div className={styles.downloadProgressInfo}>
-              <span>{fmtBytes(bytes.completed)} / {fmtBytes(bytes.total)}</span>
-              <span>{bytes.percent}%</span>
-            </div>
-          </>
-        ) : (
-          <div className={styles.downloadProgressBar}>
-            <div className={styles.downloadProgressFill} style={{ width: '0%' }} />
-          </div>
-        )}
-        <p className={styles.downloadStatus}>{latestStatus}</p>
-      </div>
-    )
-  }
-
-  // ── Running — show URL field + test button ──
-  const connected = phase === 'connected' && testResult?.success
-
-  return (
-    <div className={styles.ollamaBox}>
-      <div className={styles.ollamaStatusRow}>
-        {connected
-          ? <Wifi size={18} className={styles.iconSuccess} />
-          : <Wifi size={18} className={styles.iconMuted} />}
-        <span className={styles.ollamaStatusLabel}>
-          {connected ? 'Connected to Ollama' : 'Ollama is running'}
-        </span>
-      </div>
-
-      {connected && testResult?.message && (
-        <p className={styles.ollamaSuccessMsg}>{testResult.message}</p>
-      )}
-
-      {!connected && (
-        <>
-          <label className={styles.ollamaLabel}>Ollama server URL</label>
-          <div className={styles.ollamaInputRow}>
-            <input
-              className={styles.ollamaInput}
-              type="text"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="http://localhost:11434"
-              disabled={isWorking}
-            />
-            <Button
-              variant="secondary"
-              onClick={() => testLocalLLMConnection(url)}
-              disabled={!url || isWorking}
-              icon={<Wifi size={15} />}
-            >
-              Test
-            </Button>
-          </div>
-          {testResult && !testResult.success && (
-            <p className={styles.ollamaError}>{testResult.error}</p>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
 // ── Main onboarding page ──────────────────────────────────────────────────────
 
 export function OnboardingPage() {
@@ -334,7 +64,6 @@ export function OnboardingPage() {
     submitOnboardingStep,
     skipOnboardingStep,
     goBackOnboardingStep,
-    localLLM,
     agentProfilePictureUrl,
     agentProfilePictureHasCustom,
     uploadAgentProfilePicture,
@@ -354,9 +83,6 @@ export function OnboardingPage() {
   const [orModel, setOrModel] = useState('')
   // For proxied providers: 'direct' tries the native API, 'openrouter' routes via OR.
   const [proxiedVia, setProxiedVia] = useState<'direct' | 'openrouter'>('direct')
-  // URL submitted from OllamaSetup
-  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
-  const [ollamaConnected, setOllamaConnected] = useState(false)
   // Form step state (for user_profile and similar multi-field steps)
   const [formValues, setFormValues] = useState<Record<string, string | string[]>>({})
   // Picture upload state (for image_upload fields)
@@ -396,8 +122,6 @@ export function OnboardingPage() {
   // Reset local state when step changes
   useEffect(() => {
     if (onboardingStep) {
-      setOllamaConnected(false)
-
       // Form step (e.g., user_profile, agent_name)
       // Preserve existing values when navigating back — only set defaults for missing fields
       if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
@@ -424,19 +148,6 @@ export function OnboardingPage() {
       }
     }
   }, [onboardingStep])
-
-  // Keep ollamaUrl in sync with step default
-  useEffect(() => {
-    if (onboardingStep?.name === 'api_key' && onboardingStep.provider === 'remote') {
-      const def = typeof onboardingStep.default === 'string' ? onboardingStep.default : 'http://localhost:11434'
-      setOllamaUrl(def)
-    }
-  }, [onboardingStep])
-
-  const handleOllamaConnected = useCallback((url: string) => {
-    setOllamaUrl(url)
-    setOllamaConnected(true)
-  }, [])
 
   const handlePictureSelect = useCallback(() => {
     pictureInputRef.current?.click()
@@ -492,13 +203,10 @@ export function OnboardingPage() {
 
   const handleSubmit = useCallback(() => {
     if (!onboardingStep) return
-    const isOllamaStep = onboardingStep.name === 'api_key' && onboardingStep.provider === 'remote'
     const isProxiedStep = onboardingStep.name === 'api_key' &&
       onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
 
-    if (isOllamaStep) {
-      submitOnboardingStep(ollamaUrl)
-    } else if (isProxiedStep) {
+    if (isProxiedStep) {
       submitOnboardingStep({ api_key: textValue, via: proxiedVia, or_model: proxiedVia === 'openrouter' ? orModel : '' })
     } else if (onboardingStep.name === 'integrations') {
       // Panel step — the embedded IntegrationsSettings handles its own
@@ -511,7 +219,7 @@ export function OnboardingPage() {
     } else {
       submitOnboardingStep(textValue)
     }
-  }, [onboardingStep, selectedValue, textValue, orModel, proxiedVia, ollamaUrl, formValues, submitOnboardingStep])
+  }, [onboardingStep, selectedValue, textValue, orModel, proxiedVia, formValues, submitOnboardingStep])
 
   const handleSkip = useCallback(() => skipOnboardingStep(), [skipOnboardingStep])
 
@@ -537,15 +245,9 @@ export function OnboardingPage() {
   const isWideStep = isMultiSelect || isFormStep || isIntegrationsStep
   const isLastStep = onboardingStep ? onboardingStep.index === onboardingStep.total - 1 : false
 
-  const isOllamaStep =
-    onboardingStep?.name === 'api_key' && onboardingStep?.provider === 'remote'
-
   const canSubmit = (() => {
     if (!onboardingStep) return false
     if (onboardingLoading) return false
-    if (isOllamaStep) {
-      return ollamaConnected || (localLLM.phase === 'connected' && !!localLLM.testResult?.success)
-    }
     if (isIntegrationsStep) return true  // Connection is optional — Next always works
     if (isFormStep) return true  // All form fields are optional
     if (onboardingStep.options.length > 0) {
@@ -573,18 +275,6 @@ export function OnboardingPage() {
   // ── Render step form ──────────────────────────────────────────────────────
   const renderStepForm = () => {
     if (!onboardingStep) return null
-
-    // Ollama local setup
-    if (isOllamaStep) {
-      return (
-        <div className={styles.formGroup}>
-          <OllamaSetup
-            defaultUrl={ollamaUrl}
-            onConnected={handleOllamaConnected}
-          />
-        </div>
-      )
-    }
 
     // External app integrations — embed the full Settings → Integrations
     // panel so the user can connect any integration in place.
@@ -986,23 +676,7 @@ export function OnboardingPage() {
                 )}
               </h2>
               <p className={styles.stepDescription}>
-                {isOllamaStep ? (() => {
-                  switch (localLLM.phase) {
-                    case 'not_installed': return "Ollama isn't installed yet — we'll download and install it automatically."
-                    case 'installing':    return "Installing Ollama on your machine. This may take a minute…"
-                    case 'not_running':   return "Ollama is installed but not running. Click below to start the server."
-                    case 'starting':      return "Starting the Ollama server…"
-                    case 'running':       return "Ollama is running. Enter the server URL and test the connection."
-                    case 'selecting_model': return "Ollama is connected but has no models yet. Pick one to download."
-                    case 'pulling_model': return "Downloading your model — this may take a few minutes depending on size."
-                    case 'connected': {
-                      const n = localLLM.testResult?.models?.length ?? 0
-                      return `Connected to Ollama — ${n} model${n === 1 ? '' : 's'} available.`
-                    }
-                    case 'error':         return localLLM.error ?? "Something went wrong. Check the error below and retry."
-                    default:              return "Checking Ollama status…"
-                  }
-                })() : (() => {
+                {(() => {
                   const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
                   if (isProxiedApiKey && proxiedVia === 'openrouter') {
                     const display = { moonshot: 'Moonshot (Kimi)', minimax: 'MiniMax' }[onboardingStep.provider!] ?? onboardingStep.provider
@@ -1047,7 +721,7 @@ export function OnboardingPage() {
                     iconPosition="right"
                   >
                     {onboardingLoading && onboardingStep?.name === 'api_key'
-                      ? (isOllamaStep ? 'Connecting…' : 'Testing API Key…')
+                      ? 'Testing API Key…'
                       : isLastStep ? 'Finish' : 'Next'}
                   </Button>
                 </div>

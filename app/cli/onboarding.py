@@ -261,16 +261,12 @@ class CLIHardOnboarding(OnboardingInterface):
                 return self._collected_data
             self._collected_data["provider"] = provider
 
-            # Step 2: API key (skip for remote/Ollama)
-            if provider != "remote":
-                api_key_step = ApiKeyStep(provider)
-                api_key = await self._input_text(
-                    api_key_step, api_key_step.get_default(), password=True
-                )
-                self._collected_data["api_key"] = api_key
-            else:
-                self._collected_data["api_key"] = ""
-                print("\nOllama selected - no API key required.")
+            # Step 2: API key
+            api_key_step = ApiKeyStep(provider)
+            api_key = await self._input_text(
+                api_key_step, api_key_step.get_default(), password=True
+            )
+            self._collected_data["api_key"] = api_key
 
             # Step 3: Agent name (optional)
             agent_name_step = AgentNameStep()

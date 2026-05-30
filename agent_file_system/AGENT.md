@@ -1769,11 +1769,9 @@ api_keys:
   byteplus: string
 
 endpoints:
-  remote_model_url: string       (for "remote" provider, e.g. Ollama base URL)
   byteplus_base_url: string      (default https://ark.ap-southeast.bytepluses.com/api/v3)
   google_api_base: string        (override for Gemini API base URL)
   google_api_version: string     (override for Gemini API version)
-  remote: string                 (default http://localhost:11434; Ollama endpoint)
 
 oauth:
   google:    { client_id, client_secret }     (used by /google invite OAuth flow)
@@ -2848,7 +2846,6 @@ openai       gpt-5.2-2025-12-11           gpt-5.2-2025-12-11          text-embed
 anthropic    claude-sonnet-4-5-20250929   claude-sonnet-4-5-20250929  (none — no embedding)    Claude models
 gemini       gemini-2.5-pro               gemini-2.5-pro              text-embedding-004       Google Gemini
 byteplus     seed-2-0-pro-260328          seed-2-0-pro-260328         skylark-embedding-...    BytePlus-hosted
-remote       llama3.2:3b                  llava:7b                    nomic-embed-text         Ollama or OpenAI-compat
 deepseek     deepseek-chat                (none)                      (none)                   text only
 moonshot     moonshot-v1-8k               (none)                      (none)                   text only
 grok         grok-3                       grok-4-0709                 (none)                   xAI
@@ -2898,8 +2895,7 @@ At construction (and on `reinitialize_llm`), `ModelFactory.create(provider, inte
 ```
 1. Looks up the provider in MODEL_REGISTRY[provider][interface].
 2. If model_override is set, uses it. Otherwise uses the registry default.
-3. Wires up the right client: OpenAI SDK, Anthropic SDK, Gemini client, BytePlus
-   wrapper, or Ollama HTTP for "remote".
+3. Wires up the right client: OpenAI SDK, Anthropic SDK, Gemini client, or BytePlus wrapper.
 4. Returns ctx with provider, model, client/handles, base URL, etc.
 ```
 
@@ -3008,8 +3004,6 @@ Cache TTLs come from `cache.prefix_ttl` and `cache.session_ttl` in settings.json
 In `settings.json` `endpoints`:
 
 ```
-remote_model_url       base URL for "remote" provider (Ollama or OpenAI-compat)
-remote                 alternate endpoint for remote (default http://localhost:11434)
 byteplus_base_url      defaults to https://ark.ap-southeast.bytepluses.com/api/v3
 google_api_base        override for Gemini API base URL
 google_api_version     override for Gemini API version
@@ -3037,8 +3031,6 @@ Long-context document analysis                gemini (1-2M context)
                                               anthropic with extended cache
 Cheap bulk reasoning                          deepseek
                                               byteplus
-Air-gapped / offline                          remote (Ollama)
-                                              point to local llama / qwen / mistral
 Strict cost control                           gemini (free tier)
                                               deepseek (low per-token)
 ```
@@ -3050,10 +3042,9 @@ This list is opinion, not authoritative. The user has the final say.
 - Editing `model.llm_provider` in settings.json without running `/provider` to reinitialize. The cache says new, the live LLM uses old. Always do Path B.
 - Setting `api_keys.gemini` instead of `api_keys.google`. The Gemini provider reads from the `google` key (settings_key mismatch). Same for `api_keys_configured`.
 - Choosing a `vlm_provider` whose `MODEL_REGISTRY` entry has `VLM: None`. Vision actions will fail.
-- Empty `api_keys.<provider>` for a non-remote provider triggers `MSG_AUTH` on the first call. Always check before switching.
+- Empty `api_keys.<provider>` triggers `MSG_AUTH` on the first call. Always check before switching.
 - Forgetting to update `api_keys_configured` when adding a key. UI bookkeeping breaks; LLM still works.
 - Running `/provider <name>` with a key but the key is for the wrong provider (e.g., pasting Anthropic key after `/provider openai`). The error surfaces on the first call. Verify keys match.
-- Switching to `remote` (Ollama) without `endpoints.remote_model_url` configured. The factory tries `http://localhost:11434` by default; if Ollama isn't running, every call fails.
 
 ### Permission and disclosure
 

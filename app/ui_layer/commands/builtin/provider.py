@@ -23,7 +23,6 @@ class ProviderCommand(Command):
         "deepseek": ("DEEPSEEK_API_KEY", "DeepSeek"),
         "grok": ("XAI_API_KEY", "Grok (xAI)"),
         "openrouter": ("OPENROUTER_API_KEY", "OpenRouter"),
-        "remote": (None, "Ollama (Local)"),
     }
 
     @property
@@ -55,7 +54,6 @@ Providers:
   deepseek   - DeepSeek models
   grok       - Grok (xAI) models
   openrouter - OpenRouter (300+ models, one key)
-  remote     - Ollama (local models)
 
 Examples:
   /provider

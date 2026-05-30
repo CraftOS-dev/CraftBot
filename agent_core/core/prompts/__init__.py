@@ -86,14 +86,6 @@ from agent_core.core.prompts.routing import (
 )
 
 
-# GUI prompts
-from agent_core.core.prompts.gui import (
-    GUI_REASONING_PROMPT,
-    GUI_REASONING_PROMPT_OMNIPARSER,
-    GUI_QUERY_FOCUSED_PROMPT,
-    GUI_PIXEL_POSITION_PROMPT,
-)
-
 # Skill selection prompts
 from agent_core.core.prompts.skill import (
     SKILLS_AND_ACTION_SETS_SELECTION_PROMPT,
@@ -126,11 +118,6 @@ __all__ = [
     "LANGUAGE_INSTRUCTION",
     # Routing prompts
     "ROUTE_TO_SESSION_PROMPT",
-    # GUI prompts
-    "GUI_REASONING_PROMPT",
-    "GUI_REASONING_PROMPT_OMNIPARSER",
-    "GUI_QUERY_FOCUSED_PROMPT",
-    "GUI_PIXEL_POSITION_PROMPT",
     # Skill selection prompts
     "SKILLS_AND_ACTION_SETS_SELECTION_PROMPT",
     "SKILL_SELECTION_PROMPT",

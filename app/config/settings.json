@@ -29,17 +29,10 @@
     "openrouter": ""
   },
   "endpoints": {
-    "remote_model_url": "",
     "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
     "google_api_base": "",
     "google_api_version": "",
-    "remote": "http://localhost:11434",
     "openrouter_base_url": ""
-  },
-  "gui": {
-    "enabled": true,
-    "use_omniparser": false,
-    "omniparser_url": "http://127.0.0.1:7861"
   },
   "cache": {
     "prefix_ttl": 3600,

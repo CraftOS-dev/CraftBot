@@ -21,10 +21,6 @@ PROVIDER_CONFIG = {
         base_url_env="BYTEPLUS_BASE_URL",
         default_base_url="https://ark.ap-southeast.bytepluses.com/api/v3",
     ),
-    "remote": ProviderConfig(
-        base_url_env="REMOTE_MODEL_URL",
-        default_base_url="http://localhost:11434",
-    ),
     "minimax": ProviderConfig(
         api_key_env="MINIMAX_API_KEY",
         default_base_url="https://api.minimax.chat/v1",

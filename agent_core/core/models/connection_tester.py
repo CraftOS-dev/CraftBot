@@ -60,9 +60,6 @@ def test_provider_connection(
         elif provider == "byteplus":
             url = base_url or cfg.default_base_url
             return _test_byteplus(api_key, url, timeout, model)
-        elif provider == "remote":
-            url = base_url or cfg.default_base_url
-            return _test_remote(url, timeout)
         elif provider == "grok":
             url = cfg.default_base_url
             return _test_grok(api_key, url, timeout, model)
@@ -246,7 +243,6 @@ _DISPLAY = {
     "minimax": "MiniMax",
     "grok": "Grok (xAI)",
     "openrouter": "OpenRouter",
-    "remote": "Ollama",
     "bedrock": "AWS Bedrock",
 }
 
@@ -560,40 +556,6 @@ def _test_byteplus(
         }
     except Exception as exc:
         return _classified_error_result(exc, "byteplus", None)
-
-
-# ─── Remote (Ollama) ──────────────────────────────────────────────────
-
-
-def _test_remote(base_url: Optional[str], timeout: float) -> Dict[str, Any]:
-    """No API key required; the UI already validates Ollama models via
-    the /api/tags dropdown, so this stays auth-equivalent."""
-    url = base_url or "http://localhost:11434"
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(f"{url.rstrip('/')}/api/tags")
-        if response.status_code == 200:
-            models = [m["name"] for m in response.json().get("models", [])]
-            if models:
-                message = (
-                    f"Connected! {len(models)} model(s) available: {', '.join(models)}"
-                )
-            else:
-                message = "Connected to Ollama, but no models downloaded yet. Use '+ Download New Model' to get one."
-            return {
-                "success": True,
-                "message": message,
-                "provider": "remote",
-                "models": models,
-            }
-        return {
-            "success": False,
-            "message": f"Ollama returned status {response.status_code}",
-            "provider": "remote",
-            "error": response.text[:200] if response.text else "Unknown error",
-        }
-    except Exception as exc:
-        return _classified_error_result(exc, "remote", None)
 
 
 # ─── OpenRouter ───────────────────────────────────────────────────────

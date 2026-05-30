@@ -38,7 +38,7 @@ if exist install.py (
 
 echo --- relaunching CraftBot --- >> "%LOG%"
 rem Launch the new CraftBot. This bat process exits and the new run.py takes over.
-start "CraftBot" python run.py --conda
+start "CraftBot" python run.py
 echo %DATE% %TIME% - Updater done, relaunched CraftBot >> "%LOG%"
 exit /b 0
 

@@ -4,8 +4,6 @@ import type {
   ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics,
   FilteredDashboardMetrics, MetricsTimePeriod, OnboardingStep,
   OnboardingStepResponse, OnboardingSubmitResponse, OnboardingCompleteResponse,
-  LocalLLMState, LocalLLMCheckResponse, LocalLLMTestResponse, LocalLLMInstallResponse,
-  LocalLLMProgressResponse, LocalLLMPullProgressResponse, SuggestedModel,
   SkillMeta,
   // Living UI types
   LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
@@ -51,14 +49,6 @@ import {
   selectOnboardingLoading,
   selectNeedsHardOnboarding,
 } from '../store/selectors/onboarding'
-import {
-  markChecking as localLlmMarkChecking,
-  markInstalling as localLlmMarkInstalling,
-  markInstallFailed as localLlmMarkInstallFailed,
-  markStarting as localLlmMarkStarting,
-  markPullingModel as localLlmMarkPullingModel,
-} from '../store/slices/localLlmSlice'
-import { selectLocalLlm } from '../store/selectors/localLlm'
 import {
   setActiveId as livingUiSetActiveId,
 } from '../store/slices/livingUiSlice'
@@ -149,8 +139,6 @@ interface WebSocketContextType extends WebSocketState {
   onboardingError: string | null
   onboardingLoading: boolean
   needsHardOnboarding: boolean
-  // Slice-backed (localLlmSlice).
-  localLLM: LocalLLMState
   // Slice-backed (livingUiSlice).
   livingUIProjects: LivingUIProject[]
   livingUICreating: LivingUIStatusUpdate | null
@@ -190,13 +178,6 @@ interface WebSocketContextType extends WebSocketState {
   loadOlderMessages: () => void
   // Action pagination
   loadOlderActions: () => void
-  // Local LLM (Ollama) methods
-  checkLocalLLM: () => void
-  testLocalLLMConnection: (url: string) => void
-  installLocalLLM: () => void
-  startLocalLLM: () => void
-  requestSuggestedModels: () => void
-  pullOllamaModel: (model: string) => void
   // Option click (interactive buttons in chat)
   sendOptionClick: (value: string, sessionId?: string, messageId?: string) => void
   // Agent profile picture
@@ -257,7 +238,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const onboardingError = useAppSelector(selectOnboardingError)
   const onboardingLoading = useAppSelector(selectOnboardingLoading)
   const needsHardOnboarding = useAppSelector(selectNeedsHardOnboarding)
-  const localLLM = useAppSelector(selectLocalLlm)
   const livingUIProjects = useAppSelector(selectLivingUiProjects)
   const livingUICreating = useAppSelector(selectLivingUiCreating)
   const livingUITodos = useAppSelector(selectLivingUiTodos)
@@ -535,49 +515,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, replyTarget: null }))
   }, [])
 
-  // Local LLM (Ollama) methods. All state lives in localLlmSlice; these are
-  // just send-helpers that also dispatch the optimistic pre-send transition.
-  const checkLocalLLM = useCallback(() => {
-    if (!client.isConnected) return
-    dispatch(localLlmMarkChecking())
-    client.sendString(JSON.stringify({ type: 'local_llm_check' }))
-  }, [dispatch])
-
-  const testLocalLLMConnection = useCallback((url: string) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'local_llm_test', url }))
-    }
-  }, [])
-
-  const installLocalLLM = useCallback(() => {
-    if (client.isConnected) {
-      dispatch(localLlmMarkInstalling())
-      client.sendString(JSON.stringify({ type: 'local_llm_install' }))
-    } else {
-      dispatch(localLlmMarkInstallFailed('Not connected — please wait a moment and retry.'))
-    }
-  }, [dispatch])
-
-  const startLocalLLM = useCallback(() => {
-    if (client.isConnected) {
-      dispatch(localLlmMarkStarting())
-      client.sendString(JSON.stringify({ type: 'local_llm_start' }))
-    }
-  }, [dispatch])
-
-  const requestSuggestedModels = useCallback(() => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({ type: 'local_llm_suggested_models' }))
-    }
-  }, [])
-
-  const pullOllamaModel = useCallback((model: string) => {
-    if (client.isConnected) {
-      dispatch(localLlmMarkPullingModel())
-      client.sendString(JSON.stringify({ type: 'local_llm_pull_model', model }))
-    }
-  }, [dispatch])
-
   // Living UI methods
   const createLivingUI = useCallback((data: LivingUICreateRequest) => {
     if (client.isConnected) {
@@ -647,7 +584,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         onboardingError,
         onboardingLoading,
         needsHardOnboarding,
-        localLLM,
         livingUIProjects,
         livingUICreating,
         livingUITodos,
@@ -679,12 +615,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         clearReplyTarget,
         loadOlderMessages,
         loadOlderActions,
-        checkLocalLLM,
-        testLocalLLMConnection,
-        installLocalLLM,
-        startLocalLLM,
-        requestSuggestedModels,
-        pullOllamaModel,
         sendOptionClick,
         uploadAgentProfilePicture,
         removeAgentProfilePicture,

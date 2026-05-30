@@ -35,8 +35,6 @@ interface ModelSettingsState {
   currentLlmModel: string
   currentVlmModel: string
   slowModeEnabled: boolean
-  ollamaModels: string[]
-  ollamaAvailable: boolean | null
   awsCredentials: AwsCredentialsStatus | null
   hasLoadedProviders: boolean
   hasLoadedSettings: boolean
@@ -51,8 +49,6 @@ const initialState: ModelSettingsState = {
   currentLlmModel: '',
   currentVlmModel: '',
   slowModeEnabled: false,
-  ollamaModels: [],
-  ollamaAvailable: null,
   awsCredentials: null,
   hasLoadedProviders: false,
   hasLoadedSettings: false,
@@ -107,10 +103,6 @@ const modelSettingsSlice = createSlice({
       state.slowModeEnabled = action.payload
       state.hasLoadedSlowMode = true
     },
-    setOllamaModels(state, action: PayloadAction<{ models: string[]; available: boolean }>) {
-      state.ollamaModels = action.payload.models
-      state.ollamaAvailable = action.payload.available
-    },
   },
 })
 
@@ -123,7 +115,6 @@ export const {
   setApiKeys,
   setBaseUrls,
   setSlowModeEnabled,
-  setOllamaModels,
   setAwsCredentials,
 } = modelSettingsSlice.actions
 
@@ -183,9 +174,4 @@ register('slow_mode_get', (data, dispatch) => {
 register('slow_mode_set', (data, dispatch) => {
   const d = data as { success: boolean; enabled: boolean }
   if (d.success) dispatch(setSlowModeEnabled(d.enabled))
-})
-
-register('ollama_models_get', (data, dispatch) => {
-  const d = data as { success: boolean; models: string[] }
-  dispatch(setOllamaModels({ models: d.success ? (d.models || []) : [], available: d.success }))
 })

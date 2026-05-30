@@ -45,7 +45,6 @@ datas = [
     (_root('config.json'), '.'),
     (_root('.env.example'), '.'),
     (_root('requirements.txt'), '.'),
-    (_root('environment.yml'), '.'),
     (_root('app/config/mcp_config.json'), 'app/config'),
     (_root('app/config/connection_test_models.json'), 'app/config'),
     (_root('app/config/scheduler_config.json'), 'app/config'),
@@ -53,9 +52,6 @@ datas = [
     (_root('app/config/external_comms_config.json'), 'app/config'),
     (_root('app/data'), 'app/data'),
     (_root('app/ui_layer/browser/frontend/dist'), 'app/ui_layer/browser/frontend/dist'),
-    (_root('app/gui/docker-compose.yaml'), 'app/gui'),
-    (_root('app/gui/Dockerfile'), 'app/gui'),
-    (_root('app/gui/custom-cont-init.d'), 'app/gui/custom-cont-init.d'),
     (_root('agents'), 'agents'),
     (_root('skills'), 'skills'),
 ]

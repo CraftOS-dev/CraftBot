@@ -117,7 +117,6 @@ class ProviderStep:
         ("minimax", "MiniMax", "MiniMax models"),
         ("moonshot", "Moonshot", "Moonshot models"),
         ("grok", "Grok (xAI)", "Grok models"),
-        ("remote", "Ollama (Local)", "Self-hosted models"),
     ]
 
     def get_options(self) -> List[StepOption]:
@@ -148,7 +147,7 @@ class ProviderStep:
 
 
 class ApiKeyStep:
-    """API key input step — or Ollama connection setup for the remote provider."""
+    """API key input step."""
 
     name = "api_key"
     required = True
@@ -163,7 +162,6 @@ class ApiKeyStep:
         "minimax": "MINIMAX_API_KEY",
         "moonshot": "MOONSHOT_API_KEY",
         "grok": "XAI_API_KEY",
-        "remote": None,  # Ollama uses a base URL, not an API key
     }
 
     def __init__(self, provider: str = "openai"):
@@ -175,8 +173,6 @@ class ApiKeyStep:
 
     @property
     def title(self) -> str:
-        if self.provider == "remote":
-            return "Connect Ollama"
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
             return f"Enter {display} API Key"
@@ -184,11 +180,6 @@ class ApiKeyStep:
 
     @property
     def description(self) -> str:
-        if self.provider == "remote":
-            return (
-                "Connect to your local Ollama instance.\n"
-                "If Ollama isn't installed yet, we'll help you set it up."
-            )
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
             return (
@@ -202,15 +193,6 @@ class ApiKeyStep:
         return []
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
-        if self.provider == "remote":
-            # Value is the Ollama base URL
-            if not value or not isinstance(value, str):
-                return True, None  # Empty = use default URL
-            v = value.strip()
-            if not (v.startswith("http://") or v.startswith("https://")):
-                return False, "Please enter a valid URL (e.g. http://localhost:11434)"
-            return True, None
-
         # Proxied providers submit {api_key, via, or_model?} dict
         if self.provider in self.OPENROUTER_PROXIED and isinstance(value, dict):
             api_key = value.get("api_key", "")
@@ -227,8 +209,6 @@ class ApiKeyStep:
         return True, None
 
     def get_default(self) -> str:
-        if self.provider == "remote":
-            return "http://localhost:11434"
         # Check settings.json for existing key
         from app.config import get_api_key
 

@@ -4,13 +4,6 @@ CraftBot Installation Script
 
 Usage:
     python install.py              # Install core dependencies with global pip
-    python install.py --conda      # Install with conda environment
-
-Options:
-    --conda         Use conda environment (optional)
-    --mamba         Use mamba instead of conda (faster, optional with --conda)
-
-Note: GUI mode (--gui) is temporarily disabled in V1.2.2.
 
 After installation completes, CraftBot will automatically launch in browser mode.
 To use the CLI instead, run: python run.py --cli
@@ -37,13 +30,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- Configuration ---
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-YML_FILE = os.path.join(BASE_DIR, "environment.yml")
 REQUIREMENTS_FILE = os.path.join(BASE_DIR, "requirements.txt")
-
-OMNIPARSER_REPO_URL = "https://github.com/zfoong/OmniParser_CraftOS.git"
-OMNIPARSER_BRANCH = "CraftOS"
-OMNIPARSER_ENV_NAME = "omni"
-OMNIPARSER_MARKER_FILE = ".omniparser_setup_complete_v1"
 
 
 # ==========================================
@@ -805,214 +792,6 @@ def run_command(
 # ==========================================
 # ENVIRONMENT SETUP
 # ==========================================
-def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
-    conda_exe = shutil.which("conda")
-    if conda_exe:
-        conda_base_path = os.path.dirname(os.path.dirname(conda_exe))
-        return True, f"Found at {conda_exe}", conda_base_path
-
-    if sys.platform == "win32":
-        # Check common Miniconda/Anaconda installation paths
-        common_paths = [
-            os.path.join(os.path.expanduser("~"), "miniconda3"),
-            os.path.join(os.path.expanduser("~"), "Miniconda3"),
-            os.path.join(os.path.expanduser("~"), "anaconda3"),
-            os.path.join(os.path.expanduser("~"), "Anaconda3"),
-            "C:\\miniconda3",
-            "C:\\Miniconda3",
-            "C:\\anaconda3",
-            "C:\\Anaconda3",
-        ]
-
-        for base_path in common_paths:
-            conda_bat = os.path.join(base_path, "condabin", "conda.bat")
-            if os.path.exists(conda_bat):
-                return True, f"Found at {base_path}", base_path
-
-        # Also check current Python directory
-        current_python_dir = os.path.dirname(sys.executable)
-        potential_base_paths = [
-            os.path.dirname(current_python_dir),
-            os.path.dirname(os.path.dirname(current_python_dir)),
-        ]
-        for base_path in potential_base_paths:
-            activate_bat = os.path.join(base_path, "Scripts", "activate.bat")
-            condabin_bat = os.path.join(base_path, "condabin", "conda.bat")
-            if os.path.exists(activate_bat) or os.path.exists(condabin_bat):
-                return True, f"Found at {base_path}", base_path
-
-    return False, "Not found", None
-
-
-def get_env_name_from_yml(yml_path: str = YML_FILE) -> str:
-    try:
-        with open(yml_path, "r") as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped.startswith("name:"):
-                    return stripped.split(":", 1)[1].strip().strip("'").strip('"')
-    except FileNotFoundError:
-        print(f"Error: {yml_path} not found.")
-        sys.exit(1)
-    print(f"Error: Could not find 'name:' in {yml_path}.")
-    sys.exit(1)
-
-
-def install_miniconda():
-    """Auto-install Miniconda for the current platform."""
-    import urllib.request
-    import subprocess as sp
-
-    print("\n🔧 Auto-installing Miniconda...\n")
-
-    # Detect OS and architecture
-    if sys.platform == "win32":
-        # Windows
-        if sys.maxsize > 2**32:
-            url = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
-            installer = os.path.join(BASE_DIR, "Miniconda-installer.exe")
-        else:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86.exe"
-            )
-            installer = os.path.join(BASE_DIR, "Miniconda-installer.exe")
-    elif sys.platform == "linux":
-        # Linux
-        if sys.maxsize > 2**32:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-            )
-        else:
-            url = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86.sh"
-        installer = os.path.join(BASE_DIR, "miniconda-installer.sh")
-    elif sys.platform == "darwin":
-        # macOS
-        if sys.maxsize > 2**32:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
-            )
-        else:
-            url = (
-                "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh"
-            )
-        installer = os.path.join(BASE_DIR, "miniconda-installer.sh")
-    else:
-        print(f"❌ Unsupported platform: {sys.platform}")
-        return False
-
-    try:
-        print(f"📥 Downloading Miniconda ({os.path.basename(url)})...")
-        urllib.request.urlretrieve(url, installer)
-        print(f"✓ Downloaded to {installer}\n")
-
-        if sys.platform == "win32":
-            print("🔧 Running Miniconda installer...")
-            print("   An installation dialog will appear. Select:")
-            print("   - Add Miniconda to PATH (important!)")
-            print("   - Install for current user\n")
-            sp.run([installer], check=True)
-            print("\n✓ Miniconda installed!")
-            print("   Please restart your terminal and run the installation again.\n")
-            os.remove(installer)
-            return True
-        else:
-            print("🔧 Running Miniconda installer...")
-            sp.run(
-                ["bash", installer, "-b", "-p", os.path.expanduser("~/miniconda3")],
-                check=True,
-            )
-            print("✓ Miniconda installed!")
-            print(
-                "   Please add conda to PATH, then restart terminal and run installation again.\n"
-            )
-            os.remove(installer)
-            return True
-    except Exception as e:
-        print(f"❌ Miniconda installation failed: {e}")
-        if os.path.exists(installer):
-            try:
-                os.remove(installer)
-            except Exception:
-                pass
-        return False
-
-
-def get_conda_command() -> str:
-    """Return conda command. Use full path on Windows if conda not in PATH."""
-    # Mamba can have compatibility issues, so use conda by default
-    # Users can pass --mamba flag if they want to use mamba
-    if "--mamba" in sys.argv:
-        if shutil.which("mamba"):
-            return "mamba"
-
-    # First try to find conda in PATH
-    conda_exe = shutil.which("conda")
-    if conda_exe:
-        return conda_exe
-
-    # On Windows, check common installation paths
-    if sys.platform == "win32":
-        common_paths = [
-            os.path.join(os.path.expanduser("~"), "miniconda3"),
-            os.path.join(os.path.expanduser("~"), "Miniconda3"),
-            os.path.join(os.path.expanduser("~"), "anaconda3"),
-            os.path.join(os.path.expanduser("~"), "Anaconda3"),
-            "C:\\miniconda3",
-            "C:\\Miniconda3",
-            "C:\\anaconda3",
-            "C:\\Anaconda3",
-        ]
-
-        for base_path in common_paths:
-            conda_bat = os.path.join(base_path, "condabin", "conda.bat")
-            if os.path.exists(conda_bat):
-                return conda_bat
-
-    # Fallback to just "conda" (will work if it's in PATH)
-    return "conda"
-
-
-def setup_conda_environment(env_name: str, yml_path: str = YML_FILE):
-    conda_cmd = get_conda_command()
-    try:
-        print(f"🔧 Setting up conda environment '{env_name}'...")
-        result = run_command_with_progress(
-            [conda_cmd, "env", "update", "-f", yml_path, "-n", env_name],
-            "Installing dependencies via conda",
-            check=False,
-        )
-        if result and hasattr(result, "returncode") and result.returncode == 0:
-            print("✓ Conda environment ready")
-        else:
-            print("\n✗ Failed to set up conda environment")
-            if result and hasattr(result, "stderr"):
-                print(result.stderr[:500])
-            sys.exit(1)
-    except Exception as e:
-        print(f"\n✗ Error setting up conda environment: {e}")
-        sys.exit(1)
-
-
-def verify_conda_env(env_name: str) -> bool:
-    try:
-        conda_cmd = get_conda_command()
-        verification_cmd = [
-            conda_cmd,
-            "run",
-            "-n",
-            env_name,
-            "python",
-            "-c",
-            "print('OK')",
-        ]
-        result = run_command(
-            verification_cmd, capture=True, quiet=True, check=False, show_error=False
-        )
-        return result and hasattr(result, "returncode") and result.returncode == 0
-    except Exception:
-        return False
-
-
 def install_nodejs_linux():
     """
     Automatically install Node.js on Linux/macOS systems (including Kali).
@@ -1164,36 +943,16 @@ def install_nodejs_linux():
         return False
 
 
-def install_playwright_browser(use_conda: bool = False):
+def install_playwright_browser():
     """Install Playwright Chromium browser for WhatsApp Web support."""
     print("\nInstalling Playwright Chromium browser...")
     try:
-        if use_conda:
-            conda_cmd = get_conda_command()
-            env_name = get_env_name_from_yml()
-            result = run_command(
-                [
-                    conda_cmd,
-                    "run",
-                    "-n",
-                    env_name,
-                    "python",
-                    "-m",
-                    "playwright",
-                    "install",
-                    "chromium",
-                ],
-                check=False,
-                capture=True,
-                show_error=False,
-            )
-        else:
-            result = run_command(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                check=False,
-                capture=True,
-                show_error=False,
-            )
+        result = run_command(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=False,
+            capture=True,
+            show_error=False,
+        )
         if result and hasattr(result, "returncode") and result.returncode == 0:
             print("✓ Playwright Chromium installed")
             return True
@@ -1388,10 +1147,7 @@ def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
                 print("  .\\craftbot-env\\Scripts\\activate  # On Windows")
                 print("  python install.py\n")
 
-                print("Option 2: Use conda (recommended for data science projects)")
-                print("  python install.py --conda\n")
-
-                print("Option 3: Break system packages (not recommended)")
+                print("Option 2: Break system packages (not recommended)")
                 print("  Retrying with --break-system-packages flag...\n")
 
                 # Retry with --break-system-packages
@@ -1528,7 +1284,6 @@ def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
                 print("  2. Clear pip cache: pip cache purge")
                 print("  3. Check your internet connection")
                 print("  4. Try: pip install --upgrade pip")
-                print("  5. Try with conda: python install.py --conda")
                 sys.exit(1)
         else:
             print("✓ Core dependencies installed")
@@ -1561,468 +1316,23 @@ def setup_pip_environment(requirements_file: str = REQUIREMENTS_FILE):
         raise
 
 
-# ==========================================
-# OMNIPARSER SETUP (GUI Mode)
-# ==========================================
-def setup_omniparser(force_cpu: bool, use_conda: bool):
-    """Install OmniParser for GUI mode support."""
-
-    if not shutil.which("git"):
-        print("Error: 'git' is required to install GUI components.")
-        print("Please install git: https://git-scm.com/downloads")
-        sys.exit(1)
-
-    # Get repo path from config or use default
-    config = load_config()
-    repo_path = config.get("omniparser_repo_path")
-    if not repo_path:
-        repo_path = os.path.abspath("OmniParser_CraftOS")
-        save_config_value("omniparser_repo_path", repo_path)
-    else:
-        repo_path = os.path.abspath(repo_path)
-
-    def run_omni_cmd(
-        cmd_list: list[str],
-        work_dir: str = repo_path,
-        capture_output: bool = False,
-        env_extras: Dict[str, str] = None,
-    ):
-        """Execute command in OmniParser environment (conda or direct pip)."""
-        if use_conda:
-            conda_cmd = get_conda_command()
-            full_cmd = [conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME] + cmd_list
-        else:
-            full_cmd = cmd_list
-
-        # Setup environment with TMPDIR for pip cache management
-        local_env = env_extras.copy() if env_extras else {}
-        tmp_dir = os.path.expanduser("~/pip-tmp")
-        local_env["TMPDIR"] = tmp_dir
-        os.makedirs(tmp_dir, exist_ok=True)
-
-        run_command(
-            full_cmd,
-            cwd=work_dir,
-            capture=capture_output,
-            env_extras=local_env,
-            quiet=capture_output,
-        )
-
-    # Step 1: Repository setup
-    try:
-        print("🔧 Setting up OmniParser repository...")
-        if os.path.exists(repo_path):
-            run_command(["git", "-C", repo_path, "pull"], quiet=True, check=False)
-        else:
-            run_command(
-                [
-                    "git",
-                    "clone",
-                    "-b",
-                    OMNIPARSER_BRANCH,
-                    OMNIPARSER_REPO_URL,
-                    repo_path,
-                ],
-                quiet=False,
-                show_error=True,
-            )
-    except Exception as e:
-        print(f"✗ Error setting up repository: {e}")
-        sys.exit(1)
-
-    # Check marker file
-    marker_path = os.path.join(repo_path, OMNIPARSER_MARKER_FILE)
-    if not os.path.exists(marker_path):
-        # Step 2: Create environment (only if using conda)
-        if use_conda:
-            conda_cmd = get_conda_command()
-            print("🔧 Creating conda environment...")
-            result = run_command(
-                [conda_cmd, "create", "-n", OMNIPARSER_ENV_NAME, "python=3.10", "-y"],
-                capture=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                print("\n✗ Error creating conda environment 'omni'")
-                sys.exit(1)
-
-        print("🔧 Upgrading pip...")
-        run_omni_cmd(["pip", "install", "--upgrade", "pip"])
-
-        # Step 3: Install PyTorch
-        print("🔧 Installing PyTorch...")
-        pytorch_installed = False
-
-        if use_conda:
-            conda_cmd = get_conda_command()
-            if force_cpu:
-                print("   (CPU-only mode)")
-                result = run_command(
-                    [
-                        conda_cmd,
-                        "run",
-                        "-n",
-                        OMNIPARSER_ENV_NAME,
-                        "conda",
-                        "install",
-                        "pytorch",
-                        "torchvision",
-                        "torchaudio",
-                        "cpuonly",
-                        "-c",
-                        "pytorch",
-                        "-y",
-                    ],
-                    capture=True,
-                    check=False,
-                )
-                pytorch_installed = result.returncode == 0
-            else:
-                # Try GPU version first
-                print("   (Attempting CUDA 12.1 GPU version)")
-                result = run_command(
-                    [
-                        conda_cmd,
-                        "run",
-                        "-n",
-                        OMNIPARSER_ENV_NAME,
-                        "conda",
-                        "install",
-                        "pytorch",
-                        "torchvision",
-                        "torchaudio",
-                        "pytorch-cuda=12.1",
-                        "-c",
-                        "pytorch",
-                        "-c",
-                        "nvidia",
-                        "-y",
-                    ],
-                    capture=True,
-                    check=False,
-                )
-
-                if result.returncode != 0:
-                    print("   ⚠ GPU version failed. Falling back to CPU-only mode...")
-                    result = run_command(
-                        [
-                            conda_cmd,
-                            "run",
-                            "-n",
-                            OMNIPARSER_ENV_NAME,
-                            "conda",
-                            "install",
-                            "pytorch",
-                            "torchvision",
-                            "torchaudio",
-                            "cpuonly",
-                            "-c",
-                            "pytorch",
-                            "-y",
-                        ],
-                        capture=True,
-                        check=False,
-                    )
-                    pytorch_installed = result.returncode == 0
-                    if pytorch_installed:
-                        print("   ✓ CPU-only PyTorch installed successfully")
-                else:
-                    pytorch_installed = True
-        else:
-            # Use pip for non-conda installation
-            if force_cpu:
-                print("   (CPU-only mode)")
-                result = run_command(
-                    ["pip", "install", "torch", "torchvision", "torchaudio"],
-                    capture=True,
-                    check=False,
-                    env_extras={"TMPDIR": os.path.expanduser("~/pip-tmp")},
-                )
-                pytorch_installed = result.returncode == 0
-            else:
-                # Try GPU version first
-                print("   (Attempting CUDA 12.1 GPU version)")
-                result = run_command(
-                    [
-                        "pip",
-                        "install",
-                        "torch",
-                        "torchvision",
-                        "torchaudio",
-                        "torch-cuda==12.1",
-                    ],
-                    capture=True,
-                    check=False,
-                    env_extras={"TMPDIR": os.path.expanduser("~/pip-tmp")},
-                )
-
-                if result.returncode != 0:
-                    print("   ⚠ GPU version failed. Falling back to CPU-only mode...")
-                    result = run_command(
-                        ["pip", "install", "torch", "torchvision", "torchaudio"],
-                        capture=True,
-                        check=False,
-                        env_extras={"TMPDIR": os.path.expanduser("~/pip-tmp")},
-                    )
-                    pytorch_installed = result.returncode == 0
-                    if pytorch_installed:
-                        print("   ✓ CPU-only PyTorch installed successfully")
-                else:
-                    pytorch_installed = True
-
-        if not pytorch_installed:
-            print("\n✗ Error installing PyTorch")
-            if hasattr(result, "stderr") and result.stderr:
-                error_msg = result.stderr[:500]
-                print(f"\n   Error details:\n   {error_msg}")
-
-                # Check for specific errors
-                if (
-                    "no space left on device" in error_msg.lower()
-                    or "disk" in error_msg.lower()
-                ):
-                    print("\n⚠️  DISK SPACE ERROR detected")
-                    print("   PyTorch is very large (~5GB+). Your disk may be full.")
-                    print("\n   Solutions:")
-                    print("   1. Clear pip cache: pip cache purge")
-                    print("   2. Clear npm cache: npm cache clean --force")
-                    print(
-                        "   3. Use alternate disk: TMPDIR=/mnt/large-disk/pip-tmp python install.py --gui"
-                    )
-                    print(
-                        "   4. Use conda (more efficient): python install.py --gui --conda"
-                    )
-
-                elif (
-                    "externally-managed-environment" in error_msg
-                    or "externally managed" in error_msg
-                ):
-                    print("\n⚠️  PEP 668 Error: System-managed Python detected")
-                    print("   Use virtual environment or conda for GUI mode")
-
-                elif "cuda" in error_msg.lower() or "gpu" in error_msg.lower():
-                    print("\n⚠️  CUDA/GPU Error detected")
-                    print("   Try CPU-only: python install.py --gui --cpu-only")
-                    print("   Or with conda: python install.py --gui --conda")
-
-            print("\n⚠️  Troubleshooting:")
-            print(
-                "   1. Check disk space: "
-                + ("df -h" if sys.platform != "win32" else "dir C:\\")
-            )
-            print("   2. Clear pip cache: pip cache purge")
-            print(
-                "   3. Try clearing system caches: "
-                + ("sudo apt-get clean" if sys.platform != "win32" else "Disk Cleanup")
-            )
-            print(
-                "   4. Try again with CPU-only mode: python install.py --gui --cpu-only"
-            )
-            print("   5. Use conda (recommended): python install.py --gui --conda")
-            print(
-                "   6. Check PyTorch documentation: https://pytorch.org/get-started/locally/"
-            )
-            sys.exit(1)
-
-        # Step 4: Install dependencies
-        print("🔧 Installing dependencies...")
-        deps = [
-            "mkl==2024.0",
-            "sympy==1.13.1",
-            "transformers==4.51.0",
-            "huggingface_hub[cli]",
-            "hf_transfer",
-        ]
-        tmp_dir = os.path.expanduser("~/pip-tmp")
-        os.makedirs(tmp_dir, exist_ok=True)
-
-        if use_conda:
-            conda_cmd = get_conda_command()
-            result = run_command(
-                [conda_cmd, "run", "-n", OMNIPARSER_ENV_NAME, "pip", "install"] + deps,
-                capture=True,
-                check=False,
-                env_extras={"TMPDIR": tmp_dir},
-            )
-        else:
-            result = run_command(
-                ["pip", "install"] + deps,
-                capture=True,
-                check=False,
-                env_extras={"TMPDIR": tmp_dir},
-            )
-        if result.returncode != 0:
-            print("⚠ Warning: Some dependencies may have failed to install")
-            if (
-                hasattr(result, "stderr")
-                and result.stderr
-                and "externally-managed" not in result.stderr
-            ):
-                error_snippet = result.stderr[:200].strip()
-                if error_snippet:
-                    print(f"  Details: {error_snippet}")
-
-        req_txt = os.path.join(repo_path, "requirements.txt")
-        if os.path.exists(req_txt):
-            if use_conda:
-                conda_cmd = get_conda_command()
-                result = run_command(
-                    [
-                        conda_cmd,
-                        "run",
-                        "-n",
-                        OMNIPARSER_ENV_NAME,
-                        "pip",
-                        "install",
-                        "-r",
-                        "requirements.txt",
-                    ],
-                    cwd=repo_path,
-                    capture=True,
-                    check=False,
-                    env_extras={"TMPDIR": tmp_dir},
-                )
-            else:
-                result = run_command(
-                    ["pip", "install", "-r", "requirements.txt"],
-                    cwd=repo_path,
-                    capture=True,
-                    check=False,
-                    env_extras={"TMPDIR": tmp_dir},
-                )
-            if result.returncode != 0:
-                print("⚠ Warning: Some requirements may have failed to install")
-
-        # Create marker
-        with open(marker_path, "w") as f:
-            f.write(f"Installed on {time.ctime()}\n")
-    else:
-        print("🔧 Environment already set up, skipping setup steps...")
-
-    # Step 5: Download model weights
-    print("🔧 Downloading model weights (this may take a while)...")
-    files_to_download = [
-        {
-            "file": "icon_detect/train_args.yaml",
-            "local_path": "icon_detect/train_args.yaml",
-        },
-        {"file": "icon_detect/model.pt", "local_path": "icon_detect/model.pt"},
-        {"file": "icon_detect/model.yaml", "local_path": "icon_detect/model.yaml"},
-        {
-            "file": "icon_caption/config.json",
-            "local_path": "icon_caption_florence/config.json",
-        },
-        {
-            "file": "icon_caption/generation_config.json",
-            "local_path": "icon_caption_florence/generation_config.json",
-        },
-        {
-            "file": "icon_caption/model.safetensors",
-            "local_path": "icon_caption_florence/model.safetensors",
-        },
-    ]
-
-    weights_dir = os.path.join(repo_path, "weights")
-    os.makedirs(os.path.join(weights_dir, "icon_detect"), exist_ok=True)
-    os.makedirs(os.path.join(weights_dir, "icon_caption_florence"), exist_ok=True)
-
-    hf_env = {"HF_HUB_ENABLE_HF_TRANSFER": "1"}
-    failed_downloads = []
-    for i, file_info in enumerate(files_to_download, 1):
-        local_dest = os.path.join(weights_dir, file_info["local_path"])
-        if not os.path.exists(local_dest):
-            print(
-                f"  📦 ({i}/{len(files_to_download)}) Downloading: {file_info['local_path']}..."
-            )
-            if use_conda:
-                conda_cmd = get_conda_command()
-                result = run_command(
-                    [
-                        conda_cmd,
-                        "run",
-                        "-n",
-                        OMNIPARSER_ENV_NAME,
-                        "hf",
-                        "download",
-                        "microsoft/OmniParser-v2.0",
-                        file_info["file"],
-                        "--local-dir",
-                        "weights",
-                    ],
-                    cwd=repo_path,
-                    capture=True,
-                    check=False,
-                    env_extras=hf_env,
-                )
-            else:
-                result = run_command(
-                    [
-                        "hf",
-                        "download",
-                        "microsoft/OmniParser-v2.0",
-                        file_info["file"],
-                        "--local-dir",
-                        "weights",
-                    ],
-                    cwd=repo_path,
-                    capture=True,
-                    check=False,
-                    env_extras=hf_env,
-                )
-            if result.returncode != 0:
-                failed_downloads.append(file_info["local_path"])
-        else:
-            print(
-                f"  ✓ ({i}/{len(files_to_download)}) Already have: {file_info['local_path']}"
-            )
-
-    if failed_downloads:
-        print(f"\n⚠ Warning: {len(failed_downloads)} model files failed to download:")
-        for f in failed_downloads:
-            print(f"  - {f}")
-        print("\n   You can retry downloading these later.")
-
-    # Step 6: Reorganize files
-    print("🔧 Organizing GUI components...")
-    try:
-        src_caption = os.path.join(weights_dir, "icon_caption")
-        dst_caption = os.path.join(weights_dir, "icon_caption_florence")
-        if os.path.exists(src_caption):
-            if os.path.exists(dst_caption):
-                shutil.rmtree(dst_caption)
-            shutil.move(src_caption, dst_caption)
-        print("✓ GUI components ready\n")
-    except Exception as e:
-        print(f"\n✗ Error organizing files: {e}")
-        sys.exit(1)
-
 
 # ==========================================
 # MAIN
 # ==========================================
-def launch_agent_after_install(install_gui: bool, use_conda: bool):
+def launch_agent_after_install():
     """Automatically launch CraftBot after installation."""
     main_script = os.path.abspath(os.path.join(BASE_DIR, "run.py"))
     if not os.path.exists(main_script):
         print(f"Error: {main_script} not found.")
         sys.exit(1)
 
-    # Build command for run script
-    args = []
-    if install_gui:
-        args.append("--gui")
-
     # Show launch message
     print("\n" + "=" * 60)
     print(" 🚀 Launching CraftBot (Browser Interface)...")
     print("=" * 60 + "\n")
 
-    if use_conda:
-        conda_cmd = get_conda_command()
-        env_name = get_env_name_from_yml()
-        cmd = [conda_cmd, "run", "-n", env_name, "python", "-u", main_script] + args
-    else:
-        cmd = [sys.executable, "-u", main_script] + args
+    cmd = [sys.executable, "-u", main_script]
 
     # Launch the agent
     try:
@@ -2032,20 +1342,8 @@ def launch_agent_after_install(install_gui: bool, use_conda: bool):
         sys.exit(0)
     except Exception as e:
         print(f"\n❌ Error launching CraftBot: {e}")
-
-        # Show fallback instructions
         print("\nTo launch manually, run:")
-        if use_conda:
-            env_name = get_env_name_from_yml()
-            conda_cmd = get_conda_command()
-            cmd_args = " ".join(args) if args else ""
-            print(
-                f"  {conda_cmd} run -n {env_name} python run.py {cmd_args}".rstrip()
-                + "\n"
-            )
-        else:
-            cmd_args = " ".join(args) if args else ""
-            print(f"  python run.py {cmd_args}".rstrip() + "\n")
+        print("  python run.py\n")
         sys.exit(1)
 
 
@@ -2274,24 +1572,6 @@ if __name__ == "__main__":
 
     args = set(sys.argv[1:])
 
-    # Parse flags
-    # [V1.2.2] GUI mode is temporarily disabled in this version.
-    if "--gui" in args:
-        print("\n[!] GUI mode is temporarily disabled in this version (V1.2.2).")
-        print(
-            "    This feature is experimental and will be re-enabled in a future release."
-        )
-        print("    Please run without --gui flag.\n")
-        sys.exit(1)
-    install_gui = False  # "--gui" in args  # [V1.2.2] disabled
-    use_conda = "--conda" in args
-    force_cpu = "--cpu-only" in args
-
-    # Save installation configuration (silent)
-    save_config_value("use_conda", use_conda)
-    save_config_value("gui_mode_enabled", install_gui)
-    os.environ["USE_CONDA"] = str(use_conda)
-
     # Print retro installation header
     _ART = [
         " ██████╗ ██████╗   █████╗  ███████╗ ████████╗██████╗   ██████╗ ████████╗",
@@ -2313,61 +1593,19 @@ if __name__ == "__main__":
     print(_BE)
     _sub = "░░░  INSTALLATION SYSTEM  ░░░"
     print(f"{ORANGE}║{RESET}{DIM}{_sub.center(_BW)}{RESET}{ORANGE}║{RESET}")
-    _mode = "MODE: " + ("CONDA ENVIRONMENT" if use_conda else "GLOBAL PIP")
-    print(f"{ORANGE}║{RESET}{ORANGE}{_mode.center(_BW)}{RESET}{ORANGE}║{RESET}")
     print(_BE)
     print(f"{_BB}\n")
 
     # Pre-flight check: Disk space (especially important for Kali)
-    min_space_needed = (
-        8.0 if install_gui else 5.0
-    )  # GUI mode needs more space for torch
-    if not check_disk_space_for_installation(min_free_gb=min_space_needed):
+    if not check_disk_space_for_installation(min_free_gb=5.0):
         sys.exit(1)
 
     # Step 1: Install core dependencies
-    if use_conda:
-        is_installed, reason, conda_base = is_conda_installed()
-        if not is_installed:
-            print("❌ Error: Conda not found")
-            print("\nOptions:")
-            print("  1. Auto-install Miniconda (recommended)")
-            print("  2. Install manually from https://conda.io/")
-            print("  3. Use without conda: python install.py\n")
-
-            # Ask user if they want to auto-install
-            choice = input("Select option (1-3): ").strip()
-            if choice == "1":
-                install_miniconda()
-                # Refresh conda detection after installation
-                is_installed, reason, conda_base = is_conda_installed()
-                if not is_installed:
-                    print("❌ Miniconda installation failed. Please install manually.")
-                    sys.exit(1)
-            elif choice == "3":
-                print("✓ Proceeding with pip installation (no conda)\n")
-                use_conda = False
-                # Update config to reflect the user's choice
-                save_config_value("use_conda", False)
-            else:
-                print(
-                    "\n❌ Please install conda from https://conda.io/ or select option 3 to use pip\n"
-                )
-                sys.exit(1)
-
-    # After user choice, setup the appropriate environment
-    if use_conda:
-        env_name = get_env_name_from_yml()
-        setup_conda_environment(env_name)
-        print("✓ Verifying conda environment...")
-        verify_conda_env(env_name)
-        print("✓ Environment verified\n")
-    else:
-        setup_pip_environment()
-        print()
+    setup_pip_environment()
+    print()
 
     # Install Playwright browser (needed for WhatsApp Web)
-    install_playwright_browser(use_conda=use_conda)
+    install_playwright_browser()
 
     # Install browser frontend dependencies — required for browser mode
     frontend_ok = install_browser_frontend()
@@ -2381,13 +1619,6 @@ if __name__ == "__main__":
         print("    1. Install Node.js LTS from https://nodejs.org/")
         print("    2. Re-run: python install.py")
         sys.exit(1)
-
-    # Step 2: Install GUI components (optional)
-    if install_gui:
-        print("\n" + "=" * 60)
-        print(" 🎨 Installing GUI Components")
-        print("=" * 60 + "\n")
-        setup_omniparser(force_cpu=force_cpu, use_conda=use_conda)
 
     # Done — retro completion box
     _CW = 60
@@ -2407,4 +1638,4 @@ if __name__ == "__main__":
         )
     else:
         print(f"  {ORANGE}▸{RESET} {WHITE}LOADING CRAFTBOT...{RESET}\n")
-        launch_agent_after_install(install_gui, use_conda)
+        launch_agent_after_install()

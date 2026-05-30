@@ -56,7 +56,6 @@ from app.ui_layer.settings import (
     update_model_settings,
     test_connection,
     validate_can_save,
-    get_ollama_models,
     # MCP settings
     list_mcp_servers,
     add_mcp_server_from_json,
@@ -1636,10 +1635,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "model_validate_save":
             await self._handle_model_validate_save(data)
 
-        elif msg_type == "ollama_models_get":
-            base_url = data.get("baseUrl")
-            await self._handle_ollama_models_get(base_url)
-
         elif msg_type == "openrouter_models_get":
             await self._handle_openrouter_models_get(
                 base_url=data.get("baseUrl"),
@@ -1849,22 +1844,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "onboarding_back":
             await self._handle_onboarding_back()
 
-        # Local LLM (Ollama) helpers
-        elif msg_type == "local_llm_check":
-            await self._handle_local_llm_check()
-        elif msg_type == "local_llm_test":
-            url = data.get("url", "http://localhost:11434")
-            await self._handle_local_llm_test(url)
-        elif msg_type == "local_llm_install":
-            await self._handle_local_llm_install()
-        elif msg_type == "local_llm_start":
-            await self._handle_local_llm_start()
-        elif msg_type == "local_llm_suggested_models":
-            await self._handle_local_llm_suggested_models()
-        elif msg_type == "local_llm_pull_model":
-            model = data.get("model", "")
-            base_url = data.get("baseUrl")
-            await self._handle_local_llm_pull_model(model, base_url)
         # Living UI handlers
         elif msg_type == "living_ui_create":
             await self._handle_living_ui_create(data)
@@ -2112,28 +2091,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             step = controller.get_current_step()
             if step.name == "api_key":
                 provider = controller.get_collected_data().get("provider", "openai")
-                if provider == "remote":
-                    # Test Ollama connection with the submitted URL
-                    ollama_url = (value or "http://localhost:11434").strip()
-                    from app.ui_layer.local_llm_setup import test_ollama_connection_sync
-
-                    test_result = test_ollama_connection_sync(ollama_url)
-                    if not test_result.get("success"):
-                        err = test_result.get("error", "Cannot reach Ollama")
-                        await self._broadcast(
-                            {
-                                "type": "onboarding_submit",
-                                "data": {
-                                    "success": False,
-                                    "error": f"Ollama connection failed: {err}",
-                                    "index": controller.current_step_index,
-                                },
-                            }
-                        )
-                        return
-                    # Normalise the value to the URL that actually worked
-                    value = ollama_url
-                elif value:
+                if value:
                     from app.models import MODEL_REGISTRY, InterfaceType
                     from app.onboarding.interfaces.steps import ApiKeyStep
 
@@ -2442,164 +2400,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": False,
                         "error": str(e),
                     },
-                }
-            )
-
-    # ── Local LLM (Ollama) handlers ──────────────────────────────────────────
-
-    async def _handle_local_llm_check(self) -> None:
-        """Return Ollama installation and runtime status."""
-        try:
-            from app.ui_layer.local_llm_setup import get_ollama_status
-
-            status = get_ollama_status()
-            await self._broadcast(
-                {
-                    "type": "local_llm_check",
-                    "data": {"success": True, **status},
-                }
-            )
-        except Exception as e:
-            logger.error(f"[LOCAL_LLM] Error checking status: {e}")
-            await self._broadcast(
-                {
-                    "type": "local_llm_check",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
-    async def _handle_local_llm_test(self, url: str) -> None:
-        """Test an HTTP connection to a running Ollama instance."""
-        try:
-            from app.ui_layer.local_llm_setup import test_ollama_connection_sync
-
-            result = test_ollama_connection_sync(url)
-            await self._broadcast(
-                {
-                    "type": "local_llm_test",
-                    "data": result,
-                }
-            )
-        except Exception as e:
-            logger.error(f"[LOCAL_LLM] Error testing connection: {e}")
-            await self._broadcast(
-                {
-                    "type": "local_llm_test",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
-    async def _handle_local_llm_install(self) -> None:
-        """Install Ollama, streaming progress back to the client."""
-
-        async def progress_callback(msg: str) -> None:
-            await self._broadcast(
-                {
-                    "type": "local_llm_install_progress",
-                    "data": {"message": msg},
-                }
-            )
-
-        try:
-            from app.ui_layer.local_llm_setup import install_ollama
-
-            result = await install_ollama(progress_callback)
-            await self._broadcast(
-                {
-                    "type": "local_llm_install",
-                    "data": result,
-                }
-            )
-        except Exception as e:
-            logger.error(f"[LOCAL_LLM] Error installing: {e}")
-            await self._broadcast(
-                {
-                    "type": "local_llm_install",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
-    async def _handle_local_llm_start(self) -> None:
-        """Start the Ollama server."""
-        try:
-            from app.ui_layer.local_llm_setup import start_ollama
-
-            result = await start_ollama()
-            await self._broadcast(
-                {
-                    "type": "local_llm_start",
-                    "data": result,
-                }
-            )
-        except Exception as e:
-            logger.error(f"[LOCAL_LLM] Error starting Ollama: {e}")
-            await self._broadcast(
-                {
-                    "type": "local_llm_start",
-                    "data": {"success": False, "error": str(e)},
-                }
-            )
-
-    async def _handle_local_llm_suggested_models(self) -> None:
-        """Return the list of suggested Ollama models."""
-        from app.ui_layer.local_llm_setup import SUGGESTED_MODELS
-
-        await self._broadcast(
-            {
-                "type": "local_llm_suggested_models",
-                "data": {"models": SUGGESTED_MODELS},
-            }
-        )
-
-    async def _handle_local_llm_pull_model(
-        self, model: str, base_url: str | None = None
-    ) -> None:
-        """Pull an Ollama model, streaming progress back to the client."""
-        if not model:
-            await self._broadcast(
-                {
-                    "type": "local_llm_pull_model",
-                    "data": {"success": False, "error": "No model specified"},
-                }
-            )
-            return
-
-        # Resolve base URL: explicit param > stored settings > default
-        if not base_url:
-            try:
-                from app.ui_layer.settings.model_settings import get_model_settings
-
-                settings_data = get_model_settings()
-                base_url = settings_data.get("base_urls", {}).get("remote")
-            except Exception:
-                pass
-
-        async def progress_callback(data: dict) -> None:
-            await self._broadcast(
-                {
-                    "type": "local_llm_pull_progress",
-                    "data": data,
-                }
-            )
-
-        try:
-            from app.ui_layer.local_llm_setup import pull_ollama_model
-
-            result = await pull_ollama_model(
-                model, progress_callback, base_url=base_url
-            )
-            await self._broadcast(
-                {
-                    "type": "local_llm_pull_model",
-                    "data": result,
-                }
-            )
-        except Exception as e:
-            logger.error(f"[LOCAL_LLM] Error pulling model {model}: {e}")
-            await self._broadcast(
-                {
-                    "type": "local_llm_pull_model",
-                    "data": {"success": False, "error": str(e)},
                 }
             )
 
@@ -4654,7 +4454,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         Validates API key presence before saving. Connection is tested only when
         credentials (API key or base URL) are actually changing, so that saving
         a model name or switching providers works even when the service is offline
-        (e.g. Ollama not running).
+        (e.g. the provider's service not reachable).
         """
         try:
             new_provider = data.get("llmProvider")
@@ -4686,7 +4486,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # Step 2: Test connection before saving — only when credentials are changing.
             # Mirror the frontend logic: skip the test when only model/provider name
-            # changes so that saving works even if the service (e.g. Ollama) is offline.
+            # changes so that saving works even if the service is offline.
             aws_credentials_in = data.get("awsCredentials")
             credentials_changing = bool(api_key or base_url or aws_credentials_in)
             if new_provider and credentials_changing:
@@ -4821,22 +4621,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "can_save": False,
                         "errors": [str(e)],
                     },
-                }
-            )
-
-    async def _handle_ollama_models_get(self, base_url: Optional[str] = None) -> None:
-        """Fetch available models from Ollama and broadcast to frontend."""
-        try:
-            if not base_url:
-                settings_data = get_model_settings()
-                base_url = settings_data.get("base_urls", {}).get("remote")
-            result = get_ollama_models(base_url=base_url)
-            await self._broadcast({"type": "ollama_models_get", "data": result})
-        except Exception as e:
-            await self._broadcast(
-                {
-                    "type": "ollama_models_get",
-                    "data": {"success": False, "models": [], "error": str(e)},
                 }
             )
 

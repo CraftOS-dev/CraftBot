@@ -97,7 +97,7 @@ def _parse_cli_args() -> dict:
         "--provider",
         type=str,
         default=None,
-        choices=["openai", "gemini", "byteplus", "anthropic", "remote"],
+        choices=["openai", "gemini", "byteplus", "anthropic"],
         help="LLM provider to use",
     )
     parser.add_argument(
@@ -127,8 +127,7 @@ def _initial_settings() -> tuple:
     vlm_prov = get_vlm_provider()
     vlm_mod = get_vlm_model()
 
-    # Remote (Ollama) doesn't require API key
-    has_key = bool(api_key) or provider == "remote"
+    has_key = bool(api_key)
 
     return provider, api_key, base_url, model, vlm_prov, vlm_mod, has_key
 
@@ -149,7 +148,7 @@ async def main_async() -> None:
         api_key = get_api_key(provider)
         base_url = get_base_url(provider)
         model = get_llm_model()
-        has_valid_key = bool(api_key) or provider == "remote"
+        has_valid_key = bool(api_key)
 
     if cli_args.get("api_key"):
         api_key = cli_args["api_key"]

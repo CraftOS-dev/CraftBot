@@ -5,7 +5,6 @@ core.embedding_interface
 Embedding interface supporting:
 - OpenAI (via openai SDK)
 - Google Gemini (via the public REST API)
-- Remote (Ollama /api/embeddings)
 
 Environment variables:
 - OPENAI_API_KEY (for provider="openai")
@@ -30,7 +29,6 @@ class EmbeddingInterface:
     A class to handle interactions with embedding models:
     - OpenAI
     - Google Gemini
-    - Local/remote Ollama
     """
 
     def __init__(
@@ -76,8 +74,6 @@ class EmbeddingInterface:
             return self._get_openai_embedding(text)
         elif self.provider == "gemini":
             return self._get_gemini_embedding(text)
-        elif self.provider == "remote":
-            return self._get_ollama_embedding(text)
         elif self.provider == "byteplus":
             return self._get_byteplus_embedding(text)
         elif self.provider == "bedrock":
@@ -168,18 +164,3 @@ class EmbeddingInterface:
             logger.exception(f"Error calling Bedrock Embedding API: {e}")
             return None
 
-    def _get_ollama_embedding(self, text: str) -> Optional[List[float]]:
-        try:
-            payload = {
-                "model": self.model,
-                "prompt": text,  # Ollama accepts "prompt" for /api/embeddings
-            }
-            url: str = f"{self.remote_url.rstrip('/')}/api/embeddings"
-            response = requests.post(url, json=payload, timeout=120)
-            response.raise_for_status()
-            result = response.json()
-            # Ollama returns {"embedding": [floats]}
-            return result.get("embedding", None)
-        except Exception as e:
-            logger.exception(f"Error calling Ollama Embedding API: {e}")
-            return None

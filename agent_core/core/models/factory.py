@@ -5,8 +5,6 @@ API keys and base URLs should be passed directly - no environment variable readi
 """
 
 import logging
-import urllib.request
-import json as _json
 
 from openai import OpenAI
 from anthropic import Anthropic
@@ -74,28 +72,6 @@ def _get_openrouter_key() -> Optional[str]:
         return None
 
 
-def _resolve_ollama_model(requested: str, base_url: str) -> str:
-    """Return `requested` if Ollama has it, otherwise return the first available model."""
-    try:
-        tags_url = base_url.rstrip("/") + "/api/tags"
-        with urllib.request.urlopen(tags_url, timeout=5) as resp:
-            data = _json.loads(resp.read())
-        available = [m["name"] for m in data.get("models", [])]
-        if not available:
-            return requested
-        if requested in available:
-            return requested
-        logger.warning(
-            "[OLLAMA] Model '%s' not found in Ollama. Available: %s. Using '%s'.",
-            requested,
-            available,
-            available[0],
-        )
-        return available[0]
-    except Exception:
-        return requested
-
-
 class ModelFactory:
     @staticmethod
     def create(
@@ -110,11 +86,11 @@ class ModelFactory:
         """Create model context for a given provider.
 
         Args:
-            provider: The LLM provider name (openai, gemini, anthropic, byteplus, remote)
+            provider: The LLM provider name (openai, gemini, anthropic, byteplus)
             interface: The interface type (LLM or VLM)
             model_override: Optional model name override
             api_key: API key for the provider (required for most providers)
-            base_url: Base URL override (for byteplus/remote)
+            base_url: Base URL override (for byteplus)
             deferred: If True, don't raise error if API key is missing (for lazy init)
 
         Returns:
@@ -138,7 +114,7 @@ class ModelFactory:
             "model": model,
             "client": None,
             "gemini_client": None,
-            "remote_url": resolved_base_url if provider == "remote" else None,
+            "remote_url": None,
             "byteplus": None,
             "anthropic_client": None,
             "bedrock_client": None,
@@ -216,22 +192,6 @@ class ModelFactory:
                     "api_key": api_key,
                     "base_url": resolved_base_url,
                 },
-                "anthropic_client": None,
-                "bedrock_client": None,
-                "initialized": True,
-            }
-
-        if provider == "remote":
-            # Remote (Ollama) doesn't require API key.
-            # Validate the model against Ollama's available models and auto-correct if needed.
-            resolved_model = _resolve_ollama_model(model, resolved_base_url)
-            return {
-                "provider": provider,
-                "model": resolved_model,
-                "client": None,
-                "gemini_client": None,
-                "remote_url": resolved_base_url,
-                "byteplus": None,
                 "anthropic_client": None,
                 "bedrock_client": None,
                 "initialized": True,

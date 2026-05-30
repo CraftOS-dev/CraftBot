@@ -36,12 +36,12 @@ from agent_core.utils.logger import logger
 class VLMInterface:
     """Vision Language Model interface with multi-provider support.
 
-    Supports OpenAI, Gemini, Anthropic, BytePlus, and remote Ollama.
+    Supports OpenAI, Gemini, Anthropic, and BytePlus.
     Uses hooks for state access and usage reporting to decouple from
     runtime-specific state management.
 
     Args:
-        provider: LLM provider name ("openai", "gemini", "anthropic", "byteplus", "remote").
+        provider: LLM provider name ("openai", "gemini", "anthropic", "byteplus").
         model: Model name override.
         temperature: Sampling temperature.
         deferred: Whether to defer initialization.
@@ -257,10 +257,6 @@ class VLMInterface:
             elif self.provider in ("openai", "minimax", "moonshot", "grok"):
                 response = self._openai_describe_bytes(
                     image_bytes, system_prompt, user_prompt, json_mode=json_mode
-                )
-            elif self.provider == "remote":
-                response = self._ollama_describe_bytes(
-                    image_bytes, system_prompt, user_prompt
                 )
             elif self.provider == "gemini":
                 response = self._gemini_describe_bytes(
@@ -596,31 +592,6 @@ class VLMInterface:
             "content": content or "",
             "cached_tokens": cached_tokens,
         }
-
-    def _ollama_describe_bytes(
-        self, image_bytes: bytes, sys: str | None, usr: str
-    ) -> Dict[str, Any]:
-        """Remote Ollama vision request."""
-        img_b64 = base64.b64encode(image_bytes).decode()
-        payload = {
-            "model": self.model,
-            "prompt": usr,
-            "images": [img_b64],
-            "stream": False,
-            "options": {"temperature": self.temperature},
-        }
-        if sys:
-            payload["system"] = sys
-        url: str = f"{self.remote_url.rstrip('/')}/api/generate"
-        r = requests.post(url, json=payload, timeout=600)
-        r.raise_for_status()
-        result = r.json()
-        content = result.get("response", "").strip()
-        token_count_input = result.get("prompt_eval_count", 0)
-        token_count_output = result.get("eval_count", 0)
-        total_tokens = token_count_input + token_count_output
-
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
 
     def _gemini_describe_bytes(
         self, image_bytes: bytes, sys: str | None, usr: str

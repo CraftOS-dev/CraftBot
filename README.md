@@ -29,10 +29,6 @@
 
 </div>
 
-<p align="center">
-  <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
-</p>
-
 ## 🚀 Overview
 <h3 align="center">
 CraftBot is your Personal AI Assistant that lives inside your machine and works 24/7 for you. 
@@ -52,14 +48,14 @@ CraftBot awaits your orders. Set up your own CraftBot now.
 
 ## ✨ Features
 
-- **Bring Your Own Key (BYOK)** — Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, BytePlus, and local Ollama models. Easily switch between providers.
+- **Bring Your Own Key (BYOK)** — Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, and BytePlus. Easily switch between providers.
 - **Memory System** — Distill and consolidate events that happened through the day at midnight.
 - **Proactive Agent** — Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
 - **Living UI** — Build, import, or evolve custom apps that live inside CraftBot. The agent stays aware of the UI's state and can read, write, and act on its data directly.
 - **External Tools Integration** — Connect to Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, and Telegram (more to come!) with embedded credentials and OAuth support.
 - **MCP** — Model Context Protocol integration for extending agent capabilities with external tools and services.
 - **Skills** — Extensible skill framework with built-in skills for task planning, research, code review, git operations, and more.
-- **Cross-Platform** — Full support for Windows, macOS, and Linux with platform-specific code variants and Docker containerization.
+- **Cross-Platform** — Full support for Windows, macOS, and Linux with platform-specific code variants.
 
 > [!IMPORTANT]
 > **GUI mode is deprecated.** CraftBot no longer supports GUI (desktop automation) mode. Please use Browser or CLI mode instead.
@@ -79,7 +75,6 @@ CraftBot awaits your orders. Set up your own CraftBot now.
 - `git` (required to clone the repository)
 - An API key for your chosen LLM provider (OpenAI, Gemini, or Anthropic)
 - `Node.js` **18+** (optional — only required for browser interface)
-- `conda` (optional — only required for the conda setup path)
 
 ---
 
@@ -87,12 +82,12 @@ CraftBot awaits your orders. Set up your own CraftBot now.
 
 > **Not sure? Use Option 1.** It handles everything for you.
 
-| | Option 1 — Service | Option 2 — Conda | Option 3 — Manual |
-|---|---|---|---|
-| **Who it's for** | Most users, first-timers, testing | Conda users who want isolated envs | Power users, custom Python, full control |
-| **Manages Python & env?** | ✅ Automatic | ✅ Automatic | ❌ You manage it |
-| **Runs in background?** | ✅ Yes, as a service | ❌ No | ❌ No |
-| **How to start** | `python craftbot.py install` | `python install.py --conda` | `python install.py` |
+| | Option 1 — Service | Option 2 — Manual |
+|---|---|---|
+| **Who it's for** | Most users, first-timers, testing | Power users, custom Python, full control |
+| **Manages Python & env?** | ✅ Automatic | ❌ You manage it |
+| **Runs in background?** | ✅ Yes, as a service | ❌ No |
+| **How to start** | `python craftbot.py install` | `python install.py` |
 
 ---
 
@@ -128,33 +123,7 @@ python craftbot.py logs       # See recent log output
 
 ---
 
-### Option 2 — Conda Install
-
-**Use this if:** you already use conda and want CraftBot in an isolated conda environment.
-
-`install.py --conda` sets up a dedicated `craftbot` conda environment. If Miniconda is not found on your system, it will be installed automatically.
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/CraftOS-dev/CraftBot.git
-cd CraftBot
-
-# 2. Install into a conda environment
-python install.py --conda
-
-# 3. Run CraftBot
-conda run -n craftbot python run.py
-
-# If conda is not in PATH (Windows only):
-&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
-```
-
-> [!NOTE]
-> Each time you want to run CraftBot, use `conda run -n craftbot python run.py`. There is no background service — you start and stop it yourself.
-
----
-
-### Option 3 — Manual Install (pip)
+### Option 2 — Manual Install (pip)
 
 **Use this if:** you want full control over your Python environment and prefer managing CraftBot yourself with no automatic service or background process.
 
@@ -253,7 +222,7 @@ REST API, and trigger actions on your behalf.
 | Component | Description |
 |-----------|-------------|
 | **Agent Base** | Core orchestration layer that manages task lifecycle, coordinates between components, and handles the main agentic loop. |
-| **LLM Interface** | Unified interface supporting multiple LLM providers (OpenAI, Gemini, Anthropic, BytePlus, Ollama). |
+| **LLM Interface** | Unified interface supporting multiple LLM providers (OpenAI, Gemini, Anthropic, BytePlus). |
 | **Context Engine** | Generates optimized prompts with KV-cache support. |
 | **Action Manager** | Retrieves and executes actions from the library. Custom action is easy to extend |
 | **Action Router** | Intelligently selects the best matching action based on task requirements and resolves input parameters via LLM when needed. |
@@ -296,14 +265,10 @@ REST API, and trigger actions on your behalf.
 | Flag | Description |
 |------|-------------|
 | (none) | Standard pip install — uses your active Python environment |
-| `--conda` | Install into a conda environment (auto-installs Miniconda if not found) |
 
 ```bash
 # Standard pip install
 python install.py
-
-# With conda environment
-python install.py --conda
 ```
 
 ---
@@ -324,21 +289,12 @@ python run.py
 
 # CLI mode (no Node.js required)
 python run.py --cli
-
-# With conda environment
-conda run -n craftbot python run.py
-
-# Or using full path if conda not in PATH
-&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
 ```
 
 **Linux/macOS (Bash):**
 ```bash
 python run.py          # Browser mode
 python run.py --cli    # CLI mode
-
-# With conda environment
-conda run -n craftbot python run.py
 ```
 
 > [!NOTE]
@@ -455,39 +411,6 @@ LINKEDIN_CLIENT_SECRET=your-linkedin-client-secret
 2. Create an app
 3. Add OAuth 2.0 scopes
 4. Copy Client ID and Client Secret
-
----
-## 🐳 Run with Container
-
-The repository root included a Docker configuration with Python 3.10, key system packages (including Tesseract for OCR), and all Python dependencies defined in `environment.yml`/`requirements.txt` so the agent can run consistently in isolated environments. 
-
-Below are the setup instruction of running our agent with container.
-
-### Build the image
-
-From the repository root:
-
-```bash
-docker build -t craftbot .
-```
-
-### Run the container
-
-The image is configured to launch the agent with `python -m app.main` by default. To run it interactively:
-
-```bash
-docker run --rm -it craftbot
-```
-
-If you need to supply environment variables, pass an env file (for example, based on `.env.example`):
-
-```bash
-docker run --rm -it --env-file .env craftbot
-```
-
-Mount any directories that should persist outside the container (such as data or cache folders) using `-v`, and adjust ports or additional flags as needed for your deployment. The container ships with system dependencies for OCR (`tesseract`) and common HTTP clients so the agent can work with files and network APIs inside the container.
-
-By default the image uses Python 3.10 and bundles the Python dependencies from `environment.yml`/`requirements.txt`, so `python -m app.main` works out of the box.
 
 ---
 

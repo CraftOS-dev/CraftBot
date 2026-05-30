@@ -14,7 +14,6 @@ import {
   setCurrentLlmModel,
   setCurrentVlmModel,
   setSlowModeEnabled,
-  setOllamaModels,
 } from '../../store/slices/modelSettingsSlice'
 import {
   selectModelProviders,
@@ -24,14 +23,11 @@ import {
   selectCurrentLlmModel as selectCurrentLlmModelSel,
   selectCurrentVlmModel as selectCurrentVlmModelSel,
   selectSlowModeEnabled,
-  selectOllamaModels,
-  selectOllamaAvailable,
   selectAwsCredentials,
   selectModelHasLoadedProviders,
   selectModelHasLoadedSettings,
   selectModelHasLoadedSlowMode,
 } from '../../store/selectors/modelSettings'
-import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
   OpenRouterModelPicker,
   OpenRouterCreditsBanner,
@@ -64,13 +60,6 @@ interface TestResult {
   models?: string[]
 }
 
-interface SuggestedModel {
-  name: string
-  label: string
-  size: string
-  recommended: boolean
-}
-
 export function ModelSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
@@ -85,8 +74,6 @@ export function ModelSettings() {
   const currentLlmModel = useAppSelector(selectCurrentLlmModelSel)
   const currentVlmModel = useAppSelector(selectCurrentVlmModelSel)
   const slowModeEnabled = useAppSelector(selectSlowModeEnabled)
-  const ollamaModels = useAppSelector(selectOllamaModels)
-  const ollamaAvailable = useAppSelector(selectOllamaAvailable)
   const awsCredentialsStatus = useAppSelector(selectAwsCredentials)
   const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
   const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
@@ -118,22 +105,6 @@ export function ModelSettings() {
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testBeforeSave, setTestBeforeSave] = useState(false)
 
-  // Ollama list loading flag (transient). Models + availability are slice-backed.
-  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
-
-  // Ollama auto-install state
-  const [ollamaInstallPhase, setOllamaInstallPhase] = useState<'idle' | 'installing' | 'error'>('idle')
-  const [ollamaInstallLog, setOllamaInstallLog] = useState<string[]>([])
-  const [ollamaInstallError, setOllamaInstallError] = useState('')
-
-  // Ollama model download state
-  const [pullPhase, setPullPhase] = useState<'idle' | 'selecting' | 'pulling'>('idle')
-  const [suggestedModels, setSuggestedModels] = useState<SuggestedModel[]>([])
-  const [selectedPullModel, setSelectedPullModel] = useState('')
-  const [modelSearch, setModelSearch] = useState('')
-  const [pullBytes, setPullBytes] = useState<{ completed: number; total: number; percent: number } | null>(null)
-  const [pullStatus, setPullStatus] = useState('')
-
   // OpenRouter catalog — fetched once on first OpenRouter selection,
   // shared between the LLM and VLM pickers below.
   const orCatalog = useOpenRouterCatalog(
@@ -143,12 +114,6 @@ export function ModelSettings() {
     provider === 'openrouter',
     newBaseUrl || baseUrls['openrouter'] || undefined,
   )
-
-  const fmtBytes = (n: number) => {
-    if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(1)} GB`
-    if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(0)} MB`
-    return `${(n / 1024).toFixed(0)} KB`
-  }
 
   // Side-effect message handlers (toasts, loading flag flips, follow-up
   // sends). Slice-owned state is updated by modelSettingsSlice via the
@@ -211,68 +176,6 @@ export function ModelSettings() {
           setTestBeforeSave(false)
         }
       }),
-      onMessage('ollama_models_get', (data: unknown) => {
-        const d = data as { success: boolean; models: string[] }
-        setOllamaModelsLoading(false)
-        if (d.success && d.models && d.models.length > 0) {
-          // Auto-select first available model if current selection isn't installed
-          setNewLlmModel(prev => {
-            const effective = prev || currentLlmModel
-            if (!d.models.includes(effective)) {
-              setHasChanges(true)
-              return d.models[0]
-            }
-            return prev
-          })
-          setNewVlmModel(prev => {
-            const effective = prev || currentVlmModel
-            if (!d.models.includes(effective)) {
-              setHasChanges(true)
-              return d.models[0]
-            }
-            return prev
-          })
-        }
-      }),
-      onMessage('local_llm_suggested_models', (data: unknown) => {
-        const d = data as { models: SuggestedModel[] }
-        setSuggestedModels(d.models || [])
-        const rec = d.models?.find(m => m.recommended)
-        if (rec) setSelectedPullModel(rec.name)
-      }),
-      onMessage('local_llm_pull_progress', (data: unknown) => {
-        const d = data as { message: string; total: number; completed: number; percent: number }
-        setPullStatus(d.message || '')
-        if (d.total > 0) setPullBytes({ completed: d.completed, total: d.total, percent: d.percent })
-      }),
-      onMessage('local_llm_pull_model', (data: unknown) => {
-        const d = data as { success: boolean; model?: string; error?: string }
-        if (d.success) {
-          setPullPhase('idle')
-          setPullBytes(null)
-          setPullStatus('')
-          const pulledModel = d.model || selectedPullModel
-          // Refresh model list in UI
-          setOllamaModelsLoading(true)
-          send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
-          // Auto-switch to remote provider with the pulled model and save immediately
-          // so chat/tasks start using the local model without requiring manual save
-          dispatch(setModelProvider('remote'))
-          setNewLlmModel(pulledModel)
-          setIsSaving(true)
-          send('model_settings_update', {
-            llmProvider: 'remote',
-            vlmProvider: 'remote',
-            llmModel: pulledModel,
-            vlmModel: pulledModel,
-            ...(newBaseUrl ? { baseUrl: newBaseUrl, providerForUrl: 'remote' } : {}),
-          })
-          showToast('success', `Model ${pulledModel} downloaded — switching to local model`)
-        } else {
-          setPullPhase('idle')
-          showToast('error', d.error || 'Model download failed')
-        }
-      }),
       onMessage('slow_mode_set', (data: unknown) => {
         const d = data as { success: boolean; enabled: boolean; error?: string }
         if (d.success) {
@@ -281,27 +184,10 @@ export function ModelSettings() {
           showToast('error', d.error || 'Failed to update slow mode')
         }
       }),
-      onMessage('local_llm_install_progress', (data: unknown) => {
-        const d = data as { message: string }
-        if (d.message) setOllamaInstallLog(prev => [...prev, d.message])
-      }),
-      onMessage('local_llm_install', (data: unknown) => {
-        const d = data as { success: boolean; error?: string }
-        if (d.success) {
-          setOllamaInstallPhase('idle')
-          setOllamaInstallLog([])
-          // Re-check if Ollama is now reachable
-          setOllamaModelsLoading(true)
-          send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
-        } else {
-          setOllamaInstallPhase('error')
-          setOllamaInstallError(d.error || 'Installation failed')
-        }
-      }),
     ]
 
     return () => cleanups.forEach(cleanup => cleanup())
-  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, currentLlmModel, currentVlmModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, newLlmModel, newVlmModel])
+  }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, currentLlmModel, currentVlmModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, newLlmModel, newVlmModel])
 
   // Load initial data only once when connected, cached across remounts.
   useEffect(() => {
@@ -310,13 +196,6 @@ export function ModelSettings() {
     if (!hasLoadedSettings) send('model_settings_get')
     if (!hasLoadedSlowMode) send('slow_mode_get')
   }, [isConnected, send, hasLoadedProviders, hasLoadedSettings, hasLoadedSlowMode])
-
-  // Fetch Ollama models whenever the active provider is 'remote'
-  useEffect(() => {
-    if (!isConnected || provider !== 'remote') return
-    setOllamaModelsLoading(true)
-    send('ollama_models_get', { baseUrl: baseUrls['remote'] || undefined })
-  }, [provider, isConnected, send, baseUrls])
 
   const currentProvider = providers.find(p => p.id === provider)
   const hasKey = apiKeys[provider]?.has_key || newApiKey.length > 0
@@ -348,10 +227,6 @@ export function ModelSettings() {
     setNewAwsSessionToken('')
     setNewAwsRegion('')
     setHasChanges(true)
-    // Reset Ollama install state when switching providers
-    setOllamaInstallPhase('idle')
-    setOllamaInstallLog([])
-    setOllamaInstallError('')
     // Immediately set model to registry default for new provider so the field
     // shows a sensible value before the user types anything.
     const selectedProvider = providers.find(p => p.id === newProvider)
@@ -419,22 +294,6 @@ export function ModelSettings() {
     }
   }
 
-  const handleDownloadModelClick = () => {
-    setPullPhase('selecting')
-    setPullBytes(null)
-    setPullStatus('')
-    setModelSearch('')
-    if (suggestedModels.length === 0) {
-      send('local_llm_suggested_models')
-    }
-  }
-
-  const handleStartPull = () => {
-    if (!selectedPullModel) return
-    setPullPhase('pulling')
-    send('local_llm_pull_model', { model: selectedPullModel, baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
-  }
-
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
@@ -475,186 +334,12 @@ export function ModelSettings() {
               ) : (
                 <div className={styles.formGroup}>
                   <label>LLM Model</label>
-                  {provider === 'remote' && ollamaModels.length > 0 ? (
-                    <select
-                      value={newLlmModel || currentLlmModel || ''}
-                      onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
-                    >
-                      {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={newLlmModel || currentLlmModel || ''}
-                      onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
-                      placeholder={
-                        provider === 'remote' && ollamaModelsLoading
-                          ? 'Loading models...'
-                          : currentLlmModel || 'Enter LLM model name...'
-                      }
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* Download new Ollama model / Install Ollama */}
-              {provider === 'remote' && (
-                <div className={styles.ollamaDownloadSection}>
-                  {/* Ollama not detected — show install flow */}
-                  {!ollamaModelsLoading && ollamaAvailable === false && (
-                    <div className={styles.ollamaInstallBanner}>
-                      {/* idle: prompt to install */}
-                      {ollamaInstallPhase === 'idle' && (
-                        <>
-                          <div className={styles.ollamaInstallText}>
-                            <strong>Ollama not detected</strong>
-                            <span>Install Ollama to run AI models locally — no cloud needed.</span>
-                          </div>
-                          <div className={styles.ollamaInstallActions}>
-                            <button
-                              className={styles.installOllamaBtn}
-                              onClick={() => {
-                                setOllamaInstallPhase('installing')
-                                setOllamaInstallLog([])
-                                send('local_llm_install')
-                              }}
-                            >
-                              Install Ollama
-                            </button>
-                            <button
-                              className={styles.retryOllamaBtn}
-                              onClick={() => {
-                                setOllamaModelsLoading(true)
-                                dispatch(setOllamaModels({ models: [], available: false }))
-                                send('ollama_models_get', { baseUrl: newBaseUrl || baseUrls['remote'] || undefined })
-                              }}
-                            >
-                              Retry
-                            </button>
-                          </div>
-                        </>
-                      )}
-
-                      {/* installing: progress bar + live log */}
-                      {ollamaInstallPhase === 'installing' && (() => {
-                        const pct = getOllamaInstallPercent(ollamaInstallLog)
-                        return (
-                          <div className={styles.ollamaInstallProgress}>
-                            <div className={styles.ollamaInstallProgressHeader}>
-                              <Loader2 size={14} className={styles.spinning} />
-                              <strong>Installing Ollama…</strong>
-                              <span className={styles.ollamaInstallPct}>{pct}%</span>
-                            </div>
-                            <div className={styles.ollamaInstallProgressBar}>
-                              <div className={styles.ollamaInstallProgressFill} style={{ width: `${pct}%` }} />
-                            </div>
-                            <div className={styles.ollamaInstallLog}>
-                              {ollamaInstallLog.length === 0
-                                ? <span className={styles.ollamaInstallLogLine}>Starting…</span>
-                                : ollamaInstallLog.map((line, i) => (
-                                    <span key={i} className={styles.ollamaInstallLogLine}>{line}</span>
-                                  ))
-                              }
-                            </div>
-                          </div>
-                        )
-                      })()}
-
-                      {/* error: show message + back button */}
-                      {ollamaInstallPhase === 'error' && (
-                        <>
-                          <div className={styles.ollamaInstallText}>
-                            <strong>Installation failed</strong>
-                            <span>{ollamaInstallError}</span>
-                          </div>
-                          <button
-                            className={styles.retryOllamaBtn}
-                            onClick={() => {
-                              setOllamaInstallPhase('idle')
-                              setOllamaInstallError('')
-                            }}
-                          >
-                            Back
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Model download — only shown when Ollama is running */}
-                  {ollamaAvailable === true && pullPhase === 'idle' && (
-                    <button className={styles.downloadModelBtn} onClick={handleDownloadModelClick}>
-                      + Download New Model
-                    </button>
-                  )}
-
-                  {pullPhase === 'selecting' && (
-                    <div className={styles.pullModelPanel}>
-                      <div className={styles.pullPanelHeader}>
-                        <span>Select model to download</span>
-                        <button onClick={() => setPullPhase('idle')}>&#x2715;</button>
-                      </div>
-                      <input
-                        className={styles.pullModelSearch}
-                        placeholder="Search models..."
-                        value={modelSearch}
-                        onChange={e => setModelSearch(e.target.value)}
-                      />
-                      <div className={styles.pullModelList}>
-                        {suggestedModels
-                          .filter(m =>
-                            m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
-                            m.label.toLowerCase().includes(modelSearch.toLowerCase())
-                          )
-                          .map(m => (
-                            <label
-                              key={m.name}
-                              className={`${styles.pullModelItem} ${selectedPullModel === m.name ? styles.pullModelItemSelected : ''}`}
-                            >
-                              <input
-                                type="radio"
-                                checked={selectedPullModel === m.name}
-                                onChange={() => setSelectedPullModel(m.name)}
-                              />
-                              <span className={styles.pullModelName}>{m.label}</span>
-                              <span className={styles.pullModelSize}>{m.size}</span>
-                              {m.recommended && <span className={styles.pullModelBadge}>Recommended</span>}
-                            </label>
-                          ))}
-                      </div>
-                      <div className={styles.pullPanelFooter}>
-                        <button
-                          className={styles.pullStartBtn}
-                          onClick={handleStartPull}
-                          disabled={!selectedPullModel}
-                        >
-                          Download
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {pullPhase === 'pulling' && (
-                    <div className={styles.pullProgressPanel}>
-                      <span>Downloading {selectedPullModel}...</span>
-                      {pullBytes && pullBytes.total > 0 ? (
-                        <>
-                          <div className={styles.pullProgressBar}>
-                            <div className={styles.pullProgressFill} style={{ width: `${pullBytes.percent}%` }} />
-                          </div>
-                          <div className={styles.pullProgressInfo}>
-                            <span>{fmtBytes(pullBytes.completed)} / {fmtBytes(pullBytes.total)}</span>
-                            <span>{pullBytes.percent}%</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className={styles.pullProgressBar}>
-                          <div className={styles.pullProgressFill} style={{ width: '0%' }} />
-                        </div>
-                      )}
-                      <p className={styles.pullStatusText}>{pullStatus || 'Starting...'}</p>
-                    </div>
-                  )}
+                  <input
+                    type="text"
+                    value={newLlmModel || currentLlmModel || ''}
+                    onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
+                    placeholder={currentLlmModel || 'Enter LLM model name...'}
+                  />
                 </div>
               )}
 
@@ -673,34 +358,12 @@ export function ModelSettings() {
                 ) : (
                 <div className={styles.formGroup}>
                   <label>VLM Model</label>
-                  {(() => {
-                    const visionKeywords = ['llava', 'vision', 'moondream', 'bakllava']
-                    const visionModels = ollamaModels.filter(m =>
-                      visionKeywords.some(kw => m.toLowerCase().includes(kw))
-                    )
-                    const vlmOptions = provider === 'remote' && ollamaModels.length > 0
-                      ? (visionModels.length > 0 ? visionModels : ollamaModels)
-                      : []
-                    return vlmOptions.length > 0 ? (
-                      <select
-                        value={newVlmModel || currentVlmModel || ''}
-                        onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
-                      >
-                        {vlmOptions.map(m => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={newVlmModel || currentVlmModel || ''}
-                        onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
-                        placeholder={
-                          provider === 'remote' && ollamaModelsLoading
-                            ? 'Loading models...'
-                            : currentVlmModel || 'Enter VLM model name...'
-                        }
-                      />
-                    )
-                  })()}
+                  <input
+                    type="text"
+                    value={newVlmModel || currentVlmModel || ''}
+                    onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
+                    placeholder={currentVlmModel || 'Enter VLM model name...'}
+                  />
                 </div>
                 )
               )}
@@ -836,7 +499,7 @@ export function ModelSettings() {
                 type="text"
                 value={newBaseUrl || baseUrls[provider] || ''}
                 onChange={(e) => { setNewBaseUrl(e.target.value); setHasChanges(true) }}
-                placeholder={provider === 'remote' ? 'http://localhost:11434' : 'Enter base URL...'}
+                placeholder="Enter base URL..."
               />
             </div>
           )}
@@ -848,14 +511,10 @@ export function ModelSettings() {
               onClick={handleTestConnection}
               disabled={
                 isTesting ||
-                (provider !== 'remote' &&
-                  provider !== 'bedrock' &&
-                  !apiKeys[provider]?.has_key)
+                (provider !== 'bedrock' && !apiKeys[provider]?.has_key)
               }
               title={
-                provider !== 'remote' &&
-                provider !== 'bedrock' &&
-                !apiKeys[provider]?.has_key
+                provider !== 'bedrock' && !apiKeys[provider]?.has_key
                   ? 'API key required for testing'
                   : ''
               }

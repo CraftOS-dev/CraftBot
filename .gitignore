@@ -13,16 +13,13 @@ craftbot/generated_task_document/
 **/__pycache__/
 **/rag_docs_actions/
 **/rag_docs_taskdocs/
-ollama_data/
 config.json
 node_modules
 .env
 .credentials/
 **/agent_logs.txt
 **/memory.txt
-**/gui/config
 .claude/
-OmniParser_CraftOS/
 _launch_agent.cmd
 dist/
 build/

@@ -37,15 +37,9 @@ DEFAULT_SETTINGS = {
         "moonshot": "",
     },
     "endpoints": {
-        "remote_model_url": "",
         "byteplus_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
         "google_api_base": "",
         "google_api_version": "",
-    },
-    "gui": {
-        "enabled": True,
-        "use_omniparser": False,
-        "omniparser_url": "http://127.0.0.1:7861",
     },
     "cache": {"prefix_ttl": 3600, "session_ttl": 7200, "min_tokens": 500},
     "oauth": {

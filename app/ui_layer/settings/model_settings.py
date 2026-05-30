@@ -12,8 +12,6 @@ All settings are stored in settings.json (not .env).
 import json
 from typing import Dict, Any, Optional
 
-import httpx
-
 from app.config import SETTINGS_CONFIG_PATH
 from app.models import (
     MODEL_REGISTRY,
@@ -84,11 +82,6 @@ PROVIDER_INFO = {
         "requires_api_key": True,
         # Frontend opts in to a catalog-aware picker for this provider.
         "supports_catalog": True,
-    },
-    "remote": {
-        "name": "Local (Ollama)",
-        "base_url_env": "REMOTE_MODEL_URL",
-        "requires_api_key": False,
     },
     "bedrock": {
         "name": "AWS Bedrock",
@@ -252,13 +245,6 @@ def get_model_settings() -> Dict[str, Any]:
         if endpoints_settings.get("byteplus_base_url"):
             base_urls["byteplus"] = endpoints_settings["byteplus_base_url"]
 
-        # Support both the legacy "remote_model_url" key and "remote" key
-        remote_url = endpoints_settings.get(
-            "remote_model_url"
-        ) or endpoints_settings.get("remote")
-        if remote_url:
-            base_urls["remote"] = remote_url
-
         if endpoints_settings.get("openrouter_base_url"):
             base_urls["openrouter"] = endpoints_settings["openrouter_base_url"]
 
@@ -327,7 +313,7 @@ def update_model_settings(
         vlm_model: Custom VLM model name
         api_key: API key to save (if provider_for_key is set)
         provider_for_key: Provider to save API key for
-        base_url: Base URL to save (for byteplus/remote)
+        base_url: Base URL to save (for byteplus)
         provider_for_url: Provider to save base URL for
 
     Returns:
@@ -384,8 +370,6 @@ def update_model_settings(
         if provider_for_url and base_url is not None:
             if provider_for_url == "byteplus":
                 settings["endpoints"]["byteplus_base_url"] = base_url
-            elif provider_for_url == "remote":
-                settings["endpoints"]["remote_model_url"] = base_url
             elif provider_for_url == "openrouter":
                 settings["endpoints"]["openrouter_base_url"] = base_url
             elif provider_for_url == "bedrock":
@@ -401,15 +385,6 @@ def update_model_settings(
             region = aws_credentials.get("region")
             if region:
                 settings["endpoints"]["aws_region"] = region
-
-        # Clear remote URL when switching away from remote so stale values don't persist
-        if (
-            llm_provider
-            and llm_provider != "remote"
-            and old_llm_provider == "remote"
-            and not provider_for_url
-        ):
-            settings["endpoints"]["remote_model_url"] = ""
 
         # Save settings.json
         if not _save_settings(settings):
@@ -445,7 +420,7 @@ def test_connection(
     Args:
         provider: Provider to test
         api_key: Optional API key to test with (if not provided, uses stored key)
-        base_url: Optional base URL for byteplus/remote providers
+        base_url: Optional base URL for byteplus provider
         model: Optional model id to verify. When provided the tester does a
             tiny chat completion against this exact model so a typo in the
             model id is caught at test time, not at first real call. When
@@ -470,14 +445,11 @@ def test_connection(
         # If no base URL provided, try to get it from settings.json
         if base_url is None and provider in [
             "byteplus",
-            "remote",
             "openrouter",
             "bedrock",
         ]:
             if provider == "byteplus":
                 base_url = endpoints_settings.get("byteplus_base_url")
-            elif provider == "remote":
-                base_url = endpoints_settings.get("remote_model_url")
             elif provider == "openrouter":
                 base_url = endpoints_settings.get("openrouter_base_url")
             elif provider == "bedrock":
@@ -504,32 +476,6 @@ def test_connection(
             "provider": provider,
             "error": str(e),
         }
-
-
-def get_ollama_models(base_url: Optional[str] = None) -> Dict[str, Any]:
-    """Fetch available models from a running Ollama instance.
-
-    Args:
-        base_url: Optional Ollama base URL. Defaults to http://localhost:11434.
-
-    Returns:
-        Dict with success, models (list of name strings), and optional error.
-    """
-    url = base_url or "http://localhost:11434"
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            response = client.get(f"{url.rstrip('/')}/api/tags")
-        if response.status_code == 200:
-            models = [m["name"] for m in response.json().get("models", [])]
-            return {"success": True, "models": models}
-        else:
-            return {
-                "success": False,
-                "models": [],
-                "error": f"Ollama returned status {response.status_code}",
-            }
-    except Exception as e:
-        return {"success": False, "models": [], "error": str(e)}
 
 
 def validate_can_save(

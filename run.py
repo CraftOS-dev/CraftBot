@@ -8,13 +8,9 @@ Usage:
 
 Options:
     --cli                     Use CLI (command line) interface
-    --conda                   Use conda environment (overrides config setting)
-    --no-conda                Don't use conda (overrides config setting)
     --frontend-port PORT      Set frontend port (default: 7925)
     --backend-port PORT       Set backend port (default: 7926)
     --no-open-browser         Start servers but do not auto-open the browser (used by service mode)
-
-Note: The installation method (conda/pip) is saved from install.py and reused here.
 """
 
 import multiprocessing
@@ -28,7 +24,7 @@ import urllib.request
 import urllib.error
 import webbrowser
 import atexit
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List
 
 multiprocessing.freeze_support()
 
@@ -114,10 +110,6 @@ _bootstrap_frozen()
 # --- Configuration ---
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 MAIN_APP_SCRIPT = os.path.join(BASE_DIR, "main.py")
-YML_FILE = os.path.join(BASE_DIR, "environment.yml")
-
-OMNIPARSER_ENV_NAME = "omni"
-OMNIPARSER_SERVER_URL = os.getenv("OMNIPARSER_BASE_URL", "http://localhost:7861")
 
 
 # ==========================================
@@ -864,9 +856,7 @@ def wait_for_backend(timeout: int = 60) -> bool:
     return False
 
 
-def launch_agent_background(
-    env_name: Optional[str], use_conda: bool, silent: bool = False
-) -> Optional[subprocess.Popen]:
+def launch_agent_background(silent: bool = False) -> Optional[subprocess.Popen]:
     """Launch main.py in the background for browser mode."""
     main_script = os.path.abspath(MAIN_APP_SCRIPT)
     if not os.path.exists(main_script):
@@ -875,7 +865,7 @@ def launch_agent_background(
         return None
 
     # Filter flags (--browser passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda"}
+    skip_flags = set()
     # Also skip port flags and their values
     pass_args = []
     skip_next = False
@@ -942,25 +932,7 @@ def launch_agent_background(
         _background_processes.append(dummy)
         return dummy
 
-    # Build command
-    if use_conda and env_name:
-        conda_exe = get_conda_command()
-        cmd = [
-            conda_exe,
-            "run",
-            "--no-capture-output",
-            "-n",
-            env_name,
-            "python",
-            "-u",
-            main_script,
-        ] + pass_args
-
-        # On Windows, wrap .bat files with cmd.exe
-        if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
-            cmd = ["cmd.exe", "/d", "/c"] + cmd
-    else:
-        cmd = [sys.executable, "-u", main_script] + pass_args
+    cmd = [sys.executable, "-u", main_script] + pass_args
 
     try:
         process = subprocess.Popen(
@@ -979,135 +951,9 @@ def launch_agent_background(
 
 
 # ==========================================
-# ENVIRONMENT DETECTION
-# ==========================================
-def is_conda_installed() -> Tuple[bool, str, Optional[str]]:
-    conda_exe = shutil.which("conda")
-    if conda_exe:
-        return True, conda_exe, os.path.dirname(os.path.dirname(conda_exe))
-
-    if sys.platform == "win32":
-        # Check common Miniconda/Anaconda installation paths
-        common_paths = [
-            os.path.join(os.path.expanduser("~"), "miniconda3"),
-            os.path.join(os.path.expanduser("~"), "Miniconda3"),
-            os.path.join(os.path.expanduser("~"), "anaconda3"),
-            os.path.join(os.path.expanduser("~"), "Anaconda3"),
-            "C:\\miniconda3",
-            "C:\\Miniconda3",
-            "C:\\anaconda3",
-            "C:\\Anaconda3",
-        ]
-
-        for base_path in common_paths:
-            conda_bat = os.path.join(base_path, "condabin", "conda.bat")
-            if os.path.exists(conda_bat):
-                return True, conda_bat, base_path
-
-        # Also check current Python directory
-        for base in [os.path.dirname(os.path.dirname(sys.executable))]:
-            if os.path.exists(os.path.join(base, "condabin", "conda.bat")):
-                return True, base, base
-
-    return False, "", None
-
-
-def get_env_name_from_yml() -> str:
-    try:
-        with open(YML_FILE, "r") as f:
-            for line in f:
-                if line.strip().startswith("name:"):
-                    return line.split(":", 1)[1].strip().strip("'\"")
-    except Exception:
-        pass
-    return "craftbot"
-
-
-def get_conda_command() -> str:
-    """Return conda command. Use full path on Windows if conda not in PATH."""
-    # First try to find conda in PATH
-    conda_exe = shutil.which("conda")
-    if conda_exe:
-        return conda_exe
-
-    # On Windows, check common installation paths
-    if sys.platform == "win32":
-        common_paths = [
-            os.path.join(os.path.expanduser("~"), "miniconda3"),
-            os.path.join(os.path.expanduser("~"), "Miniconda3"),
-            os.path.join(os.path.expanduser("~"), "anaconda3"),
-            os.path.join(os.path.expanduser("~"), "Anaconda3"),
-            "C:\\miniconda3",
-            "C:\\Miniconda3",
-            "C:\\anaconda3",
-            "C:\\Anaconda3",
-        ]
-
-        for base_path in common_paths:
-            conda_bat = os.path.join(base_path, "condabin", "conda.bat")
-            if os.path.exists(conda_bat):
-                return conda_bat
-
-    # Fallback to just "conda" (will work if it's in PATH)
-    return "conda"
-
-
-def verify_env(env_name: str) -> bool:
-    try:
-        conda_cmd = get_conda_command()
-        cmd = [conda_cmd, "run", "-n", env_name, "python", "-c", "print('ok')"]
-        run_command(cmd, capture=True)
-        return True
-    except Exception:
-        return False
-
-
-# ==========================================
-# OMNIPARSER SERVER
-# ==========================================
-def launch_omniparser(use_conda: bool) -> bool:
-    """Launch OmniParser server for GUI mode."""
-    print("Starting GUI components (OmniParser)...")
-
-    config = load_config()
-    repo_path = config.get(
-        "omniparser_repo_path", os.path.abspath("OmniParser_CraftOS")
-    )
-
-    if not os.path.exists(repo_path):
-        print("Error: GUI components not installed.")
-        print("Run 'python install.py --gui --conda' first.")
-        return False
-
-    if use_conda:
-        conda_cmd = get_conda_command()
-        cmd = [
-            conda_cmd,
-            "run",
-            "-n",
-            OMNIPARSER_ENV_NAME,
-            "python",
-            "-u",
-            "-m",
-            "gradio_demo",
-        ]
-    else:
-        cmd = [sys.executable, "-u", "-m", "gradio_demo"]
-
-    launch_background_command(cmd, cwd=repo_path)
-
-    if wait_for_server(OMNIPARSER_SERVER_URL, timeout=180):
-        os.environ["OMNIPARSER_BASE_URL"] = OMNIPARSER_SERVER_URL
-        return True
-
-    print("Failed to start GUI components.")
-    return False
-
-
-# ==========================================
 # MAIN LAUNCHER
 # ==========================================
-def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: bool):
+def launch_agent():
     """Launch main.py in the current terminal."""
     main_script = os.path.abspath(MAIN_APP_SCRIPT)
     if not os.path.exists(main_script):
@@ -1115,7 +961,7 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
         sys.exit(1)
 
     # Filter flags (--cli passes through to agent)
-    skip_flags = {"--gui", "--conda", "--no-conda", "--browser"}
+    skip_flags = {"--browser"}
     # Also skip port flags and their values
     pass_args = []
     skip_next = False
@@ -1148,25 +994,7 @@ def launch_agent(env_name: Optional[str], conda_base: Optional[str], use_conda: 
             sys.exit(0)
         return
 
-    # Build command
-    if use_conda and env_name:
-        conda_exe = get_conda_command()
-        cmd = [
-            conda_exe,
-            "run",
-            "--no-capture-output",
-            "-n",
-            env_name,
-            "python",
-            "-u",
-            main_script,
-        ] + pass_args
-
-        # On Windows, wrap .bat files with cmd.exe
-        if sys.platform == "win32" and conda_exe.lower().endswith((".bat", ".cmd")):
-            cmd = ["cmd.exe", "/d", "/c"] + cmd
-    else:
-        cmd = [sys.executable, "-u", main_script] + pass_args
+    cmd = [sys.executable, "-u", main_script] + pass_args
 
     # Run in current terminal with all environment variables.
     try:
@@ -1186,19 +1014,7 @@ if __name__ == "__main__":
     args_list = sys.argv[1:]
     args = set(args_list)
 
-    # Parse flags
-    # [V1.2.2] GUI mode is temporarily disabled in this version.
-    if "--gui" in args:
-        print("\n[!] GUI mode is temporarily disabled in this version (V1.2.2).")
-        print(
-            "    This feature is experimental and will be re-enabled in a future release."
-        )
-        print("    Please run without --gui flag.\n")
-        sys.exit(1)
-    gui_mode = False  # "--gui" in args  # [V1.2.2] disabled
     cli_mode = "--cli" in args
-    conda_flag = "--conda" in args
-    no_conda_flag = "--no-conda" in args
 
     # Parse port arguments (override defaults)
     FRONTEND_PORT = parse_port_arg(args_list, "--frontend-port", FRONTEND_PORT)
@@ -1209,60 +1025,13 @@ if __name__ == "__main__":
     # Browser mode is default (unless --cli specified)
     browser_mode = not cli_mode
 
-    # Load saved config to check what was actually installed
-    config = load_config()
-    use_conda = config.get(
-        "use_conda", False
-    )  # Use config instead of defaulting to True
-
-    # Override with command-line flags if provided
-    if conda_flag:
-        use_conda = True
-    elif no_conda_flag:
-        use_conda = False
-
-    gui_installed = config.get("gui_mode_enabled", False)
-
-    # Set environment variables
-    os.environ["USE_CONDA"] = str(use_conda)
-    os.environ["GUI_MODE_ENABLED"] = str(gui_mode)
-    os.environ["USE_OMNIPARSER"] = str(gui_mode and gui_installed)
     # Set port environment variables for frontend (Vite) and backend
     os.environ["VITE_PORT"] = str(FRONTEND_PORT)
     os.environ["VITE_BACKEND_PORT"] = str(BACKEND_PORT)
     os.environ["BROWSER_PORT"] = str(BACKEND_PORT)
 
-    # Determine mode string for display (only print for non-browser modes)
     if not browser_mode:
-        mode_str = "GUI + CLI" if gui_mode else "CLI"
-        print(f"\nMode: {mode_str}")
-
-    # Check conda only if it was installed earlier
-    conda_base = None
-    env_name = None
-
-    if use_conda:
-        found, path, conda_base = is_conda_installed()
-        if not found:
-            print("Error: Conda not found.")
-            print("If you want to use conda, run: python install.py --conda")
-            print("Or run without conda: python run.py (global pip only)\n")
-            sys.exit(1)
-        env_name = get_env_name_from_yml()
-        if not verify_env(env_name):
-            print(f"\nEnvironment '{env_name}' not ready.")
-            print("Run 'python install.py' or 'python install.py --conda' first.\n")
-            sys.exit(1)
-
-    # Start OmniParser only if GUI mode and it was installed
-    if gui_mode and gui_installed:
-        if not launch_omniparser(use_conda):
-            print("Warning: Continuing without OmniParser.")
-            os.environ["USE_OMNIPARSER"] = "False"
-    elif gui_mode and not gui_installed:
-        print("\nGUI mode requested but components not installed.")
-        print("Run: python install.py --gui --conda\n")
-        sys.exit(1)
+        print("\nMode: CLI")
 
     no_open_browser = "--no-open-browser" in args
 
@@ -1300,7 +1069,7 @@ if __name__ == "__main__":
 
         # Step 2: Start agent backend
         print_step(2, 8, "Starting agent backend")
-        agent_process = launch_agent_background(env_name, use_conda, silent=True)
+        agent_process = launch_agent_background(silent=True)
         if not agent_process:
             print(" ✗")
             print("\nError: Failed to start agent backend.")
@@ -1363,10 +1132,6 @@ if __name__ == "__main__":
         elif not backend_alive:
             print("\n⚠ Error: Agent backend crashed")
             print("   Check the error messages above for details")
-            if use_conda:
-                print(
-                    f"   Try running: conda activate {env_name} && python main.py --browser"
-                )
         else:
             # Frontend or backend may still be starting, but proceed anyway
             print_ready_banner(FRONTEND_URL)
@@ -1387,4 +1152,4 @@ if __name__ == "__main__":
             sys.exit(0)
     else:
         # Non-browser mode: launch agent in foreground as before
-        launch_agent(env_name, conda_base, use_conda)
+        launch_agent()

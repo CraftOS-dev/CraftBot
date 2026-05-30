@@ -88,8 +88,6 @@ from app.state.types import ReasoningResult
 from agent_core.core.task import Task
 from app.task.task_manager import TaskManager
 from app.event_stream import EventStreamManager
-from app.gui.gui_module import GUIModule
-from app.gui.handler import GUIHandler
 from app.scheduler import SchedulerManager
 from app.proactive import initialize_proactive_manager
 from app.ui_layer.settings.memory_settings import (
@@ -312,24 +310,6 @@ class AgentBase:
             context_engine=self.context_engine,
         )
 
-        # Only initialize GUIModule if GUI mode is globally enabled
-        gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
-        if gui_globally_enabled:
-            GUIHandler.gui_module: GUIModule = GUIModule(
-                provider=llm_provider,
-                action_library=self.action_library,
-                action_router=self.action_router,
-                context_engine=self.context_engine,
-                action_manager=self.action_manager,
-                event_stream_manager=self.event_stream_manager,
-            )
-            # Set gui_module reference in InternalActionInterface for GUI event stream integration
-            InternalActionInterface.gui_module = GUIHandler.gui_module
-        else:
-            GUIHandler.gui_module = None
-            InternalActionInterface.gui_module = None
-            logger.info("[AGENT] GUI mode disabled - skipping GUIModule initialization")
-
         # ── misc ──
         self.is_running: bool = True
         self.ui_controller = None  # Set by interface after UIController is created
@@ -465,11 +445,6 @@ class AgentBase:
                 f"current_task_id={STATE.get_agent_property('current_task_id')} | "
                 f"current_task={STATE.current_task.id if STATE.current_task else None}"
             )
-
-            # ----- WORKFLOW 2: GUI Task Mode -----
-            if self._is_gui_task_mode(session_id):
-                await self._handle_gui_task_workflow(trigger_data, session_id)
-                return
 
             # ----- WORKFLOW 3: Complex Task Mode -----
             if self._is_complex_task_mode(session_id):
@@ -765,12 +740,6 @@ class AgentBase:
         trigger_type = trigger.payload.get("type", "")
         return trigger_type in ("proactive_heartbeat", "proactive_planner")
 
-    def _is_gui_task_mode(self, session_id: str | None = None) -> bool:
-        """Check if in GUI task execution mode."""
-        return (
-            self.state_manager.is_running_task(session_id=session_id) and STATE.gui_mode
-        )
-
     def _is_complex_task_mode(self, session_id: str | None = None) -> bool:
         """Check if running a complex task."""
         return (
@@ -997,57 +966,6 @@ class AgentBase:
 
         new_session_id = action_output.get("task_id") or session_id
         await self._finalize_action_execution(new_session_id, action_output, session_id)
-
-    async def _handle_gui_task_workflow(
-        self, trigger_data: TriggerData, session_id: str
-    ) -> None:
-        """
-        Handle GUI task mode - visual interaction workflow.
-        Tasks requiring screen interaction via mouse/keyboard.
-        """
-        logger.debug("[WORKFLOW: GUI TASK] Entered GUI mode.")
-
-        gui_response = await self._handle_gui_task_execution(trigger_data, session_id)
-
-        await self._finalize_action_execution(
-            gui_response.get("new_session_id"),
-            gui_response.get("action_output"),
-            session_id,
-        )
-
-    # ----- GUI Task Helpers -----
-
-    async def _handle_gui_task_execution(
-        self, trigger_data: TriggerData, session_id: str
-    ) -> dict:
-        """
-        Handle GUI mode task execution.
-
-        Returns:
-            Dictionary with action_output and new_session_id.
-            Note: GUI events are now logged to main event stream directly.
-        """
-        current_todo = self.state_manager.get_current_todo()
-
-        logger.debug("[GUI MODE] Entered GUI mode.")
-
-        gui_response = await GUIHandler.gui_module.perform_gui_task_step(
-            step=current_todo,
-            session_id=session_id,
-            next_action_description=trigger_data.query,
-            parent_action_id=trigger_data.parent_id,
-        )
-
-        if gui_response.get("status") != "ok":
-            raise ValueError(gui_response.get("message", "GUI task step failed"))
-
-        action_output = gui_response.get("action_output", {})
-        new_session_id = action_output.get("task_id") or session_id
-
-        return {
-            "action_output": action_output,
-            "new_session_id": new_session_id,
-        }
 
     # ----- Action Selection -----
 
@@ -2974,22 +2892,6 @@ class AgentBase:
                 logger.warning(
                     f"[AGENT] Failed to rebuild session caches after "
                     f"provider switch: {e}"
-                )
-
-            # Update GUI module provider if needed (only if GUI mode is enabled)
-            gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
-            if (
-                gui_globally_enabled
-                and hasattr(self, "action_library")
-                and hasattr(GUIHandler, "gui_module")
-            ):
-                GUIHandler.gui_module = GUIModule(
-                    provider=self.llm.provider,
-                    action_library=self.action_library,
-                    action_router=self.action_router,
-                    context_engine=self.context_engine,
-                    action_manager=self.action_manager,
-                    event_stream_manager=self.event_stream_manager,
                 )
         return llm_ok and vlm_ok
 

@@ -24,8 +24,6 @@ Options passed to 'start' / 'install':
     --no-open-browser       Don't open browser automatically (default for service)
     --frontend-port PORT    Frontend port (default: 7925)
     --backend-port PORT     Backend port (default: 7926)
-    --conda                 Use conda environment
-    --no-conda              Don't use conda
 
 Examples:
     python craftbot.py start                   # Start in background (browser mode)
@@ -1225,10 +1223,8 @@ def cmd_install(extra_args: List[str]) -> None:
     install_script = os.path.join(BASE_DIR, "install.py")
     if os.path.isfile(install_script):
         _retro_step(1, 3, "Installing dependencies")
-        # Pass through any user flags (--conda etc.) and add --no-launch
-        install_flags = [
-            a for a in extra_args if a in ("--conda", "--mamba", "--cpu-only")
-        ]
+        # Pass through any user flags and add --no-launch
+        install_flags = [a for a in extra_args if a in ("--cpu-only",)]
         result = subprocess.run(
             [sys.executable, install_script, "--no-launch"] + install_flags,
             cwd=BASE_DIR,
