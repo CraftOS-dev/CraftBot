@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import hashlib
 import html
 import ipaddress
@@ -299,6 +300,23 @@ async def get_oauth_runner(
 REDIRECT_URI = "http://localhost:8765"
 REDIRECT_URI_HTTPS = "https://localhost:8765"
 
+# Per-flow override for the redirect URI. A host that handles the OAuth
+# callback through its own already-running web server (instead of the bundled
+# localhost:8765 server) sets this to the exact origin the user's browser is on
+# — e.g. ``http://localhost:7926`` — so the provider redirects back to a place
+# that's actually reachable (important inside Docker). It's a ContextVar so
+# concurrent flows on different origins don't clobber each other. The value
+# must be a bare origin (scheme://host[:port], no path) so it matches the
+# provider's registered loopback redirect.
+_redirect_uri_override: "contextvars.ContextVar[Optional[str]]" = (
+    contextvars.ContextVar("oauth_redirect_uri_override", default=None)
+)
+
+
+def set_redirect_uri_override(uri: Optional[str]) -> None:
+    """Set the redirect URI for the current OAuth flow (see _redirect_uri_override)."""
+    _redirect_uri_override.set(uri or None)
+
 
 class OAuthFlow:
     """Composition helper: handlers hold an OAuthFlow instance.
@@ -358,6 +376,9 @@ class OAuthFlow:
 
     @property
     def redirect_uri(self) -> str:
+        override = _redirect_uri_override.get()
+        if override:
+            return override
         return REDIRECT_URI_HTTPS if self.use_https else REDIRECT_URI
 
     def _client_id(self) -> Optional[str]:

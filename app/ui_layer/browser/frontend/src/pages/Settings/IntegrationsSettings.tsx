@@ -653,7 +653,13 @@ export function IntegrationsSettings() {
     // 'noopener' here — that would make window.open return null and we'd lose
     // the handle needed to navigate the tab.
     oauthWindowRef.current = window.open('about:blank', '_blank')
-    send('integration_connect_oauth', { id: selectedIntegration.id })
+    // Send our origin so the backend redirects the OAuth callback back to this
+    // exact server (reachable wherever the UI is, including inside Docker)
+    // instead of an unreachable localhost:8765.
+    send('integration_connect_oauth', {
+      id: selectedIntegration.id,
+      origin: window.location.origin,
+    })
   }
 
   const handleConnectInteractive = () => {

@@ -948,7 +948,8 @@ class BrowserAdapter(InterfaceAdapter):
         port: int = 7926,
     ) -> None:
         super().__init__(controller, "browser")
-        self._host = host
+        # BROWSER_HOST lets a container bind 0.0.0.0 so published ports work.
+        self._host = os.environ.get("BROWSER_HOST", host)
         self._port = int(os.environ.get("BROWSER_PORT", port))
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
@@ -968,6 +969,10 @@ class BrowserAdapter(InterfaceAdapter):
 
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
+        # Pending OAuth flows awaiting their browser redirect, keyed by the
+        # OAuth `state`. The callback hits this same web server and resolves
+        # the matching future with (code, error) — no separate callback port.
+        self._pending_oauth: Dict[str, "asyncio.Future"] = {}
 
         # Living UI manager
         template_path = (
@@ -1172,6 +1177,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             async def _static_or_spa(request: web.Request) -> web.StreamResponse:
                 """Serve static file from dist/ if it exists, otherwise index.html for SPA routing."""
+                # An OAuth provider redirect may land here — handle it first.
+                oauth_response = self._try_handle_oauth_callback(request)
+                if oauth_response is not None:
+                    return oauth_response
                 req_path = request.match_info.get("path", "")
                 if req_path:
                     file_path = _dist / req_path
@@ -1759,7 +1768,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "integration_connect_oauth":
             integration_id = data.get("id", "")
-            await self._handle_integration_connect_oauth(integration_id)
+            origin = data.get("origin")
+            await self._handle_integration_connect_oauth(integration_id, origin)
 
         elif msg_type == "integration_connect_interactive":
             integration_id = data.get("id", "")
@@ -5409,12 +5419,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _ui_oauth_runner(
         self, auth_url: str, *, use_https: bool = False
     ) -> "tuple[Optional[str], Optional[str]]":
-        """OAuth runner that opens the auth URL in the user's browser.
+        """OAuth runner that opens the auth URL in the user's browser and waits
+        for the redirect to come back to *this* web server.
 
-        Broadcasts the URL to the frontend (which calls ``window.open``), then
-        runs only the localhost callback server — no server-side browser.
+        Broadcasts the URL to the frontend (which opens it in a real browser
+        tab), then waits on a future keyed by the OAuth ``state``. The provider
+        redirects to this same server (see ``_try_handle_oauth_callback``),
+        which resolves the future with the code. No separate callback port — so
+        it works wherever the UI is reachable, including inside Docker.
         """
-        from craftos_integrations.oauth_flow import run_localhost_callback
+        from urllib.parse import parse_qs, urlparse
+
+        state = parse_qs(urlparse(auth_url).query).get("state", [None])[0]
+        loop = asyncio.get_running_loop()
+        future: "asyncio.Future" = loop.create_future()
+        if state:
+            self._pending_oauth[state] = future
 
         await self._broadcast(
             {
@@ -5425,26 +5445,88 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 },
             }
         )
-        return await run_localhost_callback(
-            auth_url, use_https=use_https, open_browser=False
+
+        try:
+            # Generous window for the user to sign in and grant consent.
+            code, error = await asyncio.wait_for(future, timeout=300)
+            return code, error
+        except asyncio.TimeoutError:
+            return None, "Timed out waiting for sign-in to complete."
+        finally:
+            if state:
+                self._pending_oauth.pop(state, None)
+
+    def _try_handle_oauth_callback(
+        self, request: "web.Request"
+    ) -> "Optional[web.Response]":
+        """If this request is an OAuth redirect, resolve the waiting flow.
+
+        Returns a small HTML page to show in the popup tab, or ``None`` if the
+        request isn't an OAuth callback (so normal page serving continues).
+        """
+        from aiohttp import web
+
+        query = request.query
+        state = query.get("state")
+        code = query.get("code")
+        error = query.get("error")
+        # Only treat it as a callback when a state we issued is present.
+        if not state or state not in self._pending_oauth:
+            return None
+
+        future = self._pending_oauth.get(state)
+        if future is not None and not future.done():
+            future.set_result((code, error or (None if code else "No code returned")))
+
+        ok = bool(code) and not error
+        body = self._oauth_callback_html(ok, error)
+        return web.Response(text=body, content_type="text/html")
+
+    @staticmethod
+    def _oauth_callback_html(ok: bool, error: "Optional[str]" = None) -> str:
+        """Minimal self-contained page shown in the sign-in tab after redirect."""
+        import html as _html
+
+        if ok:
+            title = "Authentication successful"
+            msg = "You're connected. You can close this tab and return to CraftBot."
+        else:
+            title = "Authentication failed"
+            msg = _html.escape(error or "Something went wrong. Please try again.")
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'>"
+            "<title>CraftBot</title>"
+            "<style>body{font-family:system-ui,sans-serif;background:#111;color:#eee;"
+            "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+            ".card{text-align:center;max-width:420px;padding:2rem}"
+            "h2{margin:0 0 .5rem}</style></head><body><div class='card'>"
+            f"<h2>{title}</h2><p>{msg}</p></div></body></html>"
         )
 
-    async def _handle_integration_connect_oauth(self, integration_id: str) -> None:
+    async def _handle_integration_connect_oauth(
+        self, integration_id: str, origin: Optional[str] = None
+    ) -> None:
         """Start OAuth flow for an integration (non-blocking)."""
         # Cancel any existing OAuth task for this integration
         if integration_id in self._oauth_tasks:
             self._oauth_tasks[integration_id].cancel()
 
         # Run OAuth in background task so WebSocket message loop stays responsive
-        task = asyncio.create_task(self._run_oauth_flow(integration_id))
+        task = asyncio.create_task(self._run_oauth_flow(integration_id, origin))
         self._oauth_tasks[integration_id] = task
 
-    async def _run_oauth_flow(self, integration_id: str) -> None:
+    async def _run_oauth_flow(
+        self, integration_id: str, origin: Optional[str] = None
+    ) -> None:
         """Execute OAuth flow and broadcast result (runs as background task)."""
-        # Make the auth URL open in the user's browser instead of the (headless)
-        # server, and tag this task so the runner can correlate the URL message.
+        # Route the callback through this server: redirect back to the exact
+        # origin the user's browser is on, so it's reachable (incl. in Docker).
         self._ensure_ui_oauth_runner()
         _OAUTH_INTEGRATION_ID.set(integration_id)
+        if origin:
+            from craftos_integrations.oauth_flow import set_redirect_uri_override
+
+            set_redirect_uri_override(origin.rstrip("/"))
         try:
             success, message = await connect_integration_oauth(integration_id)
             await self._broadcast(
@@ -7245,6 +7327,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _spa_handler(self, request: "web.Request") -> "web.Response":
         """Serve index.html for SPA routing."""
         from aiohttp import web
+
+        # An OAuth provider redirect lands here — handle it before SPA routing.
+        oauth_response = self._try_handle_oauth_callback(request)
+        if oauth_response is not None:
+            return oauth_response
 
         # Skip API and WebSocket routes
         path = request.path
