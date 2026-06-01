@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import json
 import os
 import re
@@ -921,6 +922,15 @@ class BrowserFootageComponent(FootageComponentProtocol):
                 }
             )
         )
+
+
+# Carries the integration id of the in-flight OAuth connect down the async
+# call chain (set in _run_oauth_flow, read by the UI OAuth runner) so the
+# auth-url message the frontend receives can be correlated to its modal.
+# A ContextVar is task-local, so concurrent connects don't clobber each other.
+_OAUTH_INTEGRATION_ID: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "oauth_integration_id", default=None
+)
 
 
 class BrowserAdapter(InterfaceAdapter):
@@ -5381,6 +5391,44 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    def _ensure_ui_oauth_runner(self) -> None:
+        """Route OAuth browser-open through the user's browser, not the server.
+
+        The bundled OAuth runner calls ``webbrowser.open()`` server-side, which
+        hangs in a headless/Docker container (no display). Registering our own
+        runner makes the backend instead push the auth URL to the frontend,
+        which opens it in the user's real browser. Idempotent.
+        """
+        if getattr(self, "_ui_oauth_runner_registered", False):
+            return
+        from craftos_integrations import configure
+
+        configure(oauth_runner=self._ui_oauth_runner)
+        self._ui_oauth_runner_registered = True
+
+    async def _ui_oauth_runner(
+        self, auth_url: str, *, use_https: bool = False
+    ) -> "tuple[Optional[str], Optional[str]]":
+        """OAuth runner that opens the auth URL in the user's browser.
+
+        Broadcasts the URL to the frontend (which calls ``window.open``), then
+        runs only the localhost callback server — no server-side browser.
+        """
+        from craftos_integrations.oauth_flow import run_localhost_callback
+
+        await self._broadcast(
+            {
+                "type": "integration_oauth_url",
+                "data": {
+                    "id": _OAUTH_INTEGRATION_ID.get(),
+                    "url": auth_url,
+                },
+            }
+        )
+        return await run_localhost_callback(
+            auth_url, use_https=use_https, open_browser=False
+        )
+
     async def _handle_integration_connect_oauth(self, integration_id: str) -> None:
         """Start OAuth flow for an integration (non-blocking)."""
         # Cancel any existing OAuth task for this integration
@@ -5393,6 +5441,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _run_oauth_flow(self, integration_id: str) -> None:
         """Execute OAuth flow and broadcast result (runs as background task)."""
+        # Make the auth URL open in the user's browser instead of the (headless)
+        # server, and tag this task so the runner can correlate the URL message.
+        self._ensure_ui_oauth_runner()
+        _OAUTH_INTEGRATION_ID.set(integration_id)
         try:
             success, message = await connect_integration_oauth(integration_id)
             await self._broadcast(

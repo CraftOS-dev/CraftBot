@@ -359,6 +359,9 @@ export function IntegrationsSettings() {
   const [credentials, setCredentials] = useState<Record<string, string>>({})
   const [connectError, setConnectError] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
+  // Set when the browser's popup blocker stops us from opening the OAuth URL,
+  // so we can render it as a manual fallback link.
+  const [oauthUrl, setOauthUrl] = useState('')
   const [showConnectHelp, setShowConnectHelp] = useState(false)
 
   // Manage modal state
@@ -388,6 +391,10 @@ export function IntegrationsSettings() {
   const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'loading' | 'qr_ready' | 'connected' | 'error'>('idle')
   const [whatsappError, setWhatsappError] = useState<string | null>(null)
   const whatsappPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  // Tab opened synchronously on the OAuth button click (within the user
+  // gesture, so it isn't popup-blocked) and navigated to the auth URL once the
+  // backend returns it.
+  const oauthWindowRef = React.useRef<Window | null>(null)
 
   // Confirm modal
   const { modalProps: confirmModalProps, confirm } = useConfirmModal()
@@ -413,9 +420,33 @@ export function IntegrationsSettings() {
           showToast('error', d.error)
         }
       }),
+      // Backend asks us to open the OAuth sign-in URL in the user's own
+      // browser (it can't open one itself — it may be headless/in Docker).
+      onMessage('integration_oauth_url', (data: unknown) => {
+        const d = data as { url?: string; id?: string }
+        if (!d.url) return
+        const pre = oauthWindowRef.current
+        if (pre && !pre.closed) {
+          // Navigate the tab we opened on click.
+          pre.location.href = d.url
+          oauthWindowRef.current = null
+          setOauthUrl('')
+        } else {
+          // No usable pre-opened tab — try once more, else show a manual link.
+          const win = window.open(d.url, '_blank', 'noopener,noreferrer')
+          setOauthUrl(win ? '' : d.url)
+        }
+      }),
       onMessage('integration_connect_result', (data: unknown) => {
         const d = data as { success: boolean; message?: string; error?: string; id?: string }
         setIsConnecting(false)
+        setOauthUrl('')
+        // If a blank tab was opened but never navigated (e.g. the flow errored
+        // or was cancelled before the URL arrived), close it so it isn't orphaned.
+        if (oauthWindowRef.current && !oauthWindowRef.current.closed) {
+          oauthWindowRef.current.close()
+        }
+        oauthWindowRef.current = null
         if (d.success) {
           showToast('success', d.message || 'Connected successfully')
           setShowConnectModal(false)
@@ -615,6 +646,13 @@ export function IntegrationsSettings() {
     if (!selectedIntegration) return
     setIsConnecting(true)
     setConnectError('')
+    setOauthUrl('')
+    // Open the tab now, inside the click handler, so the browser treats it as
+    // user-initiated. We point it at the auth URL once the backend sends it
+    // (asynchronously, which would otherwise be popup-blocked). NOTE: no
+    // 'noopener' here — that would make window.open return null and we'd lose
+    // the handle needed to navigate the tab.
+    oauthWindowRef.current = window.open('about:blank', '_blank')
     send('integration_connect_oauth', { id: selectedIntegration.id })
   }
 
@@ -836,10 +874,20 @@ export function IntegrationsSettings() {
                 <div className={styles.connectForm}>
                   <p className={styles.connectDesc}>
                     Click the button below to sign in with {selectedIntegration.name}.
-                    A browser window will open for authentication.
+                    A new browser tab will open for authentication; you can close
+                    it once it says you're done.
                   </p>
                   {connectError && (
                     <div className={styles.formError}>{connectError}</div>
+                  )}
+                  {oauthUrl && (
+                    <div className={styles.formError}>
+                      Your browser blocked the sign-in tab.{' '}
+                      <a href={oauthUrl} target="_blank" rel="noopener noreferrer">
+                        Open it manually
+                      </a>
+                      .
+                    </div>
                   )}
                   <Button
                     variant="primary"

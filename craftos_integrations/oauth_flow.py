@@ -153,12 +153,26 @@ def _serve_until_code(
             break
 
 
+def _callback_bind_host() -> str:
+    """Interface the OAuth callback server binds to.
+
+    Defaults to loopback (``127.0.0.1``) — correct and safest for a desktop
+    install. Inside a Docker container with bridge networking + ``-p 8765:8765``
+    the forwarded connection arrives on the container's own interface, not
+    loopback, so a loopback-only bind would refuse it and the OAuth callback
+    would never complete. Set ``CRAFTBOT_OAUTH_CALLBACK_HOST=0.0.0.0`` in that
+    case. The redirect URI the provider sees stays ``localhost`` regardless.
+    """
+    return os.environ.get("CRAFTBOT_OAUTH_CALLBACK_HOST", "127.0.0.1") or "127.0.0.1"
+
+
 def _run_oauth_flow_sync(
     auth_url: str,
     port: int = 8765,
     timeout: int = 120,
     use_https: bool = False,
     cancel_event: Optional[threading.Event] = None,
+    open_browser: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
     if cancel_event and cancel_event.is_set():
         return None, "OAuth cancelled"
@@ -172,8 +186,9 @@ def _run_oauth_flow_sync(
     }
     handler_class = _make_callback_handler(result_holder)
 
+    bind_host = _callback_bind_host()
     try:
-        server = HTTPServer(("127.0.0.1", port), handler_class)
+        server = HTTPServer((bind_host, port), handler_class)
     except OSError as e:
         return None, f"Failed to start OAuth server: {e}"
 
@@ -193,7 +208,7 @@ def _run_oauth_flow_sync(
 
     scheme = "https" if use_https else "http"
     logger.info(
-        f"[OAUTH] {scheme.upper()} server listening on {scheme}://127.0.0.1:{port}"
+        f"[OAUTH] {scheme.upper()} server listening on {scheme}://{bind_host}:{port}"
     )
 
     deadline = time.time() + timeout
@@ -208,11 +223,16 @@ def _run_oauth_flow_sync(
         server.server_close()
         return None, "OAuth cancelled"
 
-    try:
-        webbrowser.open(auth_url)
-    except Exception:
-        server.server_close()
-        return None, f"Could not open browser. Visit manually:\n{auth_url}"
+    # When ``open_browser`` is False the host has already surfaced ``auth_url``
+    # elsewhere (e.g. opened it in the user's real browser from the frontend),
+    # so launching a server-side browser would be wrong — in a headless/Docker
+    # container it has no display and the flow would hang.
+    if open_browser:
+        try:
+            webbrowser.open(auth_url)
+        except Exception:
+            server.server_close()
+            return None, f"Could not open browser. Visit manually:\n{auth_url}"
 
     while thread.is_alive():
         thread.join(timeout=0.5)
@@ -236,8 +256,14 @@ async def run_localhost_callback(
     port: int = 8765,
     timeout: int = 120,
     use_https: bool = False,
+    open_browser: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
-    """Default OAuth runner. Returns (code, error)."""
+    """Default OAuth runner. Returns (code, error).
+
+    Set ``open_browser=False`` to run only the localhost callback server
+    without launching a server-side browser — for hosts that open ``auth_url``
+    in the user's own browser (e.g. a web UI calling ``window.open``).
+    """
     cancel_event = threading.Event()
     loop = asyncio.get_running_loop()
 
@@ -248,6 +274,7 @@ async def run_localhost_callback(
             timeout=timeout,
             use_https=use_https,
             cancel_event=cancel_event,
+            open_browser=open_browser,
         )
 
     try:
