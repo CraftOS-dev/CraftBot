@@ -231,6 +231,11 @@ class DashboardClient:
                     if self._outage_logged:
                         logger.info("[network_interface] dashboard reachable again")
                         self._outage_logged = False
+                    # Parse the response body to pull out any quota-lock state
+                    # the dashboard included. Defensive — failure here MUST NOT
+                    # break the retry/queue contract; the call already
+                    # succeeded as far as the dashboard is concerned.
+                    self._absorb_response_body(resp)
                     return
 
                 # 4xx is the dashboard rejecting our payload — retrying won't
@@ -258,6 +263,37 @@ class DashboardClient:
                 f"[network_interface] giving up on {path} after {MAX_RETRIES} attempts: {last_err}"
             )
             self._outage_logged = True
+
+    def _absorb_response_body(self, resp: "httpx.Response") -> None:
+        """Pull dashboard-side state out of a 2xx response body.
+
+        Today the only field of interest is `usageLockedUntil` — the dashboard
+        includes it on /heartbeat and /usage so the agent can refuse Bedrock
+        calls in-process when the user's monthly budget is exhausted. The cache
+        update is delegated to app.network_interface.state, which is what the
+        LLM/VLM hot path consults via `is_quota_locked()` (zero I/O).
+
+        Defensive at every step: a missing field, malformed JSON, even a body
+        that isn't a dict, all become no-ops. We never want a response-shape
+        bug to break the outbound retry/queue contract.
+        """
+        try:
+            data = resp.json()
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        # Use sentinel so we can distinguish "field present with value null"
+        # (explicit clear) from "field absent" (no info — keep current state).
+        sentinel = object()
+        raw = data.get("usageLockedUntil", sentinel)
+        if raw is sentinel:
+            return
+        try:
+            from app.network_interface.state import set_quota_lock
+            set_quota_lock(raw if isinstance(raw, str) else None)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(f"[network_interface] failed to update quota cache: {exc}")
 
 
 _singleton: Optional[DashboardClient] = None

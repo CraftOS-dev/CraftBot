@@ -4,9 +4,18 @@ VLM interface for CraftBot.
 
 Re-exports VLMInterface from agent_core with CraftBot-specific hooks
 for state access (using STATE singleton) and usage reporting.
+
+Hosted-version addition: managed-Bedrock quota guard. Symmetric with
+app/llm/interface.py — when the dashboard has set a quota lock, the Bedrock
+vision path short-circuits with a ManagedQuotaExceededError instead of
+calling AWS. VLM doesn't use the LLMErrorInfo classifier (the upstream VLM
+interface just re-raises), so we raise an exception; the calling code's
+error handling surfaces the message. By the time a VLM-only path actually
+hits this guard, the LLM path will usually have already surfaced the QUOTA
+chat bubble (LLM is the user-facing surface), so the user has context.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from agent_core.core.impl.vlm import VLMInterface as _VLMInterface
 from agent_core.core.hooks.types import UsageEventData
@@ -98,3 +107,30 @@ class VLMInterface(_VLMInterface):
             output_tokens,
             cached_tokens,
         )
+
+    def _bedrock_describe_bytes(
+        self,
+        image_bytes,
+        system_prompt: Optional[str],
+        user_prompt: Optional[str],
+    ) -> Dict[str, Any]:
+        """Managed-Bedrock vision quota guard.
+
+        Mirrors LLMInterface._generate_bedrock: if the cached dashboard lock
+        state says the user is over their monthly budget, refuse locally with
+        a ManagedQuotaExceededError. The upstream VLM interface re-raises any
+        exception from this method, so the error propagates to the caller.
+
+        The check is a pure local-memory read (no I/O) — keeps the VLM hot
+        path unaffected when the user is NOT locked.
+        """
+        from app.network_interface import (
+            is_quota_locked,
+            get_quota_reset,
+            ManagedQuotaExceededError,
+        )
+
+        if is_quota_locked():
+            raise ManagedQuotaExceededError(reset_at=get_quota_reset())
+
+        return super()._bedrock_describe_bytes(image_bytes, system_prompt, user_prompt)

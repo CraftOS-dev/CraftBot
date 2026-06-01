@@ -51,6 +51,14 @@ from app.network_interface.server import (
 from app.network_interface.bootstrap import (
     seed_default_provider_from_env,
 )
+from app.network_interface.state import (
+    is_quota_locked,
+    get_quota_reset,
+    set_quota_lock,
+)
+from app.network_interface.errors import (
+    ManagedQuotaExceededError,
+)
 
 __all__ = [
     "NetworkInterfaceConfig",
@@ -70,4 +78,8 @@ __all__ = [
     "register_routes",
     "InboundServer",
     "seed_default_provider_from_env",
+    "is_quota_locked",
+    "get_quota_reset",
+    "set_quota_lock",
+    "ManagedQuotaExceededError",
 ]

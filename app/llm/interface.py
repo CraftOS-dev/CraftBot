@@ -4,11 +4,22 @@ LLM interface for CraftBot.
 
 Re-exports LLMInterface from agent_core with CraftBot-specific hooks
 for state access (using STATE singleton) and usage reporting.
+
+Hosted-version addition: a managed-Bedrock quota guard. When the dashboard
+has set a usage lock (signalled back to the agent in the response body of
+the most recent /heartbeat or /usage callback), Bedrock calls short-circuit
+locally with a QUOTA-category error that prompts the user to switch to BYOK.
+The check itself is a pure local-memory read — no I/O on the LLM hot path.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from agent_core.core.impl.llm import LLMInterface as _LLMInterface
+from agent_core.core.impl.llm.errors import (
+    ErrorAction,
+    ErrorCategory,
+    LLMErrorInfo,
+)
 from agent_core.core.hooks.types import UsageEventData
 from app.state.agent_state import get_session_props
 
@@ -110,3 +121,62 @@ class LLMInterface(_LLMInterface):
             output_tokens,
             cached_tokens,
         )
+
+    def _generate_bedrock(
+        self,
+        system_prompt: Optional[str],
+        user_prompt: Optional[str],
+    ) -> Dict[str, Any]:
+        """Managed-Bedrock quota guard.
+
+        If the cached dashboard lock state says the user is over their monthly
+        budget, refuse the call locally — returning a structured error in the
+        same shape the base interface expects from a failed provider call.
+        The chat surface picks up `error_info_obj` and renders the QUOTA
+        bubble with the "Open settings" action so the user can switch to BYOK.
+
+        The check is `is_quota_locked()`, a pure local-memory read: no HTTP,
+        no DB, no lock contention with the dashboard. Keeps the LLM hot path
+        unaffected when the user is NOT locked.
+        """
+        from app.network_interface import is_quota_locked, get_quota_reset
+
+        if is_quota_locked():
+            reset_at = get_quota_reset()
+            reset_str = (
+                reset_at.strftime("%B %d, %Y")
+                if reset_at
+                else "the next billing period"
+            )
+            message = (
+                f"Your managed Bedrock quota has been used up for this month "
+                f"(resets {reset_str}). To keep using LLM features, configure "
+                f"your own API key under Settings > Models, or wait for the "
+                f"monthly reset."
+            )
+            info = LLMErrorInfo(
+                category=ErrorCategory.QUOTA,
+                title="Managed Bedrock quota exhausted",
+                message=message,
+                provider="bedrock",
+                model=self.model,
+                actions=[
+                    ErrorAction(
+                        label="Open settings",
+                        action="open_settings_model",
+                    ),
+                ],
+            )
+            # Return an empty-content error so the base interface's existing
+            # error-handling path (around line 442 of agent_core's LLM
+            # interface) picks up `error_info_obj`. Same code path that
+            # surfaces auth/rate-limit errors today — the chat bubble looks
+            # identical to other classified errors.
+            return {
+                "content": "",
+                "error": info.message,
+                "error_info_obj": info,
+                "tokens_used": 0,
+            }
+
+        return super()._generate_bedrock(system_prompt, user_prompt)
