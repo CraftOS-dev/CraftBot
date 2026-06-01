@@ -24,10 +24,21 @@ def _set_token_count(count: int) -> None:
 
 
 async def _report_usage(event: UsageEventData) -> None:
-    """Report usage to local storage via UsageReporter."""
+    """Report usage to local SQLite AND forward to the craftbot.live dashboard.
+
+    Local storage stays the source of truth for in-container analytics and
+    works offline. The dashboard mirror is fire-and-forget — if the dashboard
+    is unreachable, the network_interface drops/retries on its own and the
+    local copy is unaffected. See app/network_interface/outbound.py.
+    """
     from app.usage import get_usage_reporter
+    from app.network_interface import report_usage_to_dashboard
 
     await get_usage_reporter().report(event)
+    # Fire-and-forget: returns immediately, actual HTTP happens in a background
+    # task with bounded retry. Disabled (no-op) when CONTAINER_AUTH_TOKEN /
+    # CONTAINER_INSTANCE_ID / CONTAINER_DASHBOARD_URL are unset.
+    await report_usage_to_dashboard(event)
 
 
 class LLMInterface(_LLMInterface):

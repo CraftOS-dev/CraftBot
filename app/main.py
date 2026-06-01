@@ -61,6 +61,14 @@ from app.config import get_project_root
 StateRegistry.register(lambda: STATE)
 ConfigRegistry.register_workspace_root(str(get_project_root()))
 
+# Seed settings.json with managed Bedrock defaults BEFORE the first settings
+# read. Only runs when CRAFTBOT_DEFAULT_PROVIDER is set in the env AND no
+# settings.json exists yet — so dev runs (no env vars) and BYOK users with an
+# existing settings file are both untouched. Used by craftbot.live to skip the
+# agent's onboarding screen on first container boot.
+from app.network_interface import seed_default_provider_from_env as _seed_default_provider
+_seed_default_provider()
+
 # Import settings reader (reads directly from settings.json)
 from app.config import (
     get_llm_provider,

@@ -3462,6 +3462,25 @@ class AgentBase:
         self._usage_reporter = get_usage_reporter()
         self._usage_reporter.start_background_flush()
 
+        # Start the craftbot.live heartbeat loop. No-ops in any environment
+        # where CONTAINER_AUTH_TOKEN / CONTAINER_INSTANCE_ID /
+        # CONTAINER_DASHBOARD_URL aren't set (i.e. local dev, standalone
+        # agent), so this is safe to call unconditionally.
+        from app.network_interface import start_heartbeat, InboundServer
+
+        self._dashboard_heartbeat = start_heartbeat(self.task_manager)
+
+        # Start the dashboard inbound server (/__cb/state, /__cb/events,
+        # /__cb/healthz). Lives here rather than in the browser adapter so it
+        # comes up in CLI mode too — the dashboard's read path mustn't depend
+        # on the user UI choice. Port is independent of BROWSER_PORT; see
+        # app/network_interface/server.py for the env var.
+        self._dashboard_inbound = InboundServer(
+            task_manager=self.task_manager,
+            event_stream_manager=self.event_stream_manager,
+        )
+        await self._dashboard_inbound.start()
+
         # Configure integrations + start external comms manager
         step(6, 7, "Initializing integrations")
         await self._initialize_external_libraries()
@@ -3570,3 +3589,23 @@ class AgentBase:
             # Flush remaining usage events
             if hasattr(self, "_usage_reporter"):
                 await self._usage_reporter.shutdown()
+            # Stop the dashboard heartbeat + the inbound server, then drain
+            # any in-flight outbound HTTP calls so the dashboard sees a clean
+            # final state instead of getting one last stale heartbeat or a
+            # connection refused mid-poll after shutdown.
+            if hasattr(self, "_dashboard_heartbeat"):
+                try:
+                    await self._dashboard_heartbeat.stop()
+                except Exception as e:
+                    logger.warning(f"[SHUTDOWN] heartbeat stop error: {e}")
+            if hasattr(self, "_dashboard_inbound"):
+                try:
+                    await self._dashboard_inbound.stop()
+                except Exception as e:
+                    logger.warning(f"[SHUTDOWN] inbound server stop error: {e}")
+            if hasattr(self, "_dashboard_heartbeat"):
+                try:
+                    from app.network_interface import get_dashboard_client
+                    await get_dashboard_client().aclose()
+                except Exception as e:
+                    logger.warning(f"[SHUTDOWN] dashboard client close error: {e}")

@@ -24,10 +24,17 @@ def _set_token_count(count: int) -> None:
 
 
 async def _report_usage(event: UsageEventData) -> None:
-    """Report usage to local storage via UsageReporter."""
+    """Report usage to local SQLite AND forward to the craftbot.live dashboard.
+
+    Symmetric with LLMInterface._report_usage — VLM calls are billed too, so
+    they need to land in the same dashboard UsageRecord rows. See
+    app/network_interface/outbound.py for the fire-and-forget semantics.
+    """
     from app.usage import get_usage_reporter
+    from app.network_interface import report_usage_to_dashboard
 
     await get_usage_reporter().report(event)
+    await report_usage_to_dashboard(event)
 
 
 class VLMInterface(_VLMInterface):
