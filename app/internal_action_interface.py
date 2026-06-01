@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from app.llm import LLMInterface, LLMCallType
 from app.vlm_interface import VLMInterface
+from app.image_gen_interface import ImageGenInterface
 from app.task.task_manager import TaskManager
 from app.task import Task
 from app.state.state_manager import StateManager
@@ -43,6 +44,7 @@ class InternalActionInterface:
     task_manager: Optional[TaskManager] = None
     state_manager: Optional[StateManager] = None
     vlm_interface: Optional[VLMInterface] = None
+    image_gen_interface: Optional[ImageGenInterface] = None
     context_engine: Optional["ContextEngine"] = None
     gui_module: Optional["GUIModule"] = None
     memory_manager: Optional[MemoryManager] = None
@@ -57,6 +59,7 @@ class InternalActionInterface:
         task_manager: TaskManager,
         state_manager: StateManager,
         vlm_interface: Optional[VLMInterface] = None,
+        image_gen_interface: Optional[ImageGenInterface] = None,
         context_engine: Optional["ContextEngine"] = None,
         gui_module: Optional["GUIModule"] = None,
         memory_manager: MemoryManager | None = None,
@@ -74,6 +77,7 @@ class InternalActionInterface:
         cls.task_manager = task_manager
         cls.state_manager = state_manager
         cls.vlm_interface = vlm_interface
+        cls.image_gen_interface = image_gen_interface
         cls.context_engine = context_engine
         cls.gui_module = gui_module
         cls.memory_manager = memory_manager
@@ -109,6 +113,24 @@ class InternalActionInterface:
                 "InternalActionInterface not initialized with VLMInterface."
             )
         return cls.vlm_interface.describe_image(image_path, user_prompt=prompt)
+
+    @classmethod
+    def generate_image(cls, **kwargs) -> List[str]:
+        """Generate image(s) from a prompt using the image generation interface.
+
+        Delegates all arguments to ImageGenInterface.generate_image().
+
+        Returns:
+            List of absolute file paths to the generated images.
+
+        Raises:
+            RuntimeError: If image_gen_interface is not initialized or generation fails.
+        """
+        if cls.image_gen_interface is None:
+            raise RuntimeError(
+                "InternalActionInterface not initialized with ImageGenInterface."
+            )
+        return cls.image_gen_interface.generate_image(**kwargs)
 
     @classmethod
     def perform_ocr(cls, image_path: str, user_prompt: Optional[str] = None) -> dict:

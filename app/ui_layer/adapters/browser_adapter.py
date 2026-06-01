@@ -4659,6 +4659,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             new_provider = data.get("llmProvider")
             vlm_provider = data.get("vlmProvider")
+            image_gen_provider = data.get("imageGenProvider")
             api_key = data.get("apiKey")
             provider_for_key = data.get("providerForKey")
             base_url = data.get("baseUrl")
@@ -4721,8 +4722,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             result = update_model_settings(
                 llm_provider=new_provider,
                 vlm_provider=vlm_provider,
+                image_gen_provider=image_gen_provider,
                 llm_model=data.get("llmModel"),
                 vlm_model=data.get("vlmModel"),
+                image_gen_model=data.get("imageGenModel"),
                 api_key=api_key,
                 provider_for_key=provider_for_key,
                 base_url=base_url,
@@ -4742,6 +4745,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     logger.warning(f"[BROWSER] Failed to reinitialize LLM: {e}")
                     result["warning"] = (
                         f"Settings saved but LLM reinitialization failed: {e}"
+                    )
+
+            # Reinitialize image gen interface when its provider changes
+            if result.get("success") and image_gen_provider:
+                try:
+                    agent = self._controller.agent
+                    agent.reinitialize_image_gen(image_gen_provider)
+                    logger.info(
+                        f"[BROWSER] Image gen reinitialized with provider: {image_gen_provider}"
+                    )
+                except Exception as e:
+                    logger.warning(f"[BROWSER] Failed to reinitialize image gen: {e}")
+                    result["warning"] = result.get("warning") or (
+                        f"Settings saved but image gen reinitialization failed: {e}"
                     )
 
             await self._broadcast(

@@ -65,10 +65,12 @@ ConfigRegistry.register_workspace_root(str(get_project_root()))
 from app.config import (
     get_llm_provider,
     get_vlm_provider,
+    get_image_gen_provider,
     get_api_key,
     get_base_url,
     get_llm_model,
     get_vlm_model,
+    get_image_gen_model,
 )
 from app.agent_base import AgentBase
 
@@ -116,7 +118,8 @@ def _initial_settings() -> tuple:
     """Determine initial provider, API key, and base URL from settings.json.
 
     Returns:
-        Tuple of (provider, api_key, base_url, model, vlm_provider, vlm_model, has_valid_key)
+        Tuple of (provider, api_key, base_url, model, vlm_provider, vlm_model,
+        image_gen_provider, image_gen_model, has_valid_key)
         where has_valid_key indicates if a working API key was found.
     """
     # Read directly from settings.json
@@ -126,11 +129,13 @@ def _initial_settings() -> tuple:
     model = get_llm_model()  # None → use registry default for the provider
     vlm_prov = get_vlm_provider()
     vlm_mod = get_vlm_model()
+    img_prov = get_image_gen_provider()
+    img_mod = get_image_gen_model()
 
     # Remote (Ollama) doesn't require API key
     has_key = bool(api_key) or provider == "remote"
 
-    return provider, api_key, base_url, model, vlm_prov, vlm_mod, has_key
+    return provider, api_key, base_url, model, vlm_prov, vlm_mod, img_prov, img_mod, has_key
 
 
 async def main_async() -> None:
@@ -139,7 +144,7 @@ async def main_async() -> None:
     browser_mode = cli_args.get("browser", False)
 
     # Get settings from settings.json
-    provider, api_key, base_url, model, vlm_prov, vlm_mod, has_valid_key = (
+    provider, api_key, base_url, model, vlm_prov, vlm_mod, img_prov, img_mod, has_valid_key = (
         _initial_settings()
     )
 
@@ -166,6 +171,8 @@ async def main_async() -> None:
         llm_model=model,
         vlm_provider=vlm_prov,
         vlm_model=vlm_mod,
+        image_gen_provider=img_prov,
+        image_gen_model=img_mod,
         deferred_init=not has_valid_key,
     )
 

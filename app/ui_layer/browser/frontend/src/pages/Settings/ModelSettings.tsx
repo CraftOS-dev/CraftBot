@@ -30,6 +30,8 @@ import {
   selectModelHasLoadedProviders,
   selectModelHasLoadedSettings,
   selectModelHasLoadedSlowMode,
+  selectImageGenProvider,
+  selectCurrentImageGenModel,
 } from '../../store/selectors/modelSettings'
 import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
@@ -47,7 +49,9 @@ interface ProviderInfo {
   base_url_env?: string
   llm_model: string | null
   vlm_model: string | null
+  image_gen_model: string | null
   has_vlm: boolean
+  has_image_gen: boolean
   supports_catalog?: boolean
   is_bedrock?: boolean
 }
@@ -88,6 +92,8 @@ export function ModelSettings() {
   const ollamaModels = useAppSelector(selectOllamaModels)
   const ollamaAvailable = useAppSelector(selectOllamaAvailable)
   const awsCredentialsStatus = useAppSelector(selectAwsCredentials)
+  const imageGenProvider = useAppSelector(selectImageGenProvider)
+  const currentImageGenModel = useAppSelector(selectCurrentImageGenModel)
   const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
   const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
   const hasLoadedSlowMode = useAppSelector(selectModelHasLoadedSlowMode)
@@ -110,6 +116,13 @@ export function ModelSettings() {
   const [newAwsSecretAccessKey, setNewAwsSecretAccessKey] = useState('')
   const [newAwsSessionToken, setNewAwsSessionToken] = useState('')
   const [newAwsRegion, setNewAwsRegion] = useState('')
+
+  // Image generation form state (transient — local).
+  const [newImageGenProvider, setNewImageGenProvider] = useState('')
+  const [newImageGenModel, setNewImageGenModel] = useState('')
+  const [newImageGenApiKey, setNewImageGenApiKey] = useState('')
+  const [imageGenHasChanges, setImageGenHasChanges] = useState(false)
+  const [isImageGenSaving, setIsImageGenSaving] = useState(false)
 
   // UI state (transient — local).
   const [isSaving, setIsSaving] = useState(false)
@@ -167,6 +180,7 @@ export function ModelSettings() {
       onMessage('model_settings_update', (data: unknown) => {
         const d = data as { success: boolean; error?: string }
         setIsSaving(false)
+        setIsImageGenSaving(false)
         if (d.success) {
           setNewApiKey('')
           setNewBaseUrl('')
@@ -177,6 +191,10 @@ export function ModelSettings() {
           setNewAwsSessionToken('')
           setNewAwsRegion('')
           setHasChanges(false)
+          setNewImageGenProvider('')
+          setNewImageGenModel('')
+          setNewImageGenApiKey('')
+          setImageGenHasChanges(false)
           showToast('success', 'Settings saved')
         } else {
           showToast('error', d.error || 'Failed to save')
@@ -417,6 +435,19 @@ export function ModelSettings() {
         vlmModel: newVlmModel || currentVlmModel || undefined,
       })
     }
+  }
+
+  const handleImageGenSave = () => {
+    setIsImageGenSaving(true)
+    const effectiveProvider = newImageGenProvider || imageGenProvider
+    send('model_settings_update', {
+      imageGenProvider: effectiveProvider,
+      imageGenModel: newImageGenModel || currentImageGenModel || undefined,
+      ...(newImageGenApiKey ? {
+        apiKey: newImageGenApiKey,
+        providerForKey: effectiveProvider,
+      } : {}),
+    })
   }
 
   const handleDownloadModelClick = () => {
@@ -889,6 +920,90 @@ export function ModelSettings() {
               )}
             </Button>
           </div>
+
+          {/* Image Generation */}
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border-primary)', margin: 'var(--space-4) 0' }} />
+          <div className={styles.sectionHeader} style={{ marginBottom: 'var(--space-3)' }}>
+            <h3>Image Generation</h3>
+            <p>Configure the provider used for image generation</p>
+          </div>
+          {(() => {
+            const imageGenProviders = providers.filter(p => p.has_image_gen)
+            const effectiveImgProvider = newImageGenProvider || imageGenProvider
+            const imgProviderInfo = imageGenProviders.find(p => p.id === effectiveImgProvider)
+            return (
+              <div className={styles.settingsForm} style={{ paddingTop: 0 }}>
+                <div className={styles.formGroup}>
+                  <label>Provider</label>
+                  <select
+                    value={effectiveImgProvider}
+                    onChange={(e) => {
+                      const sel = imageGenProviders.find(p => p.id === e.target.value)
+                      setNewImageGenProvider(e.target.value)
+                      setNewImageGenModel(sel?.image_gen_model || '')
+                      setNewImageGenApiKey('')
+                      setImageGenHasChanges(true)
+                    }}
+                  >
+                    {imageGenProviders.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* API Key for image gen provider */}
+                {imgProviderInfo?.requires_api_key && (
+                  <div className={styles.formGroup}>
+                    <label>
+                      API Key
+                      {apiKeys[effectiveImgProvider]?.has_key ? (
+                        <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                      ) : (
+                        <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                      )}
+                    </label>
+                    {apiKeys[effectiveImgProvider]?.has_key && (
+                      <div className={styles.maskedKey}>{apiKeys[effectiveImgProvider].masked_key}</div>
+                    )}
+                    <input
+                      type="password"
+                      value={newImageGenApiKey}
+                      onChange={(e) => { setNewImageGenApiKey(e.target.value); setImageGenHasChanges(true) }}
+                      placeholder={apiKeys[effectiveImgProvider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
+                    />
+                  </div>
+                )}
+
+                {/* Model override */}
+                <div className={styles.formGroup}>
+                  <label>Model</label>
+                  <input
+                    type="text"
+                    value={newImageGenModel || currentImageGenModel || ''}
+                    onChange={(e) => { setNewImageGenModel(e.target.value); setImageGenHasChanges(true) }}
+                    placeholder={imgProviderInfo?.image_gen_model || 'Default model'}
+                  />
+                </div>
+
+                <div className={styles.sectionFooter} style={{ borderTop: 'none', paddingTop: 0 }}>
+                  <Button
+                    variant="primary"
+                    onClick={handleImageGenSave}
+                    disabled={isImageGenSaving || !imageGenHasChanges}
+                  >
+                    {isImageGenSaving ? (
+                      <>
+                        <Loader2 size={14} className={styles.spinning} />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Slow Mode */}
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-primary)', margin: 'var(--space-4) 0' }} />

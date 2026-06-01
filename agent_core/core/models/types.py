@@ -21,3 +21,4 @@ class InterfaceType(str, Enum):
     LLM = "llm"
     VLM = "vlm"
     EMBEDDING = "embedding"
+    IMAGE_GEN = "image_gen"
