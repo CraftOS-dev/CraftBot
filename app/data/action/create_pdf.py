@@ -270,7 +270,7 @@ def create_pdf_file(input_data: dict) -> dict:
         if doc_title:
             pdf.set_font("Helvetica", "B", _fmt["h1_pt"])
             pdf.set_text_color(*t["htxt"])
-            title_y = y0 + (HH - 20) / 2 - (5 if subtitle else 0)
+            title_y = y0 + (HH - 12) / 2 - (5 if subtitle else 0)
             pdf.set_xy(lm + 8, title_y)
             pdf.cell(pw - 16, 12, doc_title[:72], align="L")
 

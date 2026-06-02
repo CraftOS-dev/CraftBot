@@ -14,9 +14,8 @@ from agent_core import action
         "For tasks that require text reflow (rephrasing paragraphs, inserting new sections, "
         "reformatting layout): use create_pdf to rebuild the document with changes applied — "
         "the user receives the same output path with a clean result. "
-        "When editing a PDF created by create_pdf, the accent colour is always #FF4F18 "
-        "(FORMAT.md highlight). Use this for stamps, watermarks, and annotations "
-        "to match the document style. "
+        "When editing a PDF created by create_pdf, match the accent colour to "
+        "FORMAT.md's highlight value (default #FF4F18) to align with the document style. "
         "Use absolute paths only."
     ),
     mode="CLI",
