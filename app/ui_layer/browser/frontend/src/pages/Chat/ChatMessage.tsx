@@ -7,8 +7,7 @@ import styles from './ChatPage.module.css'
 
 interface ChatMessageProps {
   message: ChatMessageType
-  onOpenFile: (path: string) => void
-  onOpenFolder: (path: string) => void
+  onDownload: (attachment: Attachment) => void
   onReply?: (
     sessionId: string | undefined,
     displayName: string,
@@ -32,8 +31,7 @@ function parseReplyContext(content: string): { userMessage: string; replyContext
 
 export const ChatMessageItem = memo(function ChatMessageItem({
   message,
-  onOpenFile,
-  onOpenFolder,
+  onDownload,
   onReply,
   onOptionClick,
 }: ChatMessageProps) {
@@ -119,8 +117,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         <div className={styles.messageAttachments}>
           <AttachmentDisplay
             attachments={message.attachments}
-            onOpenFile={onOpenFile}
-            onOpenFolder={onOpenFolder}
+            onDownload={onDownload}
             onPreview={setPreviewAttachment}
           />
         </div>

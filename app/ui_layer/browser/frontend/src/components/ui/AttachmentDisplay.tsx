@@ -1,13 +1,12 @@
 import React from 'react'
-import { FileText, Image, File, FolderOpen, ExternalLink } from 'lucide-react'
+import { FileText, Image, File, Download } from 'lucide-react'
 import { IconButton } from './IconButton'
 import type { Attachment } from '../../types'
 import styles from './AttachmentDisplay.module.css'
 
 interface AttachmentDisplayProps {
   attachments: Attachment[]
-  onOpenFile?: (path: string) => void
-  onOpenFolder?: (path: string) => void
+  onDownload?: (attachment: Attachment) => void
   onPreview?: (attachment: Attachment) => void
 }
 
@@ -36,7 +35,7 @@ function getFileIcon(type: string): React.ReactNode {
   return <File size={20} />
 }
 
-export function AttachmentDisplay({ attachments, onOpenFile, onOpenFolder, onPreview }: AttachmentDisplayProps) {
+export function AttachmentDisplay({ attachments, onDownload, onPreview }: AttachmentDisplayProps) {
   if (!attachments || attachments.length === 0) {
     return null
   }
@@ -93,22 +92,13 @@ export function AttachmentDisplay({ attachments, onOpenFile, onOpenFolder, onPre
             )}
 
             <div className={styles.actions}>
-              {onOpenFile && (
+              {onDownload && (
                 <IconButton
-                  icon={<ExternalLink size={14} />}
+                  icon={<Download size={14} />}
                   size="sm"
                   variant="ghost"
-                  tooltip="Open file"
-                  onClick={() => onOpenFile(attachment.path)}
-                />
-              )}
-              {onOpenFolder && (
-                <IconButton
-                  icon={<FolderOpen size={14} />}
-                  size="sm"
-                  variant="ghost"
-                  tooltip="Open folder"
-                  onClick={() => onOpenFolder(attachment.path)}
+                  tooltip="Download"
+                  onClick={() => onDownload(attachment)}
                 />
               )}
             </div>
