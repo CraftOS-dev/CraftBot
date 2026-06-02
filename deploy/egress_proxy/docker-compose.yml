@@ -1,0 +1,44 @@
+# Template: CraftBot container locked behind an egress allowlist proxy.
+# The CraftBot container has NO direct internet — its only route out is the
+# proxy, which permits only the integration domains in allowlist.txt.
+#
+# Replicate the `craftbot` service per tenant (set CRAFTBOT_TENANT_ID each time);
+# they can all share one `egress-proxy`.
+
+networks:
+  # CraftBot lives ONLY here. `internal: true` => no NAT, no direct internet.
+  egress:
+    internal: true
+  # The proxy's path to the internet.
+  upstream:
+    driver: bridge
+
+services:
+  egress-proxy:
+    build: .
+    restart: unless-stopped
+    networks:
+      - egress      # reachable by CraftBot containers
+      - upstream    # can reach the internet
+    healthcheck:
+      # Allowed domain should tunnel; anything else should be refused.
+      test: ["CMD", "sh", "-c", "curl -s -o /dev/null -x http://localhost:8888 https://api.github.com/zen"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  craftbot:
+    image: craftbot:latest          # <-- your CraftBot image
+    restart: unless-stopped
+    depends_on:
+      - egress-proxy
+    networks:
+      - egress                      # ONLY the internal net — no direct internet
+    environment:
+      # Force all outbound through the allowlist proxy (httpx honors these).
+      HTTP_PROXY: "http://egress-proxy:8888"
+      HTTPS_PROXY: "http://egress-proxy:8888"
+      NO_PROXY: "localhost,127.0.0.1"
+      # Multi-tenant OAuth (from the broker step):
+      CRAFTBOT_TENANT_ID: "user1"
+      CRAFTBOT_OAUTH_BROKER_URL: "https://craft-dev.com/oauth/callback"
