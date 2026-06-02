@@ -2178,6 +2178,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             "via": via,
                             "or_model": or_model,
                         }
+                    elif provider == "bedrock":
+                        # Bedrock submits a dict {access_key_id,
+                        # secret_access_key, region} — pass it as aws_credentials
+                        # (not api_key), mirroring the Settings test path.
+                        creds = value if isinstance(value, dict) else {}
+                        default_model = MODEL_REGISTRY.get(provider, {}).get(
+                            InterfaceType.LLM
+                        )
+                        test_result = test_connection(
+                            provider="bedrock",
+                            model=default_model,
+                            aws_credentials={
+                                "access_key_id": creds.get("access_key_id", ""),
+                                "secret_access_key": creds.get("secret_access_key", ""),
+                                "region": creds.get("region", ""),
+                            },
+                        )
                     else:
                         actual_key = (
                             value
