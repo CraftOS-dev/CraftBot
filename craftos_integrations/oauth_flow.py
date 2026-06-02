@@ -302,12 +302,16 @@ REDIRECT_URI_HTTPS = "https://localhost:8765"
 
 # Per-flow override for the redirect URI. A host that handles the OAuth
 # callback through its own already-running web server (instead of the bundled
-# localhost:8765 server) sets this to the exact origin the user's browser is on
-# — e.g. ``http://localhost:7926`` — so the provider redirects back to a place
-# that's actually reachable (important inside Docker). It's a ContextVar so
-# concurrent flows on different origins don't clobber each other. The value
-# must be a bare origin (scheme://host[:port], no path) so it matches the
-# provider's registered loopback redirect.
+# localhost:8765 server) sets this so the provider redirects back to a place
+# that's actually reachable (important inside Docker). Two shapes are used:
+#   • Single container / desktop: the exact origin the user's browser is on,
+#     e.g. ``http://localhost:7926`` (bare origin, no path).
+#   • Multi-tenant: a fixed broker URL registered once on the apex domain,
+#     e.g. ``https://craft-dev.com/oauth/callback`` (a path is fine — Google
+#     allows it, and the apex proxy needs the path to route to the broker).
+# It's a ContextVar so concurrent flows on different origins don't clobber each
+# other. Whatever is set here is sent as ``redirect_uri`` at both the auth and
+# token-exchange steps, so it must match the provider's registered redirect.
 _redirect_uri_override: "contextvars.ContextVar[Optional[str]]" = (
     contextvars.ContextVar("oauth_redirect_uri_override", default=None)
 )
@@ -394,7 +398,17 @@ class OAuthFlow:
         if not client_id:
             raise RuntimeError(f"OAuth not configured: missing {self.client_id_key}")
 
-        state = secrets.token_urlsafe(32)
+        # Bake the tenant into ``state`` for multi-tenant deployments. When many
+        # per-user containers sit behind one apex domain, the OAuth callback hits
+        # a shared broker on the apex (see ``CRAFTBOT_OAUTH_BROKER_URL`` in the
+        # host adapter); the broker reads the tenant id from the first dot-
+        # segment of ``state`` and routes the redirect back to the right
+        # container's subdomain. ``CRAFTBOT_TENANT_ID`` is that subdomain label
+        # and must not contain a dot. Unset → plain random state (the desktop /
+        # single-container case is unchanged).
+        random_state = secrets.token_urlsafe(32)
+        tenant = os.environ.get("CRAFTBOT_TENANT_ID", "").strip()
+        state = f"{tenant}.{random_state}" if tenant else random_state
         params: Dict[str, str] = {
             "client_id": client_id,
             "redirect_uri": self.redirect_uri,

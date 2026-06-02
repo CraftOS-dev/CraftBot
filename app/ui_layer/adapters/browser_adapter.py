@@ -5523,9 +5523,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # origin the user's browser is on, so it's reachable (incl. in Docker).
         self._ensure_ui_oauth_runner()
         _OAUTH_INTEGRATION_ID.set(integration_id)
-        if origin:
-            from craftos_integrations.oauth_flow import set_redirect_uri_override
+        # Pick the redirect URI the provider will call back to:
+        #   • Multi-tenant (many per-user containers behind one apex domain):
+        #     every container shares ONE registered redirect URI on the apex —
+        #     the broker. Set ``CRAFTBOT_OAUTH_BROKER_URL`` (e.g.
+        #     https://craft-dev.com/oauth/callback) on every container. The
+        #     broker reads the tenant from the OAuth ``state`` and bounces the
+        #     callback back to this container's subdomain.
+        #   • Single container / desktop: fall back to the browser's own origin
+        #     so the provider redirects straight back here.
+        from craftos_integrations.oauth_flow import set_redirect_uri_override
 
+        broker_url = os.environ.get("CRAFTBOT_OAUTH_BROKER_URL", "").strip()
+        if broker_url:
+            set_redirect_uri_override(broker_url.rstrip("/"))
+        elif origin:
             set_redirect_uri_override(origin.rstrip("/"))
         try:
             success, message = await connect_integration_oauth(integration_id)
