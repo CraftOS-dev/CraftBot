@@ -8,9 +8,8 @@ from agent_core import action
         "Supports headings (# to #####), paragraphs, bullet and numbered lists, "
         "bold, italic, inline code, fenced code blocks, tables, strikethrough, "
         "blockquotes, and horizontal rules. "
-        "The first # heading is rendered as a gradient banner header. "
-        "Available themes: default (indigo), corporate (blue), minimal (grey), "
-        "warm (amber), forest (green). "
+        "The first # heading is rendered as a banner header. "
+        "Colours, typography, and margins are read from FORMAT.md at render time. "
         "Use absolute paths only."
     ),
     mode="CLI",
@@ -37,19 +36,6 @@ from agent_core import action
                 "The first # heading becomes the banner title. "
                 "Supports tables (pipe syntax), fenced code blocks (```lang), "
                 "and ~~strikethrough~~."
-            ),
-        },
-        "theme": {
-            "type": "string",
-            "example": "default",
-            "description": (
-                "Visual colour theme. One of: "
-                "default (indigo) — general use; "
-                "corporate (blue) — business, finance, formal reports; "
-                "minimal (grey) — academic, technical, low-decoration; "
-                "warm (amber) — creative, personal, informal; "
-                "forest (green) — sustainability, nature, environmental. "
-                "Defaults to 'default'."
             ),
         },
         "subtitle": {
@@ -89,10 +75,11 @@ from agent_core import action
         },
         "theme_used": {
             "type": "string",
-            "example": "corporate",
+            "example": "format_md",
             "description": (
-                "The theme that was applied. Useful for downstream actions "
-                "(e.g. edit_pdf) that need to match colours to the document style."
+                "Always 'format_md'. Styling is derived from FORMAT.md "
+                "(accent=#FF4F18, base=#141517, muted=#6B6E76). "
+                "Useful for downstream actions (e.g. edit_pdf) that need to match colours."
             ),
         },
         "message": {
@@ -116,7 +103,6 @@ def create_pdf_file(input_data: dict) -> dict:
     simulated_mode = bool(input_data.get("simulated_mode", False))
     file_path = str(input_data.get("file_path", "")).strip()
     content = str(input_data.get("content", "")).strip()
-    theme = str(input_data.get("theme", "default")).strip().lower()
     subtitle = str(input_data.get("subtitle", "")).strip()
     page_numbers = bool(input_data.get("page_numbers", True))
 
@@ -141,7 +127,7 @@ def create_pdf_file(input_data: dict) -> dict:
         }
 
     if simulated_mode:
-        return {"status": "success", "path": file_path}
+        return {"status": "success", "path": file_path, "theme_used": "format_md"}
 
     # ── Imports (executor pre-installs via requirement=, this is a fallback) ──
     import os
@@ -168,70 +154,13 @@ def create_pdf_file(input_data: dict) -> dict:
     from fpdf import FPDF
     from fpdf.fonts import TextStyle, FontFace
     from fpdf.pattern import LinearGradient
+    from app.config import AGENT_FILE_SYSTEM_PATH
+    from app.utils.pdf_format import load_style, build_theme as _build_theme
 
-    # ── Themes ────────────────────────────────────────────────────────────
-    # Keys: hbg=gradient stop colours, accent=link/highlight colour,
-    #       h2/h3=heading colours, body=body text, cbg/cc=code bg/fg,
-    #       rule=accent rule below banner, htxt=banner text
-    _THEMES = {
-        "default": {
-            "hbg": [(30, 58, 138), (79, 70, 229)],
-            "accent": (79, 70, 229),
-            "h2": (30, 58, 138),
-            "h3": (55, 65, 81),
-            "body": (31, 41, 55),
-            "cbg": (243, 244, 246),
-            "cc": (17, 24, 39),
-            "rule": (199, 210, 254),
-            "htxt": (255, 255, 255),
-        },
-        "corporate": {
-            "hbg": [(0, 72, 148), (0, 120, 212)],
-            "accent": (0, 120, 212),
-            "h2": (0, 72, 148),
-            "h3": (60, 60, 100),
-            "body": (31, 41, 55),
-            "cbg": (240, 247, 255),
-            "cc": (0, 72, 148),
-            "rule": (173, 216, 230),
-            "htxt": (255, 255, 255),
-        },
-        "minimal": {
-            "hbg": [(50, 50, 50), (90, 90, 90)],
-            "accent": (80, 80, 80),
-            "h2": (40, 40, 40),
-            "h3": (80, 80, 80),
-            "body": (40, 40, 40),
-            "cbg": (245, 245, 245),
-            "cc": (30, 30, 30),
-            "rule": (200, 200, 200),
-            "htxt": (255, 255, 255),
-        },
-        "warm": {
-            "hbg": [(120, 53, 15), (217, 119, 6)],
-            "accent": (180, 83, 9),
-            "h2": (120, 53, 15),
-            "h3": (92, 72, 44),
-            "body": (41, 37, 36),
-            "cbg": (255, 247, 237),
-            "cc": (120, 53, 15),
-            "rule": (253, 186, 116),
-            "htxt": (255, 255, 255),
-        },
-        "forest": {
-            "hbg": [(20, 83, 45), (34, 197, 94)],
-            "accent": (22, 163, 74),
-            "h2": (20, 83, 45),
-            "h3": (55, 65, 55),
-            "body": (31, 41, 31),
-            "cbg": (240, 253, 244),
-            "cc": (20, 83, 45),
-            "rule": (134, 239, 172),
-            "htxt": (255, 255, 255),
-        },
-    }
-    t = _THEMES.get(theme, _THEMES["default"])
-    theme = theme if theme in _THEMES else "default"  # resolve fallback for theme_used
+    # ── Style resolved from FORMAT.md (falls back to CraftBot brand defaults) ──
+    _fmt = load_style(AGENT_FILE_SYSTEM_PATH / "FORMAT.md")
+    t = _build_theme(_fmt)
+    _MARGIN_MM = _fmt["margin_in"] * 25.4
 
     # ── Unicode sanitizer ─────────────────────────────────────────────────
     # fpdf2's built-in fonts (Helvetica, Courier, Times) only cover latin-1
@@ -317,8 +246,8 @@ def create_pdf_file(input_data: dict) -> dict:
 
         # FPDF setup
         pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=22)
-        pdf.set_margins(left=20, top=15, right=20)
+        pdf.set_auto_page_break(auto=True, margin=_MARGIN_MM)
+        pdf.set_margins(left=_MARGIN_MM, top=_MARGIN_MM, right=_MARGIN_MM)
         if doc_title:
             pdf.set_title(doc_title)
         pdf.set_creator("CraftBot")
@@ -327,7 +256,11 @@ def create_pdf_file(input_data: dict) -> dict:
         pw = pdf.w - pdf.l_margin - pdf.r_margin  # usable page width
         lm = pdf.l_margin
         y0 = 8  # banner top y-position
-        HH = 50 if subtitle else 40  # banner height
+        # Banner height: scale with FORMAT.md header_height_in but floor at 30mm
+        # so the title text always fits. FORMAT.md's 0.4" is a nav-bar spec; the
+        # PDF banner is a title block that needs proportionally more space.
+        _BASE_H = max(round(_fmt["header_height_in"] * 25.4 * 2.5), 30)
+        HH = _BASE_H + (10 if subtitle else 0)
 
         # ── Gradient banner ───────────────────────────────────────────────
         grad = LinearGradient(lm, y0, lm + pw, y0, colors=t["hbg"])
@@ -335,7 +268,7 @@ def create_pdf_file(input_data: dict) -> dict:
             pdf.rect(lm, y0, pw, HH, style="F")
 
         if doc_title:
-            pdf.set_font("Helvetica", "B", 20)
+            pdf.set_font("Helvetica", "B", _fmt["h1_pt"])
             pdf.set_text_color(*t["htxt"])
             title_y = y0 + (HH - 20) / 2 - (5 if subtitle else 0)
             pdf.set_xy(lm + 8, title_y)
@@ -358,7 +291,7 @@ def create_pdf_file(input_data: dict) -> dict:
             "h1": TextStyle(
                 font_family="Helvetica",
                 font_style="B",
-                font_size_pt=20,
+                font_size_pt=_fmt["h1_pt"],
                 color=t["h2"],
                 t_margin=10,
                 b_margin=3,
@@ -366,7 +299,7 @@ def create_pdf_file(input_data: dict) -> dict:
             "h2": TextStyle(
                 font_family="Helvetica",
                 font_style="B",
-                font_size_pt=16,
+                font_size_pt=_fmt["h2_pt"],
                 color=t["h2"],
                 t_margin=8,
                 b_margin=2,
@@ -374,7 +307,7 @@ def create_pdf_file(input_data: dict) -> dict:
             "h3": TextStyle(
                 font_family="Helvetica",
                 font_style="B",
-                font_size_pt=13,
+                font_size_pt=_fmt["h3_pt"],
                 color=t["h3"],
                 t_margin=6,
                 b_margin=2,
@@ -382,7 +315,7 @@ def create_pdf_file(input_data: dict) -> dict:
             "h4": TextStyle(
                 font_family="Helvetica",
                 font_style="BI",
-                font_size_pt=11,
+                font_size_pt=_fmt["body_pt"],
                 color=t["h3"],
                 t_margin=4,
                 b_margin=1,
@@ -390,20 +323,20 @@ def create_pdf_file(input_data: dict) -> dict:
             "h5": TextStyle(
                 font_family="Helvetica",
                 font_style="I",
-                font_size_pt=10,
+                font_size_pt=_fmt["small_pt"],
                 color=t["h3"],
                 t_margin=3,
                 b_margin=1,
             ),
             "code": TextStyle(
                 font_family="Courier",
-                font_size_pt=9,
+                font_size_pt=_fmt["code_pt"],
                 color=t["cc"],
                 fill_color=t["cbg"],
             ),
             "pre": TextStyle(
                 font_family="Courier",
-                font_size_pt=9,
+                font_size_pt=_fmt["code_pt"],
                 color=t["cc"],
                 fill_color=t["cbg"],
             ),
@@ -411,7 +344,7 @@ def create_pdf_file(input_data: dict) -> dict:
         }
 
         pdf.set_text_color(*t["body"])
-        pdf.set_font("Helvetica", size=11)
+        pdf.set_font("Helvetica", size=_fmt["body_pt"])
         pdf.write_html(
             html_body,
             font_family="Helvetica",
@@ -426,8 +359,8 @@ def create_pdf_file(input_data: dict) -> dict:
             for pg in range(1, n_pages + 1):
                 pdf.page = pg
                 pdf.set_y(-12)
-                pdf.set_font("Helvetica", "I", 8)
-                pdf.set_text_color(150, 150, 150)
+                pdf.set_font("Helvetica", "I", _fmt["small_pt"])
+                pdf.set_text_color(*_fmt["muted"])
                 pdf.cell(0, 5, f"Page {pg} of {n_pages}", align="C")
 
         # ── Write to disk ─────────────────────────────────────────────────
@@ -442,7 +375,7 @@ def create_pdf_file(input_data: dict) -> dict:
             "path": abs_path,
             "pages": n_pages,
             "size_bytes": os.path.getsize(abs_path),
-            "theme_used": theme,
+            "theme_used": "format_md",
         }
 
     except PermissionError as exc:
