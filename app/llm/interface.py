@@ -126,6 +126,7 @@ class LLMInterface(_LLMInterface):
         self,
         system_prompt: Optional[str],
         user_prompt: Optional[str],
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """Managed-provider quota guard.
 
@@ -180,4 +181,4 @@ class LLMInterface(_LLMInterface):
                     "tokens_used": 0,
                 }
 
-        return super()._generate_bedrock(system_prompt, user_prompt)
+        return super()._generate_bedrock(system_prompt, user_prompt, **kwargs)
