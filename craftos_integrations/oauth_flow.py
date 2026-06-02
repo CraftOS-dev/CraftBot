@@ -322,6 +322,21 @@ def set_redirect_uri_override(uri: Optional[str]) -> None:
     _redirect_uri_override.set(uri or None)
 
 
+# Per-flow override for the tenant baked into ``state``. The host derives this
+# from the subdomain the user is on (e.g. ``f6498ac0eb`` from
+# ``f6498ac0eb.craft-dev.com``) and sets it here so the apex broker can route
+# the callback back to the right container — without each container needing a
+# ``CRAFTBOT_TENANT_ID`` env var. Falls back to that env var if unset.
+_tenant_override: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "oauth_tenant_override", default=None
+)
+
+
+def set_tenant_override(tenant: Optional[str]) -> None:
+    """Set the tenant id for the current OAuth flow (see _tenant_override)."""
+    _tenant_override.set(tenant or None)
+
+
 class OAuthFlow:
     """Composition helper: handlers hold an OAuthFlow instance.
 
@@ -407,8 +422,17 @@ class OAuthFlow:
         # and must not contain a dot. Unset → plain random state (the desktop /
         # single-container case is unchanged).
         random_state = secrets.token_urlsafe(32)
-        tenant = os.environ.get("CRAFTBOT_TENANT_ID", "").strip()
+        tenant = (_tenant_override.get() or os.environ.get("CRAFTBOT_TENANT_ID", "")).strip()
         state = f"{tenant}.{random_state}" if tenant else random_state
+
+        # Log the exact redirect_uri being sent so a `redirect_uri_mismatch`
+        # is trivial to diagnose: this string must be registered verbatim in
+        # the provider's OAuth client.
+        logger.info(
+            f"[OAUTH] auth request redirect_uri={self.redirect_uri!r} "
+            f"tenant={tenant or '(none)'}"
+        )
+
         params: Dict[str, str] = {
             "client_id": client_id,
             "redirect_uri": self.redirect_uri,

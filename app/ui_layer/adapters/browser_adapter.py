@@ -962,6 +962,12 @@ class BrowserAdapter(InterfaceAdapter):
         self._runner: Optional["web.AppRunner"] = None
         self._started_at: float = 0.0
         self._ws_prepare_failures: int = 0
+        # Readiness flag for the /healthz endpoint. False until the web server
+        # is bound AND the agent is running, so the hosting control-plane can
+        # poll and only enable "Open CraftBot" once the app actually serves —
+        # instead of the user clicking too early and hitting errors. Cleared on
+        # shutdown so a stopping container reports not-ready.
+        self._ready: bool = False
 
         # Dashboard metrics collector
         self._metrics_collector = MetricsCollector(controller.agent)
@@ -1140,6 +1146,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         # API and WebSocket routes (must be registered first)
         self._app.router.add_get("/ws", self._websocket_handler)
+        # Unauthenticated readiness probe for the hosting control-plane. Must be
+        # registered before the catch-all so it isn't swallowed by SPA routing.
+        self._app.router.add_get("/healthz", self._healthz_handler)
         self._app.router.add_get("/api/state", self._state_handler)
         self._app.router.add_get("/api/theme.css", self._theme_css_handler)
         self._app.router.add_get(
@@ -1205,6 +1214,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
         self._started_at = time.monotonic()
+        # Server is bound and serving — mark ready so /healthz returns 200 and
+        # the control-plane can safely enable "Open CraftBot".
+        self._ready = True
 
         # Only print URL info if not using browser startup UI (run.py handles it)
         import os
@@ -1236,6 +1248,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
     async def _on_stop(self) -> None:
         """Stop the browser interface."""
+        # Report not-ready immediately so the control-plane sees a stopping
+        # container as down (and shows a "Stopping…" state) rather than live.
+        self._ready = False
+
         # Stop all running Living UI projects
         if self._living_ui_manager:
             await self._living_ui_manager.stop_all_projects()
@@ -5523,20 +5539,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # origin the user's browser is on, so it's reachable (incl. in Docker).
         self._ensure_ui_oauth_runner()
         _OAUTH_INTEGRATION_ID.set(integration_id)
-        # Pick the redirect URI the provider will call back to:
-        #   • Multi-tenant (many per-user containers behind one apex domain):
-        #     every container shares ONE registered redirect URI on the apex —
-        #     the broker. Set ``CRAFTBOT_OAUTH_BROKER_URL`` (e.g.
-        #     https://craft-dev.com/oauth/callback) on every container. The
-        #     broker reads the tenant from the OAuth ``state`` and bounces the
-        #     callback back to this container's subdomain.
-        #   • Single container / desktop: fall back to the browser's own origin
-        #     so the provider redirects straight back here.
-        from craftos_integrations.oauth_flow import set_redirect_uri_override
+        # Pick the redirect URI the provider will call back to. Providers like
+        # Google require it to be REGISTERED verbatim and forbid wildcards, so a
+        # per-user subdomain (``f6498ac0eb.craft-dev.com``) can never be
+        # registered → ``redirect_uri_mismatch``. The fix: every container shares
+        # ONE registered redirect URI on the apex (the broker), and the broker
+        # routes the callback back to the right container using the tenant baked
+        # into the OAuth ``state``.
+        #
+        # Resolution order (no per-container config needed in the common case):
+        #   1. ``CRAFTBOT_OAUTH_BROKER_URL`` env — explicit override, wins.
+        #   2. Derived from the subdomain origin: ``https://<sub>.<apex>`` ⇒
+        #      broker ``https://<apex>/oauth/callback``, tenant ``<sub>``.
+        #   3. Single container / desktop (no subdomain) — use the origin itself.
+        from urllib.parse import urlparse
+
+        from craftos_integrations.oauth_flow import (
+            set_redirect_uri_override,
+            set_tenant_override,
+        )
 
         broker_url = os.environ.get("CRAFTBOT_OAUTH_BROKER_URL", "").strip()
+        tenant = os.environ.get("CRAFTBOT_TENANT_ID", "").strip()
+
+        if not broker_url and origin:
+            parsed = urlparse(origin)
+            host = parsed.hostname or ""
+            labels = host.split(".")
+            # A per-tenant subdomain looks like ``sub.apex.tld`` (≥ 3 labels);
+            # bare apex / localhost (< 3) is the single-container case.
+            if len(labels) >= 3 and parsed.scheme:
+                apex = ".".join(labels[1:])
+                broker_url = f"{parsed.scheme}://{apex}/oauth/callback"
+                if not tenant:
+                    tenant = labels[0]
+
         if broker_url:
             set_redirect_uri_override(broker_url.rstrip("/"))
+            if tenant:
+                set_tenant_override(tenant)
         elif origin:
             set_redirect_uri_override(origin.rstrip("/"))
         try:
@@ -7366,6 +7407,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         html = self._get_index_html()
         return web.Response(text=html, content_type="text/html")
+
+    async def _healthz_handler(self, request: "web.Request") -> "web.Response":
+        """Readiness probe for the hosting control-plane.
+
+        Returns 200 only when the web server is up AND the agent is running, so
+        the dashboard can poll this and enable "Open CraftBot" exactly when the
+        container is genuinely serving — not while it's still booting/installing
+        (which is when clicking through produced errors). Returns 503 otherwise.
+        Cheap and unauthenticated; safe to poll frequently.
+        """
+        from aiohttp import web
+
+        try:
+            agent_running = bool(self._controller.agent.is_running)
+        except Exception:
+            agent_running = False
+        ready = self._ready and agent_running
+        uptime = (time.monotonic() - self._started_at) if self._started_at else 0.0
+        return web.json_response(
+            {
+                "status": "ok" if ready else "starting",
+                "ready": ready,
+                "uptime_seconds": round(uptime, 1),
+            },
+            status=200 if ready else 503,
+        )
 
     async def _state_handler(self, request: "web.Request") -> "web.Response":
         """API endpoint for current state."""
