@@ -50,4 +50,12 @@ PROVIDER_CONFIG = {
         base_url_env="AWS_REGION",
         default_base_url="us-east-1",
     ),
+    "craftbot": ProviderConfig(
+        # CraftBot's managed-default provider. Routes through AWS Bedrock under
+        # the hood, but credentials come from the container env (boto3 default
+        # chain) — NOT from settings.json. Usage is metered back to the
+        # craftbot.live dashboard; see app/network_interface/outbound.py.
+        base_url_env="AWS_REGION",
+        default_base_url="us-east-1",
+    ),
 }

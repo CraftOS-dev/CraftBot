@@ -107,8 +107,11 @@ class ProviderStep:
     description = "Choose which AI provider to use for the agent."
     required = True
 
-    # Provider options with their display names
+    # Provider options with their display names. `craftbot` is the managed
+    # default — routes through AWS Bedrock with container-injected credentials
+    # and skips the API-key step (see OnboardingFlowController.next_step).
     PROVIDERS = [
+        ("craftbot", "CraftBot default provider", "Managed by craftbot.live — no API key required"),
         ("openai", "OpenAI", "GPT models"),
         ("gemini", "Google Gemini", "Gemini models"),
         ("byteplus", "BytePlus", "Kimi models"),
@@ -125,7 +128,7 @@ class ProviderStep:
                 value=provider_id,
                 label=label,
                 description=desc,
-                default=(provider_id == "openai"),
+                default=(provider_id == "craftbot"),
             )
             for provider_id, label, desc in self.PROVIDERS
         ]
@@ -143,7 +146,7 @@ class ProviderStep:
         current_provider = get_llm_provider().lower()
         if current_provider and current_provider in [p[0] for p in self.PROVIDERS]:
             return current_provider
-        return "openai"
+        return "craftbot"
 
 
 class ApiKeyStep:

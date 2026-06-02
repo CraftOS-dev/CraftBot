@@ -183,6 +183,10 @@ class OnboardingFlowController:
         """
         Move to the next step.
 
+        When the active provider is `craftbot` (the managed default) and the
+        next step is `ApiKeyStep`, auto-skip past it — managed Bedrock uses
+        container-injected AWS credentials and there is no user key to enter.
+
         Returns:
             True if there are more steps, False if onboarding is complete
         """
@@ -191,6 +195,17 @@ class OnboardingFlowController:
         if self._state.current_step >= len(self.STEP_CLASSES):
             self._complete()
             return False
+
+        if (
+            self.STEP_CLASSES[self._state.current_step] is ApiKeyStep
+            and self._state.collected_data.get("provider") == "craftbot"
+        ):
+            # Record an empty api_key so _complete()'s no-key branch fires.
+            self._state.collected_data["api_key"] = ""
+            self._state.current_step += 1
+            if self._state.current_step >= len(self.STEP_CLASSES):
+                self._complete()
+                return False
 
         return True
 
@@ -295,6 +310,10 @@ class OnboardingFlowController:
             else:
                 # User has direct access — save key under the native provider.
                 save_settings_to_json(provider, api_key)
+        elif provider == "craftbot":
+            # Managed default — no API key to save. Persist just the provider
+            # choice so future boots read settings.json and find craftbot.
+            save_settings_to_json(provider, "")
         elif provider and api_key:
             save_settings_to_json(provider, api_key)
 

@@ -239,29 +239,31 @@ class ModelFactory:
                 "initialized": True,
             }
 
-        if provider == "bedrock":
-            # Bedrock uses the boto3 credential chain. CraftBot stores AWS
-            # credentials in settings.json (not env vars), so we pull them via
-            # app.config — mirroring how the OpenRouter fallback path also
-            # reaches into app.config to read its stored key.
-            #
+        if provider in ("bedrock", "craftbot"):
+            # Both BYOK `bedrock` and the managed `craftbot` provider route
+            # through the same bedrock-runtime client. They differ only in
+            # WHERE credentials come from:
+            #   - bedrock  → settings.json (user-stored AWS access/secret/region)
+            #   - craftbot → container env (boto3 default chain — AWS_ACCESS_KEY_ID
+            #                / AWS_SECRET_ACCESS_KEY / AWS_REGION injected by
+            #                craftbot.live's instance container)
             # `base_url` carries the region through the factory plumbing
             # (api_key/base_url are the only fields the callers thread through).
-            # If unset, fall back to settings → AWS_REGION env → default.
             region = resolved_base_url or "us-east-1"
             access_key = secret_key = session_token = None
-            try:
-                from app.config import get_aws_credentials  # type: ignore
+            if provider == "bedrock":
+                try:
+                    from app.config import get_aws_credentials  # type: ignore
 
-                creds = get_aws_credentials()
-                access_key = creds.get("access_key_id") or None
-                secret_key = creds.get("secret_access_key") or None
-                session_token = creds.get("session_token") or None
-                region = creds.get("region") or region
-            except Exception:
-                # Falling back to boto3's default credential chain (env, IAM
-                # role, SSO profile). Useful when running on an EC2/ECS host.
-                pass
+                    creds = get_aws_credentials()
+                    access_key = creds.get("access_key_id") or None
+                    secret_key = creds.get("secret_access_key") or None
+                    session_token = creds.get("session_token") or None
+                    region = creds.get("region") or region
+                except Exception:
+                    # Falling back to boto3's default credential chain (env, IAM
+                    # role, SSO profile). Useful when running on an EC2/ECS host.
+                    pass
 
             if boto3 is None:
                 if deferred:

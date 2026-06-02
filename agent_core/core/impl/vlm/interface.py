@@ -270,7 +270,7 @@ class VLMInterface:
                 response = self._anthropic_describe_bytes(
                     image_bytes, system_prompt, user_prompt
                 )
-            elif self.provider == "bedrock":
+            elif self.provider in ("bedrock", "craftbot"):
                 response = self._bedrock_describe_bytes(
                     image_bytes, system_prompt, user_prompt
                 )

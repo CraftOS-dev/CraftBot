@@ -4,9 +4,18 @@ VLM interface for CraftBot.
 
 Re-exports VLMInterface from agent_core with CraftBot-specific hooks
 for state access (using STATE singleton) and usage reporting.
+
+Hosted-version addition: managed-Bedrock quota guard. Symmetric with
+app/llm/interface.py — when the dashboard has set a quota lock, the Bedrock
+vision path short-circuits with a ManagedQuotaExceededError instead of
+calling AWS. VLM doesn't use the LLMErrorInfo classifier (the upstream VLM
+interface just re-raises), so we raise an exception; the calling code's
+error handling surfaces the message. By the time a VLM-only path actually
+hits this guard, the LLM path will usually have already surfaced the QUOTA
+chat bubble (LLM is the user-facing surface), so the user has context.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from agent_core.core.impl.vlm import VLMInterface as _VLMInterface
 from agent_core.core.hooks.types import UsageEventData
@@ -24,10 +33,17 @@ def _set_token_count(count: int) -> None:
 
 
 async def _report_usage(event: UsageEventData) -> None:
-    """Report usage to local storage via UsageReporter."""
+    """Report usage to local SQLite AND forward to the craftbot.live dashboard.
+
+    Symmetric with LLMInterface._report_usage — VLM calls are billed too, so
+    they need to land in the same dashboard UsageRecord rows. See
+    app/network_interface/outbound.py for the fire-and-forget semantics.
+    """
     from app.usage import get_usage_reporter
+    from app.network_interface import report_usage_to_dashboard
 
     await get_usage_reporter().report(event)
+    await report_usage_to_dashboard(event)
 
 
 class VLMInterface(_VLMInterface):
@@ -91,3 +107,32 @@ class VLMInterface(_VLMInterface):
             output_tokens,
             cached_tokens,
         )
+
+    def _bedrock_describe_bytes(
+        self,
+        image_bytes,
+        system_prompt: Optional[str],
+        user_prompt: Optional[str],
+    ) -> Dict[str, Any]:
+        """Managed-provider vision quota guard.
+
+        Only fires for `craftbot` (the managed default that bills back to
+        craftbot.live). BYOK `bedrock` uses the user's own AWS account and
+        falls through unmodified.
+
+        Mirrors LLMInterface._generate_bedrock: if the cached dashboard lock
+        state says the user is over their monthly budget, refuse locally with
+        a ManagedQuotaExceededError. The upstream VLM interface re-raises any
+        exception from this method, so the error propagates to the caller.
+        """
+        if self.provider == "craftbot":
+            from app.network_interface import (
+                is_quota_locked,
+                get_quota_reset,
+                ManagedQuotaExceededError,
+            )
+
+            if is_quota_locked():
+                raise ManagedQuotaExceededError(reset_at=get_quota_reset())
+
+        return super()._bedrock_describe_bytes(image_bytes, system_prompt, user_prompt)
