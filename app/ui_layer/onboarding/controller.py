@@ -284,7 +284,22 @@ class OnboardingFlowController:
         # Save provider configuration to settings.json
         from app.onboarding.interfaces.steps import ApiKeyStep
 
-        if provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
+        if provider == "bedrock":
+            # Bedrock uses AWS credentials (access key/secret/region), not a
+            # single API key — persist them under settings.json aws_credentials.
+            from app.ui_layer.settings.model_settings import update_model_settings
+
+            creds = raw_api_key_value if isinstance(raw_api_key_value, dict) else {}
+            update_model_settings(
+                llm_provider="bedrock",
+                vlm_provider="bedrock",
+                aws_credentials={
+                    "access_key_id": creds.get("access_key_id", ""),
+                    "secret_access_key": creds.get("secret_access_key", ""),
+                    "region": creds.get("region", ""),
+                },
+            )
+        elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
             if proxied_via == "openrouter":
                 # User chose to go via OpenRouter — save key as openrouter and set model slug.
                 if submitted_or_model:

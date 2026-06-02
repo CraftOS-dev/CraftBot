@@ -120,6 +120,8 @@ class ProviderStep:
         ("minimax", "MiniMax", "MiniMax models"),
         ("moonshot", "Moonshot", "Moonshot models"),
         ("grok", "Grok (xAI)", "Grok models"),
+        ("openrouter", "OpenRouter", "Access many models with one key"),
+        ("bedrock", "AWS Bedrock", "Claude via your own AWS account"),
     ]
 
     def get_options(self) -> List[StepOption]:
@@ -165,6 +167,7 @@ class ApiKeyStep:
         "minimax": "MINIMAX_API_KEY",
         "moonshot": "MOONSHOT_API_KEY",
         "grok": "XAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
 
     def __init__(self, provider: str = "openai"):
@@ -175,7 +178,15 @@ class ApiKeyStep:
     OPENROUTER_PROXIED_DISPLAY = {"moonshot": "Moonshot (Kimi)", "minimax": "MiniMax"}
 
     @property
+    def is_bedrock(self) -> bool:
+        # Bedrock isn't a single API key — it needs AWS access key + secret +
+        # region. The frontend renders a 3-field form and submits a dict.
+        return self.provider == "bedrock"
+
+    @property
     def title(self) -> str:
+        if self.is_bedrock:
+            return "Enter AWS Credentials"
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
             return f"Enter {display} API Key"
@@ -183,6 +194,11 @@ class ApiKeyStep:
 
     @property
     def description(self) -> str:
+        if self.is_bedrock:
+            return (
+                "Enter the AWS access key, secret, and region for an account with "
+                "Bedrock model access enabled."
+            )
         if self.provider in self.OPENROUTER_PROXIED:
             display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
             return (
@@ -196,6 +212,19 @@ class ApiKeyStep:
         return []
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
+        # Bedrock submits {access_key_id, secret_access_key, region} dict.
+        if self.is_bedrock:
+            if not isinstance(value, dict):
+                return False, "AWS credentials are required"
+            access = str(value.get("access_key_id", "")).strip()
+            secret = str(value.get("secret_access_key", "")).strip()
+            region = str(value.get("region", "")).strip()
+            if not access or not secret:
+                return False, "AWS access key and secret are required"
+            if not region:
+                return False, "AWS region is required"
+            return True, None
+
         # Proxied providers submit {api_key, via, or_model?} dict
         if self.provider in self.OPENROUTER_PROXIED and isinstance(value, dict):
             api_key = value.get("api_key", "")

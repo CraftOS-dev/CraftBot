@@ -83,6 +83,10 @@ export function OnboardingPage() {
   const [orModel, setOrModel] = useState('')
   // For proxied providers: 'direct' tries the native API, 'openrouter' routes via OR.
   const [proxiedVia, setProxiedVia] = useState<'direct' | 'openrouter'>('direct')
+  // AWS Bedrock credentials (Bedrock isn't a single key — it needs all three).
+  const [awsAccessKey, setAwsAccessKey] = useState('')
+  const [awsSecret, setAwsSecret] = useState('')
+  const [awsRegion, setAwsRegion] = useState('us-east-1')
   // Form step state (for user_profile and similar multi-field steps)
   const [formValues, setFormValues] = useState<Record<string, string | string[]>>({})
   // Picture upload state (for image_upload fields)
@@ -205,8 +209,11 @@ export function OnboardingPage() {
     if (!onboardingStep) return
     const isProxiedStep = onboardingStep.name === 'api_key' &&
       onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
+    const isBedrockStep = onboardingStep.name === 'api_key' && onboardingStep.provider === 'bedrock'
 
-    if (isProxiedStep) {
+    if (isBedrockStep) {
+      submitOnboardingStep({ access_key_id: awsAccessKey, secret_access_key: awsSecret, region: awsRegion })
+    } else if (isProxiedStep) {
       submitOnboardingStep({ api_key: textValue, via: proxiedVia, or_model: proxiedVia === 'openrouter' ? orModel : '' })
     } else if (onboardingStep.name === 'integrations') {
       // Panel step — the embedded IntegrationsSettings handles its own
@@ -219,7 +226,7 @@ export function OnboardingPage() {
     } else {
       submitOnboardingStep(textValue)
     }
-  }, [onboardingStep, selectedValue, textValue, orModel, proxiedVia, formValues, submitOnboardingStep])
+  }, [onboardingStep, selectedValue, textValue, orModel, proxiedVia, awsAccessKey, awsSecret, awsRegion, formValues, submitOnboardingStep])
 
   const handleSkip = useCallback(() => skipOnboardingStep(), [skipOnboardingStep])
 
@@ -252,6 +259,9 @@ export function OnboardingPage() {
     if (isFormStep) return true  // All form fields are optional
     if (onboardingStep.options.length > 0) {
       return isMultiSelect ? true : !!selectedValue
+    }
+    if (onboardingStep.name === 'api_key' && onboardingStep.provider === 'bedrock') {
+      return awsAccessKey.trim().length > 0 && awsSecret.trim().length > 0 && awsRegion.trim().length > 0
     }
     return onboardingStep.required ? textValue.trim().length > 0 : true
   })()
@@ -611,6 +621,42 @@ export function OnboardingPage() {
                 Having connection issues? Use OpenRouter instead →
               </button>
             )}
+          </div>
+        </div>
+      )
+    }
+
+    const isBedrock = isApiKey && onboardingStep.provider === 'bedrock'
+    if (isBedrock) {
+      return (
+        <div className={styles.formGroup}>
+          <input
+            type="password"
+            className={`${styles.textInput} ${onboardingError ? styles.error : ''}`}
+            value={awsAccessKey}
+            onChange={e => setAwsAccessKey(e.target.value)}
+            placeholder="AWS Access Key ID"
+            autoFocus
+          />
+          <input
+            type="password"
+            className={styles.textInput}
+            value={awsSecret}
+            onChange={e => setAwsSecret(e.target.value)}
+            placeholder="AWS Secret Access Key"
+            style={{ marginTop: 10 }}
+          />
+          <input
+            type="text"
+            className={styles.textInput}
+            value={awsRegion}
+            onChange={e => setAwsRegion(e.target.value)}
+            placeholder="us-east-1"
+            style={{ marginTop: 10 }}
+            onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
+          />
+          <div className={styles.inputHint}>
+            Your AWS credentials are stored locally. The account needs Bedrock model access enabled.
           </div>
         </div>
       )
