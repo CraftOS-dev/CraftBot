@@ -7,9 +7,12 @@ craftbot.live before it boots.
 
 `seed_default_provider_from_env`
     The dashboard's instances/index.ts containerEnv() injects
-    `CRAFTBOT_DEFAULT_PROVIDER` and `CRAFTBOT_DEFAULT_MODEL` (plus the matching
-    AWS_* creds) into every container so a fresh agent boots straight into
-    managed Bedrock without an onboarding prompt.
+    `CRAFTBOT_DEFAULT_PROVIDER=craftbot` and `CRAFTBOT_DEFAULT_MODEL` (plus the
+    underlying AWS_* creds for the boto3 default chain) into every container
+    so a fresh agent boots straight into the managed CraftBot provider without
+    an onboarding prompt. `craftbot` is the metered managed provider — usage
+    is reported back to the dashboard. The unrelated BYOK `bedrock` provider
+    is for users supplying their own AWS account.
 
     But we MUST NOT trample a user who has already chosen BYOK — settings.json
     is the user's preference. So we only seed when no settings.json exists yet

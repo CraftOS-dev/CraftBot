@@ -85,6 +85,16 @@ def test_provider_connection(
                 timeout=timeout,
                 aws_credentials=aws_credentials,
             )
+        elif provider == "craftbot":
+            # Managed default: credentials come from container env (boto3
+            # default chain). No user-supplied AWS creds to test against —
+            # pass aws_credentials=None so the tester relies on the chain.
+            return _test_bedrock(
+                region=base_url,
+                model=model,
+                timeout=timeout,
+                aws_credentials=None,
+            )
         else:
             return {
                 "success": False,
@@ -244,6 +254,7 @@ _DISPLAY = {
     "grok": "Grok (xAI)",
     "openrouter": "OpenRouter",
     "bedrock": "AWS Bedrock",
+    "craftbot": "CraftBot default provider",
 }
 
 

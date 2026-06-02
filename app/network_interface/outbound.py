@@ -101,9 +101,9 @@ class DashboardClient:
     ) -> None:
         """Forward a single LLM/VLM usage event to the dashboard.
 
-        BYOK filter: only `provider="bedrock"` events reach the dashboard. Every
-        other provider (anthropic-direct, openai, gemini, byteplus, openrouter,
-        etc.) is BYOK — the user pays the upstream provider directly and
+        BYOK filter: only `provider="craftbot"` events reach the dashboard.
+        Every other provider — including BYOK `bedrock` where the user supplies
+        their own AWS credentials — is paid for upstream by the user, and
         craftbot.live MUST NOT count those tokens against their plan budget
         or display them in the dashboard's "Managed usage" surfaces. The
         agent's local UsageReporter (SQLite) keeps logging all calls regardless,
@@ -121,7 +121,7 @@ class DashboardClient:
         # Single point of truth for the managed-LLM allowlist. Keep in sync
         # with apps/backend/prisma/seed-llm-rates.sql — any provider added
         # there must be added here too.
-        if (event.provider or "").lower() != "bedrock":
+        if (event.provider or "").lower() != "craftbot":
             return
 
         body: Dict[str, Any] = {

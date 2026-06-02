@@ -427,7 +427,7 @@ class LLMInterface:
                 response = self._generate_byteplus(system_prompt, user_prompt)
             elif self.provider == "anthropic":
                 response = self._generate_anthropic(system_prompt, user_prompt)
-            elif self.provider == "bedrock":
+            elif self.provider in ("bedrock", "craftbot"):
                 response = self._generate_bedrock(system_prompt, user_prompt)
             else:  # pragma: no cover
                 raise RuntimeError(f"Unknown provider {self.provider!r}")
@@ -592,7 +592,7 @@ class LLMInterface:
                 self.provider == "anthropic" and self._anthropic_client
             )  # Anthropic uses ephemeral caching with extended TTL
             or (
-                self.provider == "bedrock" and self._bedrock_client
+                self.provider in ("bedrock", "craftbot") and self._bedrock_client
             )  # Bedrock uses cachePoint (only Anthropic Claude models on Bedrock support it)
         )
 
@@ -718,7 +718,7 @@ class LLMInterface:
                 return True
             if self.provider == "anthropic" and self._anthropic_client:
                 return True
-            if self.provider == "bedrock" and self._bedrock_client:
+            if self.provider in ("bedrock", "craftbot") and self._bedrock_client:
                 return True
 
         # Check provider-specific actual session existence
@@ -1007,7 +1007,7 @@ class LLMInterface:
         # threshold and silently no-ops. Accumulating turns lets the prefix
         # grow until it crosses the threshold, after which caching activates
         # and serves all subsequent calls.
-        if self.provider == "bedrock" and self._bedrock_client:
+        if self.provider in ("bedrock", "craftbot") and self._bedrock_client:
             session_key = f"{task_id}:{call_type}"
             stored_system_prompt = self._session_system_prompts.get(session_key)
             effective_system_prompt = (

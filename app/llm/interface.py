@@ -127,56 +127,57 @@ class LLMInterface(_LLMInterface):
         system_prompt: Optional[str],
         user_prompt: Optional[str],
     ) -> Dict[str, Any]:
-        """Managed-Bedrock quota guard.
+        """Managed-provider quota guard.
 
-        If the cached dashboard lock state says the user is over their monthly
-        budget, refuse the call locally — returning a structured error in the
-        same shape the base interface expects from a failed provider call.
-        The chat surface picks up `error_info_obj` and renders the QUOTA
-        bubble with the "Open settings" action so the user can switch to BYOK.
+        Only fires when the active provider is `craftbot` (the managed default
+        that bills back to craftbot.live). BYOK `bedrock` uses the user's own
+        AWS account, so quota lock is not applicable and the call falls
+        through to the base interface unmodified.
+
+        For `craftbot`: if the cached dashboard lock state says the user is
+        over their monthly budget, refuse the call locally with a structured
+        error in the same shape the base interface expects from a failed
+        provider call. The chat surface picks up `error_info_obj` and renders
+        the QUOTA bubble with the "Open settings" action so the user can
+        switch to BYOK.
 
         The check is `is_quota_locked()`, a pure local-memory read: no HTTP,
-        no DB, no lock contention with the dashboard. Keeps the LLM hot path
-        unaffected when the user is NOT locked.
+        no DB, no lock contention with the dashboard.
         """
-        from app.network_interface import is_quota_locked, get_quota_reset
+        if self.provider == "craftbot":
+            from app.network_interface import is_quota_locked, get_quota_reset
 
-        if is_quota_locked():
-            reset_at = get_quota_reset()
-            reset_str = (
-                reset_at.strftime("%B %d, %Y")
-                if reset_at
-                else "the next billing period"
-            )
-            message = (
-                f"Your managed Bedrock quota has been used up for this month "
-                f"(resets {reset_str}). To keep using LLM features, configure "
-                f"your own API key under Settings > Models, or wait for the "
-                f"monthly reset."
-            )
-            info = LLMErrorInfo(
-                category=ErrorCategory.QUOTA,
-                title="Managed Bedrock quota exhausted",
-                message=message,
-                provider="bedrock",
-                model=self.model,
-                actions=[
-                    ErrorAction(
-                        label="Open settings",
-                        action="open_settings_model",
-                    ),
-                ],
-            )
-            # Return an empty-content error so the base interface's existing
-            # error-handling path (around line 442 of agent_core's LLM
-            # interface) picks up `error_info_obj`. Same code path that
-            # surfaces auth/rate-limit errors today — the chat bubble looks
-            # identical to other classified errors.
-            return {
-                "content": "",
-                "error": info.message,
-                "error_info_obj": info,
-                "tokens_used": 0,
-            }
+            if is_quota_locked():
+                reset_at = get_quota_reset()
+                reset_str = (
+                    reset_at.strftime("%B %d, %Y")
+                    if reset_at
+                    else "the next billing period"
+                )
+                message = (
+                    f"Your CraftBot managed quota has been used up for this "
+                    f"month (resets {reset_str}). To keep using LLM features, "
+                    f"switch to a BYOK provider under Settings > Models, or "
+                    f"wait for the monthly reset."
+                )
+                info = LLMErrorInfo(
+                    category=ErrorCategory.QUOTA,
+                    title="CraftBot managed quota exhausted",
+                    message=message,
+                    provider="craftbot",
+                    model=self.model,
+                    actions=[
+                        ErrorAction(
+                            label="Open settings",
+                            action="open_settings_model",
+                        ),
+                    ],
+                )
+                return {
+                    "content": "",
+                    "error": info.message,
+                    "error_info_obj": info,
+                    "tokens_used": 0,
+                }
 
         return super()._generate_bedrock(system_prompt, user_prompt)

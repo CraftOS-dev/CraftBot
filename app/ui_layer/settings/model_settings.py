@@ -95,6 +95,14 @@ PROVIDER_INFO = {
         # generic "Server URL" field for an AWS-specific form.
         "base_url_env": "AWS_REGION",
     },
+    "craftbot": {
+        "name": "CraftBot default provider",
+        # Managed default — credentials come from the container env (boto3
+        # default chain), so neither an API key field nor an AWS credentials
+        # block is shown. Usage is metered back to the craftbot.live dashboard.
+        "requires_api_key": False,
+        "is_managed": True,
+    },
 }
 
 
@@ -181,6 +189,7 @@ def get_available_providers() -> Dict[str, Any]:
                     "has_vlm": vlm_model is not None,
                     "supports_catalog": info.get("supports_catalog", False),
                     "is_bedrock": info.get("is_bedrock", False),
+                    "is_managed": info.get("is_managed", False),
                 }
             )
 
@@ -330,34 +339,23 @@ def update_model_settings(
         if "aws_credentials" not in settings:
             settings["aws_credentials"] = {}
 
-        # Update providers
-        # When provider changes, clear the model override so default model is used
-        old_llm_provider = settings["model"].get("llm_provider")
-        old_vlm_provider = settings["model"].get("vlm_provider")
+        # Update providers. Model overrides are intentionally NOT honored —
+        # the model is locked to whatever MODEL_REGISTRY returns for the chosen
+        # provider. The `llm_model` / `vlm_model` parameters are kept in the
+        # signature for backwards compatibility with existing websocket
+        # adapters but their values are discarded.
+        settings["model"]["llm_model"] = None
+        settings["model"]["vlm_model"] = None
 
         if llm_provider:
             settings["model"]["llm_provider"] = llm_provider
-            # Clear LLM model if provider changed (unless new model explicitly provided)
-            if llm_provider != old_llm_provider and llm_model is None:
-                settings["model"]["llm_model"] = None
 
         if vlm_provider:
             settings["model"]["vlm_provider"] = vlm_provider
-            # Clear VLM model if provider changed (unless new model explicitly provided)
-            if vlm_provider != old_vlm_provider and vlm_model is None:
-                settings["model"]["vlm_model"] = None
-        elif llm_provider and llm_provider != old_llm_provider:
-            # If only llm_provider changed and vlm_provider not specified,
-            # also update vlm_provider to match and clear vlm_model
+        elif llm_provider:
+            # If only llm_provider was specified, mirror it onto vlm_provider
+            # so they stay in lockstep.
             settings["model"]["vlm_provider"] = llm_provider
-            if vlm_model is None:
-                settings["model"]["vlm_model"] = None
-
-        # Update custom models (explicit values override the auto-clear above)
-        if llm_model is not None:
-            settings["model"]["llm_model"] = llm_model if llm_model else None
-        if vlm_model is not None:
-            settings["model"]["vlm_model"] = vlm_model if vlm_model else None
 
         # Update API key in settings.json
         if provider_for_key and api_key is not None:

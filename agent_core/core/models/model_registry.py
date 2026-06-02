@@ -67,4 +67,14 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         InterfaceType.EMBEDDING: "amazon.titan-embed-text-v2:0",
     },
+    "craftbot": {
+        # CraftBot's managed default. Same Bedrock-backed Claude Haiku 4.5 as
+        # `bedrock`, but credentials come from container env (boto3 default
+        # chain) and usage is forwarded to the craftbot.live dashboard. The
+        # CRAFTBOT_DEFAULT_MODEL env var can override at boot — see
+        # app/network_interface/bootstrap.py.
+        InterfaceType.LLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        InterfaceType.VLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        InterfaceType.EMBEDDING: "amazon.titan-embed-text-v2:0",
+    },
 }

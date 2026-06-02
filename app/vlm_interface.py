@@ -114,23 +114,25 @@ class VLMInterface(_VLMInterface):
         system_prompt: Optional[str],
         user_prompt: Optional[str],
     ) -> Dict[str, Any]:
-        """Managed-Bedrock vision quota guard.
+        """Managed-provider vision quota guard.
+
+        Only fires for `craftbot` (the managed default that bills back to
+        craftbot.live). BYOK `bedrock` uses the user's own AWS account and
+        falls through unmodified.
 
         Mirrors LLMInterface._generate_bedrock: if the cached dashboard lock
         state says the user is over their monthly budget, refuse locally with
         a ManagedQuotaExceededError. The upstream VLM interface re-raises any
         exception from this method, so the error propagates to the caller.
-
-        The check is a pure local-memory read (no I/O) — keeps the VLM hot
-        path unaffected when the user is NOT locked.
         """
-        from app.network_interface import (
-            is_quota_locked,
-            get_quota_reset,
-            ManagedQuotaExceededError,
-        )
+        if self.provider == "craftbot":
+            from app.network_interface import (
+                is_quota_locked,
+                get_quota_reset,
+                ManagedQuotaExceededError,
+            )
 
-        if is_quota_locked():
-            raise ManagedQuotaExceededError(reset_at=get_quota_reset())
+            if is_quota_locked():
+                raise ManagedQuotaExceededError(reset_at=get_quota_reset())
 
         return super()._bedrock_describe_bytes(image_bytes, system_prompt, user_prompt)

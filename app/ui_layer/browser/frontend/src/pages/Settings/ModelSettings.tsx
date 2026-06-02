@@ -46,6 +46,7 @@ interface ProviderInfo {
   has_vlm: boolean
   supports_catalog?: boolean
   is_bedrock?: boolean
+  is_managed?: boolean
 }
 
 interface ApiKeyStatus {
@@ -318,56 +319,42 @@ export function ModelSettings() {
             </select>
           </div>
 
-          {/* Model Configuration */}
+          {/* Model Configuration — locked, read-only display. The model is
+              fixed per provider in agent_core/core/models/model_registry.py
+              and cannot be changed from this page. */}
           {currentProvider && (
             <>
-              {provider === 'openrouter' && currentProvider.supports_catalog ? (
-                <OpenRouterModelPicker
-                  models={orCatalog.models}
-                  loading={orCatalog.loading}
-                  error={orCatalog.error}
-                  onRefresh={orCatalog.refresh}
-                  label="LLM Model"
-                  value={newLlmModel || currentLlmModel || ''}
-                  onChange={(v) => { setNewLlmModel(v); setHasChanges(true) }}
-                />
-              ) : (
-                <div className={styles.formGroup}>
-                  <label>LLM Model</label>
-                  <input
-                    type="text"
-                    value={newLlmModel || currentLlmModel || ''}
-                    onChange={(e) => { setNewLlmModel(e.target.value); setHasChanges(true) }}
-                    placeholder={currentLlmModel || 'Enter LLM model name...'}
-                  />
+              <div className={styles.formGroup}>
+                <label>LLM Model</label>
+                <div className={styles.maskedKey}>
+                  {currentLlmModel || currentProvider.llm_model || '—'}
                 </div>
-              )}
+              </div>
 
               {currentProvider.has_vlm && (
-                provider === 'openrouter' && currentProvider.supports_catalog ? (
-                  <OpenRouterModelPicker
-                    models={orCatalog.models}
-                    loading={orCatalog.loading}
-                    error={orCatalog.error}
-                    onRefresh={orCatalog.refresh}
-                    label="VLM Model"
-                    requireVision
-                    value={newVlmModel || currentVlmModel || ''}
-                    onChange={(v) => { setNewVlmModel(v); setHasChanges(true) }}
-                  />
-                ) : (
                 <div className={styles.formGroup}>
                   <label>VLM Model</label>
-                  <input
-                    type="text"
-                    value={newVlmModel || currentVlmModel || ''}
-                    onChange={(e) => { setNewVlmModel(e.target.value); setHasChanges(true) }}
-                    placeholder={currentVlmModel || 'Enter VLM model name...'}
-                  />
+                  <div className={styles.maskedKey}>
+                    {currentVlmModel || currentProvider.vlm_model || '—'}
+                  </div>
                 </div>
-                )
               )}
             </>
+          )}
+
+          {/* Managed-provider notice — shown for craftbot (no API key or AWS
+              credentials needed because the container env supplies them). */}
+          {currentProvider?.is_managed && (
+            <div className={styles.formGroup}>
+              <label>
+                Credentials
+                <Badge variant="success" style={{ marginLeft: 8 }}>Managed</Badge>
+              </label>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
+                Powered by craftbot.live. Usage is metered to your account — no
+                API key or AWS credentials required.
+              </p>
+            </div>
           )}
 
           {/* API Key */}
