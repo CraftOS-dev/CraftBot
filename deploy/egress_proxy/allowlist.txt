@@ -18,3 +18,17 @@
 (^|\.)linkedin\.com$
 (^|\.)patreon\.com$
 (^|\.)craft-dev\.com$
+# --- LLM provider API endpoints (required for Test Connection + agent calls) ---
+(^|\.)anthropic\.com$
+(^|\.)openai\.com$
+(^|\.)openrouter\.ai$
+(^|\.)deepseek\.com$
+(^|\.)x\.ai$
+(^|\.)moonshot\.(cn|ai)$
+(^|\.)minimaxi\.com$
+(^|\.)minimax\.chat$
+(^|\.)volces\.com$
+(^|\.)byteplus\.com$
+# AWS Bedrock (runtime = invoke, control plane = model-access checks)
+(^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$
+(^|\.)bedrock\.[a-z0-9-]+\.amazonaws\.com$
