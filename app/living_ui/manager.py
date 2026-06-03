@@ -113,6 +113,18 @@ class LivingUIManager:
         self._used_ports: set = set()
         self._projects_file = self.workspace_root / "living_ui_projects.json"
 
+        # Browser-facing URL template for launched Living UI frontends.
+        # Empty (default) => http://localhost:{port}, correct for local use where
+        # the browser and the dev server share the host. In a hosted/multi-container
+        # deployment the browser is remote, so "localhost" points at the visitor's
+        # own machine and the iframe fails with "localhost refused to connect".
+        # Set CRAFTBOT_LUI_PUBLIC_URL_TEMPLATE to a public origin with a {port}
+        # placeholder (e.g. "https://lui-{port}.craft-dev.com") that the deployment
+        # routes to 127.0.0.1:{port} inside this container.
+        self._public_url_template = os.environ.get(
+            "CRAFTBOT_LUI_PUBLIC_URL_TEMPLATE", ""
+        ).strip()
+
         # Task and trigger management (set via bind_task_manager)
         self._task_manager: Optional["TaskManager"] = None
         self._trigger_queue: Optional["TriggerQueue"] = None
@@ -348,7 +360,7 @@ class LivingUIManager:
                 frontend_log_handle.close()
                 return False
 
-            project.url = f"http://localhost:{port}"
+            project.url = self._public_frontend_url(port)
             logger.info(
                 f"[LIVING_UI] Frontend relaunched for {project_id} on port {port}"
             )
@@ -582,6 +594,27 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             self._used_ports.add(port)
             return port
         raise RuntimeError("No available ports in the Living UI port range")
+
+    def _public_frontend_url(self, port: int) -> str:
+        """Build the browser-facing URL for a Living UI served on ``port``.
+
+        Locally returns ``http://localhost:{port}`` (browser shares the host).
+        When CRAFTBOT_LUI_PUBLIC_URL_TEMPLATE is set (hosted/multi-container),
+        returns a public origin the deployment routes to 127.0.0.1:{port} inside
+        this container. The app is served at that origin's ROOT, so its absolute
+        ``/assets`` and ``/api`` paths resolve correctly — Vite's preview server
+        proxies ``/api`` to the backend internally, so only the frontend port
+        needs a public origin.
+        """
+        if self._public_url_template:
+            try:
+                return self._public_url_template.format(port=port)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI] Invalid CRAFTBOT_LUI_PUBLIC_URL_TEMPLATE "
+                    f"{self._public_url_template!r}: {e}; falling back to localhost"
+                )
+        return f"http://localhost:{port}"
 
     def _release_port(self, port: int) -> None:
         """Release a port back to the pool."""
@@ -1176,7 +1209,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     "errors": [err, log_tail],
                 }
 
-            project.url = f"http://localhost:{frontend_port}"
+            project.url = self._public_frontend_url(frontend_port)
             logger.info(f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}")
 
         # === SUCCESS ===
@@ -1314,7 +1347,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         "errors": [err, log_tail],
                     }
 
-                project.url = f"http://localhost:{frontend_port}"
+                project.url = self._public_frontend_url(frontend_port)
                 logger.info(
                     f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}"
                 )
@@ -2760,15 +2793,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 logger.warning(
                     f"[LIVING_UI:PIPELINE] Sidecar not responding, app still accessible directly on port {app_port}"
                 )
-                project.url = f"http://localhost:{app_port}"
+                project.url = self._public_frontend_url(app_port)
             else:
-                project.url = f"http://localhost:{proxy_port}"
+                project.url = self._public_frontend_url(proxy_port)
                 logger.info(f"[LIVING_UI:PIPELINE] Sidecar ready on port {proxy_port}")
         else:
             logger.warning(
                 "[LIVING_UI:PIPELINE] Sidecar proxy not found, running app without proxy"
             )
-            project.url = f"http://localhost:{app_port}"
+            project.url = self._public_frontend_url(app_port)
 
         project.backend_url = f"http://localhost:{app_port}"
         project.status = "running"
