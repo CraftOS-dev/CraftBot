@@ -101,6 +101,15 @@ class LLMInterface(_LLMInterface):
         trigger. Doing attribution synchronously here guarantees the counters
         land on the task that actually made the LLM call.
         """
+        # Managed `craftbot` routes through the Bedrock client, so the base
+        # interface reports provider="bedrock". Retag to "craftbot" so the
+        # dashboard outbound filter (which forwards ONLY managed usage) meters
+        # it — without conflating it with BYOK `bedrock` (user's own AWS, which
+        # must never be billed). Only fires when the configured provider is the
+        # managed default, so BYOK bedrock is untouched.
+        if self.provider == "craftbot" and provider == "bedrock":
+            provider = "craftbot"
+
         from app.usage.task_attribution import attribute_usage_to_current_task
 
         attribute_usage_to_current_task(

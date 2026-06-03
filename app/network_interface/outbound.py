@@ -74,13 +74,15 @@ class DashboardClient:
     def __init__(self, config: Optional[NetworkInterfaceConfig] = None) -> None:
         self._config: NetworkInterfaceConfig = config or get_config()
         self._client: Optional[httpx.AsyncClient] = None
-        # Tasks we've spawned; used only to drop them from the set on completion
-        # so a long-lived process doesn't accumulate finished-task references.
-        self._inflight: "set[asyncio.Task[None]]" = set()
         # Coarse backpressure counter — number of currently-queued events.
         self._queued: int = 0
         # One warning per outage instead of per failed call, to avoid log floods.
         self._outage_logged: bool = False
+        # The agent's long-lived main event loop, captured on the first heartbeat
+        # tick (which runs on it). Usage is reported from short-lived LLM
+        # worker-thread loops that get torn down immediately, so sends are
+        # dispatched onto this loop instead. None until the first heartbeat.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     # ------------------------------------------------------------------ #
     # public API
@@ -149,6 +151,8 @@ class DashboardClient:
         endpoint already accepts the empty body and just bumps lastActiveAt."""
         if not self._config.enabled:
             return
+        
+        self._loop = asyncio.get_running_loop()
         body: Dict[str, Any] = {}
         if agent_state is not None:
             body["agentState"] = agent_state
@@ -157,13 +161,9 @@ class DashboardClient:
         self._schedule("/api/instance-callback/heartbeat", body)
 
     async def aclose(self) -> None:
-        """Wait for any in-flight tasks (briefly) and close the HTTP client.
-        Called at agent shutdown so the last few events have a chance to drain."""
-        if self._inflight:
-            try:
-                await asyncio.wait(self._inflight, timeout=5.0)
-            except Exception:  # pragma: no cover
-                pass
+        """Close the HTTP client at agent shutdown. Sends are dispatched
+        fire-and-forget onto the main loop, and the local SQLite mirror is the
+        source of truth, so we don't block shutdown draining the last few."""
         if self._client is not None:
             try:
                 await self._client.aclose()
@@ -175,9 +175,17 @@ class DashboardClient:
     # ------------------------------------------------------------------ #
 
     def _schedule(self, path: str, body: Dict[str, Any]) -> None:
-        """Spawn a background send. Drops the event when queued >= MAX_QUEUE
-        so a downed dashboard cannot grow memory without bound. Logs at most
-        once per outage."""
+        """Dispatch a background send onto the agent's long-lived main loop.
+
+        Usage is reported from short-lived LLM worker-thread loops (asyncio.run)
+        that are torn down before a task created on them could POST, so we
+        always dispatch onto the main loop captured on the first heartbeat via
+        run_coroutine_threadsafe — non-blocking, and it survives the report's
+        own loop teardown.
+
+        Drops the event when queued >= MAX_QUEUE so a downed dashboard cannot
+        grow memory without bound. Logs at most once per outage.
+        """
         if self._queued >= MAX_QUEUE:
             if not self._outage_logged:
                 logger.warning(
@@ -187,23 +195,20 @@ class DashboardClient:
                 self._outage_logged = True
             return
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop — shouldn't happen in the agent runtime, but if it
-            # does we can't send. Don't crash; we already logged once below.
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            # The heartbeat binds the main loop at startup, before any usage is
+            # reported, so this is effectively a startup-only guard.
             if not self._outage_logged:
-                logger.warning("[network_interface] no running asyncio loop; cannot send")
+                logger.warning("[network_interface] main loop not bound yet; dropping send")
                 self._outage_logged = True
             return
 
         self._queued += 1
-        task = loop.create_task(self._send_with_retry(path, body))
-        self._inflight.add(task)
-        task.add_done_callback(self._on_task_done)
+        fut = asyncio.run_coroutine_threadsafe(self._send_with_retry(path, body), loop)
+        fut.add_done_callback(lambda _f: self._on_send_done())
 
-    def _on_task_done(self, task: "asyncio.Task[None]") -> None:
-        self._inflight.discard(task)
+    def _on_send_done(self) -> None:
         self._queued = max(0, self._queued - 1)
 
     async def _client_get(self) -> httpx.AsyncClient:
