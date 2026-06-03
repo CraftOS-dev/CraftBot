@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, use
 import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, ChevronDown } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useWorkspace } from '../../contexts/WorkspaceContext'
 import { useToast } from '../../contexts/ToastContext'
+import type { Attachment } from '../../types'
 import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator, AttachmentPreviewModal } from '../ui'
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
@@ -97,8 +99,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     sendMessage,
     sendCommand,
     sendOptionClick,
-    openFile,
-    openFolder,
     lastSeenMessageId,
     markMessagesAsSeen,
     replyTarget,
@@ -121,6 +121,24 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const orderedMessages = useMemo(() => {
     return messages.slice().sort((a, b) => a.timestamp - b.timestamp)
   }, [messages])
+
+  const { downloadFile } = useWorkspace()
+
+  const handleAttachmentDownload = useCallback(async (attachment: Attachment) => {
+    const blob = await downloadFile(attachment.path)
+    if (!blob) {
+      showToast('error', `Failed to download "${attachment.name}".`)
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = attachment.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [downloadFile, showToast])
 
   const [input, setInput] = useState('')
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
@@ -605,8 +623,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                     )}
                     <ChatMessageItem
                       message={message}
-                      onOpenFile={openFile}
-                      onOpenFolder={openFolder}
+                      onDownload={handleAttachmentDownload}
                       onReply={handleChatReply}
                       onOptionClick={sendOptionClick}
                     />
