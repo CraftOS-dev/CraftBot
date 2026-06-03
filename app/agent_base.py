@@ -68,6 +68,7 @@ from app.llm import LLMInterface
 from agent_core.core.impl.llm.errors import (
     classify_llm_error_message,
     LLMConsecutiveFailureError,
+    ErrorCategory,
 )
 from app.vlm_interface import VLMInterface
 from app.database_interface import DatabaseInterface
@@ -1339,7 +1340,12 @@ class AgentBase:
             and fatal_exc.last_error_info is not None
         ):
             cause_msg = fatal_exc.last_error_info.message
-            user_message = f"Aborted after consecutive failures. {cause_msg}"
+            if fatal_exc.last_error_info.category == ErrorCategory.QUOTA:
+                # Quota lock isn't a "failure" — show its message verbatim
+                # (no "aborted after consecutive failures" prefix).
+                user_message = cause_msg
+            else:
+                user_message = f"Aborted after consecutive failures. {cause_msg}"
         elif is_fatal_llm_error and fatal_exc is not None:
             # Old code path that didn't attach last_error_info — fall back
             # to the wrapper's str(). Better than empty.
@@ -2301,6 +2307,38 @@ class AgentBase:
                 self.llm.reset_failure_counter()
             except Exception as e:
                 logger.debug(f"[CHAT] Could not reset LLM failure counter: {e}")
+
+            # ── Rule 0: managed-quota lock. On the managed (craftbot) provider,
+            # an exhausted monthly budget makes every LLM call refuse — including
+            # the routing pre-step below, whose error is swallowed (so the user
+            # sees nothing). Surface the standard red error bubble up front and
+            # do NO LLM work. BYOK providers are never quota-locked, so skip.
+            try:
+                from app.network_interface.state import (
+                    is_quota_locked,
+                    get_quota_reset,
+                )
+                if getattr(self.llm, "provider", None) == "craftbot" and is_quota_locked():
+                    reset_at = get_quota_reset()
+                    reset_str = (
+                        reset_at.strftime("%B %d, %Y")
+                        if reset_at
+                        else "the next billing period"
+                    )
+                    quota_msg = (
+                        f"Your CraftBot managed quota has been used up for this "
+                        f"month (resets {reset_str}). To keep using LLM features, "
+                        f"switch to a BYOK provider under Settings > Models, or "
+                        f"wait for the monthly reset."
+                    )
+                    self.event_stream_manager.get_main_stream().log(
+                        "error", quota_msg, display_message=quota_msg
+                    )
+                    self.state_manager.bump_event_stream()
+                    logger.info("[CHAT] managed quota locked — surfaced notice, skipped LLM work")
+                    return
+            except Exception as e:
+                logger.debug(f"[CHAT] quota gate check failed (continuing): {e}")
 
             gui_mode = payload.get("gui_mode")
             platform = (

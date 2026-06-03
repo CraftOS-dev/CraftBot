@@ -31,6 +31,7 @@ from agent_core.core.impl.llm.cache import (
 from agent_core.core.impl.llm.errors import (
     LLMConsecutiveFailureError,
     classify_llm_error,
+    ErrorCategory,
 )
 from agent_core.core.hooks import (
     GetTokenCountHook,
@@ -454,6 +455,19 @@ class LLMInterface:
                         f"Check your credentials and API status."
                     )
                 logger.error(f"[LLM ERROR] {error_detail}")
+                # Terminal categories (e.g. the managed-quota lock) are NOT
+                # transient — retrying just refuses again in silence. Surface
+                # immediately (the agent_base handler shows the standard red
+                # error message on the first hit) and stop the task instead of
+                # burning the 5-failure retry budget quietly.
+                if (
+                    error_info is not None
+                    and error_info.category == ErrorCategory.QUOTA
+                ):
+                    raise LLMConsecutiveFailureError(
+                        self._max_consecutive_failures,
+                        last_error_info=error_info,
+                    )
                 # Track consecutive failure
                 self._consecutive_failures += 1
                 logger.warning(

@@ -205,8 +205,22 @@ class DashboardClient:
             return
 
         self._queued += 1
-        fut = asyncio.run_coroutine_threadsafe(self._send_with_retry(path, body), loop)
-        fut.add_done_callback(lambda _f: self._on_send_done())
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            # Already on the main loop (e.g. the heartbeat tick) — schedule
+            # directly. run_coroutine_threadsafe is for calls from OTHER threads;
+            # using it from the loop's own thread doesn't reliably run the coro.
+            task = loop.create_task(self._send_with_retry(path, body))
+            task.add_done_callback(lambda _t: self._on_send_done())
+        else:
+            # Off-loop caller (e.g. usage reported from the LLM worker thread,
+            # whose asyncio.run loop is torn down immediately) — dispatch onto
+            # the persistent main loop so the send survives.
+            fut = asyncio.run_coroutine_threadsafe(self._send_with_retry(path, body), loop)
+            fut.add_done_callback(lambda _f: self._on_send_done())
 
     def _on_send_done(self) -> None:
         self._queued = max(0, self._queued - 1)
