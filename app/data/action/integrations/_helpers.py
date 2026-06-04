@@ -147,12 +147,21 @@ async def run_client(
         raw = method(**kwargs)
         if asyncio.iscoroutine(raw):
             raw = await raw
-        return _shape_result(
+        result = _shape_result(
             raw,
             unwrap_envelope=unwrap_envelope,
             success_message=success_message,
             fail_message=fail_message,
         )
+        if result.get("status") != "error":
+            try:
+                from app.ui_layer.metrics.collector import MetricsCollector
+                collector = MetricsCollector.get_instance()
+                if collector:
+                    collector.record_integration_call(integration)
+            except Exception:
+                pass
+        return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -187,12 +196,21 @@ def run_client_sync(
                 "status": "error",
                 "message": f"{method_name!r} is async — use run_client (await) instead",
             }
-        return _shape_result(
+        result = _shape_result(
             raw,
             unwrap_envelope=unwrap_envelope,
             success_message=success_message,
             fail_message=fail_message,
         )
+        if result.get("status") != "error":
+            try:
+                from app.ui_layer.metrics.collector import MetricsCollector
+                collector = MetricsCollector.get_instance()
+                if collector:
+                    collector.record_integration_call(integration)
+            except Exception:
+                pass
+        return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -243,6 +261,13 @@ async def with_client(
         result = fn(client, *args, **kwargs)
         if asyncio.iscoroutine(result):
             result = await result
+        try:
+            from app.ui_layer.metrics.collector import MetricsCollector
+            collector = MetricsCollector.get_instance()
+            if collector:
+                collector.record_integration_call(integration)
+        except Exception:
+            pass
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "message": str(e)}
