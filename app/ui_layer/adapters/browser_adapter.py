@@ -988,6 +988,7 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
             broadcast_created=self.broadcast_living_ui_created,
+            broadcast_question=self.broadcast_living_ui_question,
         )
 
         # Subscribe the Living UI module to TaskManager todo updates so that
@@ -3064,6 +3065,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "success": True,
                     "projectId": project.get("id", ""),
                     "project": project,
+                },
+            }
+        )
+
+    async def broadcast_living_ui_question(
+        self, project_id: str, session_id: str, message: str
+    ) -> None:
+        """Mirror an agent question onto the creation screen so the user can
+        answer from the Living UI page even when the chat panel is closed. The
+        on-screen answer is sent back as a reply targeting `session_id`."""
+        await self._broadcast(
+            {
+                "type": "living_ui_question",
+                "data": {
+                    "projectId": project_id,
+                    "sessionId": session_id,
+                    "message": message,
                 },
             }
         )

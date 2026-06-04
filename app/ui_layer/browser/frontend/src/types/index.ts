@@ -150,6 +150,7 @@ export type WSMessageType =
   | 'living_ui_delete'
   | 'living_ui_state_update'
   | 'living_ui_data_changed'
+  | 'living_ui_question'
   | 'living_ui_error'
 
 export interface WSMessage {

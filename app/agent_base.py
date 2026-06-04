@@ -2239,6 +2239,16 @@ class AgentBase:
                     # Persist the cleared flag (issue #281) so a restart resumes
                     # this now-active task instead of leaving it stuck waiting.
                     self._persist_task_state(task)
+                    # Dismiss any mirrored question on the Living UI creation
+                    # screen now that the reply has landed — whether it was
+                    # answered in the on-screen box or in chat (no-op unless this
+                    # is a Living UI creation task).
+                    try:
+                        from app.living_ui import broadcast_living_ui_question
+
+                        await broadcast_living_ui_question(session_id, "")
+                    except Exception:
+                        pass
                 if platform and task.source_platform != platform:
                     logger.info(
                         f"[TASK] Task {session_id} source_platform switched "

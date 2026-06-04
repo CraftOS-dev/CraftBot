@@ -1,0 +1,155 @@
+/* Living UI creation question form — shown when the agent asks a question
+   (send_message with wait_for_user_reply) during creation. */
+
+.surface {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+
+.questionWrap {
+  width: 100%;
+  max-width: 560px;
+}
+
+.questionCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.brandIcon {
+  color: var(--color-primary);
+}
+
+.buildingTitle {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.questionPrompt {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.questionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.questionField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.questionLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.questionNum {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+}
+
+.questionInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.questionInput::placeholder {
+  color: var(--text-muted);
+}
+
+.questionInput:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.questionTrailer {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.questionActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.questionHint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.questionSubmit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: #fff;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.questionSubmit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.questionSubmit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
