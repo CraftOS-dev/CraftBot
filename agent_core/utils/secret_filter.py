@@ -104,6 +104,27 @@ def redact_text(text: str) -> str:
     return text
 
 
+def scrub_secret_values(text: str) -> str:
+    """Replace deployment-secret VALUES (from the process env) in a string.
+
+    Value-only: unlike :func:`redact_text` it does NOT touch secret-*named*
+    ``key=value`` fields, so it is safe to apply to arbitrary UI payloads
+    (e.g. every websocket broadcast) without blanking legitimate tokens the
+    frontend needs. It guarantees that a deployment secret — cloud access keys,
+    container auth token, OAuth client secrets — never reaches the client no
+    matter which code path assembled the message.
+    """
+    if not text or not isinstance(text, str):
+        return text
+    try:
+        for value in secret_values():
+            if value in text:
+                text = text.replace(value, REDACTED)
+    except Exception:
+        return text
+    return text
+
+
 def redact_secrets(obj: Any) -> Any:
     """Recursively redact secret values from an action output (str/dict/list).
 

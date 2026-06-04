@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
+from agent_core.utils.secret_filter import scrub_secret_values
 from app.config import AGENT_WORKSPACE_ROOT
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -6069,7 +6070,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         if not self._ws_clients:
             return
 
-        json_msg = json.dumps(message)
+        # Last-line defense: strip any deployment-secret value (cloud keys,
+        # container auth token, OAuth client secrets) from every outbound UI
+        # message, regardless of which handler assembled it. Value-only, so it
+        # never blanks legitimate UI fields. Config/settings messages (MCP env,
+        # integration config, ...) bypass the action-output redactor, so this is
+        # what protects them.
+        json_msg = scrub_secret_values(json.dumps(message))
         disconnected = set()
 
         for ws in self._ws_clients.copy():
