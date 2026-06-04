@@ -20,12 +20,21 @@ export interface LivingUITodo {
   assignee?: string
 }
 
+// A question the agent asked (send_message with wait_for_user_reply) mirrored
+// onto the creation screen so the user can answer without the chat open. The
+// on-screen answer is posted back as a reply targeting `sessionId`.
+export interface LivingUIPendingQuestion {
+  sessionId: string
+  message: string
+}
+
 interface LivingUiState {
   projects: LivingUIProject[]
   creating: LivingUIStatusUpdate | null
   todos: Record<string, LivingUITodo[]>
   activeId: string | null
   states: Record<string, LivingUIStateUpdate['state']>
+  pendingQuestions: Record<string, LivingUIPendingQuestion>
 }
 
 const initialState: LivingUiState = {
@@ -34,6 +43,7 @@ const initialState: LivingUiState = {
   todos: {},
   activeId: null,
   states: {},
+  pendingQuestions: {},
 }
 
 const livingUiSlice = createSlice({
@@ -60,6 +70,7 @@ const livingUiSlice = createSlice({
     markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number }>) {
       const { projectId, url, port } = action.payload
       state.creating = null
+      delete state.pendingQuestions[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'running', url, port } : p,
       )
@@ -82,6 +93,7 @@ const livingUiSlice = createSlice({
       state.projects = state.projects.filter(p => p.id !== id)
       delete state.todos[id]
       delete state.states[id]
+      delete state.pendingQuestions[id]
       if (state.activeId === id) state.activeId = null
     },
     setTodos(state, action: PayloadAction<{ projectId: string; todos: LivingUITodo[] }>) {
@@ -99,9 +111,20 @@ const livingUiSlice = createSlice({
     markError(state, action: PayloadAction<{ projectId: string; error: string }>) {
       const { projectId, error } = action.payload
       state.creating = null
+      delete state.pendingQuestions[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'error', error } : p,
       )
+    },
+    setPendingQuestion(
+      state,
+      action: PayloadAction<{ projectId: string; sessionId: string; message: string }>,
+    ) {
+      const { projectId, sessionId, message } = action.payload
+      state.pendingQuestions[projectId] = { sessionId, message }
+    },
+    clearPendingQuestion(state, action: PayloadAction<{ projectId: string }>) {
+      delete state.pendingQuestions[action.payload.projectId]
     },
   },
 })
@@ -119,6 +142,8 @@ export const {
   setActiveId,
   setCreating,
   markError,
+  setPendingQuestion,
+  clearPendingQuestion,
 } = livingUiSlice.actions
 
 export default livingUiSlice.reducer
@@ -175,6 +200,15 @@ register('living_ui_delete', (data, dispatch) => {
 register('living_ui_todos', (data, dispatch) => {
   const u = data as { projectId: string; todos: LivingUITodo[] }
   dispatch(setTodos(u))
+})
+
+register('living_ui_question', (data, dispatch) => {
+  const u = data as { projectId: string; sessionId?: string; message?: string }
+  if (u.projectId && u.sessionId && u.message) {
+    dispatch(setPendingQuestion({ projectId: u.projectId, sessionId: u.sessionId, message: u.message }))
+  } else if (u.projectId) {
+    dispatch(clearPendingQuestion({ projectId: u.projectId }))
+  }
 })
 
 register('living_ui_state_update', (data, dispatch) => {

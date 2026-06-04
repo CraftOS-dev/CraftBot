@@ -41,10 +41,14 @@ python-dotenv
 scikit-learn
 watchdog
 telethon
-lark-oapi              # Lark Long-Connection / WebSocket listener
-croniter>=2.0.0        # Cron expression parsing for scheduler
-playwright             # WhatsApp Web browser automation
-opencv-python-headless # Video analysis keyframe extraction
-babel>=2.14.0          # Language list for onboarding
-boto3>=1.34.0          # AWS Bedrock provider (LLM/VLM/embedding via Converse + Titan)
-
+lark-oapi
+croniter>=2.0.0
+playwright
+opencv-python-headless
+babel>=2.14.0
+boto3>=1.34.0
+pdfplumber
+pypdfium2
+pdfminer.six
+pymupdf
+pypdf

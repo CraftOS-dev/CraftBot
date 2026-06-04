@@ -334,7 +334,7 @@ const ConfigForm = ({
   )
 }
 
-export function IntegrationsSettings() {
+export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
   const dispatch = useAppDispatch()
@@ -681,13 +681,15 @@ export function IntegrationsSettings() {
   return (
     <div className={styles.settingsSection}>
       {/* Header */}
-      <div className={styles.sectionHeader}>
-        <div className={styles.sectionTitleRow}>
-          <h3>External Integrations</h3>
-          <Badge variant="default">{connectedCount}/{totalIntegrations} connected</Badge>
+      {!hideHeader && (
+        <div className={styles.sectionHeader}>
+          <div className={styles.sectionTitleRow}>
+            <h3>External Integrations</h3>
+            <Badge variant="default">{connectedCount}/{totalIntegrations} connected</Badge>
+          </div>
+          <p>Connect to external services and tools</p>
         </div>
-        <p>Connect to external services and tools</p>
-      </div>
+      )}
 
       {/* Toolbar */}
       <div className={styles.integrationsToolbar}>
