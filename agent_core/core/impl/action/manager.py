@@ -29,6 +29,7 @@ from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.impl.action.executor import ActionExecutor
 from agent_core.utils.logger import logger
+from agent_core.utils.secret_filter import redact_secrets
 
 # ============================================================================
 # Python 3.14 + nest_asyncio 1.6.0 compatibility shim for asyncio.wait_for.
@@ -307,7 +308,8 @@ class ActionManager:
                     raise e
 
                 logger.debug(
-                    f"[OUTPUT DATA] Completed execute_atomic_action: {outputs}"
+                    f"[OUTPUT DATA] Completed execute_atomic_action: "
+                    f"{redact_secrets(outputs)}"
                 )
 
                 # Observation step
@@ -341,6 +343,15 @@ class ActionManager:
             # Auto-save large base64 strings in action output to temp files
             # This prevents LLMs from truncating binary data when it appears in context
             outputs = self._extract_base64_to_files(outputs, action.name)
+
+            # Scrub deployment secrets (cloud keys, auth tokens, OAuth client
+            # secrets, ...) from the output before it is logged, streamed to the
+            # UI, or returned to the model. Tools like run_shell / run_python run
+            # arbitrary user commands, so "print all environment variables" or
+            # reading a credentials file would otherwise echo live secrets back
+            # into the chat. Redaction only masks displayed values — commands
+            # still execute normally.
+            outputs = redact_secrets(outputs)
 
             logger.debug(
                 f"[OUTPUT DATA] Final outputs for action {action.name}: {outputs}"
