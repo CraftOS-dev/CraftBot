@@ -184,4 +184,5 @@ def build_theme(s: dict) -> dict:
         "cc": s["base"],
         "rule": s["highlight"],  # orange accent rule below header banner
         "htxt": s["white"],
+        "subtitle": s["light_grey"],
     }

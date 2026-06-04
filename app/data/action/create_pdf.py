@@ -276,7 +276,7 @@ def create_pdf_file(input_data: dict) -> dict:
 
         if subtitle:
             pdf.set_font("Helvetica", "I", 9)
-            pdf.set_text_color(200, 210, 240)
+            pdf.set_text_color(*t["subtitle"])
             pdf.set_xy(lm + 8, y0 + HH - 14)
             pdf.cell(pw - 16, 8, _sanitize(subtitle)[:100], align="L")
 
