@@ -220,6 +220,13 @@ class OnboardingFlowController:
             return False
 
         self._state.current_step -= 1
+
+        if (
+            self.STEP_CLASSES[self._state.current_step] is ApiKeyStep
+            and self._state.collected_data.get("provider") == "craftbot"
+        ):
+            self._state.current_step -= 1
+
         return True
 
     def skip_step(self) -> bool:
