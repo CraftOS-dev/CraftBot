@@ -494,7 +494,8 @@ def check_integration_status(input_data: dict) -> dict:
             "message": (
                 "'google' is not a single integration — Google Workspace apps are "
                 "tracked separately. Check the specific app instead: "
-                + ", ".join(_GOOGLE_FAMILY) + "."
+                + ", ".join(_GOOGLE_FAMILY)
+                + "."
             ),
         }
 

@@ -45,15 +45,15 @@ _OPENAI_ASPECT_MAP: Dict[str, str] = {
     "1:1": "1024x1024",
     "3:4": "1024x1536",
     "4:3": "1536x1024",
-    "9:16": "1024x1536",   # nearest fit — true 9:16 not supported
-    "16:9": "1536x1024",   # nearest fit — true 16:9 not supported
+    "9:16": "1024x1536",  # nearest fit — true 9:16 not supported
+    "16:9": "1536x1024",  # nearest fit — true 16:9 not supported
 }
 _OPENAI_INEXACT_RATIOS = {"16:9", "9:16"}
 
 _OPENAI_QUALITY_MAP: Dict[str, str] = {
     "1K": "medium",
     "2K": "high",
-    "4K": "high",   # API tops out at 1536px; warn caller
+    "4K": "high",  # API tops out at 1536px; warn caller
 }
 
 # ── Error message catalog (provider-keyed, English) ──────────────────────────
@@ -86,7 +86,12 @@ def _classify_error(provider: str, exc: Exception) -> str:
     """Map a raw exception message to a catalog entry for the given provider."""
     msg = str(exc).lower()
     catalog = _ERR.get(provider, _ERR["openai"])
-    if "quota" in msg or "rate" in msg or "billing" in msg or "insufficient_quota" in msg:
+    if (
+        "quota" in msg
+        or "rate" in msg
+        or "billing" in msg
+        or "insufficient_quota" in msg
+    ):
         return catalog["quota"]
     if "invalid" in msg and "key" in msg or "invalid_api_key" in msg:
         return catalog["invalid_key"]
@@ -99,6 +104,7 @@ def _classify_error(provider: str, exc: Exception) -> str:
 
 
 # ── File-path helpers ─────────────────────────────────────────────────────────
+
 
 def _build_save_path(
     output_path: str,
@@ -137,6 +143,7 @@ def _to_pil_image(img_data: Any) -> Any:
 
 
 # ── Main interface ────────────────────────────────────────────────────────────
+
 
 class ImageGenInterface:
     """Image generation interface with multi-provider support.
@@ -191,7 +198,7 @@ class ImageGenInterface:
         )
         self.provider = ctx["provider"]
         self.model = ctx["model"]
-        self.client = ctx["client"]            # OpenAI client or None
+        self.client = ctx["client"]  # OpenAI client or None
         self._gemini_client = ctx["gemini_client"]
         self._initialized = ctx.get("initialized", False)
 
@@ -460,7 +467,9 @@ class ImageGenInterface:
             except Exception:
                 pass
 
-        gen_prompt = f"Generate an image based on the following description:\n\n{prompt}"
+        gen_prompt = (
+            f"Generate an image based on the following description:\n\n{prompt}"
+        )
         gen_prompt += f"\n\nImage specifications:\n- Resolution: {resolution}\n- Aspect ratio: {aspect_ratio}\n- Number of variations: {number_of_images}"
         if negative_prompt:
             gen_prompt += f"\n- Avoid: {negative_prompt}"
@@ -472,7 +481,9 @@ class ImageGenInterface:
         }
         safety_settings = None
         if safety_filter_level != "block_none":
-            threshold = _threshold_map.get(safety_filter_level, "BLOCK_MEDIUM_AND_ABOVE")
+            threshold = _threshold_map.get(
+                safety_filter_level, "BLOCK_MEDIUM_AND_ABOVE"
+            )
             safety_settings = [
                 {"category": cat, "threshold": threshold}
                 for cat in (

@@ -135,7 +135,17 @@ def _initial_settings() -> tuple:
     # Remote (Ollama) doesn't require API key
     has_key = bool(api_key) or provider == "remote"
 
-    return provider, api_key, base_url, model, vlm_prov, vlm_mod, img_prov, img_mod, has_key
+    return (
+        provider,
+        api_key,
+        base_url,
+        model,
+        vlm_prov,
+        vlm_mod,
+        img_prov,
+        img_mod,
+        has_key,
+    )
 
 
 async def main_async() -> None:
@@ -144,9 +154,17 @@ async def main_async() -> None:
     browser_mode = cli_args.get("browser", False)
 
     # Get settings from settings.json
-    provider, api_key, base_url, model, vlm_prov, vlm_mod, img_prov, img_mod, has_valid_key = (
-        _initial_settings()
-    )
+    (
+        provider,
+        api_key,
+        base_url,
+        model,
+        vlm_prov,
+        vlm_mod,
+        img_prov,
+        img_mod,
+        has_valid_key,
+    ) = _initial_settings()
 
     # CLI args override settings.json if provided
     if cli_args.get("provider"):

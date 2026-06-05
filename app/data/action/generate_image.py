@@ -29,7 +29,11 @@ def _resolve_image_gen_provider(configured_provider: str):
         except Exception:
             return False
 
-    if configured_provider and supports(configured_provider) and has_key(configured_provider):
+    if (
+        configured_provider
+        and supports(configured_provider)
+        and has_key(configured_provider)
+    ):
         return configured_provider
 
     candidates = list(_IMAGE_GEN_PRIORITY)

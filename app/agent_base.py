@@ -219,6 +219,7 @@ class AgentBase:
 
         # Image generation uses its own provider/model settings
         from app.config import get_image_gen_provider as _get_img_prov
+
         _img_provider = image_gen_provider or _get_img_prov()
         _img_api_key = get_api_key(_img_provider)
         self.image_gen = ImageGenInterface(

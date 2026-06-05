@@ -397,7 +397,9 @@ def update_model_settings(
         # Update image generation provider (validate before saving)
         if image_gen_provider:
             supported_img_providers = {
-                p for p, caps in MODEL_REGISTRY.items() if caps.get(InterfaceType.IMAGE_GEN)
+                p
+                for p, caps in MODEL_REGISTRY.items()
+                if caps.get(InterfaceType.IMAGE_GEN)
             }
             if image_gen_provider not in supported_img_providers:
                 return {
@@ -418,7 +420,9 @@ def update_model_settings(
         if vlm_model is not None:
             settings["model"]["vlm_model"] = vlm_model if vlm_model else None
         if image_gen_model is not None:
-            settings["model"]["image_gen_model"] = image_gen_model if image_gen_model else None
+            settings["model"]["image_gen_model"] = (
+                image_gen_model if image_gen_model else None
+            )
 
         # Update API key in settings.json
         if provider_for_key and api_key is not None:
