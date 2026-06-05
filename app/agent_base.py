@@ -70,6 +70,7 @@ from agent_core.core.impl.llm.errors import (
     LLMConsecutiveFailureError,
 )
 from app.vlm_interface import VLMInterface
+from app.image_gen_interface import ImageGenInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
 from agent_core import (
@@ -163,6 +164,8 @@ class AgentBase:
         llm_model: str | None = None,
         vlm_provider: str | None = None,
         vlm_model: str | None = None,
+        image_gen_provider: str | None = None,
+        image_gen_model: str | None = None,
         deferred_init: bool = False,
     ) -> None:
         """
@@ -179,6 +182,8 @@ class AgentBase:
             llm_model: Model name override (None = use registry default).
             vlm_provider: Provider name for VLM (defaults to llm_provider if None).
             vlm_model: VLM model name override (None = use registry default).
+            image_gen_provider: Provider name for image generation (openai or gemini).
+            image_gen_model: Image gen model override (None = use registry default).
             deferred_init: If True, allow LLM/VLM initialization to be deferred
                 until API key is configured (useful for first-time setup).
         """
@@ -210,6 +215,17 @@ class AgentBase:
             api_key=_vlm_api_key,
             base_url=_vlm_base_url,
             deferred=deferred_init,
+        )
+
+        # Image generation uses its own provider/model settings
+        from app.config import get_image_gen_provider as _get_img_prov
+        _img_provider = image_gen_provider or _get_img_prov()
+        _img_api_key = get_api_key(_img_provider)
+        self.image_gen = ImageGenInterface(
+            provider=_img_provider,
+            model=image_gen_model,
+            api_key=_img_api_key,
+            deferred=True,  # always deferred — many users won't have an image-gen key
         )
 
         self.event_stream_manager = EventStreamManager(
@@ -308,6 +324,7 @@ class AgentBase:
             self.task_manager,
             self.state_manager,
             vlm_interface=self.vlm,
+            image_gen_interface=self.image_gen,
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
         )
@@ -3016,6 +3033,42 @@ class AgentBase:
                     tui_footage_callback=self._tui_footage_callback,
                 )
         return llm_ok and vlm_ok
+
+    def reinitialize_image_gen(self, provider: str | None = None) -> bool:
+        """Reinitialize the image generation interface with updated configuration.
+
+        Creates a fresh ImageGenInterface instance rather than mutating the
+        existing one, so any in-flight action that holds a reference to the
+        old instance completes cleanly against the old provider/client.
+
+        Args:
+            provider: Optional provider to switch to. If None, reads from settings.
+
+        Returns:
+            True if reinitialization was successful.
+        """
+        from app.config import get_image_gen_provider, get_api_key, get_image_gen_model
+        from app.image_gen_interface import ImageGenInterface
+        from app.internal_action_interface import InternalActionInterface
+
+        target_provider = provider or get_image_gen_provider()
+        api_key = get_api_key(target_provider)
+        model = get_image_gen_model()
+
+        new_interface = ImageGenInterface(
+            provider=target_provider,
+            model=model,
+            api_key=api_key,
+            deferred=False,
+        )
+        ok = new_interface.is_initialized
+        if ok:
+            self.image_gen = new_interface
+            InternalActionInterface.image_gen_interface = new_interface
+        logger.info(
+            f"[AGENT] Image gen reinitialized: provider={target_provider}, success={ok}"
+        )
+        return ok
 
     @property
     def is_llm_initialized(self) -> bool:

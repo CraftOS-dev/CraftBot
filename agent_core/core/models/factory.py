@@ -127,7 +127,27 @@ class ModelFactory:
             raise ValueError(f"Unsupported provider: {provider}")
 
         cfg = PROVIDER_CONFIG[provider]
-        model = model_override or MODEL_REGISTRY[provider][interface]
+        model = model_override or MODEL_REGISTRY[provider].get(interface)
+        if model is None:
+            if deferred:
+                return {
+                    "provider": provider,
+                    "model": None,
+                    "client": None,
+                    "gemini_client": None,
+                    "remote_url": None,
+                    "byteplus": None,
+                    "anthropic_client": None,
+                    "bedrock_client": None,
+                    "initialized": False,
+                }
+            supported = ", ".join(
+                p for p, caps in MODEL_REGISTRY.items() if caps.get(interface)
+            )
+            raise ValueError(
+                f"Provider '{provider}' does not support {interface.value}. "
+                f"Supported providers: {supported}"
+            )
 
         # Use provided base_url or fall back to default
         resolved_base_url = base_url or cfg.default_base_url

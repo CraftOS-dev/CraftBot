@@ -91,8 +91,10 @@ def _get_default_settings() -> Dict[str, Any]:
         "model": {
             "llm_provider": "anthropic",
             "vlm_provider": "anthropic",
+            "image_gen_provider": "openai",
             "llm_model": None,
             "vlm_model": None,
+            "image_gen_model": None,
             "slow_mode": False,
             "slow_mode_tpm_limit": 30000,
         },
@@ -213,6 +215,19 @@ def get_vlm_model() -> Optional[str]:
     """Get configured VLM model override (or None for default)."""
     settings = get_settings()
     return settings.get("model", {}).get("vlm_model")
+
+
+def get_image_gen_provider() -> str:
+    """Get configured image generation provider."""
+    settings = get_settings()
+    model = settings.get("model", {})
+    return model.get("image_gen_provider") or model.get("vlm_provider", "openai")
+
+
+def get_image_gen_model() -> Optional[str]:
+    """Get configured image generation model override (or None for default)."""
+    settings = get_settings()
+    return settings.get("model", {}).get("image_gen_model")
 
 
 def get_api_key(provider: str) -> str:

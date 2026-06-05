@@ -4707,6 +4707,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             new_provider = data.get("llmProvider")
             vlm_provider = data.get("vlmProvider")
+            image_gen_provider = data.get("imageGenProvider")
             api_key = data.get("apiKey")
             provider_for_key = data.get("providerForKey")
             base_url = data.get("baseUrl")
@@ -4765,12 +4766,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     )
                     return
 
+            # Capture the current image-gen provider/model BEFORE saving, so a
+            # failed reinitialize below can roll the persisted values back and
+            # keep settings.json consistent with the still-live interface.
+            prev_image_gen_provider = None
+            prev_image_gen_model = None
+            if image_gen_provider:
+                from app.config import (
+                    get_image_gen_provider as _get_ig_provider,
+                    get_image_gen_model as _get_ig_model,
+                )
+
+                prev_image_gen_provider = _get_ig_provider()
+                prev_image_gen_model = _get_ig_model()
+
             # Step 3: Now save settings (validation and connection test passed)
             result = update_model_settings(
                 llm_provider=new_provider,
                 vlm_provider=vlm_provider,
+                image_gen_provider=image_gen_provider,
                 llm_model=data.get("llmModel"),
                 vlm_model=data.get("vlmModel"),
+                image_gen_model=data.get("imageGenModel"),
                 api_key=api_key,
                 provider_for_key=provider_for_key,
                 base_url=base_url,
@@ -4791,6 +4808,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     result["warning"] = (
                         f"Settings saved but LLM reinitialization failed: {e}"
                     )
+
+            # Reinitialize image gen interface when its provider changes.
+            # Settings are already persisted above, and reinitialize_image_gen
+            # only swaps the live interface on success — so if it fails (e.g.
+            # the new provider has no API key) we must roll the saved image-gen
+            # provider/model back to match the still-live interface. Otherwise
+            # settings.json would advertise a provider the running interface
+            # can't serve.
+            if result.get("success") and image_gen_provider:
+                reinit_ok = False
+                try:
+                    agent = self._controller.agent
+                    reinit_ok = agent.reinitialize_image_gen(image_gen_provider)
+                except Exception as e:
+                    logger.warning(f"[BROWSER] Failed to reinitialize image gen: {e}")
+
+                if reinit_ok:
+                    logger.info(
+                        f"[BROWSER] Image gen reinitialized with provider: {image_gen_provider}"
+                    )
+                else:
+                    # Roll persisted image-gen settings back to the previous
+                    # (still-live) values to avoid a settings/interface mismatch.
+                    update_model_settings(
+                        image_gen_provider=prev_image_gen_provider,
+                        image_gen_model=prev_image_gen_model,
+                    )
+                    msg = (
+                        f"Image generation provider '{image_gen_provider}' could not be "
+                        f"initialized — check its API key. Kept '{prev_image_gen_provider}'."
+                    )
+                    logger.warning(f"[BROWSER] {msg}")
+                    result["warning"] = result.get("warning") or msg
 
             await self._broadcast(
                 {

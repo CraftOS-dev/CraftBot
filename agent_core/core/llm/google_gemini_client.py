@@ -542,6 +542,94 @@ class GeminiClient:
             "cached_tokens": cached_tokens,
         }
 
+    def generate_image(
+        self,
+        model: str,
+        *,
+        prompt: str,
+        reference_images: Optional[List[tuple]] = None,
+        image_size: Optional[str] = None,
+        safety_settings: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        """Generate image(s) via generateContent with the IMAGE response modality.
+
+        Uses the same REST endpoint as the text/multimodal helpers (no
+        ``google-genai`` SDK), keeping the whole Gemini surface on one client.
+
+        Args:
+            model: Image-capable model identifier (e.g. ``gemini-3-pro-image``).
+            prompt: Text description of the image to generate.
+            reference_images: Optional list of ``(bytes, mime_type)`` tuples sent
+                as inline reference parts (style guidance).
+            image_size: Optional size hint (e.g. ``"1K"``/``"2K"``/``"4K"``) passed
+                through ``generationConfig.imageConfig.imageSize``.
+            safety_settings: Optional list of ``{"category", "threshold"}`` dicts.
+
+        Returns:
+            Dict with:
+                - images: List[bytes] of decoded image data (may be empty)
+                - usage_metadata: Dict from the response's ``usageMetadata``
+                - block_reason: Optional[str] when blocked by a safety/finish reason
+        """
+        parts: List[Dict[str, Any]] = []
+        for data, mime in reference_images or []:
+            parts.append(
+                {
+                    "inlineData": {
+                        "mimeType": mime or "image/png",
+                        "data": base64.b64encode(data).decode("utf-8"),
+                    }
+                }
+            )
+        parts.append({"text": prompt})
+
+        generation_config: Dict[str, Any] = {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "candidateCount": 1,
+        }
+        if image_size:
+            generation_config["imageConfig"] = {"imageSize": image_size}
+
+        payload: Dict[str, Any] = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": generation_config,
+        }
+        if safety_settings:
+            payload["safetySettings"] = safety_settings
+
+        response = self._post_json(
+            f"{_normalise_model_name(model)}:generateContent", payload
+        )
+
+        images: List[bytes] = []
+        for candidate in response.get("candidates", []) or []:
+            content = candidate.get("content") or {}
+            for part in content.get("parts", []) or []:
+                inline = part.get("inlineData") if isinstance(part, dict) else None
+                if inline and str(inline.get("mimeType", "")).startswith("image/"):
+                    try:
+                        images.append(base64.b64decode(inline["data"]))
+                    except Exception:
+                        pass
+
+        block_reason: Optional[str] = None
+        if not images:
+            feedback = response.get("promptFeedback")
+            if isinstance(feedback, dict) and feedback.get("blockReason"):
+                block_reason = str(feedback["blockReason"])
+            else:
+                for candidate in response.get("candidates", []) or []:
+                    fr = candidate.get("finishReason")
+                    if fr and "SAFETY" in str(fr).upper():
+                        block_reason = str(fr)
+                        break
+
+        return {
+            "images": images,
+            "usage_metadata": response.get("usageMetadata", {}) or {},
+            "block_reason": block_reason,
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
