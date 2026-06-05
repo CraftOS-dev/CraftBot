@@ -61,6 +61,8 @@ import {
 import { selectLocalLlm } from '../store/selectors/localLlm'
 import {
   setActiveId as livingUiSetActiveId,
+  markLaunching as livingUiMarkLaunching,
+  markStopping as livingUiMarkStopping,
 } from '../store/slices/livingUiSlice'
 import {
   selectLivingUiProjects,
@@ -596,24 +598,29 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const launchLivingUI = useCallback((projectId: string) => {
     if (client.isConnected) {
-      // The backend response (living_ui_launch) will flip status to running.
-      // No optimistic transition here — the existing 'launching' literal
-      // wasn't part of LivingUIStatus and was a no-op for the UI.
+      // Optimistically flip to 'launching' so the button shows a spinner and
+      // the content swaps to the launching screen immediately — launch can
+      // take many seconds (install/build/start). The backend response
+      // (living_ui_launch) resolves it to running or error.
+      dispatch(livingUiMarkLaunching({ projectId }))
       client.sendString(JSON.stringify({
         type: 'living_ui_launch',
         projectId,
       }))
     }
-  }, [])
+  }, [dispatch])
 
   const stopLivingUI = useCallback((projectId: string) => {
     if (client.isConnected) {
+      // Optimistically flip to 'stopping' for immediate feedback; the backend
+      // response (living_ui_stop) resolves it to stopped (or reverts on error).
+      dispatch(livingUiMarkStopping({ projectId }))
       client.sendString(JSON.stringify({
         type: 'living_ui_stop',
         projectId,
       }))
     }
-  }, [])
+  }, [dispatch])
 
   const deleteLivingUI = useCallback((projectId: string) => {
     if (client.isConnected) {

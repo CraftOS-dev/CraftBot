@@ -167,7 +167,7 @@ export function NavBar() {
                   title={project.name}
                 >
                   <span className={styles.livingUITabIcon}>
-                    {project.status === 'creating'
+                    {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                       ? <Loader2 size={13} className={styles.spinner} />
                       : <Box size={13} />}
                   </span>
@@ -215,8 +215,9 @@ export function NavBar() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreateSubmit}
-        onInstalled={(projectId) => navigate(`/living-ui/${projectId}`)}
       />
+      {/* No onInstalled/navigate: marketplace installs just spawn a tab in the
+          navbar (like form-create) — the user opens it themselves. */}
     </>
   )
 }

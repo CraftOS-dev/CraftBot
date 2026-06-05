@@ -987,6 +987,8 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_progress=self.broadcast_living_ui_progress,
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
+            broadcast_created=self.broadcast_living_ui_created,
+            broadcast_question=self.broadcast_living_ui_question,
         )
 
         # Subscribe the Living UI module to TaskManager todo updates so that
@@ -2649,6 +2651,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+            # Mirror the new project into chat as a system message so the
+            # request is visible in the conversation (not just the new tab).
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    "Building your app now — track progress in the new tab.",
+                    "system",
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+
             # Broadcast initial status update
             await self._broadcast(
                 {
@@ -3049,6 +3063,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
             return False
+
+    async def broadcast_living_ui_created(self, project: Dict[str, Any]) -> None:
+        """Broadcast that a Living UI project was created (called from agent action).
+
+        Mirrors the modal create flow's broadcast so a chat-created Living UI is
+        registered in the browser's project list and shows its build progress.
+        """
+        await self._broadcast(
+            {
+                "type": "living_ui_create",
+                "data": {
+                    "success": True,
+                    "projectId": project.get("id", ""),
+                    "project": project,
+                },
+            }
+        )
+
+    async def broadcast_living_ui_question(
+        self, project_id: str, session_id: str, message: str
+    ) -> None:
+        """Mirror an agent question onto the creation screen so the user can
+        answer from the Living UI page even when the chat panel is closed. The
+        on-screen answer is sent back as a reply targeting `session_id`."""
+        await self._broadcast(
+            {
+                "type": "living_ui_question",
+                "data": {
+                    "projectId": project_id,
+                    "sessionId": session_id,
+                    "message": message,
+                },
+            }
+        )
 
     async def broadcast_living_ui_progress(
         self, project_id: str, phase: str, progress: int, message: str
@@ -5932,22 +5980,69 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return
 
+        # Spawn a placeholder tab immediately so the user sees the install is
+        # underway (the install itself is synchronous and can take a while).
+        # install_from_marketplace adopts this id so the same tab becomes the
+        # running app.
+        placeholder = self._living_ui_manager.create_placeholder_project(
+            app_name, app_description
+        )
+        project_id = placeholder.id
+        await self.broadcast_living_ui_created(placeholder.to_dict())
+        await self._broadcast(
+            {
+                "type": "living_ui_status",
+                "data": {
+                    "projectId": project_id,
+                    "phase": "initializing",
+                    "progress": 10,
+                    "message": "Installing from marketplace...",
+                },
+            }
+        )
+
         result = await self._living_ui_manager.install_from_marketplace(
             app_id=app_id,
             app_name=app_name,
             app_description=app_description,
             custom_fields=custom_fields,
+            project_id=project_id,
         )
 
         if result.get("status") == "success":
-            # Also broadcast as living_ui_create so the sidebar updates
+            # The project already exists as a tab (placeholder adopted) — flip
+            # it to running so the iframe loads.
             await self._broadcast(
                 {
-                    "type": "living_ui_create",
+                    "type": "living_ui_ready",
                     "data": {
-                        "success": True,
-                        "projectId": result["project"]["id"],
-                        "project": result["project"],
+                        "projectId": project_id,
+                        "url": result.get("url"),
+                        "port": result["project"].get("port"),
+                    },
+                }
+            )
+
+            # Mirror the install into chat as a system message so the request
+            # is visible in the conversation (not just the new tab).
+            body = f"{app_description}\n\n" if app_description else ""
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {app_name}**\n\n{body}"
+                    "Installed from the marketplace — open it in the new tab.",
+                    "system",
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] marketplace chat message failed: {e}")
+        else:
+            # Install failed — surface the error on the spawned tab.
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": project_id,
+                        "error": result.get("error", "Marketplace install failed"),
                     },
                 }
             )
@@ -5955,7 +6050,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         await self._broadcast(
             {
                 "type": "living_ui_marketplace_install",
-                "data": {**result, "appId": app_id},
+                "data": {**result, "projectId": project_id, "appId": app_id},
             }
         )
 
@@ -5966,13 +6061,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         is_zip = source.lower().endswith(".zip")
 
+        # Spawn a placeholder tab immediately so the user sees the import is
+        # underway (mirrors the form-create flow). The importer skill adopts
+        # this project_id so the same tab transitions to the running app.
+        placeholder = self._living_ui_manager.create_placeholder_project(name)
+        project_id = placeholder.id
+        await self.broadcast_living_ui_created(placeholder.to_dict())
+        await self._broadcast(
+            {
+                "type": "living_ui_status",
+                "data": {
+                    "projectId": project_id,
+                    "phase": "initializing",
+                    "progress": 10,
+                    "message": "Importing project...",
+                },
+            }
+        )
+
+        adopt_note = (
+            f"A tab has already been created for this import with "
+            f'project_id="{project_id}". You MUST pass project_id="{project_id}" '
+            f"to the import action so it populates that existing tab instead of "
+            f"creating a duplicate.\n\n"
+        )
+
         if is_zip:
             task_instruction = (
                 f"Import this Living UI project from a ZIP file:\n"
                 f"ZIP path: {source}\n"
                 f"Name: {name}\n\n"
+                f"{adopt_note}"
                 f"Steps:\n"
-                f"1. Call living_ui_import_zip to extract and register the project\n"
+                f'1. Call living_ui_import_zip (project_id="{project_id}") to extract and register the project\n'
                 f"2. Review the project structure and manifest\n"
                 f"3. Install dependencies if needed\n"
                 f"4. Launch the app and verify it works\n"
@@ -5983,11 +6104,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 f"Import this external app as a Living UI:\n"
                 f"Source: {source}\n"
                 f"Name: {name}\n\n"
+                f"{adopt_note}"
                 f"Follow the living-ui-importer skill instructions:\n"
                 f"1. Clone/copy the source code\n"
                 f"2. Detect the app type (Go, Node, Python, etc.) — NEVER use Docker if native build is possible\n"
                 f"3. Determine build/install command, start command, port config, and health check\n"
-                f"4. Call living_ui_import_external with the detected configuration\n"
+                f'4. Call living_ui_import_external with the detected configuration and project_id="{project_id}"\n'
                 f"5. Launch the app and verify it works\n"
                 f"6. Create LIVING_UI.md documenting the app"
             )
@@ -6004,6 +6126,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             from app.trigger import Trigger
             import time
 
+            # Link the task to the placeholder so question-mirroring and todo
+            # broadcasts (keyed by task id) target this tab.
+            self._living_ui_manager.set_project_task(project_id, task_id)
+
             trigger = Trigger(
                 fire_at=time.time(),
                 priority=50,
@@ -6012,6 +6138,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 payload={"type": "living_ui_import", "source": source},
             )
             await self._controller.agent.triggers.put(trigger)
+        else:
+            # Couldn't create the task — don't leave a stuck "creating" tab.
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": project_id,
+                        "error": "Failed to create import task",
+                    },
+                }
+            )
+
+        # Mirror the import into chat as a system message so the request is
+        # visible in the conversation (not just the new tab).
+        origin = "uploaded ZIP file" if is_zip else source
+        try:
+            await self._display_chat_message(
+                "System",
+                f"**Living UI: {name}**\n\nImporting from {origin}.\n\n"
+                "Setting up your app now — track progress in the new tab.",
+                "system",
+            )
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] import chat message failed: {e}")
 
         await self._broadcast(
             {

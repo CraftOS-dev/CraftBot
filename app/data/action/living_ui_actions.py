@@ -4,6 +4,149 @@ from agent_core import action
 
 
 @action(
+    name="living_ui_scaffold",
+    description=(
+        "Create and register a new Living UI project from the template. "
+        "Call this FIRST when building a Living UI from a chat request — i.e. "
+        "when your task instruction does NOT already contain a 'Project ID' and "
+        "'Project Path' (those come pre-scaffolded from the Create Living UI modal). "
+        "This copies the project template (backend/, frontend/, config/), allocates "
+        "ports, and registers the project so it appears in the user's Living UI list. "
+        "Returns the project_id and an absolute project_path — use project_path as the "
+        "base for ALL subsequent file operations so files land in the right folders."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "name": {
+            "type": "string",
+            "example": "Stock Forecaster",
+            "description": "Display name for the Living UI project.",
+        },
+        "description": {
+            "type": "string",
+            "example": "A dashboard that forecasts stock performance.",
+            "description": "Short description of what the app does.",
+        },
+        "features": {
+            "type": "array",
+            "example": ["watchlist", "forecasts", "alerts"],
+            "description": "Optional list of high-level features requested by the user.",
+        },
+        "theme": {
+            "type": "string",
+            "enum": ["light", "dark", "system"],
+            "example": "system",
+            "description": "UI theme. Defaults to 'system'.",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result: 'success' or 'error'.",
+        },
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The created project ID. Pass this to living_ui_notify_ready.",
+        },
+        "project_path": {
+            "type": "string",
+            "example": "/workspace/living_ui/stock_forecaster_abc12345",
+            "description": "Absolute base path. Use this for ALL file operations.",
+        },
+        "frontend_port": {"type": "integer", "description": "Allocated frontend port."},
+        "backend_port": {"type": "integer", "description": "Allocated backend port."},
+        "message": {
+            "type": "string",
+            "description": "Guidance on how to use the returned path.",
+        },
+    },
+    test_payload={
+        "name": "Test App",
+        "description": "A test Living UI.",
+        "simulated_mode": True,
+    },
+)
+async def living_ui_scaffold(input_data: dict) -> dict:
+    """Create, register, and associate a new Living UI project from the template."""
+    name = input_data.get("name", "").strip()
+    description = input_data.get("description", "").strip()
+    features = input_data.get("features") or []
+    theme = input_data.get("theme", "system")
+    # _session_id is injected by the ActionManager; for a Living UI task it equals
+    # the task id, which the progress/todo broadcast hooks key off of.
+    session_id = input_data.get("_session_id")
+    simulated_mode = input_data.get("simulated_mode", False)
+
+    if not name or not description:
+        return {"status": "error", "message": "name and description are required"}
+
+    if simulated_mode:
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "project_path": "/workspace/living_ui/test_app_abc12345",
+            "frontend_port": 3100,
+            "backend_port": 3101,
+            "message": "Scaffolded. Use project_path for all file operations.",
+        }
+
+    try:
+        from app.living_ui import get_living_ui_manager, broadcast_living_ui_created
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {
+                "status": "error",
+                "message": (
+                    "Living UI manager not initialized. Living UI creation requires "
+                    "the CraftBot desktop/browser app to be running."
+                ),
+            }
+
+        # Tolerate a comma-separated string if the model passes one.
+        if isinstance(features, str):
+            features = [f.strip() for f in features.split(",") if f.strip()]
+
+        project = await manager.create_project(
+            name=name,
+            description=description,
+            features=features,
+            theme=theme,
+        )
+
+        # Associate the project with the running task so the agent's todos and
+        # progress stream to the Living UI view, then mark it as in-progress.
+        if session_id:
+            manager.set_project_task(project.id, session_id)
+        manager.update_project_status(project.id, "creating")
+
+        # Register it in the browser's project list immediately (modal-parity).
+        await broadcast_living_ui_created(project.to_dict())
+
+        return {
+            "status": "success",
+            "project_id": project.id,
+            "project_path": project.path,
+            "frontend_port": project.port,
+            "backend_port": project.backend_port,
+            "message": (
+                f"Project '{project.name}' scaffolded at {project.path}. "
+                f"Use this absolute path as the base for ALL file operations "
+                f"(e.g. {project.path}/backend/models.py, {project.path}/frontend/). "
+                f"Do NOT write to bare relative paths. When the build is complete, "
+                f'call living_ui_notify_ready(project_id="{project.id}").'
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to scaffold project: {str(e)}"}
+
+
+@action(
     name="living_ui_notify_ready",
     description=(
         "Launch, verify, and serve a Living UI project. "
@@ -332,6 +475,15 @@ async def living_ui_report_progress(input_data: dict) -> dict:
             "description": "Env var name for port injection (e.g., PORT). Empty if app uses command-line flag.",
             "example": "PORT",
         },
+        "project_id": {
+            "type": "string",
+            "description": (
+                "If the task instruction provided a pre-created project_id "
+                "(a tab already shown to the user), pass it here so the import "
+                "populates that tab. Omit otherwise."
+            ),
+            "example": "a1b2c3d4",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -357,6 +509,7 @@ async def living_ui_import_external(input_data: dict) -> dict:
             health_strategy=input_data.get("health_strategy", "tcp"),
             health_url=input_data.get("health_url", ""),
             port_env_var=input_data.get("port_env_var", "PORT"),
+            project_id=input_data.get("project_id") or None,
         )
         return result
     except Exception as e:
@@ -383,6 +536,15 @@ async def living_ui_import_external(input_data: dict) -> dict:
             "description": "Display name for the imported project (optional, auto-detected from manifest).",
             "example": "My App",
         },
+        "project_id": {
+            "type": "string",
+            "description": (
+                "If the task instruction provided a pre-created project_id "
+                "(a tab already shown to the user), pass it here so the import "
+                "populates that tab. Omit otherwise."
+            ),
+            "example": "a1b2c3d4",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -401,11 +563,12 @@ async def living_ui_import_zip(input_data: dict) -> dict:
 
         zip_path = input_data.get("zip_path", "")
         name = input_data.get("name", "")
+        project_id = input_data.get("project_id") or None
 
         if not zip_path:
             return {"status": "error", "message": "zip_path is required."}
 
-        project = await manager.import_project_zip(zip_path, name)
+        project = await manager.import_project_zip(zip_path, name, project_id)
 
         # Clean up the ZIP file after successful import
         import os
