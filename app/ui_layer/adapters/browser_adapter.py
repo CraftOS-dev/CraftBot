@@ -2651,6 +2651,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+            # Mirror the new project into chat as a system message so the
+            # request is visible in the conversation (not just the new tab).
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    "Building your app now — track progress in the new tab.",
+                    "system",
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+
             # Broadcast initial status update
             await self._broadcast(
                 {
@@ -5971,6 +5983,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+            # Mirror the install into chat as a system message so the request
+            # is visible in the conversation (not just the new tab).
+            body = f"{app_description}\n\n" if app_description else ""
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {app_name}**\n\n{body}"
+                    "Installed from the marketplace — open it in the new tab.",
+                    "system",
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] marketplace chat message failed: {e}")
+
         await self._broadcast(
             {
                 "type": "living_ui_marketplace_install",
@@ -6031,6 +6056,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 payload={"type": "living_ui_import", "source": source},
             )
             await self._controller.agent.triggers.put(trigger)
+
+        # Mirror the import into chat as a system message so the request is
+        # visible in the conversation (not just the new tab).
+        origin = "uploaded ZIP file" if is_zip else source
+        try:
+            await self._display_chat_message(
+                "System",
+                f"**Living UI: {name}**\n\nImporting from {origin}.\n\n"
+                "Setting up your app now — track progress in the new tab.",
+                "system",
+            )
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] import chat message failed: {e}")
 
         await self._broadcast(
             {
