@@ -54,7 +54,17 @@ const livingUiSlice = createSlice({
       state.projects = action.payload
     },
     addProject(state, action: PayloadAction<LivingUIProject>) {
-      state.projects.push(action.payload)
+      // Upsert by id: the import/marketplace flows first add a "creating"
+      // placeholder, then re-broadcast the same id with real data once the
+      // import completes. Replacing in place keeps a single tab. Never
+      // downgrade a project that's already running.
+      const incoming = action.payload
+      const idx = state.projects.findIndex(p => p.id === incoming.id)
+      if (idx === -1) {
+        state.projects.push(incoming)
+      } else if (state.projects[idx].status !== 'running') {
+        state.projects[idx] = incoming
+      }
     },
     applyStatus(state, action: PayloadAction<LivingUIStatusUpdate>) {
       const status = action.payload
@@ -79,6 +89,40 @@ const livingUiSlice = createSlice({
       const { projectId, url, port } = action.payload
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'running', url, port } : p,
+      )
+    },
+    // Optimistic transition set the instant the user clicks Launch, so the UI
+    // reacts immediately instead of looking frozen until the backend responds.
+    markLaunching(state, action: PayloadAction<{ projectId: string }>) {
+      state.projects = state.projects.map(p =>
+        p.id === action.payload.projectId && p.status !== 'running'
+          ? { ...p, status: 'launching' }
+          : p,
+      )
+    },
+    // Launch failed — clear the optimistic 'launching' spinner and revert to
+    // 'stopped' so the Launch button returns and the user can retry (rather
+    // than landing on the terminal creation-error screen).
+    markLaunchFailed(state, action: PayloadAction<{ projectId: string; error?: string }>) {
+      const { projectId, error } = action.payload
+      state.projects = state.projects.map(p =>
+        p.id === projectId ? { ...p, status: 'stopped', error: error || p.error } : p,
+      )
+    },
+    // Optimistic transition set the instant the user clicks Stop. Keeps url/port
+    // so a failed stop can revert cleanly to 'running'.
+    markStopping(state, action: PayloadAction<{ projectId: string }>) {
+      state.projects = state.projects.map(p =>
+        p.id === action.payload.projectId && p.status === 'running'
+          ? { ...p, status: 'stopping' }
+          : p,
+      )
+    },
+    // Stop failed — the project is still up, so revert to 'running' (url/port
+    // were preserved by markStopping).
+    markStopFailed(state, action: PayloadAction<{ projectId: string }>) {
+      state.projects = state.projects.map(p =>
+        p.id === action.payload.projectId ? { ...p, status: 'running' } : p,
       )
     },
     markStopped(state, action: PayloadAction<{ projectId: string }>) {
@@ -135,6 +179,10 @@ export const {
   applyStatus,
   markReady,
   markRunning,
+  markLaunching,
+  markLaunchFailed,
+  markStopping,
+  markStopFailed,
   markStopped,
   removeProject,
   setTodos,
@@ -178,15 +226,23 @@ register('living_ui_ready', (data, dispatch, getState) => {
 
 register('living_ui_launch', (data, dispatch) => {
   const r = data as LivingUILaunchResponse
-  if (r.success && r.projectId) {
+  if (!r.projectId) return
+  if (r.success) {
     dispatch(markRunning({ projectId: r.projectId, url: r.url, port: r.port }))
+  } else {
+    // Clear the optimistic 'launching' state so the UI doesn't hang on the spinner.
+    dispatch(markLaunchFailed({ projectId: r.projectId, error: r.error }))
   }
 })
 
 register('living_ui_stop', (data, dispatch) => {
   const r = data as LivingUIStopResponse
-  if (r.success && r.projectId) {
+  if (!r.projectId) return
+  if (r.success) {
     dispatch(markStopped({ projectId: r.projectId }))
+  } else {
+    // Stop failed — revert the optimistic 'stopping' back to 'running'.
+    dispatch(markStopFailed({ projectId: r.projectId }))
   }
 })
 

@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Maximize2,
   Minimize2,
+  Loader2,
 } from 'lucide-react'
 import { CraftBotMascot } from '@mascot'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -243,6 +244,13 @@ export function LivingUIPage() {
                 onClick={handleStop}
               />
             </>
+          ) : project.status === 'launching' || project.status === 'stopping' ? (
+            <IconButton
+              size="sm"
+              disabled
+              icon={<Loader2 size={14} className={styles.spinner} />}
+              tooltip={project.status === 'launching' ? 'Launching…' : 'Stopping…'}
+            />
           ) : project.status === 'ready' || project.status === 'stopped' ? (
             <IconButton
               size="sm"
@@ -301,6 +309,11 @@ export function LivingUIPage() {
               <CraftBotMascot state="launching" size={96} />
               <p>Launching Living UI...</p>
               <p className={styles.hint}>Installing dependencies, running tests, starting servers</p>
+            </div>
+          ) : project.status === 'stopping' ? (
+            <div className={styles.loading}>
+              <Loader2 size={48} className={styles.spinner} />
+              <p>Stopping Living UI...</p>
             </div>
           ) : project.status === 'error' ? (
             <div className={styles.error}>

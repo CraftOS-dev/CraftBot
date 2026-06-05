@@ -697,7 +697,10 @@ export interface OnboardingCompleteResponse {
 // Living UI Types
 // ─────────────────────────────────────────────────────────────────────
 
-export type LivingUIStatus = 'creating' | 'ready' | 'running' | 'stopped' | 'error'
+// 'launching'/'stopping' are optimistic transient states set on the client the
+// moment the user clicks launch/stop, so the UI reacts immediately (the backend
+// only reports the terminal 'running'/'stopped'/'error').
+export type LivingUIStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
 export type LivingUICreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
 
 export interface LivingUIProject {

@@ -2253,6 +2253,37 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         logger.info(f"[LIVING_UI] Created project: {name} ({project_id})")
         return project
 
+    def create_placeholder_project(
+        self, name: str, description: str = ""
+    ) -> LivingUIProject:
+        """Register a lightweight "creating" project so a tab/progress screen
+        appears immediately, before the real import/install populates it.
+
+        Used by the import (ZIP/GitHub) and marketplace flows so they behave
+        like the form-create flow (which registers its project synchronously).
+        The actual importer — import_project_zip / import_external_app /
+        install_from_marketplace — must adopt this id (pass project_id=...) so
+        it overwrites this entry instead of creating a second tab.
+
+        Intentionally NOT persisted to disk: a placeholder that never gets
+        adopted (e.g. the import task fails) is dropped on the next restart
+        rather than leaving a broken "creating" tab behind. The adopting
+        importer calls _save_projects() once it fills in the real fields.
+        """
+        project_id = self._generate_id()
+        project = LivingUIProject(
+            id=project_id,
+            name=name or "Importing…",
+            description=description,
+            path="",  # filled in when the real import adopts this id
+            status="creating",
+        )
+        self.projects[project_id] = project
+        logger.info(
+            f"[LIVING_UI] Registered placeholder project: {name} ({project_id})"
+        )
+        return project
+
     def _replace_placeholders(
         self, directory: Path, replacements: Dict[str, str]
     ) -> None:
@@ -2292,6 +2323,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         app_description: str,
         custom_fields: Optional[Dict[str, str]] = None,
         repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace",
+        project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Install a pre-built Living UI app from the marketplace.
@@ -2313,7 +2345,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         import zipfile
         import io
 
-        project_id = self._generate_id()
+        # Adopt a pre-created placeholder id when provided (so the tab spawned
+        # at request time becomes this project), else allocate a fresh one.
+        project_id = project_id or self._generate_id()
         sanitized_name = self._sanitize_name(app_name)
         project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
 
@@ -2880,9 +2914,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         health_strategy: str = "tcp",
         health_url: str = "",
         port_env_var: str = "PORT",
+        project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Import an external app as a Living UI project."""
-        project_id = self._generate_id()
+        # Adopt the placeholder id when provided so the tab spawned at request
+        # time becomes this project instead of a second tab appearing.
+        project_id = project_id or self._generate_id()
         sanitized_name = self._sanitize_name(name)
         project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
 
@@ -2955,6 +2992,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             app_runtime=app_runtime,
         )
 
+        # Preserve the task link from an adopted placeholder so todo/question
+        # broadcasts (keyed by task id) keep targeting this tab.
+        existing = self.projects.get(project_id)
+        if existing and existing.task_id:
+            project.task_id = existing.task_id
         self.projects[project_id] = project
         self._save_projects()
 
@@ -3171,12 +3213,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         return zip_path
 
     async def import_project_zip(
-        self, zip_path: str, name: str = ""
+        self, zip_path: str, name: str = "", project_id: Optional[str] = None
     ) -> "LivingUIProject":
         """Import a Living UI project from a ZIP file.
 
         The ZIP should contain a project directory structure with at least
-        a config/manifest.json. A new project ID and ports are allocated.
+        a config/manifest.json. Ports are allocated automatically. When
+        project_id is provided, the import adopts that id (overwriting the
+        placeholder tab spawned at request time) instead of generating a new
+        one — preventing a duplicate tab.
         """
         zip_file = Path(zip_path)
         if not zip_file.exists():
@@ -3213,8 +3258,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             if not name:
                 name = "imported_project"
 
-            # Generate new ID and project path
-            project_id = self._generate_id()
+            # Adopt the placeholder id when provided, else generate a new one
+            project_id = project_id or self._generate_id()
             sanitized_name = self._sanitize_name(name)
             project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
 
@@ -3268,6 +3313,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             app_runtime=app_runtime,
         )
 
+        # Preserve the task link from an adopted placeholder so todo/question
+        # broadcasts (keyed by task id) keep targeting this tab.
+        existing = self.projects.get(project_id)
+        if existing and existing.task_id:
+            project.task_id = existing.task_id
         self.projects[project_id] = project
         self._save_projects()
 

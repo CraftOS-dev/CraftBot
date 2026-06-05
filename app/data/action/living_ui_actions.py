@@ -475,6 +475,15 @@ async def living_ui_report_progress(input_data: dict) -> dict:
             "description": "Env var name for port injection (e.g., PORT). Empty if app uses command-line flag.",
             "example": "PORT",
         },
+        "project_id": {
+            "type": "string",
+            "description": (
+                "If the task instruction provided a pre-created project_id "
+                "(a tab already shown to the user), pass it here so the import "
+                "populates that tab. Omit otherwise."
+            ),
+            "example": "a1b2c3d4",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -500,6 +509,7 @@ async def living_ui_import_external(input_data: dict) -> dict:
             health_strategy=input_data.get("health_strategy", "tcp"),
             health_url=input_data.get("health_url", ""),
             port_env_var=input_data.get("port_env_var", "PORT"),
+            project_id=input_data.get("project_id") or None,
         )
         return result
     except Exception as e:
@@ -526,6 +536,15 @@ async def living_ui_import_external(input_data: dict) -> dict:
             "description": "Display name for the imported project (optional, auto-detected from manifest).",
             "example": "My App",
         },
+        "project_id": {
+            "type": "string",
+            "description": (
+                "If the task instruction provided a pre-created project_id "
+                "(a tab already shown to the user), pass it here so the import "
+                "populates that tab. Omit otherwise."
+            ),
+            "example": "a1b2c3d4",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -544,11 +563,12 @@ async def living_ui_import_zip(input_data: dict) -> dict:
 
         zip_path = input_data.get("zip_path", "")
         name = input_data.get("name", "")
+        project_id = input_data.get("project_id") or None
 
         if not zip_path:
             return {"status": "error", "message": "zip_path is required."}
 
-        project = await manager.import_project_zip(zip_path, name)
+        project = await manager.import_project_zip(zip_path, name, project_id)
 
         # Clean up the ZIP file after successful import
         import os
