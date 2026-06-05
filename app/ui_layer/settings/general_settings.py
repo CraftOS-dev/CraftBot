@@ -7,6 +7,7 @@ used by any interface adapter (Browser, CLI).
 from pathlib import Path
 from typing import Dict, Any, Optional
 import shutil
+import sys
 import time
 
 from app.config import (
@@ -43,6 +44,32 @@ MAX_PROFILE_PICTURE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 def _user_profile_picture_path(ext: str) -> Path:
     return AGENT_PROFILE_DIR / f"{AGENT_PROFILE_BASENAME}.{ext}"
+
+
+def get_default_picture_path() -> Optional[Path]:
+    """Resolve the bundled default agent avatar.
+
+    Source mode: ``app/data/agent_profile/default.png`` under the repo
+    (APP_DATA_PATH). Frozen mode: PROJECT_ROOT is the per-user data dir, which
+    usually does NOT contain the bundled default — the macOS .app (and any
+    PyInstaller build) ships it inside ``sys._MEIPASS/app/data/agent_profile``
+    instead. Fall back there so the default avatar always resolves rather than
+    404-ing (see issue #254 — broken default pfp in the packaged macOS app).
+    """
+    candidates = [AGENT_PROFILE_DIR / AGENT_PROFILE_DEFAULT_FILENAME]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(
+            Path(meipass)
+            / "app"
+            / "data"
+            / "agent_profile"
+            / AGENT_PROFILE_DEFAULT_FILENAME
+        )
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
 
 
 def _find_existing_user_picture() -> Optional[Path]:

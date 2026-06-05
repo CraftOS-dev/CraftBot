@@ -7652,10 +7652,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         from app.ui_layer.settings.general_settings import (
-            AGENT_PROFILE_DIR,
-            AGENT_PROFILE_DEFAULT_FILENAME,
             EXT_TO_MIME,
             _user_profile_picture_path,
+            get_default_picture_path,
         )
         from app.onboarding import onboarding_manager
 
@@ -7670,10 +7669,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 mime_type = EXT_TO_MIME.get(ext.lower(), "application/octet-stream")
 
         if target is None:
-            default_path = AGENT_PROFILE_DIR / AGENT_PROFILE_DEFAULT_FILENAME
-            if default_path.exists():
-                target = default_path
-                mime_type = "image/png"
+            # Falls back to the bundled default (sys._MEIPASS) when the per-user
+            # data dir lacks it — e.g. the packaged macOS app (issue #254).
+            target = get_default_picture_path()
+            mime_type = "image/png"
 
         if target is None:
             raise web.HTTPNotFound(reason="Avatar not available")
