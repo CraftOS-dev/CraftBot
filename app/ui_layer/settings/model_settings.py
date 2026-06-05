@@ -225,12 +225,30 @@ def get_model_settings() -> Dict[str, Any]:
         # Get configured providers (settings.json is the single source of truth)
         llm_provider = model_settings.get("llm_provider", "anthropic")
         vlm_provider = model_settings.get("vlm_provider", llm_provider)
-        image_gen_provider = model_settings.get("image_gen_provider", "openai")
+        # When no explicit image-gen provider is set, follow the VLM provider if
+        # it can generate images (so installs onboarded before image gen was
+        # wired to the chosen provider show the right value), else the default.
+        image_gen_provider = model_settings.get("image_gen_provider")
+        if not image_gen_provider:
+            if MODEL_REGISTRY.get(vlm_provider, {}).get(InterfaceType.IMAGE_GEN):
+                image_gen_provider = vlm_provider
+            else:
+                image_gen_provider = "openai"
 
-        # Get custom models if set
-        llm_model = model_settings.get("llm_model")
-        vlm_model = model_settings.get("vlm_model")
-        image_gen_model = model_settings.get("image_gen_model")
+        # Model overrides, falling back to the provider's registry default so
+        # the UI shows the concrete model actually in use rather than a blank
+        # field. Hard onboarding only persists the provider (model overrides
+        # stay unset = "use the provider default"), which otherwise rendered as
+        # an empty Model box in settings.
+        llm_model = model_settings.get("llm_model") or MODEL_REGISTRY.get(
+            llm_provider, {}
+        ).get(InterfaceType.LLM)
+        vlm_model = model_settings.get("vlm_model") or MODEL_REGISTRY.get(
+            vlm_provider, {}
+        ).get(InterfaceType.VLM)
+        image_gen_model = model_settings.get("image_gen_model") or MODEL_REGISTRY.get(
+            image_gen_provider, {}
+        ).get(InterfaceType.IMAGE_GEN)
 
         # Check API key status for each provider (settings.json only)
         api_keys = {}

@@ -1,4 +1,45 @@
 from agent_core import action
+from agent_core.utils.logger import logger
+
+# Fallback priority when the configured provider can't generate images: prefer
+# Google (Gemini), then OpenAI, then any other provider the registry marks as
+# image-gen-capable. (Today only gemini/openai qualify, but this stays generic.)
+_IMAGE_GEN_PRIORITY = ["gemini", "openai"]
+
+
+def _resolve_image_gen_provider(configured_provider: str):
+    """Pick the provider to use for image generation.
+
+    Uses the configured provider when it both supports image generation and has
+    a configured API key. Otherwise falls back to the highest-priority provider
+    (see _IMAGE_GEN_PRIORITY) that is image-gen-capable AND has a key — so a user
+    on, say, an LLM-only provider can still generate images if they have a
+    Google/OpenAI key. Returns None when no provider can serve image generation.
+    """
+    from agent_core.core.models.model_registry import MODEL_REGISTRY
+    from agent_core.core.models.types import InterfaceType
+    from app.config import get_api_key
+
+    def supports(p: str) -> bool:
+        return bool(MODEL_REGISTRY.get(p, {}).get(InterfaceType.IMAGE_GEN))
+
+    def has_key(p: str) -> bool:
+        try:
+            return bool(get_api_key(p))
+        except Exception:
+            return False
+
+    if configured_provider and supports(configured_provider) and has_key(configured_provider):
+        return configured_provider
+
+    candidates = list(_IMAGE_GEN_PRIORITY)
+    for p, caps in MODEL_REGISTRY.items():
+        if caps.get(InterfaceType.IMAGE_GEN) and p not in candidates:
+            candidates.append(p)
+    for p in candidates:
+        if supports(p) and has_key(p):
+            return p
+    return None
 
 
 @action(
@@ -69,7 +110,7 @@ from agent_core import action
             "description": "Status message or error details.",
         },
     },
-    requirement=["google-genai", "openai", "Pillow"],
+    requirement=["openai", "Pillow"],
     test_payload={
         "prompt": "A cute cartoon cat sitting on a rainbow",
         "resolution": "1K",
@@ -88,24 +129,7 @@ def generate_image(input_data: dict) -> dict:
         }
 
     import app.internal_action_interface as iai
-    from agent_core.core.models.model_registry import MODEL_REGISTRY
-    from agent_core.core.models.types import InterfaceType
     from app.config import get_image_gen_provider
-
-    image_gen = iai.InternalActionInterface.image_gen_interface
-    current_provider = get_image_gen_provider()
-    registry_entry = MODEL_REGISTRY.get(current_provider, {}).get(InterfaceType.IMAGE_GEN)
-
-    if image_gen is None or not registry_entry:
-        return {
-            "status": "error",
-            "image_paths": [],
-            "message": (
-                f"Provider '{current_provider}' does not support image generation. "
-                "Set 'image_gen_provider' to 'openai' or 'gemini' in settings.json "
-                "and ensure the corresponding API key is configured under 'api_keys'."
-            ),
-        }
 
     prompt = str(input_data.get("prompt", "")).strip()
     if not prompt:
@@ -115,8 +139,68 @@ def generate_image(input_data: dict) -> dict:
             "message": "prompt is required.",
         }
 
+    configured_provider = get_image_gen_provider()
+    effective_provider = _resolve_image_gen_provider(configured_provider)
+
+    if effective_provider is None:
+        return {
+            "status": "error",
+            "image_paths": [],
+            "message": (
+                "No image-generation provider is available. Image generation requires "
+                "OpenAI or Google (Gemini) with a configured API key. Set "
+                "'image_gen_provider' and add the matching key under 'api_keys' in settings.json."
+            ),
+        }
+
+    # Use the live interface when it already serves the effective provider;
+    # otherwise build a transient interface for the fallback provider (the
+    # configured provider can't generate images, but another configured key can).
+    image_gen = iai.InternalActionInterface.image_gen_interface
+    if (
+        image_gen is None
+        or not getattr(image_gen, "is_initialized", False)
+        or image_gen.provider != effective_provider
+    ):
+        from app.image_gen_interface import ImageGenInterface
+        from app.config import get_api_key, get_image_gen_model
+
+        if effective_provider != configured_provider:
+            logger.info(
+                f"[IMAGE_GEN] Configured provider '{configured_provider}' can't generate "
+                f"images; falling back to '{effective_provider}' (has a configured key)."
+            )
+        try:
+            image_gen = ImageGenInterface(
+                provider=effective_provider,
+                # Honor the configured model override only when it matches the
+                # configured provider; a fallback provider uses its own default.
+                model=(
+                    get_image_gen_model()
+                    if effective_provider == configured_provider
+                    else None
+                ),
+                api_key=get_api_key(effective_provider),
+                deferred=False,
+            )
+        except Exception as e:
+            return {
+                "status": "error",
+                "image_paths": [],
+                "message": f"Failed to initialize image generation ({effective_provider}): {e}",
+            }
+        if not image_gen.is_initialized:
+            return {
+                "status": "error",
+                "image_paths": [],
+                "message": (
+                    f"Image generation provider '{effective_provider}' could not be "
+                    "initialized — check its API key in settings.json."
+                ),
+            }
+
     try:
-        paths = iai.InternalActionInterface.generate_image(
+        paths = image_gen.generate_image(
             prompt=prompt,
             resolution=str(input_data.get("resolution", "1K")).upper(),
             aspect_ratio=str(input_data.get("aspect_ratio", "1:1")),
@@ -131,7 +215,7 @@ def generate_image(input_data: dict) -> dict:
         return {
             "status": "success",
             "image_paths": paths,
-            "message": f"Generated {len(paths)} image(s) via {current_provider}.",
+            "message": f"Generated {len(paths)} image(s) via {effective_provider}.",
         }
     except Exception as e:
         return {

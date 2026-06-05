@@ -5,7 +5,10 @@ Image generation interface for agent_core.
 Supports OpenAI (gpt-image-2) and Gemini (gemini-*-image-preview) providers.
 Provider logic lives here; the action (generate_image.py) just delegates.
 
-Mirrors VLMInterface structure — constructor, reinitialize(), hooks, dispatch.
+Mirrors VLMInterface structure — constructor, hooks, dispatch. Unlike VLM there
+is intentionally no in-place reinitialize(): provider switches build a fresh
+instance via agent_base.reinitialize_image_gen() and swap it in only on success,
+so an in-flight generate_image() keeps using its old instance/client until done.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from agent_core.core.hooks import (
     GetTokenCountHook,
     ReportUsageHook,
     SetTokenCountHook,
+    UsageEventData,
 )
 from agent_core.utils.logger import logger
 
@@ -132,46 +136,6 @@ def _to_pil_image(img_data: Any) -> Any:
     return img_data
 
 
-# ── Gemini response helpers ───────────────────────────────────────────────────
-
-def _extract_gemini_images(response: Any) -> List[Any]:
-    images: List[Any] = []
-    if hasattr(response, "candidates") and response.candidates:
-        for candidate in response.candidates:
-            if not (
-                hasattr(candidate, "content")
-                and hasattr(candidate.content, "parts")
-            ):
-                continue
-            for part in candidate.content.parts:
-                if (
-                    hasattr(part, "inline_data")
-                    and part.inline_data
-                    and hasattr(part.inline_data, "mime_type")
-                    and part.inline_data.mime_type.startswith("image/")
-                ):
-                    images.append(part.inline_data.data)
-    if not images and hasattr(response, "images"):
-        for img in response.images:
-            if hasattr(img, "data"):
-                images.append(img.data)
-    return images
-
-
-def _gemini_block_reason(response: Any) -> Optional[str]:
-    if hasattr(response, "prompt_feedback"):
-        fb = response.prompt_feedback
-        if hasattr(fb, "block_reason") and fb.block_reason:
-            return str(fb.block_reason)
-    if hasattr(response, "candidates") and response.candidates:
-        for c in response.candidates:
-            if hasattr(c, "finish_reason") and c.finish_reason:
-                reason = str(c.finish_reason)
-                if "SAFETY" in reason.upper():
-                    return reason
-    return None
-
-
 # ── Main interface ────────────────────────────────────────────────────────────
 
 class ImageGenInterface:
@@ -225,7 +189,6 @@ class ImageGenInterface:
             base_url=base_url,
             deferred=deferred,
         )
-
         self.provider = ctx["provider"]
         self.model = ctx["model"]
         self.client = ctx["client"]            # OpenAI client or None
@@ -236,55 +199,37 @@ class ImageGenInterface:
     def is_initialized(self) -> bool:
         return self._initialized
 
-    def reinitialize(
+    def _report_usage_async(
         self,
-        provider: Optional[str] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-    ) -> bool:
-        """Reinitialize with new provider/key settings (e.g. after config change)."""
-        from app.models.factory import ModelFactory
-        from app.models.types import InterfaceType
+        *,
+        provider: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cached_tokens: int = 0,
+    ) -> None:
+        """Report image-generation usage if the hook is set (mirrors VLM).
 
-        target_provider = provider or self.provider
-
-        if api_key is None or base_url is None:
-            from app.config import get_api_key, get_base_url
-
-            target_api_key = api_key if api_key is not None else get_api_key(target_provider)
-            target_base_url = base_url if base_url is not None else get_base_url(target_provider)
-        else:
-            target_api_key = api_key
-            target_base_url = base_url
-
+        Best-effort: scheduling onto the running loop can fail when invoked
+        from a worker thread without one, in which case the usage is dropped
+        with a warning rather than breaking generation.
+        """
+        if not self._report_usage:
+            return
         try:
-            from app.config import get_image_gen_model as _get_model  # type: ignore[import]
-
-            target_model = _get_model()
-        except Exception:
-            target_model = None
-
-        try:
-            ctx = ModelFactory.create(
-                provider=target_provider,
-                interface=InterfaceType.IMAGE_GEN,
-                model_override=target_model,
-                api_key=target_api_key,
-                base_url=target_base_url,
-                deferred=False,
+            event = UsageEventData(
+                service_type="image_gen",
+                provider=provider,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
             )
-            self.provider = ctx["provider"]
-            self.model = ctx["model"]
-            self.client = ctx["client"]
-            self._gemini_client = ctx["gemini_client"]
-            self._initialized = ctx.get("initialized", False)
-            logger.info(
-                f"[IMAGE_GEN] Reinitialized: provider={self.provider}, model={self.model}"
+            asyncio.get_event_loop().call_soon(
+                lambda: asyncio.create_task(self._report_usage(event))
             )
-            return self._initialized
         except Exception as e:
-            logger.error(f"[IMAGE_GEN] Reinitialize failed: {e}", exc_info=True)
-            return False
+            logger.warning(f"[IMAGE_GEN] Failed to report usage: {e}")
 
     # ─────────────────────────── Public API ──────────────────────────────────
 
@@ -443,6 +388,15 @@ class ImageGenInterface:
         except Exception as exc:
             raise RuntimeError(_classify_error("openai", exc)) from exc
 
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self._report_usage_async(
+                provider="openai",
+                model=self.model,
+                input_tokens=getattr(usage, "input_tokens", 0) or 0,
+                output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            )
+
         images_bytes: List[bytes] = []
         for item in response.data:
             if item.b64_json:
@@ -480,23 +434,14 @@ class ImageGenInterface:
         safety_filter_level: str,
         timestamp: str,
     ) -> List[str]:
-        try:
-            from google import genai  # type: ignore[import]
-            from google.genai import types as gtypes  # type: ignore[import]
-        except ImportError as exc:
-            raise RuntimeError(
-                f"google-genai is required for Gemini image generation. "
-                f"Install with `pip install google-genai`: {exc}"
-            ) from exc
-
         if not self._gemini_client:
             raise RuntimeError(
                 "Gemini API key is not configured. "
                 "Set 'image_gen_provider' to 'openai' or add a Google API key in settings."
             )
 
-        # Reference images as Gemini content parts (style guidance)
-        image_parts: List[Any] = []
+        # Reference images as (bytes, mime) inline parts (style guidance)
+        ref_parts: List[Any] = []
         for ref_path in reference_images:
             if not os.path.isfile(ref_path):
                 continue
@@ -511,7 +456,7 @@ class ImageGenInterface:
                     ".gif": "image/gif",
                     ".webp": "image/webp",
                 }.get(ext, "image/png")
-                image_parts.append(gtypes.Part.from_bytes(data=data, mime_type=mime))
+                ref_parts.append((data, mime))
             except Exception:
                 pass
 
@@ -520,18 +465,16 @@ class ImageGenInterface:
         if negative_prompt:
             gen_prompt += f"\n- Avoid: {negative_prompt}"
 
-        content_parts = image_parts + [gen_prompt]
-
-        safety_settings = None
         _threshold_map = {
             "block_only_high": "BLOCK_ONLY_HIGH",
             "block_medium_and_above": "BLOCK_MEDIUM_AND_ABOVE",
             "block_low_and_above": "BLOCK_LOW_AND_ABOVE",
         }
+        safety_settings = None
         if safety_filter_level != "block_none":
             threshold = _threshold_map.get(safety_filter_level, "BLOCK_MEDIUM_AND_ABOVE")
             safety_settings = [
-                gtypes.SafetySetting(category=cat, threshold=threshold)
+                {"category": cat, "threshold": threshold}
                 for cat in (
                     "HARM_CATEGORY_HARASSMENT",
                     "HARM_CATEGORY_HATE_SPEECH",
@@ -540,28 +483,34 @@ class ImageGenInterface:
                 )
             ]
 
-        config = gtypes.GenerateContentConfig(
-            candidate_count=1,
-            response_modalities=["TEXT", "IMAGE"],
-            image_config=gtypes.ImageConfig(image_size=resolution),
-            safety_settings=safety_settings,
-        )
-
         try:
-            api_key = self._gemini_client._api_key
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=self.model,
-                contents=content_parts,
-                config=config,
+            # One client for the whole Gemini surface: the shared REST
+            # GeminiClient handles image generation too (no google-genai SDK —
+            # see GeminiClient's module docstring for why it avoids the SDK).
+            result = self._gemini_client.generate_image(
+                self.model,
+                prompt=gen_prompt,
+                reference_images=ref_parts,
+                image_size=resolution,
+                safety_settings=safety_settings,
             )
         except Exception as exc:
             raise RuntimeError(_classify_error("gemini", exc)) from exc
 
-        images_data = _extract_gemini_images(response)
+        usage_md = result.get("usage_metadata") or {}
+        if usage_md:
+            self._report_usage_async(
+                provider="gemini",
+                model=self.model,
+                input_tokens=usage_md.get("promptTokenCount", 0) or 0,
+                output_tokens=usage_md.get("candidatesTokenCount", 0) or 0,
+                cached_tokens=usage_md.get("cachedContentTokenCount", 0) or 0,
+            )
+
+        images_data = result.get("images") or []
 
         if not images_data:
-            block_reason = _gemini_block_reason(response)
+            block_reason = result.get("block_reason")
             if block_reason:
                 raise RuntimeError(
                     f"Gemini blocked the request (safety filter: {block_reason}). "
