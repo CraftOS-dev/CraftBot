@@ -101,7 +101,9 @@ class IntegrationStorage:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM integration_calls")
             total = cursor.fetchone()[0]
-            cursor.execute("SELECT MIN(timestamp), MAX(timestamp) FROM integration_calls")
+            cursor.execute(
+                "SELECT MIN(timestamp), MAX(timestamp) FROM integration_calls"
+            )
             row = cursor.fetchone()
             return {
                 "db_path": self._db_path,

@@ -59,10 +59,7 @@ def register_broadcast_callbacks(
         _broadcast_created_callback, \
         _broadcast_progress_callback, \
         _broadcast_todos_callback
-    global \
-        _broadcast_data_changed_callback, \
-        _broadcast_question_callback, \
-        _main_loop
+    global _broadcast_data_changed_callback, _broadcast_question_callback, _main_loop
     _broadcast_ready_callback = broadcast_ready
     _broadcast_created_callback = broadcast_created
     _broadcast_progress_callback = broadcast_progress

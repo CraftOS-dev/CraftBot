@@ -156,6 +156,7 @@ async def run_client(
         if result.get("status") != "error":
             try:
                 from app.ui_layer.metrics.collector import MetricsCollector
+
                 collector = MetricsCollector.get_instance()
                 if collector:
                     collector.record_integration_call(integration)
@@ -205,6 +206,7 @@ def run_client_sync(
         if result.get("status") != "error":
             try:
                 from app.ui_layer.metrics.collector import MetricsCollector
+
                 collector = MetricsCollector.get_instance()
                 if collector:
                     collector.record_integration_call(integration)
@@ -263,6 +265,7 @@ async def with_client(
             result = await result
         try:
             from app.ui_layer.metrics.collector import MetricsCollector
+
             collector = MetricsCollector.get_instance()
             if collector:
                 collector.record_integration_call(integration)
