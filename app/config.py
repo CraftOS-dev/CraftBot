@@ -482,3 +482,11 @@ NOTION_SHARED_CLIENT_ID: str = get_credential(
 NOTION_SHARED_CLIENT_SECRET: str = get_credential(
     "notion", "client_secret", "NOTION_SHARED_CLIENT_SECRET"
 )
+
+# HubSpot (requires both client_id and client_secret - no PKCE support)
+HUBSPOT_SHARED_CLIENT_ID: str = get_credential(
+    "hubspot", "client_id", "HUBSPOT_SHARED_CLIENT_ID"
+)
+HUBSPOT_SHARED_CLIENT_SECRET: str = get_credential(
+    "hubspot", "client_secret", "HUBSPOT_SHARED_CLIENT_SECRET"
+)

@@ -334,7 +334,99 @@ integration_registry()         # snapshot dict {id: metadata}
 
 ## Adding a new integration
 
-One file. Drop it in `craftos_integrations/integrations/<name>.py`. The autoloader picks it up at startup.
+An integration is **two folders** that get auto-wired — no central registry edits, no frontend changes (UI metadata flows from `get_metadata()`):
+
+1. **Platform package** — `craftos_integrations/integrations/<name>/__init__.py` holds the auth handler + runtime client. The autoloader walks this folder at startup and the `@register_handler` / `@register_client` decorators do the rest.
+2. **Action surface** — `app/data/action/integrations/<name>/<name>_actions.py` holds the `@action`-decorated wrappers the agent calls. One wrapper per client method.
+
+The two files have separate audiences: file 1 is for the **human** connecting the account and the **listener** receiving inbound events; file 2 is for the **agent** calling the API on the user's behalf. You need both.
+
+### Recipe at a glance
+
+For a production-level integration, produce in this order:
+
+| # | Output | Where |
+|---|--------|-------|
+| 1 | Pick `auth_type`, declare credential `fields` + `connect_help` | handler in `__init__.py` |
+| 2 | Implement `login` / `logout` / `status` against the real API | handler |
+| 3 | Optional: `config_class` + `config_fields` for post-connect knobs | handler |
+| 4 | Build the client — one method per endpoint, using `helpers.arequest`, returning `Result` | client in `__init__.py` |
+| 5 | Optional: `start_listening` / `stop_listening` (webhook / polling / WebSocket) | client |
+| 6 | Write `INTEGRATION.md` — identifier shape, silent-drop config flags, auth gotchas | integration root |
+| 7 | Mirror each client method as an `@action` wrapper with sub-set + umbrella tags | `<name>_actions.py` |
+| 8 | Verify — import check + AST action-count audit + live smoke test | see "Verification" |
+
+**Don't ship halfway.** An integration that can `list_*` but not `update_*` / `delete_*` / `reply_*` is the #1 source of agent failure: the LLM picks the integration confidently, then can't complete the user's intent. Mirror the full verb set the API exposes. The detailed "production-level expectations" subsection below makes this concrete.
+
+The sources to mine for the API surface, in preference order: an **OpenAPI / Swagger spec** when the vendor publishes one (auto-generates method signatures), an existing `skills/<name>-api/SKILL.md` if one is in this repo, then the **official REST reference docs** (always cross-check version numbers and base URL).
+
+### Choosing an auth strategy
+
+Decide this **before** you start scaffolding either example below. The decision determines whether you write a token handler or an OAuth handler, whether to embed shared client credentials, and how the connect modal looks.
+
+#### Default rule
+
+If the vendor offers user-authorization OAuth (the user grants OUR app scoped access to THEIR account), **use OAuth and ship our client credentials embedded** so the user experience is one-click. We do this today for Google (5 services), LinkedIn, Outlook, plus the OAuth-invite paths on Slack and Notion. The embedded credentials live at [agent_core/core/credentials/embedded_credentials.py](../agent_core/core/credentials/embedded_credentials.py) and are surfaced via `ConfigStore.get_oauth(key)`.
+
+Low friction matters: every extra step in the connect modal (register a developer app, find the API token page, label and copy multiple values) loses users.
+
+#### Hard exception — when shipping our credentials would expose OUR account or app
+
+DO NOT ship our credentials when using them effectively means the user is operating **our** account, **our** app, or **our** quotas. Two failure modes:
+
+1. **Identity-pooling.** Our credentials carry an identity that's shared across every user. Discord bot tokens are the canonical case: a bot token IS the bot account. If multiple users connected through ONE shared CraftBot bot token, they'd all act AS the same bot — same name, same avatar, same rate-limit budget, same reputation, same fate if one user gets it banned. Compare to Slack: OAuth installs OUR app into the user's *workspace*, but each install gets its OWN scoped bot token isolated to that workspace. Slack's OAuth is safe; Discord's would not be.
+
+2. **Operational-pooling.** Our credentials carry rate limits, billing, or suspension risk that's pooled across every user, even when the per-call identity is correct. Twitter is the canonical case: OAuth-with-our-credentials would post tweets correctly from each user's account (identity is fine), but Twitter's rate limits and pricing tiers are billed **per-APP, not per-user** — the free tier is 1500 posts/month TOTAL across all users, paid tiers run $200–$5000/month, and X suspends apps aggressively. One heavy user breaks it for everyone; one TOS violation suspends everyone at once.
+
+Either failure mode → **the user must supply their own credentials**, even if it adds friction.
+
+#### Decision test — three questions
+
+For any new integration, answer all three before picking an auth path:
+
+1. **Whose identity acts?** When the API call goes out, does the API see the *user's* identity (their email, their workspace, their Atlassian tenant) or *our* shared identity?
+   - User's identity → OAuth-with-our-credentials is safe on this axis.
+   - Our shared identity → user must bring their own credentials.
+
+2. **Whose rate limits / quotas apply?** When two different users both use the integration heavily, are their quotas counted separately at the API, or summed against one shared bucket?
+   - Counted separately per user-account → safe.
+   - Summed against one bucket per OAuth app → user must bring their own (unless the per-app limits are so generous that pooling is invisible — e.g. Google Workspace).
+
+3. **Whose app gets suspended if abused?** If one user does something the vendor doesn't like (spam, scraping, automated content), does the vendor suspend the user's account or our developer app?
+   - The user's account → safe.
+   - Our developer app (taking down every other user) → user must bring their own.
+
+If any answer is "ours", the user MUST supply their own credentials. All three "user's" → ship our credentials and make it one-click.
+
+#### Worked examples — discord, jira, twitter
+
+The three integrations that are most often asked "why aren't these OAuth?":
+
+| Integration | OAuth available? | Q1: identity | Q2: quota | Q3: suspension | Verdict |
+|-------------|------------------|--------------|-----------|----------------|---------|
+| **Jira** | Yes — Atlassian 3LO for Jira Cloud | Per-user (refresh token tied to the user's Atlassian account) | Per-user (Atlassian rate-limits per tenant) | Per-user (Atlassian suspends per tenant; marketplace-app suspension is rare and recoverable) | ✅ **Migrate to OAuth-with-our-credentials**. Reason it's not done today is just that we haven't registered the Atlassian developer-console app. Dual-path: 3LO for Jira Cloud, token for Jira Server / Data Center (3LO doesn't exist there). |
+| **Discord** | Yes — OAuth bot install | ❌ Shared (the bot token IS the actor; every install acts AS our one shared bot) | ❌ Shared (Discord rate-limits per bot application across all servers) | ❌ Shared (one TOS violation suspends our bot everywhere) | ❌ **Keep user-supplied bot token.** Current model gives each user their own bot persona, isolated rate limits, isolated risk. Migrating to shared-bot OAuth would be a regression for power users and a footgun for everyone. |
+| **Twitter / X** | Yes — OAuth 1.0a and OAuth 2.0 PKCE | ✅ Per-user (tweets post from the user's account) | ❌ Shared (rate limits and pricing tiers are per-APP; free tier is 1500 posts/month TOTAL) | ❌ Shared (X suspends apps aggressively; one user's behavior takes down all others) | ❌ **Keep user-supplied 4-key model.** Identity check passes but operational-pooling fails hard. Each user under their own developer app is the only safe topology. |
+
+#### Quick decision matrix for new integrations
+
+| Vendor situation | Auth to use |
+|------------------|-------------|
+| OAuth available, **per-user** identity AND quota AND suspension scope | OAuth + ship our client credentials embedded (one-click). Examples today: Google, LinkedIn, Outlook, Slack (invite), Notion (invite). |
+| OAuth available, per-user identity, **but shared quota / shared suspension risk** | User supplies their own OAuth app credentials. Examples today: Twitter (if we ever support OAuth login). |
+| OAuth available, **but our credentials act as a shared identity** | User supplies their own credentials. Examples today: Discord (bot token). |
+| No OAuth — vendor only offers PAT / API token | User supplies their own. Examples today: GitHub, Jira Server, Lark, LINE, WhatsApp Business. |
+| No OAuth, no PAT — only interactive client login | Interactive flow (QR scan, phone code). We can embed vendor "app keys" (e.g. `TELEGRAM_API_ID`/`API_HASH`) when they're per-app authentication scaffolding, not per-user identity — the user's session token is still separate. Examples today: WhatsApp Web (no keys needed), Telegram User. |
+
+#### Operational guidance
+
+- **When in doubt, default to "user supplies their own".** Migrating user-supplied → shared-credentials later is easy (drop our credentials in the embedded registry, update `connect_help`, the existing user-supplied path keeps working as the alternative). Migrating shared-credentials → user-supplied later is a credential rotation event for every existing user.
+
+- **Dual-path is the safest hedge.** When in doubt and OAuth is available, ship `auth_type="both"` (like Slack and Notion): OAuth-with-our-credentials for the easy path, user-token paste for power users / enterprise. The token path is also the fallback when our shared OAuth app is unreachable (rate-limited, suspended, mid-rotation).
+
+- **`_SHARED_` naming convention.** Env-var keys for credentials we ship use a `_SHARED_` infix (e.g. `SLACK_SHARED_CLIENT_ID`, `NOTION_SHARED_CLIENT_SECRET`) to signal "this is the CraftBot app, not user-supplied". Use the same naming for any new shared-credentials integration. (Earlier integrations like `GOOGLE_CLIENT_ID` / `LINKEDIN_CLIENT_ID` / `OUTLOOK_CLIENT_ID` predate the convention and remain unprefixed — but they're also ours-to-share.)
+
+- **Embedded credentials are not secrets.** Anything in [embedded_credentials.py](../agent_core/core/credentials/embedded_credentials.py) ships in the binary and can be extracted with `base64 -d`. Use this layer ONLY for OAuth client credentials (which are designed to be public-ish — the security depends on the redirect-URI and the user's consent, not on the client_id staying secret). Never embed user data tokens, server-side API keys, or anything that grants access without a user-driven OAuth consent step.
 
 ### Minimal token-only example (e.g. Asana)
 
@@ -553,6 +645,227 @@ craftos_integrations/integrations/
 │   └── __init__.py
 └── ... (one folder per integration)
 ```
+
+### File 2: agent actions (the `@action` wrappers)
+
+File 1 lets a human connect the account and lets the listener receive inbound events. File 2 is what makes the integration **usable by the agent**. It lives at:
+
+```
+app/data/action/integrations/<name>/<name>_actions.py
+```
+
+Each function is decorated with `@action(...)` and resolves the client at runtime via `run_client` / `with_client` from [app/data/action/integrations/_helpers.py](app/data/action/integrations/_helpers.py). The helpers own the boilerplate (resolve the client, check credentials, await the method, wrap the result envelope, record a metric).
+
+The 80% case — single client-method call:
+
+```python
+# app/data/action/integrations/asana/asana_actions.py
+from agent_core import action
+
+
+@action(
+    name="list_asana_tasks",
+    description="List tasks in an Asana project. Returns task GIDs, names, completed flag, and assignee.",
+    action_sets=["asana_tasks", "asana"],
+    input_schema={
+        "project_gid": {"type": "string", "description": "Asana project GID.", "example": "1234567890"},
+        "completed_since": {"type": "string", "description": "ISO timestamp; 'now' excludes completed.", "example": "now"},
+        "per_page": {"type": "integer", "description": "Max results (default 30, max 100).", "example": 30},
+    },
+    output_schema={"status": {"type": "string", "example": "success"}},
+)
+async def list_asana_tasks(input_data: dict) -> dict:
+    from app.data.action.integrations._helpers import run_client
+
+    return await run_client(
+        "asana", "list_tasks",
+        project_gid=input_data["project_gid"],
+        completed_since=input_data.get("completed_since"),
+        per_page=input_data.get("per_page", 30),
+    )
+```
+
+**Critical: helper imports MUST go inside the function body.** Putting `from app.data.action.integrations._helpers import run_client` at the top of the module causes a `NameError: name 'run_client' is not defined` at action-invocation time — the `@action` decorator's runtime dispatch loses module-level imports. Every existing integration imports helpers inline; do the same. If you forget and your actions raise NameError at call time even though the module loads cleanly, this is why.
+
+```python
+# WRONG — module-top import, will NameError at call time
+from app.data.action.integrations._helpers import run_client
+
+@action(...)
+async def my_action(input_data):
+    return await run_client(...)
+
+# RIGHT — import inside the function body
+@action(...)
+async def my_action(input_data):
+    from app.data.action.integrations._helpers import run_client
+    return await run_client(...)
+
+
+@action(
+    name="create_asana_task",
+    description="Create a new task in an Asana project. Returns the new task GID.",
+    action_sets=["asana_tasks", "asana"],
+    input_schema={
+        "project_gid": {"type": "string", "description": "Asana project GID.", "example": "1234567890"},
+        "name":        {"type": "string", "description": "Task title.", "example": "Ship Q3 report"},
+        "notes":       {"type": "string", "description": "Task description (Markdown).", "example": ""},
+        "assignee":    {"type": "string", "description": "Assignee user GID or email.", "example": ""},
+    },
+    output_schema={"status": {"type": "string", "example": "success"}},
+    parallelizable=False,
+)
+async def create_asana_task(input_data: dict) -> dict:
+    return await run_client(
+        "asana", "create_task",
+        project_gid=input_data["project_gid"],
+        name=input_data["name"],
+        notes=input_data.get("notes", ""),
+        assignee=input_data.get("assignee") or None,
+    )
+```
+
+What every `@action` must get right:
+
+- **`name`** — globally unique, snake_case, verb-first (`list_*`, `get_*`, `create_*`, `update_*`, `delete_*`, `send_*`, `reply_*`). Include the integration name (`list_asana_tasks`, not `list_tasks`) — names collide across integrations otherwise.
+- **`description`** — one sentence. The LLM reads this to decide whether to call the action. State WHAT it does, WHICH identifier it expects, and WHAT it returns. "Updates a task" is bad; "Update an Asana task by GID (name, notes, completed, assignee)." is good.
+- **`action_sets`** — see "Action set conventions" below. Always at least the fine-grained set; add the umbrella for high-value actions.
+- **`input_schema` / `output_schema`** — keys map 1:1 to `input_data` dict keys. Always include `example` values; the agent uses them as hints when constructing arguments.
+- **`parallelizable=False`** — set on every action that mutates state (create / update / delete / send / reply / move / archive). Read actions can stay parallelizable (the default).
+
+When a single `run_client` call isn't enough — paging, multi-step payload building, sequenced API calls — use `with_client` instead:
+
+```python
+@action(name="archive_completed_asana_tasks", ...)
+async def archive_completed_asana_tasks(input_data: dict) -> dict:
+    from app.data.action.integrations._helpers import with_client
+    async def _go(client):
+        tasks = await client.list_tasks(project_gid=input_data["project_gid"], completed=True)
+        for t in tasks.get("result", []):
+            await client.update_task(t["gid"], archived=True)
+        return {"archived": len(tasks.get("result", []))}
+    return await with_client("asana", _go)
+```
+
+For bespoke result shapes (or when you need to do real pre/post-processing on the result), grab the client manually with `get_client_or_error` — it returns `(client, error_dict)` so you can short-circuit on the credential check and then build whatever envelope you need. See [github_actions.py:3514](app/data/action/integrations/github/github_actions.py#L3514) for an example.
+
+### Action set conventions (sub-sets + umbrella)
+
+The agent doesn't load every action up front — it loads the **action sets** it needs for the current task. For an integration with 50+ actions this matters a lot for token cost. The convention, refined across the 16 expansions (GitHub: 107 actions, Telegram: 76, Jira: 61, Twitter: 46, Notion: 29), is:
+
+1. **Prefix every set with the integration name.** Never use bare verbs like `messages` or `tasks` — always `asana_tasks`, `asana_projects`, `asana_users`. Prevents collisions across integrations and makes it obvious in logs which integration a set belongs to.
+
+2. **One fine-grained set per resource category.** Group by the noun the action operates on, not the verb. For Asana that would be roughly:
+
+   | Sub-set | Covers |
+   |---------|--------|
+   | `asana_tasks` | Task CRUD + complete/uncomplete/move/duplicate/dependencies |
+   | `asana_projects` | Project + sections CRUD, project templates, project briefs |
+   | `asana_comments` | Stories / comments on tasks and projects |
+   | `asana_attachments` | Upload / list / delete attachments |
+   | `asana_users` | User lookup, workspace + team membership |
+   | `asana_teams` | Team CRUD + membership |
+   | `asana_tags` | Tag CRUD, tag/untag |
+   | `asana_custom_fields` | Custom field definitions + values |
+   | `asana_webhooks` | Webhook CRUD (for inbound events) |
+   | `asana_search` | Typeahead + saved searches + advanced search |
+   | `asana_goals` | Goals, goal relationships, progress |
+   | `asana_time_tracking` | Time tracking entries |
+   | `asana_listener` | Runtime knobs for the listener (set watch project, set polling interval) |
+
+3. **One umbrella set covering the high-value ~20%.** Add the integration name (`"asana"`) as a second tag on the actions most users will actually want — typically:
+   - Primary-noun CRUD: list/get/create/update/delete on tasks
+   - Primary-noun comments (add a comment, list comments)
+   - Search
+   - 1–2 actions per remaining major category
+
+   ```python
+   action_sets=["asana_tasks", "asana"]   # in the umbrella — high-value
+   action_sets=["asana_tasks"]            # niche — fine-grained only
+   ```
+
+   Target umbrella size: **15–25 actions**. The agent loads the umbrella by default when the user says "use Asana"; the fine-grained sets get loaded only when the user says something specific like "manage Asana webhooks".
+
+4. **Listener / config actions go in `<name>_listener`** (or `<name>_notifications` if there's already a notification surface). Never put them in the noun sets — they're operational, not domain operations. Examples: `set_asana_watch_projects`, `set_asana_polling_interval`.
+
+5. **Document what you intentionally dropped.** At the bottom of `<name>_actions.py`, leave a comment block listing the API surface you chose NOT to expose, with one line per category explaining why. See [github_actions.py:3576](app/data/action/integrations/github/github_actions.py#L3576) for the canonical exclusion block. This prevents the next person (or the next session) from re-litigating the same scope decision.
+
+### Production-level expectations
+
+"Production" means the integration is good enough to be the user's daily driver for that service, not a tech demo. Concretely:
+
+1. **Coverage: enumerate the full official surface, then trim.** Before writing code, list every endpoint group in the vendor's docs. For Asana that's Tasks, Projects, Sections, Workspaces, Users, Teams, Stories, Tags, Custom Fields, Webhooks, Portfolios, Goals, Attachments, Time Tracking, Status Updates, Project Templates, Project Memberships, Project Briefs, Organization Exports, Audit Log API. For each: would an agent realistically use this? Keep tasks/projects/comments/attachments/webhooks/search/goals. Drop billing, enterprise admin, audit log, org exports. Write the dropped list into the exclusion block.
+
+2. **Match the established scale.** The 16 expanded integrations cluster around **30–75 actions**. Fewer than 30 almost always means you missed the edit/delete/reply/attachment surface. Don't ship `list_*` + `create_*` and call it done.
+
+3. **Mirror the API's verb set on every primary noun.** For every list/get/create, also expose update/delete unless the API genuinely doesn't support it. Lifecycle gaps (can read but can't reply, can send but can't edit, can post a comment but can't delete it) are what made the 16 backlog items necessary in the first place — don't recreate them on new integrations.
+
+4. **Standard envelope everywhere.** Every client method returns the `Result` envelope from `helpers.request` / `arequest` (`{ok, result}` or `{error, details}`). Action wrappers translate that to `{status: success|error, ...}` via `run_client`. Don't invent a third shape. The three integrations that wrap `request` (Slack, Telegram Bot, Notion) do so only because their wire envelope already bakes in an `ok` field — that's the only valid reason to deviate.
+
+5. **Pagination on every list action.** `per_page` parameter (default 30, max 100). When the API exposes a cursor/offset/next-token, surface it in the output — the agent chains list calls.
+
+6. **Identifier discipline.** Pick one canonical identifier shape per resource and document it in the action `description`. GitHub: `owner/repo#number`. Notion: dashed UUIDs. Asana: numeric GIDs as strings (NOT ints — they overflow JS). Linear: identifier strings like `ENG-123`. Inconsistency here turns into "agent constructs an ID and the API 404s" failures.
+
+7. **`connect_help` always populated.** Users need a 3–5 step recipe for "where do I find this token / app ID / etc." Test the steps yourself by following them in a fresh browser session before shipping. Outdated steps are worse than no steps.
+
+8. **`INTEGRATION.md` at the integration root.** One page of gotchas: identifier shape rules, silent-drop config flags (like GitHub's `watch_tag`), session-level facts (e.g. "username is on the credential, don't ask the user"), known auth failure modes (e.g. "403 means token lacks scope, retrying won't help"). See [github/INTEGRATION.md](craftos_integrations/integrations/github/INTEGRATION.md) for shape.
+
+9. **Token / rate-limit hygiene.** If the API has known rate limits, document them in `INTEGRATION.md` and bake a sensible default into the client (back-off, polling interval). The polling integrations (GitHub at 15s, others vary) tune this per-API.
+
+10. **Concurrency-safe writes.** Anywhere the client mutates remote state, the matching action MUST set `parallelizable=False`. Otherwise the runtime will fan out duplicate creates.
+
+### Verification
+
+Before declaring an integration done, run these three checks. Don't skip any.
+
+1. **Imports cleanly and registers** — both must print `True`:
+
+   ```bash
+   python -c "
+   from craftos_integrations import autoload_integrations, get_handler, get_client
+   autoload_integrations(force=True)
+   print('handler:', get_handler('<name>') is not None)
+   print('client :', get_client('<name>') is not None)
+   "
+   ```
+
+   If either is False, a decorator didn't fire — usually because the module raised on import. Check the autoloader warning log line.
+
+2. **AST action-count audit** — confirms the sub-set / umbrella distribution matches the design:
+
+   ```bash
+   python -c "
+   import ast, collections
+   src = open('app/data/action/integrations/<name>/<name>_actions.py').read()
+   tree = ast.parse(src)
+   counts = collections.Counter()
+   total = 0
+   for node in ast.walk(tree):
+       if isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'action':
+           total += 1
+           for kw in node.keywords:
+               if kw.arg == 'action_sets':
+                   for s in kw.value.elts:
+                       counts[s.value] += 1
+   for set_name, n in sorted(counts.items()): print(f'  {set_name:32s} {n}')
+   print(f'  TOTAL @action: {total}')
+   "
+   ```
+
+   Expected shape: the umbrella set should be 15–25; fine-grained sets sum to the total; no set under 3 actions (merge it if so).
+
+3. **Live smoke test** — the only check that catches "the code runs but the API doesn't actually accept what we send". Connect with a real account and run one action per sub-set:
+
+   ```
+   /<name> login <credential>
+   # In chat:
+   "list my recent <thing>"                       → list_<name>_<thing>, returns real data
+   "create a test <thing> called 'smoke test'"    → create_<name>_<thing>
+   "comment 'hi' on that <thing>"                 → add_<name>_comment
+   "delete the test <thing>"                      → delete_<name>_<thing>
+   ```
+
+   Hand the user a checklist of 5–10 representative prompts (one per sub-set) before claiming the integration is done. Without a live smoke test, "production-ready" is a guess.
 
 ---
 

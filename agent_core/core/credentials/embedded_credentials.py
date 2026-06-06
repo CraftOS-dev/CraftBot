@@ -55,6 +55,16 @@ _EMBEDDED_CREDENTIALS: dict[str, dict[str, list[str]]] = {
         "api_id": ["MzQyNDc4MTc="],
         "api_hash": ["N2Q5ZjkzN2ZkNzAzYTI0NTkyMDQzNGM2YjU5MDE4OGE="],
     },
+    "hubspot": {
+        "client_id": [
+            "YmM5ZGM4MzctMGJjMC00Y2Y3L",
+            "WFmY2EtYWVjYTY4YWNiMjhm",
+        ],
+        "client_secret": [
+            "MzI5MzM4ZDktNzVkYi00YTg4L",
+            "Tg2ZmQtMDZhNzI2N2FjNmRk",
+        ],
+    },
 }
 
 

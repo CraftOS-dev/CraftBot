@@ -48,6 +48,8 @@ from app.config import (
     LINKEDIN_CLIENT_SECRET,
     NOTION_SHARED_CLIENT_ID,
     NOTION_SHARED_CLIENT_SECRET,
+    HUBSPOT_SHARED_CLIENT_ID,
+    HUBSPOT_SHARED_CLIENT_SECRET,
     SLACK_SHARED_CLIENT_ID,
     SLACK_SHARED_CLIENT_SECRET,
     TELEGRAM_SHARED_BOT_TOKEN,
@@ -3580,6 +3582,9 @@ class AgentBase:
                 # Notion (only used by the `invite` OAuth path; raw-token login needs nothing)
                 "NOTION_SHARED_CLIENT_ID": NOTION_SHARED_CLIENT_ID,
                 "NOTION_SHARED_CLIENT_SECRET": NOTION_SHARED_CLIENT_SECRET,
+                # HubSpot (only used by the `invite` OAuth path; Private App token login needs nothing)
+                "HUBSPOT_SHARED_CLIENT_ID": HUBSPOT_SHARED_CLIENT_ID,
+                "HUBSPOT_SHARED_CLIENT_SECRET": HUBSPOT_SHARED_CLIENT_SECRET,
                 # Slack (only used by the `invite` OAuth path)
                 "SLACK_SHARED_CLIENT_ID": SLACK_SHARED_CLIENT_ID,
                 "SLACK_SHARED_CLIENT_SECRET": SLACK_SHARED_CLIENT_SECRET,
