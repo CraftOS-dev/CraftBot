@@ -360,6 +360,13 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   const [connectError, setConnectError] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
   const [showConnectHelp, setShowConnectHelp] = useState(false)
+  // Mirrors ``selectedIntegration`` for the WebSocket handlers below, whose
+  // useEffect doesn't re-subscribe when state changes (so a direct read would
+  // be stale). Used to auto-open Manage after a successful connect.
+  const selectedIntegrationRef = React.useRef<Integration | null>(null)
+  useEffect(() => {
+    selectedIntegrationRef.current = selectedIntegration
+  }, [selectedIntegration])
 
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
@@ -421,6 +428,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setShowConnectModal(false)
           setCredentials({})
           setConnectError('')
+          const just = selectedIntegrationRef.current
+          if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
+            send('integration_info', { id: just.id })
+          }
         } else {
           setConnectError(d.error || d.message || 'Connection failed')
         }
@@ -508,6 +519,10 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           setWhatsappQrCode(null)
           setWhatsappSessionId(null)
           setWhatsappStatus('idle')
+          const just = selectedIntegrationRef.current
+          if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
+            send('integration_info', { id: just.id })
+          }
         } else if (d.status === 'error' || d.status === 'disconnected') {
           setWhatsappStatus('error')
           setWhatsappError(d.message || 'Session failed')
