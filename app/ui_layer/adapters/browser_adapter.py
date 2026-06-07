@@ -1497,6 +1497,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             task_id = data.get("taskId", "")
             await self._handle_task_cancel(task_id)
 
+        elif msg_type == "task_complete":
+            task_id = data.get("taskId", "")
+            await self._handle_task_complete(task_id)
+
         elif msg_type == "option_click":
             value = data.get("value", "")
             session_id = data.get("sessionId", "")
@@ -3187,6 +3191,55 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_cancel_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_complete(self, task_id: str) -> None:
+        """Mark a running task as completed at the user's request."""
+        try:
+            agent = self._controller.agent
+            task_manager = agent.task_manager
+
+            task = (
+                task_manager.get_task_by_id(task_id) if task_id else task_manager.active
+            )
+            if not task:
+                await self._broadcast(
+                    {
+                        "type": "task_complete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found",
+                        },
+                    }
+                )
+                return
+
+            await task_manager.mark_task_completed(
+                message="Marked completed by user",
+                task_id=task.id,
+            )
+
+            await self._broadcast(
+                {
+                    "type": "task_complete_response",
+                    "data": {
+                        "taskId": task.id,
+                        "success": True,
+                        "status": "completed",
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "task_complete_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,

@@ -13,12 +13,14 @@ interface TasksExtraState {
   hasMore: boolean
   loadingOlder: boolean
   cancellingTaskId: string | null
+  completingTaskId: string | null
 }
 
 const initialState = adapter.getInitialState<TasksExtraState>({
   hasMore: true,
   loadingOlder: false,
   cancellingTaskId: null,
+  completingTaskId: null,
 })
 
 const tasksSlice = createSlice({
@@ -93,6 +95,14 @@ const tasksSlice = createSlice({
       if (entry) entry.status = 'cancelled'
       state.cancellingTaskId = null
     },
+    setCompletingTaskId(state, action: PayloadAction<string | null>) {
+      state.completingTaskId = action.payload
+    },
+    markCompleted(state, action: PayloadAction<{ taskId: string }>) {
+      const entry = state.entities[action.payload.taskId]
+      if (entry) entry.status = 'completed'
+      state.completingTaskId = null
+    },
   },
 })
 
@@ -107,6 +117,8 @@ export const {
   setLoadingOlder,
   setCancellingTaskId,
   markCancelled,
+  setCompletingTaskId,
+  markCompleted,
 } = tasksSlice.actions
 
 export const tasksAdapter = adapter
@@ -165,5 +177,14 @@ register('task_cancel_response', (data, dispatch) => {
     dispatch(markCancelled({ taskId: r.taskId }))
   } else {
     dispatch(setCancellingTaskId(null))
+  }
+})
+
+register('task_complete_response', (data, dispatch) => {
+  const r = data as { taskId: string; success: boolean }
+  if (r.success) {
+    dispatch(markCompleted({ taskId: r.taskId }))
+  } else {
+    dispatch(setCompletingTaskId(null))
   }
 })

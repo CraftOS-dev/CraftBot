@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply, Plus, Loader2 } from 'lucide-react'
+import { ChevronRight, XCircle, CheckCircle, ArrowLeft, Reply, Plus, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
@@ -546,7 +546,7 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions, messages, cancelTask, cancellingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
+  const { actions, messages, cancelTask, cancellingTaskId, completeTask, completingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
   const internalWorkflowIds = useMemo(() => new Set(skillMeta.internalWorkflowIds), [skillMeta.internalWorkflowIds])
   const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
   const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
@@ -902,16 +902,30 @@ export function TasksPage() {
               </div>
               <div className={styles.headerActions}>
                 {(selectedTask.status === 'running' || selectedTask.status === 'waiting') ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<XCircle size={14} />}
-                    loading={cancellingTaskId === selectedTask.id}
-                    onClick={() => cancelTask(selectedTask.id)}
-                    className={styles.cancelButton}
-                  >
-                    {cancellingTaskId === selectedTask.id ? 'Cancelling…' : 'Cancel Task'}
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<CheckCircle size={14} />}
+                      loading={completingTaskId === selectedTask.id}
+                      disabled={cancellingTaskId === selectedTask.id}
+                      onClick={() => completeTask(selectedTask.id)}
+                      className={styles.completeButton}
+                    >
+                      {completingTaskId === selectedTask.id ? 'Completing…' : 'Mark Complete'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<XCircle size={14} />}
+                      loading={cancellingTaskId === selectedTask.id}
+                      disabled={completingTaskId === selectedTask.id}
+                      onClick={() => cancelTask(selectedTask.id)}
+                      className={styles.cancelButton}
+                    >
+                      {cancellingTaskId === selectedTask.id ? 'Cancelling…' : 'Cancel Task'}
+                    </Button>
+                  </>
                 ) : canCreateSkill ? (
                   <Button
                     variant="ghost"

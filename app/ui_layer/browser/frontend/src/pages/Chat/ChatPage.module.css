@@ -419,6 +419,23 @@
   background: var(--color-error-light);
 }
 
+/* Task mark-complete button - same hover-reveal pattern as cancel */
+.taskCompleteBtn {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.taskItem:hover .taskCompleteBtn {
+  opacity: 1;
+}
+
+.taskCompleteBtn:hover {
+  color: var(--color-success);
+  background: var(--color-success-light);
+}
+
 .spinning {
   animation: spin 1s linear infinite;
 }
