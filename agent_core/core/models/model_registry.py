@@ -9,54 +9,66 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "gpt-5.2-2025-12-11",
         InterfaceType.EMBEDDING: "text-embedding-3-small",
         InterfaceType.IMAGE_GEN: "gpt-image-2",
+        InterfaceType.VIDEO_GEN: "sora-2",
     },
     "gemini": {
         InterfaceType.LLM: "gemini-2.5-pro",
         InterfaceType.VLM: "gemini-2.5-pro",
         InterfaceType.EMBEDDING: "text-embedding-004",
         InterfaceType.IMAGE_GEN: "gemini-3-pro-image",
+        InterfaceType.VIDEO_GEN: "veo-3.1-generate-preview",
     },
     "anthropic": {
         InterfaceType.LLM: "claude-sonnet-4-5-20250929",
         InterfaceType.VLM: "claude-sonnet-4-5-20250929",
         InterfaceType.EMBEDDING: None,  # Anthropic does not provide native embedding models
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "byteplus": {
         InterfaceType.LLM: "seed-2-0-pro-260328",
         InterfaceType.VLM: "seed-2-0-pro-260328",
         InterfaceType.EMBEDDING: "skylark-embedding-vision-250615",
         InterfaceType.IMAGE_GEN: None,
+        # BytePlus international (ap-southeast.bytepluses.com) model IDs use
+        # dated build suffixes, no dots, no `doubao-` prefix (`doubao-*` is
+        # the Volcengine China naming). Verified from BytePlus ModelArk docs.
+        InterfaceType.VIDEO_GEN: "seedance-1-0-pro-fast-251015",
     },
     "remote": {
         InterfaceType.LLM: "llama3.2:3b",
         InterfaceType.VLM: "llava:7b",
         InterfaceType.EMBEDDING: "nomic-embed-text",
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "minimax": {
         InterfaceType.LLM: "MiniMax-Text-01",
         InterfaceType.VLM: "MiniMax-VL-01",
         InterfaceType.EMBEDDING: None,
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "deepseek": {
         InterfaceType.LLM: "deepseek-chat",
         InterfaceType.VLM: None,
         InterfaceType.EMBEDDING: None,
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "moonshot": {
         InterfaceType.LLM: "kimi-k2.5",
         InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
         InterfaceType.EMBEDDING: None,
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "grok": {
         InterfaceType.LLM: "grok-3",
         InterfaceType.VLM: "grok-4-0709",
         InterfaceType.EMBEDDING: None,
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "openrouter": {
         # OpenRouter slugs follow `<provider>/<model>` format. Default to a Claude
@@ -65,6 +77,7 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "anthropic/claude-sonnet-4.5",
         InterfaceType.EMBEDDING: None,
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
     "bedrock": {
         # Default to Claude Haiku 4.5 — best price/performance on Bedrock with
@@ -82,5 +95,6 @@ MODEL_REGISTRY = {
         InterfaceType.VLM: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         InterfaceType.EMBEDDING: "amazon.titan-embed-text-v2:0",
         InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
     },
 }

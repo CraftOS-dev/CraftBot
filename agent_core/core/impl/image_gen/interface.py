@@ -93,7 +93,7 @@ def _classify_error(provider: str, exc: Exception) -> str:
         or "insufficient_quota" in msg
     ):
         return catalog["quota"]
-    if "invalid" in msg and "key" in msg or "invalid_api_key" in msg:
+    if "invalid" in msg and "key" in msg:
         return catalog["invalid_key"]
     if "content_policy" in msg or "safety" in msg or "blocked" in msg:
         return catalog["content_policy"]
@@ -371,8 +371,12 @@ class ImageGenInterface:
         try:
             valid_refs = [p for p in reference_images if os.path.isfile(p)]
             if valid_refs:
-                image_files = [open(p, "rb") for p in valid_refs]
+                # Open progressively into a list so a mid-loop failure still
+                # closes the handles we already opened.
+                image_files: List[Any] = []
                 try:
+                    for p in valid_refs:
+                        image_files.append(open(p, "rb"))
                     response = self.client.images.edit(
                         model=self.model,
                         image=image_files,
@@ -409,7 +413,7 @@ class ImageGenInterface:
             if item.b64_json:
                 images_bytes.append(base64.b64decode(item.b64_json))
             elif item.url:
-                with _urllib_request.urlopen(item.url) as r:
+                with _urllib_request.urlopen(item.url, timeout=30) as r:
                     images_bytes.append(r.read())
 
         if not images_bytes:
@@ -464,8 +468,10 @@ class ImageGenInterface:
                     ".webp": "image/webp",
                 }.get(ext, "image/png")
                 ref_parts.append((data, mime))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    f"[IMAGE_GEN] Skipping unreadable reference image '{ref_path}': {exc}"
+                )
 
         gen_prompt = (
             f"Generate an image based on the following description:\n\n{prompt}"

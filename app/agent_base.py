@@ -73,6 +73,7 @@ from agent_core.core.impl.llm.errors import (
 )
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
+from app.video_gen_interface import VideoGenInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
 from agent_core import (
@@ -231,6 +232,23 @@ class AgentBase:
             deferred=True,  # always deferred — many users won't have an image-gen key
         )
 
+        # Video generation uses its own provider/model settings (defaults to
+        # Gemini Veo since it's the strongest free-tier option). Always
+        # deferred — most users won't have a video-gen key configured.
+        from app.config import (
+            get_video_gen_provider as _get_vid_prov,
+            get_video_gen_model as _get_vid_model,
+        )
+
+        _vid_provider = _get_vid_prov()
+        _vid_api_key = get_api_key(_vid_provider)
+        self.video_gen = VideoGenInterface(
+            provider=_vid_provider,
+            model=_get_vid_model(),
+            api_key=_vid_api_key,
+            deferred=True,
+        )
+
         self.event_stream_manager = EventStreamManager(
             self.llm,
             agent_file_system_path=AGENT_FILE_SYSTEM_PATH,
@@ -328,6 +346,7 @@ class AgentBase:
             self.state_manager,
             vlm_interface=self.vlm,
             image_gen_interface=self.image_gen,
+            video_gen_interface=self.video_gen,
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
         )
@@ -3070,6 +3089,42 @@ class AgentBase:
             InternalActionInterface.image_gen_interface = new_interface
         logger.info(
             f"[AGENT] Image gen reinitialized: provider={target_provider}, success={ok}"
+        )
+        return ok
+
+    def reinitialize_video_gen(self, provider: str | None = None) -> bool:
+        """Reinitialize the video generation interface with updated configuration.
+
+        Creates a fresh VideoGenInterface instance rather than mutating the
+        existing one, so any in-flight action that holds a reference to the
+        old instance completes cleanly against the old provider/client.
+
+        Args:
+            provider: Optional provider to switch to. If None, reads from settings.
+
+        Returns:
+            True if reinitialization was successful.
+        """
+        from app.config import get_video_gen_provider, get_api_key, get_video_gen_model
+        from app.video_gen_interface import VideoGenInterface
+        from app.internal_action_interface import InternalActionInterface
+
+        target_provider = provider or get_video_gen_provider()
+        api_key = get_api_key(target_provider)
+        model = get_video_gen_model()
+
+        new_interface = VideoGenInterface(
+            provider=target_provider,
+            model=model,
+            api_key=api_key,
+            deferred=False,
+        )
+        ok = new_interface.is_initialized
+        if ok:
+            self.video_gen = new_interface
+            InternalActionInterface.video_gen_interface = new_interface
+        logger.info(
+            f"[AGENT] Video gen reinitialized: provider={target_provider}, success={ok}"
         )
         return ok
 
