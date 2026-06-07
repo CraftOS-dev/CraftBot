@@ -14,6 +14,7 @@ interface TasksExtraState {
   loadingOlder: boolean
   cancellingTaskId: string | null
   completingTaskId: string | null
+  resumingTaskId: string | null
 }
 
 const initialState = adapter.getInitialState<TasksExtraState>({
@@ -21,6 +22,7 @@ const initialState = adapter.getInitialState<TasksExtraState>({
   loadingOlder: false,
   cancellingTaskId: null,
   completingTaskId: null,
+  resumingTaskId: null,
 })
 
 const tasksSlice = createSlice({
@@ -103,6 +105,20 @@ const tasksSlice = createSlice({
       if (entry) entry.status = 'completed'
       state.completingTaskId = null
     },
+    setResumingTaskId(state, action: PayloadAction<string | null>) {
+      state.resumingTaskId = action.payload
+    },
+    markResumed(state, action: PayloadAction<{ taskId: string }>) {
+      const entry = state.entities[action.payload.taskId]
+      if (entry) {
+        entry.status = 'running'
+        // Clear the completed-at duration so the row stops showing the
+        // final elapsed time and ticks live again.
+        entry.duration = undefined
+        entry.error = undefined
+      }
+      state.resumingTaskId = null
+    },
   },
 })
 
@@ -119,6 +135,8 @@ export const {
   markCancelled,
   setCompletingTaskId,
   markCompleted,
+  setResumingTaskId,
+  markResumed,
 } = tasksSlice.actions
 
 export const tasksAdapter = adapter
@@ -186,5 +204,14 @@ register('task_complete_response', (data, dispatch) => {
     dispatch(markCompleted({ taskId: r.taskId }))
   } else {
     dispatch(setCompletingTaskId(null))
+  }
+})
+
+register('task_resume_response', (data, dispatch) => {
+  const r = data as { taskId: string; success: boolean }
+  if (r.success) {
+    dispatch(markResumed({ taskId: r.taskId }))
+  } else {
+    dispatch(setResumingTaskId(null))
   }
 })

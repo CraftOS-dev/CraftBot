@@ -19,6 +19,9 @@ export const selectCancellingTaskId = (state: RootState): string | null =>
 export const selectCompletingTaskId = (state: RootState): string | null =>
   state.tasks.completingTaskId
 
+export const selectResumingTaskId = (state: RootState): string | null =>
+  state.tasks.resumingTaskId
+
 // For action_history pagination: cursor is the oldest task's createdAt
 // (falling back to the oldest action of any kind if no tasks present).
 export const selectOldestTaskCreatedAt = (state: RootState): number | undefined => {

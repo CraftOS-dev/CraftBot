@@ -31,6 +31,7 @@ import {
   setLoadingOlder as tasksSetLoadingOlder,
   setCancellingTaskId as tasksSetCancellingTaskId,
   setCompletingTaskId as tasksSetCompletingTaskId,
+  setResumingTaskId as tasksSetResumingTaskId,
 } from '../store/slices/tasksSlice'
 import {
   selectAllActions,
@@ -38,6 +39,7 @@ import {
   selectLoadingOlderActions,
   selectCancellingTaskId,
   selectCompletingTaskId,
+  selectResumingTaskId,
   selectOldestTaskCreatedAt,
 } from '../store/selectors/tasks'
 import {
@@ -146,6 +148,7 @@ interface WebSocketContextType extends WebSocketState {
   loadingOlderActions: boolean
   cancellingTaskId: string | null
   completingTaskId: string | null
+  resumingTaskId: string | null
   // Slice-backed (dashboardSlice).
   dashboardMetrics: DashboardMetrics | null
   filteredMetricsCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
@@ -177,6 +180,7 @@ interface WebSocketContextType extends WebSocketState {
   clearMessages: () => void
   cancelTask: (taskId: string) => void
   completeTask: (taskId: string) => void
+  resumeTask: (taskId: string, message?: string) => void
   openFile: (path: string) => void
   openFolder: (path: string) => void
   requestFilteredMetrics: (period: MetricsTimePeriod) => void
@@ -257,6 +261,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const loadingOlderActions = useAppSelector(selectLoadingOlderActions)
   const cancellingTaskId = useAppSelector(selectCancellingTaskId)
   const completingTaskId = useAppSelector(selectCompletingTaskId)
+  const resumingTaskId = useAppSelector(selectResumingTaskId)
   const oldestTaskCreatedAt = useAppSelector(selectOldestTaskCreatedAt)
   const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const filteredMetricsCache = useAppSelector(selectFilteredMetricsCache)
@@ -426,6 +431,17 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (client.isConnected) {
       dispatch(tasksSetCompletingTaskId(taskId))
       client.sendString(JSON.stringify({ type: 'task_complete', taskId }))
+    }
+  }, [dispatch])
+
+  const resumeTask = useCallback((taskId: string, message?: string) => {
+    if (client.isConnected) {
+      dispatch(tasksSetResumingTaskId(taskId))
+      client.sendString(JSON.stringify({
+        type: 'task_resume',
+        taskId,
+        message: message || '',
+      }))
     }
   }, [dispatch])
 
@@ -661,6 +677,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         loadingOlderActions,
         cancellingTaskId,
         completingTaskId,
+        resumingTaskId,
         dashboardMetrics,
         filteredMetricsCache,
         onboardingStep,
@@ -686,6 +703,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         clearMessages,
         cancelTask,
         completeTask,
+        resumeTask,
         openFile,
         openFolder,
         requestFilteredMetrics,

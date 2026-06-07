@@ -1501,6 +1501,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             task_id = data.get("taskId", "")
             await self._handle_task_complete(task_id)
 
+        elif msg_type == "task_resume":
+            task_id = data.get("taskId", "")
+            message = data.get("message", "") or ""
+            await self._handle_task_resume(task_id, message)
+
         elif msg_type == "option_click":
             value = data.get("value", "")
             session_id = data.get("sessionId", "")
@@ -3191,6 +3196,240 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_cancel_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_resume(self, task_id: str, message: str) -> None:
+        """Re-open a terminated task and continue execution.
+
+        Reads the task + persisted event stream from sessions.db (kept around
+        on task end specifically for this flow), reinstates them in memory,
+        flips the action panel row back to running, optionally injects a
+        continuation user message, and enqueues a trigger so the react loop
+        picks up where it left off. Token counters accumulate across resumes.
+        """
+        try:
+            if not task_id:
+                await self._broadcast(
+                    {
+                        "type": "task_resume_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Missing taskId",
+                        },
+                    }
+                )
+                return
+
+            from app.usage.session_storage import get_session_storage
+            from agent_core.core.task import Task
+            from agent_core.core.impl.event_stream.event_stream import (
+                get_cached_token_count,
+            )
+            from app.state.agent_state import STATE
+            from app.trigger import Trigger
+            import time as _time
+
+            agent = self._controller.agent
+            task_manager = agent.task_manager
+
+            # Refuse if the task is still live (already in memory) — resume
+            # only applies to terminated tasks.
+            if task_id in task_manager.tasks:
+                live = task_manager.tasks[task_id]
+                if live.status not in ("completed", "error", "cancelled"):
+                    await self._broadcast(
+                        {
+                            "type": "task_resume_response",
+                            "data": {
+                                "taskId": task_id,
+                                "success": False,
+                                "error": "Task is already running",
+                            },
+                        }
+                    )
+                    return
+
+            storage = get_session_storage()
+            task_dict = storage.get_task(task_id)
+            if not task_dict:
+                await self._broadcast(
+                    {
+                        "type": "task_resume_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": (
+                                "Task context is no longer available. It may "
+                                "have been purged after 24h — please start a "
+                                "new task."
+                            ),
+                        },
+                    }
+                )
+                return
+
+            # Reject internal/system workflows: their post-completion side
+            # effects already ran and resuming them produces inconsistent
+            # state. Mirrors the existing Create Skill gate.
+            wf_id = task_dict.get("workflow_id") or ""
+            selected_skills = task_dict.get("selected_skills") or []
+            if wf_id in self._INTERNAL_WORKFLOW_IDS or any(
+                s in self._INTERNAL_SKILL_NAMES for s in selected_skills
+            ):
+                await self._broadcast(
+                    {
+                        "type": "task_resume_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Internal workflow tasks cannot be resumed",
+                        },
+                    }
+                )
+                return
+
+            # Rebuild the Task and reset terminal fields. Token counters and
+            # action_count stay as-is — a resume is a continuation, not a
+            # restart. Capture the prior terminal status BEFORE the reset so
+            # the resume system event can anchor the LLM with it.
+            task = Task.from_dict(task_dict)
+            prior_status = task.status
+            task.status = "running"
+            task.ended_at = None
+            task.final_summary = None
+            task.errors = []
+            task.waiting_for_user_reply = False
+
+            # Fresh empty temp dir (the old one was rmtree'd at task end).
+            temp_dir = task_manager._prepare_task_temp_dir(task_id)
+            task.temp_dir = str(temp_dir)
+
+            # Re-insert into the live task map BEFORE wiring up the event
+            # stream so subsequent log() calls route to the correct task.
+            task_manager.tasks[task_id] = task
+            task_manager._current_session_id = task_id
+
+            # Restore the persisted event stream so the LLM sees the full
+            # prior conversation. head_summary + tail_events were written
+            # by _make_on_task_remove_persist at task end.
+            stream = agent.event_stream_manager.create_stream(task_id, temp_dir)
+            t_head, t_records = storage.get_event_stream(task_id)
+            stream.head_summary = t_head
+            stream.tail_events = t_records
+            stream._total_tokens = sum(get_cached_token_count(r) for r in t_records)
+
+            # Sync with state_manager and rebuild session caches so the LLM
+            # is set up the same way create_task would set it up.
+            if agent.state_manager:
+                agent.state_manager.on_task_created(task)
+                agent.state_manager.add_to_active_task(task=task)
+            task_manager._create_session_caches(task_id)
+
+            # Mark as the current task on the global state property.
+            STATE.set_agent_property("current_task_id", task_id)
+
+            # Persist the now-running task back to sessions.db (status flip).
+            try:
+                if task_manager._on_task_persist:
+                    task_manager._on_task_persist(task)
+            except Exception:
+                pass
+
+            # Log a system event so the resumed transcript has a clear
+            # marker, then optionally log the user's continuation message
+            # so the next LLM call sees it.
+            #
+            # Two messages here, one event:
+            #   - `message` is what the LLM sees in the event stream — rich
+            #     framing that anchors it as a *continuation*. Without this
+            #     the model tends to re-execute the task from scratch
+            #     because the task name reads like an imperative.
+            #   - `display_message` is what the user sees in chat — the
+            #     short, friendly "Task '<name>' resumed by user." line.
+            llm_message = (
+                f"Task '{task.name}' was previously {prior_status} and the user "
+                f"has now reopened it to continue. The actions and reasoning "
+                f"DO NOT repeat this task's full prior history."
+                f"Review the history, decide whether the task is incomplete/abort"
+                f" and require continuation or whether the user's intent has shifted"
+                f", and act on that. Ask user for intent if the task is previously completed."
+                f"DO NOT repeat the task again."
+            )
+            agent.event_stream_manager.log(
+                "system",
+                llm_message,
+                display_message=f"Task '{task.name}' resumed by user.",
+                task_id=task_id,
+            )
+            if message.strip():
+                agent.state_manager.record_user_message(
+                    message.strip(),
+                    session_id=task_id,
+                )
+
+            # Flip the action panel row back to running so the UI reflects
+            # the new state in both surfaces.
+            for item in self._action_panel._items:
+                if item.id == task_id:
+                    item.status = "running"
+                    item.completed_at = None
+                    item.error_message = None
+                    self._action_panel._persist_item(item)
+                    await self._broadcast(
+                        {
+                            "type": "action_update",
+                            "data": {
+                                "id": task_id,
+                                "status": "running",
+                                "duration": None,
+                                "error": None,
+                            },
+                        }
+                    )
+                    break
+
+            # Enqueue a trigger so the react loop picks up the task. We use
+            # complex-task priority (7) for non-simple tasks, matching what
+            # _create_new_trigger does post-action.
+            is_simple = getattr(task, "mode", "complex") == "simple"
+            resume_priority = 5 if is_simple else 7
+            await agent.triggers.put(
+                Trigger(
+                    fire_at=_time.time(),
+                    priority=resume_priority,
+                    next_action_description=(
+                        "Continue task from prior state — review the event "
+                        "stream history, do not repeat completed work, and "
+                        "end the task immediately if nothing remains."
+                    ),
+                    session_id=task_id,
+                    payload={"gui_mode": STATE.gui_mode},
+                ),
+                skip_merge=True,
+            )
+
+            await self._broadcast(
+                {
+                    "type": "task_resume_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                        "status": "running",
+                    },
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[task_resume] Failed to resume {task_id}: {e}")
+            await self._broadcast(
+                {
+                    "type": "task_resume_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,

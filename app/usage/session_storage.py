@@ -132,8 +132,36 @@ class SessionStorage:
             conn.execute("DELETE FROM event_streams WHERE stream_id = ?", (task_id,))
             conn.commit()
 
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Look up a single persisted task by id, regardless of status.
+
+        Returns the task's parsed JSON dict or None. Unlike
+        ``get_all_active_tasks`` this does not skip terminal tasks — the
+        Continue Task flow needs to read them back.
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT task_json FROM active_tasks WHERE task_id = ?",
+                (task_id,),
+            )
+            row = cursor.fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row[0])
+        except (ValueError, TypeError):
+            return None
+
     def get_all_active_tasks(self) -> List[Dict[str, Any]]:
-        """Return all active tasks, filtering out stale ones."""
+        """Return all active tasks, filtering out terminal/stale ones.
+
+        Terminal-status tasks (completed/error/cancelled) live in the same
+        table so the Continue Task flow can read them back by id, but they
+        must NOT be auto-restored on startup — that would re-insert an
+        already-ended task into ``task_manager.tasks`` as if running.
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT task_id, task_json, updated_at FROM active_tasks")
@@ -159,6 +187,14 @@ class SessionStorage:
                     continue
             except (ValueError, TypeError):
                 pass  # If we can't parse the timestamp, include the task
+
+            # Skip terminal tasks: kept on disk for resume, not auto-restored.
+            try:
+                task_status = json.loads(task_json).get("status")
+                if task_status in terminal_statuses:
+                    continue
+            except (ValueError, TypeError):
+                pass
 
             results.append(
                 {

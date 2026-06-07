@@ -436,6 +436,23 @@
   background: var(--color-success-light);
 }
 
+/* Task resume button - shown on hover for terminal (ended) tasks */
+.taskResumeBtn {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.taskItem:hover .taskResumeBtn {
+  opacity: 1;
+}
+
+.taskResumeBtn:hover {
+  color: var(--color-success);
+  background: var(--color-success-light);
+}
+
 .spinning {
   animation: spin 1s linear infinite;
 }

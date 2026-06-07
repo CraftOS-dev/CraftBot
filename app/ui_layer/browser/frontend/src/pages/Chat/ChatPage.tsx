@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Check, X, Loader2, Reply } from 'lucide-react'
+import { Check, X, Loader2, Reply, RotateCw } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
@@ -21,6 +21,8 @@ export function ChatPage() {
     cancellingTaskId,
     completeTask,
     completingTaskId,
+    resumeTask,
+    resumingTaskId,
     setReplyTarget,
     loadOlderActions,
     hasMoreActions,
@@ -206,6 +208,26 @@ export function ChatPage() {
                           }
                         />
                       </>
+                    )}
+                    {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') && (
+                      <IconButton
+                        size="sm"
+                        variant="ghost"
+                        className={styles.taskResumeBtn}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          resumeTask(task.id)
+                        }}
+                        disabled={resumingTaskId === task.id}
+                        title="Continue Task"
+                        icon={
+                          resumingTaskId === task.id ? (
+                            <Loader2 size={12} className={styles.spinning} />
+                          ) : (
+                            <RotateCw size={12} />
+                          )
+                        }
+                      />
                     )}
                   </div>
                   {isExpanded && (
