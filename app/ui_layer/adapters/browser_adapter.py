@@ -1145,6 +1145,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "/api/living-ui/import", self._living_ui_import_handler
         )
 
+        # Agent profile bundle import/export routes
+        self._app.router.add_get(
+            "/api/profile/export", self._profile_export_handler
+        )
+        self._app.router.add_post(
+            "/api/profile/inspect", self._profile_inspect_handler
+        )
+        self._app.router.add_post(
+            "/api/profile/import", self._profile_import_handler
+        )
+
         # Integration bridge routes (Living UI → external APIs)
         from app.living_ui.integration_bridge import IntegrationBridge
 
@@ -2919,6 +2930,123 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[LIVING_UI] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Agent profile bundle (.craftbot) — export / inspect / import
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _profile_export_handler(self, request: "web.Request") -> "web.Response":
+        """Build a .craftbot bundle of the current agent and return it."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import export_profile
+        import shutil
+
+        description = request.query.get("description", "")
+        try:
+            result = export_profile(description=description)
+        except Exception as exc:
+            logger.error(f"[PROFILE_BUNDLE] Export failed: {exc}", exc_info=True)
+            return web.json_response({"error": str(exc)}, status=500)
+
+        if not result.get("success"):
+            return web.json_response(
+                {"error": result.get("error", "Export failed")}, status=500
+            )
+
+        bundle_path = Path(result["path"])
+        filename = result["filename"]
+        try:
+            payload = bundle_path.read_bytes()
+        finally:
+            # Clean up the temp file + its parent dir immediately. Bundles are
+            # small enough (no node_modules) to hold in memory briefly.
+            shutil.rmtree(bundle_path.parent, ignore_errors=True)
+
+        return web.Response(
+            body=payload,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(payload)),
+            },
+        )
+
+    async def _stage_uploaded_bundle(self, request: "web.Request") -> Optional[str]:
+        """Read the multipart upload and save the bundle to a temp file."""
+        import tempfile
+
+        reader = await request.multipart()
+        bundle_path: Optional[str] = None
+        async for part in reader:
+            if part.name == "file":
+                tmp = tempfile.NamedTemporaryFile(
+                    suffix=".craftbot",
+                    prefix="craftbot_profile_in_",
+                    delete=False,
+                )
+                while True:
+                    chunk = await part.read_chunk()
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                tmp.close()
+                bundle_path = tmp.name
+        return bundle_path
+
+    async def _profile_inspect_handler(self, request: "web.Request") -> "web.Response":
+        """Read a bundle's manifest so the frontend can render a preview modal."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import inspect_bundle
+
+        try:
+            bundle_path = await self._stage_uploaded_bundle(request)
+            if not bundle_path:
+                return web.json_response(
+                    {"error": "No bundle file uploaded"}, status=400
+                )
+            result = inspect_bundle(bundle_path)
+            # Return the temp path so the subsequent /api/profile/import call
+            # can reuse it instead of re-uploading the bundle.
+            result["bundle_path"] = bundle_path
+            return web.json_response(result)
+        except Exception as exc:
+            logger.error(f"[PROFILE_BUNDLE] Inspect failed: {exc}", exc_info=True)
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def _profile_import_handler(self, request: "web.Request") -> "web.Response":
+        """Apply a previously-inspected bundle to the agent."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import import_profile
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": "Invalid JSON body"}, status=400
+            )
+
+        bundle_path = payload.get("bundle_path") or ""
+        mode = payload.get("mode", "merge")
+        if not bundle_path:
+            return web.json_response(
+                {"error": "bundle_path is required"}, status=400
+            )
+
+        try:
+            result = import_profile(bundle_path, mode=mode)
+        except Exception as exc:
+            logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
+            return web.json_response({"error": str(exc)}, status=500)
+        finally:
+            # Best-effort cleanup of the staged upload.
+            try:
+                p = Path(bundle_path)
+                if p.exists():
+                    p.unlink()
+            except Exception:
+                pass
+
+        return web.json_response(result)
 
     async def _handle_living_ui_state_update(self, data: Dict[str, Any]) -> None:
         """Handle state update from a Living UI for agent awareness."""

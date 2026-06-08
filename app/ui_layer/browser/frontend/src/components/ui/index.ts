@@ -23,6 +23,14 @@ export type { ModalProps, ModalSize, ModalSectionProps } from './Modal'
 export { ConfirmModal } from './ConfirmModal'
 export type { ConfirmModalProps } from './ConfirmModal'
 
+export { ImportProfileModal } from './ImportProfileModal'
+export type {
+  ImportProfileModalProps,
+  ImportMode,
+  ProfileBundleManifest,
+  ProfileBundlePreview,
+} from './ImportProfileModal'
+
 export { SkillCreatorModal } from './SkillCreatorModal'
 export type { SkillCreatorModalProps, SkillCreatorMode, SkillCreatorSubmit } from './SkillCreatorModal'
 
