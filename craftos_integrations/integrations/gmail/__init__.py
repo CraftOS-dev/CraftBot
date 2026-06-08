@@ -404,15 +404,40 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                     for h in msg.get("payload", {}).get("headers", [])
                 },
             }
-            if full_body and "parts" in msg.get("payload", {}):
-                for part in msg["payload"]["parts"]:
-                    if part.get("mimeType") == "text/plain" and "data" in part.get(
-                        "body", {}
-                    ):
-                        email_info["body"] = base64.urlsafe_b64decode(
-                            part["body"]["data"].encode("ASCII")
-                        ).decode("utf-8")
-                        break
+            if full_body:
+                attachments: List[Dict[str, Any]] = []
+
+                def _walk_parts(parts):
+                    for part in parts:
+                        attachment_id = part.get("body", {}).get("attachmentId")
+                        if attachment_id:
+                            attachments.append(
+                                {
+                                    "filename": part.get("filename", ""),
+                                    "attachment_id": attachment_id,
+                                    "mimeType": part.get("mimeType", ""),
+                                    "size": part.get("body", {}).get("size", 0),
+                                }
+                            )
+                        elif part.get("mimeType") == "text/plain" and "data" in part.get("body", {}):
+                            if "body" not in email_info:
+                                email_info["body"] = base64.urlsafe_b64decode(
+                                    part["body"]["data"].encode("ASCII")
+                                ).decode("utf-8")
+                        nested = part.get("parts")
+                        if nested:
+                            _walk_parts(nested)
+
+                payload = msg.get("payload", {})
+                top_parts = payload.get("parts", [])
+                if top_parts:
+                    _walk_parts(top_parts)
+                elif payload.get("mimeType") == "text/plain" and "data" in payload.get("body", {}):
+                    email_info["body"] = base64.urlsafe_b64decode(
+                        payload["body"]["data"].encode("ASCII")
+                    ).decode("utf-8")
+
+                email_info["attachments"] = attachments
             return email_info
 
         return http_request(
@@ -1047,7 +1072,7 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
     # ----- Attachments -----
 
     def download_attachment(
-        self, message_id: str, attachment_id: str, save_to: str
+        self, message_id: str, attachment_id: str, save_to: str, filename: Optional[str] = None
     ) -> Result:
         """Download an attachment to a local path. Decodes Gmail's urlsafe base64 data."""
         import os as _os
@@ -1058,13 +1083,20 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
             headers=self._auth_header(),
             expected=(200,),
         )
+
+        data_preview = (result.get("result") or {}).get("data", "")
+        logger.info(f"DOWNLOAD ATTACHMENT: Result - {result}, data_b64: {data_preview}")
+
         if "error" in result:
             return result
-        data_b64 = result["result"].get("data", "")
+        data_b64 = (result.get("result") or {}).get("data", "")
         if not data_b64:
             return {"error": "Attachment had no data field"}
         try:
             save_to = _os.path.abspath(save_to)
+            if _os.path.isdir(save_to):
+                fname = filename or f"attachment_{attachment_id[:8]}.bin"
+                save_to = _os.path.join(save_to, fname)
             parent = _os.path.dirname(save_to)
             if parent:
                 _os.makedirs(parent, exist_ok=True)

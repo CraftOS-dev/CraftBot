@@ -78,7 +78,12 @@ def list_gmail(input_data: dict) -> dict:
 
 @action(
     name="get_gmail",
-    description="Get details of a specific Gmail message by ID.",
+    description=(
+        "Get details of a specific Gmail message by ID. "
+        "When full_body=true the response includes body text and an attachments list "
+        "(each entry: attachment_id, filename, mimeType, size). "
+        "Use attachment_id and filename with download_gmail_attachment."
+    ),
     action_sets=["gmail_mail", "gmail"],
     input_schema={
         "message_id": {
@@ -88,7 +93,7 @@ def list_gmail(input_data: dict) -> dict:
         },
         "full_body": {
             "type": "boolean",
-            "description": "Whether to include full email body.",
+            "description": "Whether to include full email body and attachment metadata.",
             "example": False,
         },
     },
@@ -940,19 +945,29 @@ def delete_gmail_label(input_data: dict) -> dict:
 
 @action(
     name="download_gmail_attachment",
-    description="Download a Gmail attachment to a local path. Get the attachment_id from get_gmail with full_body=true (payload.parts[].body.attachmentId).",
+    description=(
+        "Download a Gmail attachment to a local path. "
+        "First call get_gmail with full_body=true to get the attachments list — "
+        "each entry has attachment_id and filename. "
+        "Pass save_to as a directory path and filename separately, or as a full file path."
+    ),
     action_sets=["gmail_attachments", "gmail"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
         "attachment_id": {
             "type": "string",
-            "description": "Attachment ID from the message payload.",
+            "description": "Attachment ID from get_gmail(full_body=true).attachments[].attachment_id.",
             "example": "",
         },
         "save_to": {
             "type": "string",
-            "description": "Local path to save to.",
-            "example": "C:/Users/me/downloads/file.pdf",
+            "description": "Local path to save to. May be a directory; use filename to set the file name.",
+            "example": "C:/Users/me/downloads/",
+        },
+        "filename": {
+            "type": "string",
+            "description": "Filename to use when save_to is a directory. Use the filename from get_gmail attachments list.",
+            "example": "invoice.pdf",
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -969,6 +984,7 @@ def download_gmail_attachment(input_data: dict) -> dict:
         message_id=input_data["message_id"],
         attachment_id=input_data["attachment_id"],
         save_to=input_data["save_to"],
+        filename=input_data.get("filename"),
     )
 
 
