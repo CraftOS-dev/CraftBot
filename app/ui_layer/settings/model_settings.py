@@ -176,6 +176,7 @@ def get_available_providers() -> Dict[str, Any]:
             llm_model = provider_models.get(InterfaceType.LLM)
             vlm_model = provider_models.get(InterfaceType.VLM)
             image_gen_model = provider_models.get(InterfaceType.IMAGE_GEN)
+            video_gen_model = provider_models.get(InterfaceType.VIDEO_GEN)
 
             providers.append(
                 {
@@ -189,6 +190,8 @@ def get_available_providers() -> Dict[str, Any]:
                     "has_vlm": vlm_model is not None,
                     "image_gen_model": image_gen_model,
                     "has_image_gen": image_gen_model is not None,
+                    "video_gen_model": video_gen_model,
+                    "has_video_gen": video_gen_model is not None,
                     "supports_catalog": info.get("supports_catalog", False),
                     "is_bedrock": info.get("is_bedrock", False),
                 }
@@ -249,6 +252,16 @@ def get_model_settings() -> Dict[str, Any]:
         image_gen_model = model_settings.get("image_gen_model") or MODEL_REGISTRY.get(
             image_gen_provider, {}
         ).get(InterfaceType.IMAGE_GEN)
+
+        video_gen_provider = model_settings.get("video_gen_provider")
+        if not video_gen_provider:
+            if MODEL_REGISTRY.get(vlm_provider, {}).get(InterfaceType.VIDEO_GEN):
+                video_gen_provider = vlm_provider
+            else:
+                video_gen_provider = "gemini"
+        video_gen_model = model_settings.get("video_gen_model") or MODEL_REGISTRY.get(
+            video_gen_provider, {}
+        ).get(InterfaceType.VIDEO_GEN)
 
         # Check API key status for each provider (settings.json only)
         api_keys = {}
@@ -316,9 +329,11 @@ def get_model_settings() -> Dict[str, Any]:
             "llm_provider": llm_provider,
             "vlm_provider": vlm_provider,
             "image_gen_provider": image_gen_provider,
+            "video_gen_provider": video_gen_provider,
             "llm_model": llm_model,
             "vlm_model": vlm_model,
             "image_gen_model": image_gen_model,
+            "video_gen_model": video_gen_model,
             "api_keys": api_keys,
             "base_urls": base_urls,
             "aws_credentials": aws_creds_status,
@@ -334,9 +349,11 @@ def update_model_settings(
     llm_provider: Optional[str] = None,
     vlm_provider: Optional[str] = None,
     image_gen_provider: Optional[str] = None,
+    video_gen_provider: Optional[str] = None,
     llm_model: Optional[str] = None,
     vlm_model: Optional[str] = None,
     image_gen_model: Optional[str] = None,
+    video_gen_model: Optional[str] = None,
     api_key: Optional[str] = None,
     provider_for_key: Optional[str] = None,
     base_url: Optional[str] = None,
@@ -414,6 +431,26 @@ def update_model_settings(
             if image_gen_provider != old_img_provider and image_gen_model is None:
                 settings["model"]["image_gen_model"] = None
 
+        # Update video generation provider (validate before saving)
+        if video_gen_provider:
+            supported_vid_providers = {
+                p
+                for p, caps in MODEL_REGISTRY.items()
+                if caps.get(InterfaceType.VIDEO_GEN)
+            }
+            if video_gen_provider not in supported_vid_providers:
+                return {
+                    "success": False,
+                    "error": (
+                        f"'{video_gen_provider}' does not support video generation. "
+                        f"Supported providers: {', '.join(sorted(supported_vid_providers))}"
+                    ),
+                }
+            old_vid_provider = settings["model"].get("video_gen_provider")
+            settings["model"]["video_gen_provider"] = video_gen_provider
+            if video_gen_provider != old_vid_provider and video_gen_model is None:
+                settings["model"]["video_gen_model"] = None
+
         # Update custom models (explicit values override the auto-clear above)
         if llm_model is not None:
             settings["model"]["llm_model"] = llm_model if llm_model else None
@@ -422,6 +459,10 @@ def update_model_settings(
         if image_gen_model is not None:
             settings["model"]["image_gen_model"] = (
                 image_gen_model if image_gen_model else None
+            )
+        if video_gen_model is not None:
+            settings["model"]["video_gen_model"] = (
+                video_gen_model if video_gen_model else None
             )
 
         # Update API key in settings.json

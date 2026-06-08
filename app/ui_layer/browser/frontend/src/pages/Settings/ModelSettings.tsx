@@ -32,6 +32,8 @@ import {
   selectModelHasLoadedSlowMode,
   selectImageGenProvider,
   selectCurrentImageGenModel,
+  selectVideoGenProvider,
+  selectCurrentVideoGenModel,
 } from '../../store/selectors/modelSettings'
 import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
@@ -94,6 +96,8 @@ export function ModelSettings() {
   const awsCredentialsStatus = useAppSelector(selectAwsCredentials)
   const imageGenProvider = useAppSelector(selectImageGenProvider)
   const currentImageGenModel = useAppSelector(selectCurrentImageGenModel)
+  const videoGenProvider = useAppSelector(selectVideoGenProvider)
+  const currentVideoGenModel = useAppSelector(selectCurrentVideoGenModel)
   const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
   const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
   const hasLoadedSlowMode = useAppSelector(selectModelHasLoadedSlowMode)
@@ -123,6 +127,13 @@ export function ModelSettings() {
   const [newImageGenApiKey, setNewImageGenApiKey] = useState('')
   const [imageGenHasChanges, setImageGenHasChanges] = useState(false)
   const [isImageGenSaving, setIsImageGenSaving] = useState(false)
+
+  // Video generation form state (transient — local).
+  const [newVideoGenProvider, setNewVideoGenProvider] = useState('')
+  const [newVideoGenModel, setNewVideoGenModel] = useState('')
+  const [newVideoGenApiKey, setNewVideoGenApiKey] = useState('')
+  const [videoGenHasChanges, setVideoGenHasChanges] = useState(false)
+  const [isVideoGenSaving, setIsVideoGenSaving] = useState(false)
 
   // UI state (transient — local).
   const [isSaving, setIsSaving] = useState(false)
@@ -174,6 +185,8 @@ export function ModelSettings() {
         if (!hasInitialized.current) {
           setNewLlmModel('')
           setNewVlmModel('')
+          setNewVideoGenProvider('')
+          setNewVideoGenModel('')
           hasInitialized.current = true
         }
       }),
@@ -181,6 +194,7 @@ export function ModelSettings() {
         const d = data as { success: boolean; error?: string }
         setIsSaving(false)
         setIsImageGenSaving(false)
+        setIsVideoGenSaving(false)
         if (d.success) {
           setNewApiKey('')
           setNewBaseUrl('')
@@ -195,6 +209,10 @@ export function ModelSettings() {
           setNewImageGenModel('')
           setNewImageGenApiKey('')
           setImageGenHasChanges(false)
+          setNewVideoGenProvider('')
+          setNewVideoGenModel('')
+          setNewVideoGenApiKey('')
+          setVideoGenHasChanges(false)
           showToast('success', 'Settings saved')
         } else {
           showToast('error', d.error || 'Failed to save')
@@ -445,6 +463,19 @@ export function ModelSettings() {
       imageGenModel: newImageGenModel || currentImageGenModel || undefined,
       ...(newImageGenApiKey ? {
         apiKey: newImageGenApiKey,
+        providerForKey: effectiveProvider,
+      } : {}),
+    })
+  }
+
+  const handleVideoGenSave = () => {
+    setIsVideoGenSaving(true)
+    const effectiveProvider = newVideoGenProvider || videoGenProvider
+    send('model_settings_update', {
+      videoGenProvider: effectiveProvider,
+      videoGenModel: newVideoGenModel || currentVideoGenModel || undefined,
+      ...(newVideoGenApiKey ? {
+        apiKey: newVideoGenApiKey,
         providerForKey: effectiveProvider,
       } : {}),
     })
@@ -992,6 +1023,90 @@ export function ModelSettings() {
                     disabled={isImageGenSaving || !imageGenHasChanges}
                   >
                     {isImageGenSaving ? (
+                      <>
+                        <Loader2 size={14} className={styles.spinning} />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Video Generation */}
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border-primary)', margin: 'var(--space-4) 0' }} />
+          <div className={styles.sectionHeader} style={{ marginBottom: 'var(--space-3)' }}>
+            <h3>Video Generation</h3>
+            <p>Configure the provider used for video generation</p>
+          </div>
+          {(() => {
+            const videoGenProviders = providers.filter(p => p.has_video_gen)
+            const effectiveVidProvider = newVideoGenProvider || videoGenProvider
+            const vidProviderInfo = videoGenProviders.find(p => p.id === effectiveVidProvider)
+            return (
+              <div className={styles.settingsForm} style={{ paddingTop: 0 }}>
+                <div className={styles.formGroup}>
+                  <label>Provider</label>
+                  <select
+                    value={effectiveVidProvider}
+                    onChange={(e) => {
+                      const sel = videoGenProviders.find(p => p.id === e.target.value)
+                      setNewVideoGenProvider(e.target.value)
+                      setNewVideoGenModel(sel?.video_gen_model || '')
+                      setNewVideoGenApiKey('')
+                      setVideoGenHasChanges(true)
+                    }}
+                  >
+                    {videoGenProviders.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* API Key for video gen provider */}
+                {vidProviderInfo?.requires_api_key && (
+                  <div className={styles.formGroup}>
+                    <label>
+                      API Key
+                      {apiKeys[effectiveVidProvider]?.has_key ? (
+                        <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                      ) : (
+                        <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                      )}
+                    </label>
+                    {apiKeys[effectiveVidProvider]?.has_key && (
+                      <div className={styles.maskedKey}>{apiKeys[effectiveVidProvider].masked_key}</div>
+                    )}
+                    <input
+                      type="password"
+                      value={newVideoGenApiKey}
+                      onChange={(e) => { setNewVideoGenApiKey(e.target.value); setVideoGenHasChanges(true) }}
+                      placeholder={apiKeys[effectiveVidProvider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
+                    />
+                  </div>
+                )}
+
+                {/* Model override */}
+                <div className={styles.formGroup}>
+                  <label>Model</label>
+                  <input
+                    type="text"
+                    value={newVideoGenModel || currentVideoGenModel || ''}
+                    onChange={(e) => { setNewVideoGenModel(e.target.value); setVideoGenHasChanges(true) }}
+                    placeholder={vidProviderInfo?.video_gen_model || 'Default model'}
+                  />
+                </div>
+
+                <div className={styles.sectionFooter} style={{ borderTop: 'none', paddingTop: 0 }}>
+                  <Button
+                    variant="primary"
+                    onClick={handleVideoGenSave}
+                    disabled={isVideoGenSaving || !videoGenHasChanges}
+                  >
+                    {isVideoGenSaving ? (
                       <>
                         <Loader2 size={14} className={styles.spinning} />
                         Saving...

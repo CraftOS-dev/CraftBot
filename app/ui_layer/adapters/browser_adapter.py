@@ -4708,6 +4708,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             new_provider = data.get("llmProvider")
             vlm_provider = data.get("vlmProvider")
             image_gen_provider = data.get("imageGenProvider")
+            video_gen_provider = data.get("videoGenProvider")
             api_key = data.get("apiKey")
             provider_for_key = data.get("providerForKey")
             base_url = data.get("baseUrl")
@@ -4780,14 +4781,27 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 prev_image_gen_provider = _get_ig_provider()
                 prev_image_gen_model = _get_ig_model()
 
+            prev_video_gen_provider = None
+            prev_video_gen_model = None
+            if video_gen_provider:
+                from app.config import (
+                    get_video_gen_provider as _get_vg_provider,
+                    get_video_gen_model as _get_vg_model,
+                )
+
+                prev_video_gen_provider = _get_vg_provider()
+                prev_video_gen_model = _get_vg_model()
+
             # Step 3: Now save settings (validation and connection test passed)
             result = update_model_settings(
                 llm_provider=new_provider,
                 vlm_provider=vlm_provider,
                 image_gen_provider=image_gen_provider,
+                video_gen_provider=video_gen_provider,
                 llm_model=data.get("llmModel"),
                 vlm_model=data.get("vlmModel"),
                 image_gen_model=data.get("imageGenModel"),
+                video_gen_model=data.get("videoGenModel"),
                 api_key=api_key,
                 provider_for_key=provider_for_key,
                 base_url=base_url,
@@ -4838,6 +4852,32 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     msg = (
                         f"Image generation provider '{image_gen_provider}' could not be "
                         f"initialized — check its API key. Kept '{prev_image_gen_provider}'."
+                    )
+                    logger.warning(f"[BROWSER] {msg}")
+                    result["warning"] = result.get("warning") or msg
+
+            # Reinitialize video gen interface when its provider changes.
+            # Mirrors the image gen pattern: roll back on reinit failure.
+            if result.get("success") and video_gen_provider:
+                reinit_vid_ok = False
+                try:
+                    agent = self._controller.agent
+                    reinit_vid_ok = agent.reinitialize_video_gen(video_gen_provider)
+                except Exception as e:
+                    logger.warning(f"[BROWSER] Failed to reinitialize video gen: {e}")
+
+                if reinit_vid_ok:
+                    logger.info(
+                        f"[BROWSER] Video gen reinitialized with provider: {video_gen_provider}"
+                    )
+                else:
+                    update_model_settings(
+                        video_gen_provider=prev_video_gen_provider,
+                        video_gen_model=prev_video_gen_model,
+                    )
+                    msg = (
+                        f"Video generation provider '{video_gen_provider}' could not be "
+                        f"initialized — check its API key. Kept '{prev_video_gen_provider}'."
                     )
                     logger.warning(f"[BROWSER] {msg}")
                     result["warning"] = result.get("warning") or msg

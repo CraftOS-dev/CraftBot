@@ -10,8 +10,10 @@ export interface ProviderInfo {
   llm_model: string | null
   vlm_model: string | null
   image_gen_model: string | null
+  video_gen_model: string | null
   has_vlm: boolean
   has_image_gen: boolean
+  has_video_gen: boolean
   supports_catalog?: boolean
   is_bedrock?: boolean
 }
@@ -33,11 +35,13 @@ interface ModelSettingsState {
   providers: ProviderInfo[]
   provider: string
   imageGenProvider: string
+  videoGenProvider: string
   apiKeys: Record<string, ApiKeyStatus>
   baseUrls: Record<string, string>
   currentLlmModel: string
   currentVlmModel: string
   currentImageGenModel: string
+  currentVideoGenModel: string
   slowModeEnabled: boolean
   ollamaModels: string[]
   ollamaAvailable: boolean | null
@@ -51,11 +55,13 @@ const initialState: ModelSettingsState = {
   providers: [],
   provider: 'anthropic',
   imageGenProvider: 'openai',
+  videoGenProvider: 'gemini',
   apiKeys: {},
   baseUrls: {},
   currentLlmModel: '',
   currentVlmModel: '',
   currentImageGenModel: '',
+  currentVideoGenModel: '',
   slowModeEnabled: false,
   ollamaModels: [],
   ollamaAvailable: null,
@@ -76,18 +82,22 @@ const modelSettingsSlice = createSlice({
     setSettings(state, action: PayloadAction<{
       provider: string
       imageGenProvider: string
+      videoGenProvider: string
       llmModel: string
       vlmModel: string
       imageGenModel: string
+      videoGenModel: string
       apiKeys: Record<string, ApiKeyStatus>
       baseUrls: Record<string, string>
       awsCredentials?: AwsCredentialsStatus | null
     }>) {
       state.provider = action.payload.provider
       state.imageGenProvider = action.payload.imageGenProvider
+      state.videoGenProvider = action.payload.videoGenProvider
       state.currentLlmModel = action.payload.llmModel
       state.currentVlmModel = action.payload.vlmModel
       state.currentImageGenModel = action.payload.imageGenModel
+      state.currentVideoGenModel = action.payload.videoGenModel
       state.apiKeys = action.payload.apiKeys
       state.baseUrls = action.payload.baseUrls
       if (action.payload.awsCredentials !== undefined) {
@@ -113,6 +123,12 @@ const modelSettingsSlice = createSlice({
     setCurrentImageGenModel(state, action: PayloadAction<string>) {
       state.currentImageGenModel = action.payload
     },
+    setVideoGenProvider(state, action: PayloadAction<string>) {
+      state.videoGenProvider = action.payload
+    },
+    setCurrentVideoGenModel(state, action: PayloadAction<string>) {
+      state.currentVideoGenModel = action.payload
+    },
     setApiKeys(state, action: PayloadAction<Record<string, ApiKeyStatus>>) {
       state.apiKeys = action.payload
     },
@@ -135,9 +151,11 @@ export const {
   setSettings,
   setProvider,
   setImageGenProvider,
+  setVideoGenProvider,
   setCurrentLlmModel,
   setCurrentVlmModel,
   setCurrentImageGenModel,
+  setCurrentVideoGenModel,
   setApiKeys,
   setBaseUrls,
   setSlowModeEnabled,
@@ -157,9 +175,11 @@ register('model_settings_get', (data, dispatch) => {
     success: boolean
     llm_provider: string
     image_gen_provider: string
+    video_gen_provider: string
     llm_model: string | null
     vlm_model: string | null
     image_gen_model: string | null
+    video_gen_model: string | null
     api_keys: Record<string, ApiKeyStatus>
     base_urls: Record<string, string>
     aws_credentials?: AwsCredentialsStatus | null
@@ -168,9 +188,11 @@ register('model_settings_get', (data, dispatch) => {
     dispatch(setSettings({
       provider: d.llm_provider || 'anthropic',
       imageGenProvider: d.image_gen_provider || 'openai',
+      videoGenProvider: d.video_gen_provider || 'gemini',
       llmModel: d.llm_model || '',
       vlmModel: d.vlm_model || '',
       imageGenModel: d.image_gen_model || '',
+      videoGenModel: d.video_gen_model || '',
       apiKeys: d.api_keys || {},
       baseUrls: d.base_urls || {},
       awsCredentials: d.aws_credentials ?? null,
@@ -183,24 +205,28 @@ register('model_settings_update', (data, dispatch) => {
     success: boolean
     llm_provider?: string
     image_gen_provider?: string
+    video_gen_provider?: string
     llm_model?: string | null
     vlm_model?: string | null
     image_gen_model?: string | null
+    video_gen_model?: string | null
     api_keys?: Record<string, ApiKeyStatus>
     base_urls?: Record<string, string>
     aws_credentials?: AwsCredentialsStatus | null
   }
   if (!d.success) return
   if (d.llm_provider) dispatch(setProvider(d.llm_provider))
-  // Always update imageGenProvider when the field is present (even on partial saves);
-  // using `!== undefined` mirrors model_settings_get so version-mismatched backends
-  // that omit the field don't silently leave the UI showing a stale provider.
+  // Always update imageGenProvider/videoGenProvider when present (even on partial saves);
+  // using `!== undefined` so version-mismatched backends that omit the field don't
+  // silently leave the UI showing a stale provider.
   if (d.image_gen_provider !== undefined) dispatch(setImageGenProvider(d.image_gen_provider || 'openai'))
+  if (d.video_gen_provider !== undefined) dispatch(setVideoGenProvider(d.video_gen_provider || 'gemini'))
   if (d.api_keys) dispatch(setApiKeys(d.api_keys))
   if (d.base_urls) dispatch(setBaseUrls(d.base_urls))
   if (d.llm_model !== undefined) dispatch(setCurrentLlmModel(d.llm_model || ''))
   if (d.vlm_model !== undefined) dispatch(setCurrentVlmModel(d.vlm_model || ''))
   if (d.image_gen_model !== undefined) dispatch(setCurrentImageGenModel(d.image_gen_model || ''))
+  if (d.video_gen_model !== undefined) dispatch(setCurrentVideoGenModel(d.video_gen_model || ''))
   if (d.aws_credentials !== undefined) dispatch(setAwsCredentials(d.aws_credentials))
 })
 
