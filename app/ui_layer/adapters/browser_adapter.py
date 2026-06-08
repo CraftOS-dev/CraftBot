@@ -3033,7 +3033,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
         try:
-            result = import_profile(bundle_path, mode=mode)
+            # Pass the live LivingUIManager so imported projects land in its
+            # in-memory state. Without this, the manager's stale state will
+            # overwrite our file on the next status update / watchdog tick.
+            result = import_profile(
+                bundle_path,
+                mode=mode,
+                living_ui_manager=self._living_ui_manager,
+            )
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)

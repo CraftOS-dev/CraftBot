@@ -21,7 +21,10 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from app.living_ui.manager import LivingUIManager
 
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
@@ -182,7 +185,12 @@ def _gather_export_contents() -> Dict[str, Any]:
     ]
 
     mcp_config = _load_json(MCP_CONFIG_PATH, {"mcp_servers": []})
-    mcp_servers = mcp_config.get("mcp_servers", [])
+    # Only export enabled MCP servers — the recipient already has the ~157
+    # disabled defaults bundled with CraftBot, and shipping all of them would
+    # leak machine-specific command paths.
+    mcp_servers = [
+        s for s in mcp_config.get("mcp_servers", []) if s.get("enabled", False)
+    ]
 
     md_present = [
         f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()
@@ -276,13 +284,14 @@ def export_profile(description: str = "") -> Dict[str, Any]:
             if src.is_dir():
                 _copy_dir_filtered(src, skills_dir / skill_name)
 
-        # mcp/
+        # mcp/ — only enabled servers (the inventory was already filtered)
         mcp_dir = staging / "mcp"
         mcp_dir.mkdir()
         mcp_config = _load_json(MCP_CONFIG_PATH, {"mcp_servers": []})
-        cleaned_servers, _stripped = _strip_mcp_secrets(
-            mcp_config.get("mcp_servers", [])
-        )
+        enabled_mcp = [
+            s for s in mcp_config.get("mcp_servers", []) if s.get("enabled", False)
+        ]
+        cleaned_servers, _stripped = _strip_mcp_secrets(enabled_mcp)
         (mcp_dir / "servers.json").write_text(
             json.dumps({"mcp_servers": cleaned_servers}, indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -291,11 +300,16 @@ def export_profile(description: str = "") -> Dict[str, Any]:
         # living_ui/
         living_dir = staging / "living_ui"
         living_dir.mkdir()
-        projects = _load_json(LIVING_UI_PROJECTS_FILE, [])
+        projects = _load_json(LIVING_UI_PROJECTS_FILE, {"projects": []})
         if isinstance(projects, dict):
             projects = projects.get("projects", [])
+        # Match the envelope the LivingUIManager uses on disk
+        # ({"projects": [...]}). Writing a flat list would make the manager's
+        # _load_projects() fail silently — and its next startup cleanup pass
+        # would then delete every Living UI folder as "orphaned".
         (living_dir / "projects.json").write_text(
-            json.dumps(projects, indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps({"projects": projects}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         for project in projects:
             project_path_str = project.get("path", "")
@@ -590,8 +604,27 @@ def _apply_mcp(
     return added, skipped, needs_env
 
 
-def _apply_living_ui(src_living_dir: Path) -> Tuple[List[str], List[str]]:
-    """Copy Living UI projects. Always rename on conflict (preserve user data)."""
+def _apply_living_ui(
+    src_living_dir: Path,
+    manager: Optional["LivingUIManager"] = None,
+) -> Tuple[List[str], List[str]]:
+    """Copy Living UI projects and register them with the live manager.
+
+    Always renames on folder/id conflict so we never destroy a user's existing
+    project data.
+
+    When ``manager`` is provided (production path), the imported projects are
+    inserted directly into ``manager.projects`` and persisted via the manager's
+    own ``_save_projects()``. This is CRITICAL: without it, our changes are
+    written to disk but the still-running ``LivingUIManager`` holds a stale
+    in-memory state — any subsequent ``_save_projects()`` call (status update,
+    watchdog tick, port change, etc.) will flush that stale state back to disk
+    and silently erase every imported entry.
+
+    ``manager=None`` is supported for inspection / non-running callers; that
+    path writes the registry file directly and is vulnerable to the race
+    described above, so don't use it from a live agent.
+    """
     added: List[str] = []
     renamed: List[str] = []
 
@@ -602,14 +635,30 @@ def _apply_living_ui(src_living_dir: Path) -> Tuple[List[str], List[str]]:
     if not bundle_projects:
         return added, renamed
 
-    LIVING_UI_DIR.mkdir(parents=True, exist_ok=True)
-    current_projects = _load_json(LIVING_UI_PROJECTS_FILE, [])
-    if isinstance(current_projects, dict):
-        current_projects = current_projects.get("projects", [])
-    current_ids = {p.get("id") for p in current_projects}
-    current_folders = {Path(p.get("path", "")).name for p in current_projects if p.get("path")}
+    # Resolve target dir + existing-state snapshot from the live manager when
+    # available, otherwise fall back to the on-disk file.
+    if manager is not None:
+        target_living_dir = manager.living_ui_dir
+        current_ids = set(manager.projects.keys())
+        current_folders = {
+            Path(p.path).name for p in manager.projects.values() if p.path
+        }
+    else:
+        target_living_dir = LIVING_UI_DIR
+        current_records = _load_json(LIVING_UI_PROJECTS_FILE, {"projects": []})
+        if isinstance(current_records, dict):
+            current_records = current_records.get("projects", [])
+        current_ids = {p.get("id") for p in current_records}
+        current_folders = {
+            Path(p.get("path", "")).name for p in current_records if p.get("path")
+        }
+
+    target_living_dir.mkdir(parents=True, exist_ok=True)
 
     import uuid
+
+    # Collected new entries (manifest dicts) to apply after the loop.
+    new_records: List[Dict[str, Any]] = []
 
     for project in bundle_projects:
         project_path_str = project.get("path", "")
@@ -620,7 +669,6 @@ def _apply_living_ui(src_living_dir: Path) -> Tuple[List[str], List[str]]:
         if not src_folder.is_dir():
             continue
 
-        # Conflict → rename folder + project id
         new_project = dict(project)
         folder_name = original_folder
         if project.get("id") in current_ids or folder_name in current_folders:
@@ -630,10 +678,10 @@ def _apply_living_ui(src_living_dir: Path) -> Tuple[List[str], List[str]]:
             new_project["name"] = f"{base_name} (imported)"
             sanitized = _slugify(base_name).lower()
             folder_name = f"{sanitized}_{new_id}"
-            new_project["path"] = str(LIVING_UI_DIR / folder_name)
+            new_project["path"] = str(target_living_dir / folder_name)
             renamed.append(new_project["name"])
         else:
-            new_project["path"] = str(LIVING_UI_DIR / folder_name)
+            new_project["path"] = str(target_living_dir / folder_name)
             added.append(project.get("name", original_folder))
 
         # Reset transient runtime fields so the imported project starts clean.
@@ -641,24 +689,82 @@ def _apply_living_ui(src_living_dir: Path) -> Tuple[List[str], List[str]]:
         new_project.pop("pid", None)
         new_project.pop("backendPid", None)
 
-        _copy_dir_filtered(src_folder, LIVING_UI_DIR / folder_name)
-        current_projects.append(new_project)
+        _copy_dir_filtered(src_folder, target_living_dir / folder_name)
+        new_records.append(new_project)
         current_ids.add(new_project["id"])
         current_folders.add(folder_name)
 
-    LIVING_UI_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LIVING_UI_PROJECTS_FILE.write_text(
-        json.dumps(current_projects, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    if not new_records:
+        return added, renamed
+
+    if manager is not None:
+        # Register into the live manager so its next _save_projects() flushes
+        # our entries instead of overwriting them. Importing here to keep the
+        # module's top-level import surface light (and avoid a circular).
+        from app.living_ui.manager import LivingUIProject
+
+        for record in new_records:
+            try:
+                created_at_ms = record.get("createdAt")
+                if not isinstance(created_at_ms, (int, float)):
+                    created_at_ms = datetime.now().timestamp() * 1000
+                project_obj = LivingUIProject(
+                    id=record["id"],
+                    name=record["name"],
+                    description=record.get("description", ""),
+                    path=record["path"],
+                    status="stopped",
+                    port=record.get("port"),
+                    backend_port=record.get("backendPort"),
+                    created_at=created_at_ms / 1000,
+                    features=record.get("features", []) or [],
+                    theme=record.get("theme", "system") or "system",
+                    auto_launch=bool(record.get("autoLaunch", False)),
+                    log_cleanup=bool(record.get("logCleanup", True)),
+                    project_type=record.get("projectType", "native") or "native",
+                    app_runtime=record.get("appRuntime"),
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"[PROFILE_BUNDLE] Skipping malformed imported project "
+                    f"{record.get('id', '?')}: {exc}"
+                )
+                continue
+            manager.projects[project_obj.id] = project_obj
+            if project_obj.port:
+                manager._used_ports.add(project_obj.port)
+            if project_obj.backend_port:
+                manager._used_ports.add(project_obj.backend_port)
+        # Manager writes the file in the envelope format the loader expects.
+        manager._save_projects()
+    else:
+        # Fallback path — direct file write. Same envelope format as the
+        # manager uses, see _save_projects().
+        current_records = _load_json(LIVING_UI_PROJECTS_FILE, {"projects": []})
+        if isinstance(current_records, dict):
+            current_records = current_records.get("projects", [])
+        current_records.extend(new_records)
+        LIVING_UI_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LIVING_UI_PROJECTS_FILE.write_text(
+            json.dumps({"projects": current_records}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
     return added, renamed
 
 
-def import_profile(bundle_path: str, mode: str = "merge") -> Dict[str, Any]:
+def import_profile(
+    bundle_path: str,
+    mode: str = "merge",
+    living_ui_manager: Optional["LivingUIManager"] = None,
+) -> Dict[str, Any]:
     """Apply a bundle to the current agent.
 
     Args:
         bundle_path: filesystem path to the .craftbot file (already uploaded)
         mode: "merge" (default — additive) or "replace" (overwrite on conflict)
+        living_ui_manager: live LivingUIManager from the adapter. Required for
+            Living UI projects to survive — see _apply_living_ui() for why.
 
     Returns:
         Dict with success flag and ImportSummary contents. The agent will need
@@ -696,7 +802,9 @@ def import_profile(bundle_path: str, mode: str = "merge") -> Dict[str, Any]:
         settings_applied = _apply_settings(work_dir / "profile", mode)
         skills_added, skills_skipped = _apply_skills(work_dir / "skills", mode)
         mcp_added, mcp_skipped, mcp_needs_env = _apply_mcp(work_dir / "mcp", mode)
-        living_added, living_renamed = _apply_living_ui(work_dir / "living_ui")
+        living_added, living_renamed = _apply_living_ui(
+            work_dir / "living_ui", manager=living_ui_manager
+        )
 
         # NOTE: agent_name is intentionally NOT applied — per product decision,
         # users keep their own agent name and just inherit the personality/skills.
