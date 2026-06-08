@@ -26,6 +26,7 @@ from .registry import (
     get_client,
     get_handler,
     get_registered_handler_names,
+    invalidate_client,
 )
 
 
@@ -94,7 +95,12 @@ async def disconnect(
     if err:
         return False, err
     args = [account_id] if account_id else []
-    return await handler.logout(args)
+    success, message = await handler.logout(args)
+    if success:
+        # Drop the cached client so a later reconnect/action doesn't keep using
+        # the just-removed account's in-memory credential (issue #314).
+        await _reset_platform_for_handler(handler)
+    return success, message
 
 
 async def status(integration: str) -> Tuple[bool, str]:
@@ -306,21 +312,51 @@ async def list_integrations() -> List[Dict[str, Any]]:
 # ════════════════════════════════════════════════════════════════════════
 
 
+def _platform_id_for_handler(handler) -> Optional[str]:
+    spec = getattr(handler, "spec", None)
+    return getattr(spec, "platform_id", None) if spec else None
+
+
 async def _start_listener_for_handler(handler) -> None:
-    """If a manager is running, start the listener for this handler's platform."""
+    """(Re)start the listener for this handler's platform after a connect.
+
+    ``start_platform`` discards any stale client first, so the new account's
+    credentials are picked up. If no manager is running (e.g. a headless action
+    context), still drop the cached client so the next action reloads creds from
+    disk rather than serving the previous account (issue #314).
+    """
+    platform_id = _platform_id_for_handler(handler)
+    if not platform_id:
+        return
     from .manager import get_external_comms_manager
 
     manager = get_external_comms_manager()
     if manager is None:
-        return
-    spec = getattr(handler, "spec", None)
-    platform_id = getattr(spec, "platform_id", None) if spec else None
-    if not platform_id:
+        invalidate_client(platform_id)
         return
     try:
         await manager.start_platform(platform_id)
     except Exception:
         pass
+
+
+async def _reset_platform_for_handler(handler) -> None:
+    """Discard the cached client for this handler's platform without starting a
+    listener — used on disconnect and on connects that don't auto-listen, so a
+    switched/removed account can't be served from a stale credential (#314)."""
+    platform_id = _platform_id_for_handler(handler)
+    if not platform_id:
+        return
+    from .manager import get_external_comms_manager
+
+    manager = get_external_comms_manager()
+    if manager is not None:
+        try:
+            await manager.reset_platform(platform_id)
+            return
+        except Exception:
+            pass
+    invalidate_client(platform_id)
 
 
 async def connect_token(
@@ -331,8 +367,11 @@ async def connect_token(
     if err:
         return False, err
     success, message = await handler.connect_token(credentials)
-    if success and start_listener:
-        await _start_listener_for_handler(handler)
+    if success:
+        if start_listener:
+            await _start_listener_for_handler(handler)
+        else:
+            await _reset_platform_for_handler(handler)
     return success, message
 
 
@@ -346,8 +385,11 @@ async def connect_oauth(
     if handler.auth_type not in ("oauth", "both"):
         return False, f"OAuth not supported for {integration}"
     success, message = await handler.connect_oauth()
-    if success and start_listener:
-        await _start_listener_for_handler(handler)
+    if success:
+        if start_listener:
+            await _start_listener_for_handler(handler)
+        else:
+            await _reset_platform_for_handler(handler)
     return success, message
 
 
@@ -361,8 +403,11 @@ async def connect_interactive(
     if handler.auth_type not in ("interactive", "token_with_interactive"):
         return False, f"Interactive login not supported for {integration}"
     success, message = await handler.connect_interactive()
-    if success and start_listener:
-        await _start_listener_for_handler(handler)
+    if success:
+        if start_listener:
+            await _start_listener_for_handler(handler)
+        else:
+            await _reset_platform_for_handler(handler)
     return success, message
 
 
