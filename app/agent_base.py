@@ -431,6 +431,20 @@ class AgentBase:
         try:
             logger.debug("[REACT] starting...")
 
+            # ----- WORKFLOW 0: Consolidated restart notice (issue #280) -----
+            # Recorded here, inside the running agent loop, so it reaches the UI
+            # (a boot-time record would be marked "seen" before the UI watcher
+            # starts). No LLM involved — just emit the prebuilt message.
+            if self._is_restart_notice_trigger(trigger):
+                message = trigger.payload.get("message", "")
+                if message:
+                    self.state_manager.record_agent_message(message)
+                # Drop the sentinel session from active tracking since we return
+                # before the normal session cleanup runs.
+                if trigger.session_id:
+                    self.triggers.mark_session_inactive(trigger.session_id)
+                return
+
             # ----- WORKFLOW 1A: Memory Processing -----
             if self._is_memory_trigger(trigger):
                 task_created = await self._handle_memory_workflow(trigger)
@@ -788,6 +802,10 @@ class AgentBase:
         """Check if trigger is for proactive processing (heartbeat or planner)."""
         trigger_type = trigger.payload.get("type", "")
         return trigger_type in ("proactive_heartbeat", "proactive_planner")
+
+    def _is_restart_notice_trigger(self, trigger: Trigger) -> bool:
+        """Check if trigger is the consolidated post-restart notice (issue #280)."""
+        return trigger.payload.get("type") == "restart_notice"
 
     def _is_gui_task_mode(self, session_id: str | None = None) -> bool:
         """Check if in GUI task execution mode."""
@@ -3361,6 +3379,60 @@ class AgentBase:
         if not hasattr(self, "_restored_task_ids") or not self._restored_task_ids:
             return
 
+        # Consolidated restart notice (issue #280): previously every resumed
+        # task fired its own react cycle and the LLM sent a per-task
+        # "I'm resuming X" acknowledgement — 10 tasks meant 10 messages. Send
+        # ONE message, not tied to any task, summarising what's being restored.
+        # The per-task resume triggers below are told to continue *silently* so
+        # they don't each re-acknowledge.
+        restored_running = [
+            task
+            for tid in self._restored_task_ids
+            if (task := self.task_manager.tasks.get(tid))
+            and task.status == "running"
+        ]
+        if restored_running:
+            resuming = [t for t in restored_running if not t.waiting_for_user_reply]
+            waiting = [t for t in restored_running if t.waiting_for_user_reply]
+            lines = ["I've restarted and am restoring your in-progress tasks."]
+            if resuming:
+                lines.append("")
+                lines.append(f"Resuming ({len(resuming)}):")
+                lines.extend(f"  • {t.name}" for t in resuming)
+            if waiting:
+                lines.append("")
+                lines.append(f"Waiting for your reply ({len(waiting)}):")
+                lines.extend(f"  • {t.name}" for t in waiting)
+            # Enqueue the notice as a high-priority trigger rather than
+            # recording it directly here. This method runs inside boot(), before
+            # the UI's event watcher starts — anything recorded now is marked
+            # "seen" during the watcher's startup pass and never reaches the UI.
+            # Routing it through a trigger means react() records it inside the
+            # running agent loop, after the watcher is live, so it surfaces in
+            # the interface just like the resumed tasks' own messages.
+            try:
+                await self.triggers.put(
+                    Trigger(
+                        fire_at=time.time(),
+                        priority=1,  # ahead of resumed tasks (priority 5/7)
+                        next_action_description="Restart notice",
+                        # Sentinel id so the heap never merges this with another
+                        # session-less trigger (e.g. memory-at-startup) and
+                        # clobbers the payload.
+                        session_id="__restart_notice__",
+                        payload={
+                            "type": "restart_notice",
+                            "message": "\n".join(lines),
+                            "gui_mode": STATE.gui_mode,
+                        },
+                    ),
+                    skip_merge=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[RESTORE] Failed to enqueue consolidated restart notice: {e}"
+                )
+
         for task_id in self._restored_task_ids:
             task = self.task_manager.tasks.get(task_id)
             if not task or task.status != "running":
@@ -3393,7 +3465,15 @@ class AgentBase:
                         Trigger(
                             fire_at=time.time(),
                             priority=restore_priority,
-                            next_action_description=("Resume task after agent restart"),
+                            next_action_description=(
+                                "Resume this task after an app restart. A "
+                                "consolidated restart notice has already been "
+                                "sent to the user, so do NOT send any "
+                                "'resuming', acknowledgement, or greeting "
+                                "message. Silently continue the task from where "
+                                "it left off based on its todos and recent "
+                                "event-stream activity."
+                            ),
                             session_id=task_id,
                             payload={"gui_mode": STATE.gui_mode},
                         ),
