@@ -537,6 +537,29 @@ class MetricsCollector:
             pass
         self._load_skill_metrics()
         self._load_integration_metrics()
+        self._load_token_totals()
+
+    def _load_token_totals(self) -> None:
+        """Seed in-memory token totals from persistent storage on startup.
+
+        Without this, the live ("All") dashboard counters start at zero on
+        every restart and reflect only the current session, so they can read
+        LOWER than the period tabs (1h/1d/1w/1m), which query all persisted
+        history (issue #310). Seeding makes the live total an all-time figure
+        that is consistent with — and never smaller than — any time-window
+        query.
+        """
+        if not self._usage_storage:
+            return
+        try:
+            # No bounds = all-time summary.
+            summary = self._usage_storage.get_usage_summary()
+            with self._lock:
+                self._total_input_tokens = summary.get("total_input_tokens", 0)
+                self._total_output_tokens = summary.get("total_output_tokens", 0)
+                self._total_cached_tokens = summary.get("total_cached_tokens", 0)
+        except Exception:
+            pass
 
     def _load_skill_metrics(self) -> None:
         """Restore skill invocation counts from persistent storage on startup."""

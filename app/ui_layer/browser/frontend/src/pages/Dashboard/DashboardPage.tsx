@@ -140,10 +140,10 @@ export function DashboardPage() {
 
   // Request 'total' metrics on initial load
   useEffect(() => {
-    if (!filteredMetricsCache['total']) {
+    if (connected && !filteredMetricsCache['total']) {
       requestFilteredMetrics('total')
     }
-  }, [requestFilteredMetrics, filteredMetricsCache])
+  }, [connected, requestFilteredMetrics, filteredMetricsCache])
 
   // Calculate statistics from actions
   const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
