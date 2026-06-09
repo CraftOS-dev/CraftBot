@@ -53,6 +53,17 @@ async def send_message(input_data: dict) -> dict:
             message, session_id=session_id
         )
 
+        # Mirror a "waiting for reply" question onto the Living UI creation
+        # screen (no-op unless this session is a Living UI creation task) so the
+        # user can answer from the Living UI page even with the chat panel closed.
+        if wait_for_user_reply and session_id:
+            try:
+                from app.living_ui import broadcast_living_ui_question
+
+                await broadcast_living_ui_question(session_id, message)
+            except Exception:
+                pass
+
     fire_at_delay = 10800 if wait_for_user_reply else 0
     # Return 'success' for test compatibility, but keep 'ok' in production if needed
     status = "success" if simulated_mode else "ok"

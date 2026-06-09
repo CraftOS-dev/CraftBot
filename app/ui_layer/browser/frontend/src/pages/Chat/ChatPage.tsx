@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { X, Loader2, Reply } from 'lucide-react'
+import { Check, X, Loader2, Reply, RotateCw } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
@@ -19,6 +19,10 @@ export function ChatPage() {
     messages,
     cancelTask,
     cancellingTaskId,
+    completeTask,
+    completingTaskId,
+    resumeTask,
+    resumingTaskId,
     setReplyTarget,
     loadOlderActions,
     hasMoreActions,
@@ -170,12 +174,30 @@ export function ChatPage() {
                         <IconButton
                           size="sm"
                           variant="ghost"
+                          className={styles.taskCompleteBtn}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            completeTask(task.id)
+                          }}
+                          disabled={completingTaskId === task.id || cancellingTaskId === task.id}
+                          title="Mark Task Complete"
+                          icon={
+                            completingTaskId === task.id ? (
+                              <Loader2 size={12} className={styles.spinning} />
+                            ) : (
+                              <Check size={12} />
+                            )
+                          }
+                        />
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
                           className={styles.taskCancelBtn}
                           onClick={(e) => {
                             e.stopPropagation()
                             cancelTask(task.id)
                           }}
-                          disabled={cancellingTaskId === task.id}
+                          disabled={cancellingTaskId === task.id || completingTaskId === task.id}
                           title="Cancel Task"
                           icon={
                             cancellingTaskId === task.id ? (
@@ -186,6 +208,26 @@ export function ChatPage() {
                           }
                         />
                       </>
+                    )}
+                    {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') && (
+                      <IconButton
+                        size="sm"
+                        variant="ghost"
+                        className={styles.taskResumeBtn}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          resumeTask(task.id)
+                        }}
+                        disabled={resumingTaskId === task.id}
+                        title="Continue Task"
+                        icon={
+                          resumingTaskId === task.id ? (
+                            <Loader2 size={12} className={styles.spinning} />
+                          ) : (
+                            <RotateCw size={12} />
+                          )
+                        }
+                      />
                     )}
                   </div>
                   {isExpanded && (

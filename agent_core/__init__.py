@@ -31,6 +31,7 @@ from agent_core.core.models import (
 )
 from agent_core.core.embedding_interface import EmbeddingInterface
 from agent_core.core.vlm_interface import VLMInterface
+from agent_core.core.image_gen_interface import ImageGenInterface
 from agent_core.core.database_interface import DatabaseInterface
 from agent_core.core.trigger import Trigger
 from agent_core.core.task import Task, TodoItem, TodoStatus
@@ -272,6 +273,7 @@ __all__ = [
     # Interfaces
     "EmbeddingInterface",
     "VLMInterface",
+    "ImageGenInterface",
     "DatabaseInterface",
     "GeminiClient",
     "GeminiAPIError",

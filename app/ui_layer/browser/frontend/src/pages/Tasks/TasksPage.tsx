@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply, Plus, Loader2 } from 'lucide-react'
+import { ChevronRight, XCircle, CheckCircle, ArrowLeft, Reply, Plus, Loader2, RotateCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
@@ -546,7 +546,7 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions, messages, cancelTask, cancellingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
+  const { actions, messages, cancelTask, cancellingTaskId, completeTask, completingTaskId, resumeTask, resumingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
   const internalWorkflowIds = useMemo(() => new Set(skillMeta.internalWorkflowIds), [skillMeta.internalWorkflowIds])
   const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
   const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
@@ -734,6 +734,14 @@ export function TasksPage() {
     setMobileShowDetail(false)
   }, [])
 
+  // Continue Task — mirrors the chat sidebar's resume icon: fire-and-forget,
+  // no message input, then redirect back to chat so the user can watch the
+  // task resume in the live transcript (same pattern as Reply to Task).
+  const handleResumeTask = useCallback((task: ActionItem) => {
+    resumeTask(task.id)
+    navigate('/chat')
+  }, [resumeTask, navigate])
+
   // Handle resize drag
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -902,28 +910,61 @@ export function TasksPage() {
               </div>
               <div className={styles.headerActions}>
                 {(selectedTask.status === 'running' || selectedTask.status === 'waiting') ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<XCircle size={14} />}
-                    loading={cancellingTaskId === selectedTask.id}
-                    onClick={() => cancelTask(selectedTask.id)}
-                    className={styles.cancelButton}
-                  >
-                    {cancellingTaskId === selectedTask.id ? 'Cancelling…' : 'Cancel Task'}
-                  </Button>
-                ) : canCreateSkill ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<Plus size={14} />}
-                    onClick={() => skillCreator.open(selectedTask)}
-                  >
-                    Create Skill
-                  </Button>
-                ) : (selectedTask.status === 'error' || selectedTask.status === 'cancelled') && (
-                  <Badge variant="error">Aborted</Badge>
-                )}
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<CheckCircle size={14} />}
+                      loading={completingTaskId === selectedTask.id}
+                      disabled={cancellingTaskId === selectedTask.id}
+                      onClick={() => completeTask(selectedTask.id)}
+                      className={styles.completeButton}
+                    >
+                      {completingTaskId === selectedTask.id ? 'Completing…' : 'Mark Complete'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<XCircle size={14} />}
+                      loading={cancellingTaskId === selectedTask.id}
+                      disabled={completingTaskId === selectedTask.id}
+                      onClick={() => cancelTask(selectedTask.id)}
+                      className={styles.cancelButton}
+                    >
+                      {cancellingTaskId === selectedTask.id ? 'Cancelling…' : 'Cancel Task'}
+                    </Button>
+                  </>
+                ) : (selectedTask.status === 'completed' || selectedTask.status === 'cancelled' || selectedTask.status === 'error') ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={
+                        resumingTaskId === selectedTask.id ? (
+                          <Loader2 size={14} className={styles.spinning} />
+                        ) : (
+                          <RotateCw size={14} />
+                        )
+                      }
+                      loading={resumingTaskId === selectedTask.id}
+                      disabled={resumingTaskId === selectedTask.id}
+                      onClick={() => handleResumeTask(selectedTask)}
+                      className={styles.resumeButton}
+                    >
+                      {resumingTaskId === selectedTask.id ? 'Resuming…' : 'Continue Task'}
+                    </Button>
+                    {canCreateSkill && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Plus size={14} />}
+                        onClick={() => skillCreator.open(selectedTask)}
+                      >
+                        Create Skill
+                      </Button>
+                    )}
+                  </>
+                ) : null}
               </div>
             </div>
 

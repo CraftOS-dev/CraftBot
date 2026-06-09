@@ -91,8 +91,12 @@ def _get_default_settings() -> Dict[str, Any]:
         "model": {
             "llm_provider": "anthropic",
             "vlm_provider": "anthropic",
+            "image_gen_provider": "openai",
+            "video_gen_provider": "gemini",
             "llm_model": None,
             "vlm_model": None,
+            "image_gen_model": None,
+            "video_gen_model": None,
             "slow_mode": False,
             "slow_mode_tpm_limit": 30000,
         },
@@ -213,6 +217,40 @@ def get_vlm_model() -> Optional[str]:
     """Get configured VLM model override (or None for default)."""
     settings = get_settings()
     return settings.get("model", {}).get("vlm_model")
+
+
+def get_image_gen_provider() -> str:
+    """Get configured image generation provider."""
+    settings = get_settings()
+    model = settings.get("model", {})
+    return model.get("image_gen_provider") or model.get("vlm_provider", "openai")
+
+
+def get_image_gen_model() -> Optional[str]:
+    """Get configured image generation model override (or None for default)."""
+    settings = get_settings()
+    return settings.get("model", {}).get("image_gen_model")
+
+
+def get_video_gen_provider() -> str:
+    """Get configured video generation provider.
+
+    Falls back to the image-gen provider, then to a sensible default
+    ('gemini' since Veo is the strongest free-tier video model).
+    """
+    settings = get_settings()
+    model = settings.get("model", {})
+    return (
+        model.get("video_gen_provider")
+        or model.get("image_gen_provider")
+        or "gemini"
+    )
+
+
+def get_video_gen_model() -> Optional[str]:
+    """Get configured video generation model override (or None for default)."""
+    settings = get_settings()
+    return settings.get("model", {}).get("video_gen_model")
 
 
 def get_api_key(provider: str) -> str:
@@ -466,4 +504,12 @@ NOTION_SHARED_CLIENT_ID: str = get_credential(
 )
 NOTION_SHARED_CLIENT_SECRET: str = get_credential(
     "notion", "client_secret", "NOTION_SHARED_CLIENT_SECRET"
+)
+
+# HubSpot (requires both client_id and client_secret - no PKCE support)
+HUBSPOT_SHARED_CLIENT_ID: str = get_credential(
+    "hubspot", "client_id", "HUBSPOT_SHARED_CLIENT_ID"
+)
+HUBSPOT_SHARED_CLIENT_SECRET: str = get_credential(
+    "hubspot", "client_secret", "HUBSPOT_SHARED_CLIENT_SECRET"
 )

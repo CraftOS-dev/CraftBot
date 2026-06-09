@@ -62,7 +62,7 @@ OnStreamRemoveHook = Callable[[str], None]  # (task_id)
 
 # Session persistence hooks
 OnTaskPersistHook = Callable[["Task"], None]  # (task)
-OnTaskRemovePersistHook = Callable[[str], None]  # (task_id)
+OnTaskRemovePersistHook = Callable[["Task"], None]  # (task) — receives full task so the implementation can decide whether to delete (truly remove) or preserve (e.g. for resume) based on terminal status
 
 # Chatserver hooks (WCA only)
 OnTaskCreatedChatserverHook = Callable[[Task], None]
@@ -703,13 +703,16 @@ class TaskManager:
         if self._current_session_id == task.id:
             self._current_session_id = None
 
-        # Remove persisted session data (task + event stream)
+        # Hand the persisted session data to the consumer-specific hook.
+        # The hook receives the full task so it can decide between truly
+        # removing (e.g. WCA cleanup) and preserving (e.g. CraftBot's resume
+        # window, which writes the final event stream + keeps the rows).
         if self._on_task_remove_persist:
             try:
-                self._on_task_remove_persist(task.id)
+                self._on_task_remove_persist(task)
             except Exception as e:
                 logger.warning(
-                    f"[TaskManager] Failed to remove persisted task {task.id}: {e}"
+                    f"[TaskManager] Task persistence finalize failed for {task.id}: {e}"
                 )
 
         # Clean up session-specific state (multi-task isolation)

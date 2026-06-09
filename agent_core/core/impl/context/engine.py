@@ -184,6 +184,7 @@ class ContextEngine:
     def create_system_environmental_context(self) -> str:
         """Create a system message block with environmental context."""
         import platform
+        from datetime import datetime
 
         try:
             from app.config import AGENT_WORKSPACE_ROOT
@@ -191,7 +192,10 @@ class ContextEngine:
             AGENT_WORKSPACE_ROOT = "."
 
         local_timezone = get_localzone()
+        now = datetime.now(local_timezone)
+        current_datetime = now.strftime("%Y-%m-%d %H:%M:%S") + f" ({local_timezone})"
         return ENVIRONMENTAL_CONTEXT_PROMPT.format(
+            current_datetime=current_datetime,
             user_location=local_timezone,
             working_directory=AGENT_WORKSPACE_ROOT,
             operating_system=platform.system(),

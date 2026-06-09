@@ -17,6 +17,7 @@ from app.onboarding.interfaces.steps import (
 )
 from app.onboarding import onboarding_manager
 from app.ui_layer.settings.provider_settings import save_settings_to_json
+from agent_core.utils.logger import logger
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -243,88 +244,21 @@ class OnboardingFlowController:
         self._state.completed = True
 
         # Extract collected data
-        provider = self._state.collected_data.get("provider", "openai")
-        raw_api_key_value = self._state.collected_data.get("api_key", "")
-        # Proxied providers (moonshot/minimax) submit {api_key, via, or_model?}
-        if isinstance(raw_api_key_value, dict):
-            api_key = raw_api_key_value.get("api_key", "")
-            submitted_or_model = raw_api_key_value.get("or_model", "")
-            proxied_via = raw_api_key_value.get("via", "openrouter")
-        else:
-            api_key = raw_api_key_value
-            submitted_or_model = ""
-            proxied_via = "direct"
-        agent_name_data = self._state.collected_data.get("agent_name", "Agent")
-        # Agent name step is a form step, so the collected value is a dict.
-        # Accept plain strings too for backward compatibility.
-        if isinstance(agent_name_data, dict):
-            agent_name = agent_name_data.get("agent_name") or "Agent"
-        else:
-            agent_name = agent_name_data or "Agent"
-        # The integrations step is informational — selected integrations are
-        # surfaced for awareness, but OAuth/token connection happens in
-        # Settings → Integrations after onboarding.
-        selected_skills = self._state.collected_data.get("skills", [])
+        data = self._state.collected_data
+        provider = data.get("provider", "openai")
+        api_key, proxied_via, submitted_or_model = self._parse_api_key(
+            data.get("api_key", "")
+        )
+        agent_name = self._parse_agent_name(data.get("agent_name", "Agent"))
+        selected_skills = data.get("skills", [])
 
-        # Save provider configuration to settings.json
-        from app.onboarding.interfaces.steps import ApiKeyStep
-
-        if provider == "remote":
-            # api_key holds the Ollama base URL for the remote provider
-            remote_url = api_key or "http://localhost:11434"
-            from app.ui_layer.settings.provider_settings import save_remote_endpoint
-
-            save_remote_endpoint(remote_url)
-        elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
-            if proxied_via == "openrouter":
-                # User chose to go via OpenRouter — save key as openrouter and set model slug.
-                if submitted_or_model:
-                    or_model = submitted_or_model
-                else:
-                    from agent_core.core.models.factory import (
-                        _to_openrouter_slug,
-                        _OR_MODEL_MAP,
-                    )
-                    from app.models import MODEL_REGISTRY, InterfaceType
-
-                    native_model = MODEL_REGISTRY.get(provider, {}).get(
-                        InterfaceType.LLM, ""
-                    )
-                    or_model = _OR_MODEL_MAP.get(provider, {}).get(
-                        native_model
-                    ) or _to_openrouter_slug(provider, native_model)
-                save_settings_to_json("openrouter", api_key)
-                from app.ui_layer.settings.model_settings import update_model_settings
-
-                update_model_settings(llm_model=or_model, vlm_model=or_model)
-                provider = "openrouter"
-            else:
-                # User has direct access — save key under the native provider.
-                save_settings_to_json(provider, api_key)
-        elif provider and api_key:
-            save_settings_to_json(provider, api_key)
-
-        if provider:
-            # Reinitialize the LLM with the new provider settings
-            if self._controller and self._controller.agent:
-                try:
-                    success = self._controller.agent.reinitialize_llm(provider)
-                    if success:
-                        from agent_core.utils.logger import logger
-
-                        logger.info(
-                            f"[ONBOARDING] Reinitialized LLM with provider: {provider}"
-                        )
-                    else:
-                        from agent_core.utils.logger import logger
-
-                        logger.warning(
-                            f"[ONBOARDING] Failed to reinitialize LLM with provider: {provider}"
-                        )
-                except Exception as e:
-                    from agent_core.utils.logger import logger
-
-                    logger.warning(f"[ONBOARDING] Error reinitializing LLM: {e}")
+        # Persist the provider + key (may reassign provider, e.g. a
+        # geo-restricted provider routed via OpenRouter), then activate it on
+        # the live LLM/VLM and image-gen interfaces.
+        provider = self._save_provider(
+            provider, api_key, proxied_via, submitted_or_model
+        )
+        self._activate_provider(provider)
 
         # Update controller state if available
         if self._controller:
@@ -357,8 +291,6 @@ class OnboardingFlowController:
             agent_profile_picture=onboarding_manager.state.agent_profile_picture,
         )
         if not success:
-            from agent_core.utils.logger import logger
-
             logger.error(
                 "[ONBOARDING] Failed to persist hard onboarding state — "
                 "onboarding will re-trigger on next launch. "
@@ -372,6 +304,117 @@ class OnboardingFlowController:
             import asyncio
 
             asyncio.create_task(self._trigger_soft_onboarding_async())
+
+    @staticmethod
+    def _parse_api_key(raw: Any) -> tuple[str, str, str]:
+        """Normalize the api_key step value.
+
+        Proxied providers (moonshot/minimax) submit a dict
+        ``{api_key, via, or_model?}``; everyone else submits a plain string.
+        Returns ``(api_key, proxied_via, submitted_or_model)``.
+        """
+        if isinstance(raw, dict):
+            return (
+                raw.get("api_key", ""),
+                raw.get("via", "openrouter"),
+                raw.get("or_model", ""),
+            )
+        return raw, "direct", ""
+
+    @staticmethod
+    def _parse_agent_name(raw: Any) -> str:
+        """The agent-name step is a form (dict); accept plain strings too."""
+        if isinstance(raw, dict):
+            return raw.get("agent_name") or "Agent"
+        return raw or "Agent"
+
+    def _save_provider(
+        self, provider: str, api_key: str, proxied_via: str, submitted_or_model: str
+    ) -> str:
+        """Persist the chosen provider + key to settings.json.
+
+        Returns the effective provider, which differs from the input only when
+        a geo-restricted provider (moonshot/minimax) is routed via OpenRouter.
+        """
+        if provider == "remote":
+            # api_key holds the Ollama base URL for the remote provider.
+            from app.ui_layer.settings.provider_settings import save_remote_endpoint
+
+            save_remote_endpoint(api_key or "http://localhost:11434")
+            return provider
+
+        if provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
+            if proxied_via != "openrouter":
+                # Direct access — save the key under the native provider.
+                save_settings_to_json(provider, api_key)
+                return provider
+            # Routed via OpenRouter — save the key as openrouter + set the slug.
+            or_model = submitted_or_model or self._default_openrouter_model(provider)
+            save_settings_to_json("openrouter", api_key)
+            from app.ui_layer.settings.model_settings import update_model_settings
+
+            update_model_settings(llm_model=or_model, vlm_model=or_model)
+            return "openrouter"
+
+        if provider and api_key:
+            save_settings_to_json(provider, api_key)
+        return provider
+
+    @staticmethod
+    def _default_openrouter_model(provider: str) -> str:
+        """Map a native provider's default LLM to its OpenRouter slug."""
+        from agent_core.core.models.factory import _to_openrouter_slug, _OR_MODEL_MAP
+        from app.models import MODEL_REGISTRY, InterfaceType
+
+        native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM, "")
+        return _OR_MODEL_MAP.get(provider, {}).get(native_model) or _to_openrouter_slug(
+            provider, native_model
+        )
+
+    def _activate_provider(self, provider: str) -> None:
+        """Activate the provider on the live interfaces: reinitialize LLM/VLM,
+        and point image generation at it when the provider can generate images.
+
+        Settings persistence happens here too (image_gen_provider) so it applies
+        even when no agent is attached (e.g. headless); the reinitialize calls
+        are skipped without an agent.
+        """
+        if not provider:
+            return
+        agent = self._controller.agent if self._controller else None
+
+        if agent:
+            try:
+                if agent.reinitialize_llm(provider):
+                    logger.info(
+                        f"[ONBOARDING] Reinitialized LLM with provider: {provider}"
+                    )
+                else:
+                    logger.warning(
+                        f"[ONBOARDING] Failed to reinitialize LLM with provider: {provider}"
+                    )
+            except Exception as e:
+                logger.warning(f"[ONBOARDING] Error reinitializing LLM: {e}")
+
+        # Point image generation at the chosen provider when it can generate
+        # images (OpenAI/Gemini), reusing the key just entered — so image gen
+        # works out of the box instead of being stranded on the default with no
+        # key. Image-incapable providers (Anthropic, DeepSeek, Ollama, …) are
+        # left on the existing image-gen default.
+        try:
+            from app.models import MODEL_REGISTRY, InterfaceType
+
+            if MODEL_REGISTRY.get(provider, {}).get(InterfaceType.IMAGE_GEN):
+                from app.ui_layer.settings.model_settings import update_model_settings
+
+                update_model_settings(image_gen_provider=provider)
+                if agent:
+                    agent.reinitialize_image_gen(provider)
+                logger.info(
+                    f"[ONBOARDING] Image generation set to provider: {provider}"
+                )
+        except Exception as e:
+            logger.warning(f"[ONBOARDING] Error configuring image gen: {e}")
 
     async def _trigger_soft_onboarding_async(self) -> None:
         """

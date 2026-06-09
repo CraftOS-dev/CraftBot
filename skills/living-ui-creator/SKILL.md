@@ -4,6 +4,7 @@ description: Create custom Living UI applications with backend-first architectur
 action-sets:
   - file_operations
   - code_execution
+  - living_ui
 ---
 
 # Living UI Creator
@@ -122,6 +123,36 @@ Frontend auto-captures UI state on meaningful events (page load, state changes, 
 ## Development Workflow
 
 Follow these phases in order. Use TodoWrite to track progress.
+
+### Step 0: Create the Project Scaffold (MANDATORY FIRST STEP)
+
+Before writing any code, you MUST have a registered project with a real `project_id`
+and an absolute `project_path`. There are two cases:
+
+1. **Your task instruction already contains a `Project ID` and `Project Path`** —
+   the project was scaffolded for you (Create Living UI modal flow). **Skip scaffolding.**
+   Use that `project_id` and `project_path` directly.
+
+2. **No Project ID / Project Path in your task instruction** (you're building from a
+   chat request) — call `living_ui_scaffold` FIRST to create and register the project:
+
+   ```
+   living_ui_scaffold(name="<short app name>", description="<what the app does>")
+   ```
+
+   It copies the template (`backend/`, `frontend/`, `config/`), allocates ports, and
+   registers the project so it appears in the user's Living UI list. It returns
+   `project_id` and an absolute `project_path`.
+
+**CRITICAL — file path rule (applies to ALL phases):**
+- Treat `project_path` as the base for **every** file operation. The relative paths in
+  this skill (`backend/models.py`, `frontend/components/`, `LIVING_UI.md`, etc.) are
+  relative to `project_path`.
+- When calling `write_file`, `read_file`, or running tests, use the **absolute path**:
+  `{project_path}/backend/models.py`, `{project_path}/frontend/components/MainView.tsx`,
+  `cd {project_path}/backend && python -m pytest tests/`.
+- **NEVER write to bare relative paths** like `backend/models.py` — they land in the
+  CraftBot process directory, scattering files at the wrong root and breaking launch.
 
 ### Before You Start: Read and Apply Global Config
 
@@ -342,7 +373,8 @@ This action runs the full launch pipeline automatically:
 If any step fails, the action returns the specific errors. Fix them and call again.
 
 **CRITICAL - project_id Parameter:**
-- The `project_id` is in your **task instruction** (e.g., "Project ID: abc12345")
+- The `project_id` is in your **task instruction** (e.g., "Project ID: abc12345"), or
+  it was returned by `living_ui_scaffold` in Step 0 if you scaffolded from chat
 - **DO NOT use task session ID** - that's different
 - The project_id is a short hex string like `c8cda731`
 
@@ -375,6 +407,8 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 
 ## FORBIDDEN Actions
 
+- NEVER write to bare relative paths (`backend/models.py`) — always use the absolute `{project_path}/...` so files land in the project, not the CraftBot root
+- NEVER skip Step 0 — you must have a registered `project_id`/`project_path` (from the task instruction or `living_ui_scaffold`) before writing any code
 - NEVER use `metadata` as a column name in SQLAlchemy
 - NEVER use relative imports in backend code (`from . import` or `from .models import`)
 - NEVER add `/api` prefix to route paths in `routes.py` (the router prefix handles this)

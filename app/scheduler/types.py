@@ -165,6 +165,13 @@ class ScheduledTask:
             "payload": self.payload,
         }
 
+        if self.schedule.schedule_type == "once" and self.schedule.fire_at is not None:
+            data["fire_at"] = self.schedule.fire_at
+
+        if not self.recurring:
+            data["run_count"] = self.run_count
+            data["last_run"] = self.last_run
+
         if include_runtime:
             data["last_run"] = self.last_run
             data["next_run"] = self.next_run

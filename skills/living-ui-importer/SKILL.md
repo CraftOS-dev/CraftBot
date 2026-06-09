@@ -86,8 +86,15 @@ living_ui_import_external(
     health_strategy="http_get",
     health_url="http://localhost:{{PORT}}",
     port_env_var="",
+    project_id="<the project_id from the task instruction, if provided>",
 )
 ```
+
+> **Adopt the pre-created tab:** the task instruction usually provides a
+> `project_id` for a tab that's already showing the user a progress screen.
+> ALWAYS pass that `project_id` to `living_ui_import_external` (or
+> `living_ui_import_zip`) so the import populates that existing tab. Omitting
+> it creates a duplicate tab and leaves the original stuck on "creating".
 
 ## Step 5: Create LIVING_UI.md
 

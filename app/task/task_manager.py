@@ -77,14 +77,34 @@ def _on_task_persist(task: Task) -> None:
         logger.warning(f"[TaskManager] Failed to persist task {task.id}: {e}")
 
 
-def _on_task_remove_persist(task_id: str) -> None:
-    """Remove persisted task and its event stream from SessionStorage."""
-    try:
-        from app.usage.session_storage import get_session_storage
+def _make_on_task_remove_persist(event_stream_manager: EventStreamManager):
+    """Build the finalize-persistence hook.
 
-        get_session_storage().remove_task(task_id)
-    except Exception as e:
-        logger.warning(f"[TaskManager] Failed to remove persisted task {task_id}: {e}")
+    Called once per task at terminal status. Persists the final event stream
+    to disk so the task can be brought back via the resume flow. The task
+    row itself was already kept up-to-date by ``_on_task_persist`` on every
+    state change, so we don't re-write it here. We deliberately do NOT call
+    ``session_storage.remove_task`` — the row needs to stick around for the
+    Continue Task button to work.
+    """
+
+    def on_task_remove_persist(task: Task) -> None:
+        try:
+            from app.usage.session_storage import get_session_storage
+
+            storage = get_session_storage()
+            # Persist the final event stream while it's still in memory.
+            # `on_stream_remove` (below) hasn't fired yet, so the per-task
+            # stream is still accessible by id.
+            stream = event_stream_manager.get_stream_by_id(task.id)
+            if stream is not None:
+                storage.persist_event_stream(task.id, stream)
+        except Exception as e:
+            logger.warning(
+                f"[TaskManager] Failed to persist final event stream for {task.id}: {e}"
+            )
+
+    return on_task_remove_persist
 
 
 def _make_on_stream_remove(event_stream_manager: EventStreamManager):
@@ -136,7 +156,7 @@ class TaskManager(_TaskManager):
             on_stream_remove=_make_on_stream_remove(event_stream_manager),
             # Session persistence hooks for crash recovery
             on_task_persist=_on_task_persist,
-            on_task_remove_persist=_on_task_remove_persist,
+            on_task_remove_persist=_make_on_task_remove_persist(event_stream_manager),
             # No chatserver hooks for CraftBot (local only)
             # No chatserver hooks for CraftBot (local only).
             on_task_created_chatserver=None,
