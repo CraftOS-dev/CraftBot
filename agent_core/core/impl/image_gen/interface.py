@@ -202,7 +202,9 @@ class ImageGenInterface:
         self._gemini_client = ctx["gemini_client"]
         self._initialized = ctx.get("initialized", False)
         try:
-            self._main_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()
+            self._main_loop: Optional[asyncio.AbstractEventLoop] = (
+                asyncio.get_event_loop()
+            )
         except RuntimeError:
             self._main_loop = None
 

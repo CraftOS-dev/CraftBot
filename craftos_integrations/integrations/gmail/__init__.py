@@ -419,7 +419,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                                     "size": part.get("body", {}).get("size", 0),
                                 }
                             )
-                        elif part.get("mimeType") == "text/plain" and "data" in part.get("body", {}):
+                        elif part.get(
+                            "mimeType"
+                        ) == "text/plain" and "data" in part.get("body", {}):
                             if "body" not in email_info:
                                 email_info["body"] = base64.urlsafe_b64decode(
                                     part["body"]["data"].encode("ASCII")
@@ -432,7 +434,9 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 top_parts = payload.get("parts", [])
                 if top_parts:
                     _walk_parts(top_parts)
-                elif payload.get("mimeType") == "text/plain" and "data" in payload.get("body", {}):
+                elif payload.get("mimeType") == "text/plain" and "data" in payload.get(
+                    "body", {}
+                ):
                     email_info["body"] = base64.urlsafe_b64decode(
                         payload["body"]["data"].encode("ASCII")
                     ).decode("utf-8")
@@ -1072,7 +1076,11 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
     # ----- Attachments -----
 
     def download_attachment(
-        self, message_id: str, attachment_id: str, save_to: str, filename: Optional[str] = None
+        self,
+        message_id: str,
+        attachment_id: str,
+        save_to: str,
+        filename: Optional[str] = None,
     ) -> Result:
         """Download an attachment to a local path. Decodes Gmail's urlsafe base64 data."""
         import os as _os

@@ -3337,9 +3337,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             store = self._controller.state_store
             for record in t_records:
                 ev = record.event
-                store.dispatch(
-                    "MARK_EVENT_SEEN", (ev.iso_ts, ev.kind, ev.message)
-                )
+                store.dispatch("MARK_EVENT_SEEN", (ev.iso_ts, ev.kind, ev.message))
 
             # Sync with state_manager and rebuild session caches so the LLM
             # is set up the same way create_task would set it up.

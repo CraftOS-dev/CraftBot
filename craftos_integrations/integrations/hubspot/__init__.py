@@ -377,7 +377,9 @@ class HubSpotClient(BasePlatformClient):
         logger.info("[HUBSPOT] Access token refreshed.")
         return new_token
 
-    def _headers(self, *, content_type: Optional[str] = "application/json") -> Dict[str, str]:
+    def _headers(
+        self, *, content_type: Optional[str] = "application/json"
+    ) -> Dict[str, str]:
         token = self._get_valid_access_token()
         h: Dict[str, str] = {"Authorization": f"Bearer {token}"}
         if content_type:
@@ -415,7 +417,10 @@ class HubSpotClient(BasePlatformClient):
         associations: Optional[List[str]] = None,
         archived: bool = False,
     ) -> Result:
-        params: Dict[str, Any] = {"limit": min(max(limit, 1), 100), "archived": archived}
+        params: Dict[str, Any] = {
+            "limit": min(max(limit, 1), 100),
+            "archived": archived,
+        }
         if after:
             params["after"] = after
         if properties:
@@ -571,9 +576,7 @@ class HubSpotClient(BasePlatformClient):
     async def get_contact(self, contact_id: str, **kw) -> Result:
         return await self._get_object("contacts", contact_id, **kw)
 
-    async def create_contact(
-        self, properties: Dict[str, Any], **kw
-    ) -> Result:
+    async def create_contact(self, properties: Dict[str, Any], **kw) -> Result:
         return await self._create_object("contacts", properties, **kw)
 
     async def update_contact(
@@ -587,19 +590,13 @@ class HubSpotClient(BasePlatformClient):
     async def search_contacts(self, **kw) -> Result:
         return await self._search_objects("contacts", **kw)
 
-    async def batch_get_contacts(
-        self, ids: List[str], **kw
-    ) -> Result:
+    async def batch_get_contacts(self, ids: List[str], **kw) -> Result:
         return await self._batch_read("contacts", ids, **kw)
 
-    async def batch_create_contacts(
-        self, records: List[Dict[str, Any]]
-    ) -> Result:
+    async def batch_create_contacts(self, records: List[Dict[str, Any]]) -> Result:
         return await self._batch_create("contacts", records)
 
-    async def merge_contacts(
-        self, primary_id: str, id_to_merge: str
-    ) -> Result:
+    async def merge_contacts(self, primary_id: str, id_to_merge: str) -> Result:
         return await arequest(
             "POST",
             f"{HUBSPOT_API}/crm/v3/objects/contacts/merge",
@@ -634,9 +631,7 @@ class HubSpotClient(BasePlatformClient):
     async def batch_get_companies(self, ids: List[str], **kw) -> Result:
         return await self._batch_read("companies", ids, **kw)
 
-    async def batch_create_companies(
-        self, records: List[Dict[str, Any]]
-    ) -> Result:
+    async def batch_create_companies(self, records: List[Dict[str, Any]]) -> Result:
         return await self._batch_create("companies", records)
 
     # =========================================================
@@ -652,9 +647,7 @@ class HubSpotClient(BasePlatformClient):
     async def create_deal(self, properties: Dict[str, Any], **kw) -> Result:
         return await self._create_object("deals", properties, **kw)
 
-    async def update_deal(
-        self, deal_id: str, properties: Dict[str, Any]
-    ) -> Result:
+    async def update_deal(self, deal_id: str, properties: Dict[str, Any]) -> Result:
         return await self._update_object("deals", deal_id, properties)
 
     async def delete_deal(self, deal_id: str) -> Result:
@@ -663,9 +656,7 @@ class HubSpotClient(BasePlatformClient):
     async def search_deals(self, **kw) -> Result:
         return await self._search_objects("deals", **kw)
 
-    async def batch_create_deals(
-        self, records: List[Dict[str, Any]]
-    ) -> Result:
+    async def batch_create_deals(self, records: List[Dict[str, Any]]) -> Result:
         return await self._batch_create("deals", records)
 
     async def move_deal_stage(self, deal_id: str, stage_id: str) -> Result:
@@ -706,9 +697,7 @@ class HubSpotClient(BasePlatformClient):
     async def create_ticket(self, properties: Dict[str, Any], **kw) -> Result:
         return await self._create_object("tickets", properties, **kw)
 
-    async def update_ticket(
-        self, ticket_id: str, properties: Dict[str, Any]
-    ) -> Result:
+    async def update_ticket(self, ticket_id: str, properties: Dict[str, Any]) -> Result:
         return await self._update_object("tickets", ticket_id, properties)
 
     async def delete_ticket(self, ticket_id: str) -> Result:
@@ -717,9 +706,7 @@ class HubSpotClient(BasePlatformClient):
     async def search_tickets(self, **kw) -> Result:
         return await self._search_objects("tickets", **kw)
 
-    async def close_ticket(
-        self, ticket_id: str, closed_stage_id: str
-    ) -> Result:
+    async def close_ticket(self, ticket_id: str, closed_stage_id: str) -> Result:
         # Helper — "close" is just moving the ticket to its closed stage.
         return await self._update_object(
             "tickets", ticket_id, {"hs_pipeline_stage": closed_stage_id}
@@ -804,9 +791,7 @@ class HubSpotClient(BasePlatformClient):
             ),
         )
 
-    async def update_task(
-        self, task_id: str, properties: Dict[str, Any]
-    ) -> Result:
+    async def update_task(self, task_id: str, properties: Dict[str, Any]) -> Result:
         return await self._update_object("tasks", task_id, properties)
 
     async def delete_task(self, task_id: str) -> Result:
@@ -1056,9 +1041,7 @@ class HubSpotClient(BasePlatformClient):
             headers=self._headers(content_type=None),
         )
 
-    async def get_pipeline(
-        self, object_type: str, pipeline_id: str
-    ) -> Result:
+    async def get_pipeline(self, object_type: str, pipeline_id: str) -> Result:
         return await arequest(
             "GET",
             f"{HUBSPOT_API}/crm/v3/pipelines/{object_type}/{pipeline_id}",
@@ -1085,9 +1068,7 @@ class HubSpotClient(BasePlatformClient):
             json=body,
         )
 
-    async def list_pipeline_stages(
-        self, object_type: str, pipeline_id: str
-    ) -> Result:
+    async def list_pipeline_stages(self, object_type: str, pipeline_id: str) -> Result:
         return await arequest(
             "GET",
             f"{HUBSPOT_API}/crm/v3/pipelines/{object_type}/{pipeline_id}/stages",
@@ -1143,9 +1124,7 @@ class HubSpotClient(BasePlatformClient):
             headers=self._headers(content_type=None),
         )
 
-    async def get_property(
-        self, object_type: str, property_name: str
-    ) -> Result:
+    async def get_property(self, object_type: str, property_name: str) -> Result:
         return await arequest(
             "GET",
             f"{HUBSPOT_API}/crm/v3/properties/{object_type}/{property_name}",
@@ -1175,9 +1154,7 @@ class HubSpotClient(BasePlatformClient):
             json=definition,
         )
 
-    async def delete_property(
-        self, object_type: str, property_name: str
-    ) -> Result:
+    async def delete_property(self, object_type: str, property_name: str) -> Result:
         return await arequest(
             "DELETE",
             f"{HUBSPOT_API}/crm/v3/properties/{object_type}/{property_name}",
@@ -1387,9 +1364,7 @@ class HubSpotClient(BasePlatformClient):
             json=body,
         )
 
-    async def get_marketing_email_statistics(
-        self, email_id: str
-    ) -> Result:
+    async def get_marketing_email_statistics(self, email_id: str) -> Result:
         return await arequest(
             "GET",
             f"{HUBSPOT_API}/marketing/v3/emails/{email_id}/statistics",

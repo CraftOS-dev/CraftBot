@@ -3443,8 +3443,7 @@ class AgentBase:
         restored_running = [
             task
             for tid in self._restored_task_ids
-            if (task := self.task_manager.tasks.get(tid))
-            and task.status == "running"
+            if (task := self.task_manager.tasks.get(tid)) and task.status == "running"
         ]
         if restored_running:
             resuming = [t for t in restored_running if not t.waiting_for_user_reply]

@@ -335,7 +335,9 @@ class VideoGenInterface:
         self._byteplus = ctx["byteplus"]  # {"api_key", "base_url"} or None
         self._initialized = ctx.get("initialized", False)
         try:
-            self._main_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()
+            self._main_loop: Optional[asyncio.AbstractEventLoop] = (
+                asyncio.get_event_loop()
+            )
         except RuntimeError:
             self._main_loop = None
 
@@ -565,7 +567,9 @@ class VideoGenInterface:
         # Clamp seconds to the model's supported set, picking the closest larger value.
         valid_seconds = _SORA_VALID_SECONDS.get(self.model, {4, 8, 12})
         if duration_seconds not in valid_seconds:
-            chosen = min((s for s in valid_seconds if s >= duration_seconds), default=None)
+            chosen = min(
+                (s for s in valid_seconds if s >= duration_seconds), default=None
+            )
             if chosen is None:
                 chosen = max(valid_seconds)
             logger.warning(
@@ -584,9 +588,7 @@ class VideoGenInterface:
         # file id. A separate files.create() round-trip is not part of the
         # Sora image-to-video contract.
         if reference_image and not os.path.isfile(reference_image):
-            raise RuntimeError(
-                f"Sora reference_image not found: {reference_image}"
-            )
+            raise RuntimeError(f"Sora reference_image not found: {reference_image}")
 
         # Sora 2's `n` parameter for multiple videos is not yet exposed in the
         # public API; we issue `number_of_videos` independent jobs and stitch
@@ -679,7 +681,9 @@ class VideoGenInterface:
                     f"OpenAI Sora job {video_id} returned unexpected status: {status!r}"
                 )
 
-            logger.debug(f"[VIDEO_GEN] Sora job {video_id} status={status!r}; retrying in {delay:.1f}s")
+            logger.debug(
+                f"[VIDEO_GEN] Sora job {video_id} status={status!r}; retrying in {delay:.1f}s"
+            )
             if time.monotonic() >= deadline:
                 raise RuntimeError(
                     f"OpenAI Sora job {video_id} did not complete within "
@@ -703,9 +707,7 @@ class VideoGenInterface:
             return content.read()
         if hasattr(content, "content"):
             return content.content
-        raise RuntimeError(
-            "OpenAI Sora download returned an unexpected payload type."
-        )
+        raise RuntimeError("OpenAI Sora download returned an unexpected payload type.")
 
     # ──────────────────────── Gemini / Veo ───────────────────────────────────
 
@@ -753,7 +755,10 @@ class VideoGenInterface:
         # Veo durations are integers; 1080p/4k or any reference inputs force 8.
         # Snap to the closest legal value.
         forces_eight = (
-            resolution in {"1080p", "4k"} or reference_image or last_frame or reference_images
+            resolution in {"1080p", "4k"}
+            or reference_image
+            or last_frame
+            or reference_images
         )
         if forces_eight:
             duration_int = 8
@@ -901,9 +906,7 @@ class VideoGenInterface:
                 )
                 continue
 
-            save_path = _build_save_path(
-                output_path, timestamp, i, len(samples)
-            )
+            save_path = _build_save_path(output_path, timestamp, i, len(samples))
             _write_bytes(save_path, data)
             paths.append(save_path)
 
@@ -1145,8 +1148,14 @@ class VideoGenInterface:
                 content = data.get("content") or {}
                 # Seedance returns either content.video_url (current) or content.url (legacy).
                 video_url = content.get("video_url") or content.get("url")
-                if not video_url and isinstance(data.get("videos"), list) and data["videos"]:
-                    video_url = data["videos"][0].get("video_url") or data["videos"][0].get("url")
+                if (
+                    not video_url
+                    and isinstance(data.get("videos"), list)
+                    and data["videos"]
+                ):
+                    video_url = data["videos"][0].get("video_url") or data["videos"][
+                        0
+                    ].get("url")
                 if not video_url:
                     raise RuntimeError(
                         "BytePlus Seedance reported succeeded but did not include a video_url."

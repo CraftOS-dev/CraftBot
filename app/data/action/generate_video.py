@@ -236,9 +236,7 @@ def generate_video(input_data: dict) -> dict:
             duration_seconds=int(input_data.get("duration_seconds", 5)),
             aspect_ratio=str(input_data.get("aspect_ratio", "16:9")),
             resolution=str(input_data.get("resolution", "720p")),
-            number_of_videos=min(
-                max(int(input_data.get("number_of_videos", 1)), 1), 4
-            ),
+            number_of_videos=min(max(int(input_data.get("number_of_videos", 1)), 1), 4),
             output_path=str(input_data.get("output_path") or ""),
             negative_prompt=str(input_data.get("negative_prompt") or ""),
             reference_image=(input_data.get("reference_image") or None),
@@ -250,9 +248,7 @@ def generate_video(input_data: dict) -> dict:
                 else None
             ),
             with_audio=bool(input_data.get("with_audio", True)),
-            person_generation=str(
-                input_data.get("person_generation") or "allow_adult"
-            ),
+            person_generation=str(input_data.get("person_generation") or "allow_adult"),
             camera_fixed=bool(input_data.get("camera_fixed", False)),
             watermark=bool(input_data.get("watermark", False)),
             callback_url=str(input_data.get("callback_url") or ""),

@@ -241,9 +241,7 @@ def get_video_gen_provider() -> str:
     settings = get_settings()
     model = settings.get("model", {})
     return (
-        model.get("video_gen_provider")
-        or model.get("image_gen_provider")
-        or "gemini"
+        model.get("video_gen_provider") or model.get("image_gen_provider") or "gemini"
     )
 
 

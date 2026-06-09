@@ -62,7 +62,9 @@ OnStreamRemoveHook = Callable[[str], None]  # (task_id)
 
 # Session persistence hooks
 OnTaskPersistHook = Callable[["Task"], None]  # (task)
-OnTaskRemovePersistHook = Callable[["Task"], None]  # (task) — receives full task so the implementation can decide whether to delete (truly remove) or preserve (e.g. for resume) based on terminal status
+OnTaskRemovePersistHook = Callable[
+    ["Task"], None
+]  # (task) — receives full task so the implementation can decide whether to delete (truly remove) or preserve (e.g. for resume) based on terminal status
 
 # Chatserver hooks (WCA only)
 OnTaskCreatedChatserverHook = Callable[[Task], None]

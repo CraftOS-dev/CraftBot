@@ -743,7 +743,7 @@ class GeminiClient:
         """
         path = operation_name.lstrip("/")
         if path.startswith(f"{self._api_version}/"):
-            path = path[len(f"{self._api_version}/"):]
+            path = path[len(f"{self._api_version}/") :]
         url = self._endpoint(path)
         response = requests.get(
             url,

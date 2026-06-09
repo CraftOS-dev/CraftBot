@@ -24,10 +24,26 @@ from agent_core import action
     description="List HubSpot contacts. Paginated; pass 'after' from the previous response's paging.next.after to get more.",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
-        "limit": {"type": "integer", "description": "Max results (1-100, default 30).", "example": 30},
-        "after": {"type": "string", "description": "Pagination cursor from previous response.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated property names to include.", "example": "email,firstname,lastname"},
-        "archived": {"type": "boolean", "description": "Include archived contacts.", "example": False},
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-100, default 30).",
+            "example": 30,
+        },
+        "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response.",
+            "example": "",
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated property names to include.",
+            "example": "email,firstname,lastname",
+        },
+        "archived": {
+            "type": "boolean",
+            "description": "Include archived contacts.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -36,7 +52,8 @@ async def list_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_contacts",
+        "hubspot",
+        "list_contacts",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -49,9 +66,21 @@ async def list_hubspot_contacts(input_data: dict) -> dict:
     description="Get a HubSpot contact by ID. Returns properties and (if requested) associated objects.",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
-        "contact_id": {"type": "string", "description": "HubSpot contact ID (numeric string).", "example": "123456789"},
-        "properties": {"type": "string", "description": "Comma-separated property names to include.", "example": "email,firstname,lastname,phone"},
-        "associations": {"type": "string", "description": "Comma-separated object types to include associations for.", "example": "companies,deals"},
+        "contact_id": {
+            "type": "string",
+            "description": "HubSpot contact ID (numeric string).",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated property names to include.",
+            "example": "email,firstname,lastname,phone",
+        },
+        "associations": {
+            "type": "string",
+            "description": "Comma-separated object types to include associations for.",
+            "example": "companies,deals",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -61,7 +90,8 @@ async def get_hubspot_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_contact",
+        "hubspot",
+        "get_contact",
         contact_id=input_data["contact_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -73,7 +103,15 @@ async def get_hubspot_contact(input_data: dict) -> dict:
     description="Create a HubSpot contact. 'properties' is a flat dict like {email, firstname, lastname, phone, company}.",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
-        "properties": {"type": "object", "description": "Flat property dict.", "example": {"email": "jane@example.com", "firstname": "Jane", "lastname": "Doe"}},
+        "properties": {
+            "type": "object",
+            "description": "Flat property dict.",
+            "example": {
+                "email": "jane@example.com",
+                "firstname": "Jane",
+                "lastname": "Doe",
+            },
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -82,7 +120,8 @@ async def create_hubspot_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_contact",
+        "hubspot",
+        "create_contact",
         properties=input_data["properties"],
     )
 
@@ -92,8 +131,16 @@ async def create_hubspot_contact(input_data: dict) -> dict:
     description="Update a HubSpot contact's properties.",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
-        "contact_id": {"type": "string", "description": "Contact ID.", "example": "123456789"},
-        "properties": {"type": "object", "description": "Properties to update (flat dict).", "example": {"phone": "+1-555-0100"}},
+        "contact_id": {
+            "type": "string",
+            "description": "Contact ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "object",
+            "description": "Properties to update (flat dict).",
+            "example": {"phone": "+1-555-0100"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -102,7 +149,8 @@ async def update_hubspot_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_contact",
+        "hubspot",
+        "update_contact",
         contact_id=input_data["contact_id"],
         properties=input_data["properties"],
     )
@@ -113,7 +161,11 @@ async def update_hubspot_contact(input_data: dict) -> dict:
     description="Archive (soft-delete) a HubSpot contact. The record can be restored from the trash UI.",
     action_sets=["hubspot_contacts"],
     input_schema={
-        "contact_id": {"type": "string", "description": "Contact ID.", "example": "123456789"},
+        "contact_id": {
+            "type": "string",
+            "description": "Contact ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -121,7 +173,9 @@ async def update_hubspot_contact(input_data: dict) -> dict:
 async def delete_hubspot_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_contact", contact_id=input_data["contact_id"])
+    return await run_client(
+        "hubspot", "delete_contact", contact_id=input_data["contact_id"]
+    )
 
 
 @action(
@@ -129,10 +183,36 @@ async def delete_hubspot_contact(input_data: dict) -> dict:
     description="Search HubSpot contacts. Use 'query' for free-text or 'filter_groups' for precise property filters (operators: EQ, NEQ, GT, GTE, LT, LTE, BETWEEN, IN, NOT_IN, CONTAINS_TOKEN, HAS_PROPERTY).",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
-        "query": {"type": "string", "description": "Free-text search across default searchable properties.", "example": "jane@example.com"},
-        "filter_groups": {"type": "array", "description": "Filter groups: [{filters: [{propertyName, operator, value}]}].", "example": [{"filters": [{"propertyName": "email", "operator": "EQ", "value": "jane@example.com"}]}]},
-        "properties": {"type": "string", "description": "Comma-separated properties to return.", "example": "email,firstname,lastname"},
-        "limit": {"type": "integer", "description": "Max results (1-100).", "example": 30},
+        "query": {
+            "type": "string",
+            "description": "Free-text search across default searchable properties.",
+            "example": "jane@example.com",
+        },
+        "filter_groups": {
+            "type": "array",
+            "description": "Filter groups: [{filters: [{propertyName, operator, value}]}].",
+            "example": [
+                {
+                    "filters": [
+                        {
+                            "propertyName": "email",
+                            "operator": "EQ",
+                            "value": "jane@example.com",
+                        }
+                    ]
+                }
+            ],
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties to return.",
+            "example": "email,firstname,lastname",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-100).",
+            "example": 30,
+        },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -142,7 +222,8 @@ async def search_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "search_contacts",
+        "hubspot",
+        "search_contacts",
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -156,8 +237,16 @@ async def search_hubspot_contacts(input_data: dict) -> dict:
     description="Read up to 100 contacts in a single call. Cheaper than N gets.",
     action_sets=["hubspot_contacts"],
     input_schema={
-        "ids": {"type": "array", "description": "Contact IDs.", "example": ["123", "456", "789"]},
-        "properties": {"type": "string", "description": "Comma-separated properties to return.", "example": "email,firstname"},
+        "ids": {
+            "type": "array",
+            "description": "Contact IDs.",
+            "example": ["123", "456", "789"],
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties to return.",
+            "example": "email,firstname",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -166,7 +255,8 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "batch_get_contacts",
+        "hubspot",
+        "batch_get_contacts",
         ids=input_data["ids"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
@@ -177,7 +267,11 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
     description="Create up to 100 contacts in a single call. 'records' is a list of flat property dicts.",
     action_sets=["hubspot_contacts"],
     input_schema={
-        "records": {"type": "array", "description": "List of property dicts.", "example": [{"email": "a@x.com"}, {"email": "b@x.com"}]},
+        "records": {
+            "type": "array",
+            "description": "List of property dicts.",
+            "example": [{"email": "a@x.com"}, {"email": "b@x.com"}],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -185,7 +279,9 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
 async def batch_create_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "batch_create_contacts", records=input_data["records"])
+    return await run_client(
+        "hubspot", "batch_create_contacts", records=input_data["records"]
+    )
 
 
 @action(
@@ -193,8 +289,16 @@ async def batch_create_hubspot_contacts(input_data: dict) -> dict:
     description="Merge two contacts. The primary contact survives; the secondary is archived with associations transferred.",
     action_sets=["hubspot_contacts"],
     input_schema={
-        "primary_id": {"type": "string", "description": "Contact ID that survives the merge.", "example": "123"},
-        "id_to_merge": {"type": "string", "description": "Contact ID that gets merged INTO the primary.", "example": "456"},
+        "primary_id": {
+            "type": "string",
+            "description": "Contact ID that survives the merge.",
+            "example": "123",
+        },
+        "id_to_merge": {
+            "type": "string",
+            "description": "Contact ID that gets merged INTO the primary.",
+            "example": "456",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -203,7 +307,8 @@ async def merge_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "merge_contacts",
+        "hubspot",
+        "merge_contacts",
         primary_id=input_data["primary_id"],
         id_to_merge=input_data["id_to_merge"],
     )
@@ -219,10 +324,22 @@ async def merge_hubspot_contacts(input_data: dict) -> dict:
     description="List HubSpot companies. Paginated via 'after' cursor.",
     action_sets=["hubspot_companies", "hubspot"],
     input_schema={
-        "limit": {"type": "integer", "description": "Max results (1-100).", "example": 30},
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-100).",
+            "example": 30,
+        },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated property names.", "example": "name,domain,industry"},
-        "archived": {"type": "boolean", "description": "Include archived.", "example": False},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated property names.",
+            "example": "name,domain,industry",
+        },
+        "archived": {
+            "type": "boolean",
+            "description": "Include archived.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -231,7 +348,8 @@ async def list_hubspot_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_companies",
+        "hubspot",
+        "list_companies",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -244,9 +362,21 @@ async def list_hubspot_companies(input_data: dict) -> dict:
     description="Get a HubSpot company by ID.",
     action_sets=["hubspot_companies"],
     input_schema={
-        "company_id": {"type": "string", "description": "Company ID (numeric string).", "example": "123456789"},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "name,domain,industry,city"},
-        "associations": {"type": "string", "description": "Comma-separated association types.", "example": "contacts,deals"},
+        "company_id": {
+            "type": "string",
+            "description": "Company ID (numeric string).",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "name,domain,industry,city",
+        },
+        "associations": {
+            "type": "string",
+            "description": "Comma-separated association types.",
+            "example": "contacts,deals",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -256,7 +386,8 @@ async def get_hubspot_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_company",
+        "hubspot",
+        "get_company",
         company_id=input_data["company_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -268,7 +399,11 @@ async def get_hubspot_company(input_data: dict) -> dict:
     description="Create a HubSpot company. Typical properties: name, domain, industry, city, country.",
     action_sets=["hubspot_companies", "hubspot"],
     input_schema={
-        "properties": {"type": "object", "description": "Flat property dict.", "example": {"name": "Acme Co", "domain": "acme.com"}},
+        "properties": {
+            "type": "object",
+            "description": "Flat property dict.",
+            "example": {"name": "Acme Co", "domain": "acme.com"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -276,7 +411,9 @@ async def get_hubspot_company(input_data: dict) -> dict:
 async def create_hubspot_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "create_company", properties=input_data["properties"])
+    return await run_client(
+        "hubspot", "create_company", properties=input_data["properties"]
+    )
 
 
 @action(
@@ -284,8 +421,16 @@ async def create_hubspot_company(input_data: dict) -> dict:
     description="Update a HubSpot company's properties.",
     action_sets=["hubspot_companies"],
     input_schema={
-        "company_id": {"type": "string", "description": "Company ID.", "example": "123456789"},
-        "properties": {"type": "object", "description": "Properties to update.", "example": {"industry": "Software"}},
+        "company_id": {
+            "type": "string",
+            "description": "Company ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "object",
+            "description": "Properties to update.",
+            "example": {"industry": "Software"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -294,7 +439,8 @@ async def update_hubspot_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_company",
+        "hubspot",
+        "update_company",
         company_id=input_data["company_id"],
         properties=input_data["properties"],
     )
@@ -305,7 +451,11 @@ async def update_hubspot_company(input_data: dict) -> dict:
     description="Archive (soft-delete) a HubSpot company.",
     action_sets=["hubspot_companies"],
     input_schema={
-        "company_id": {"type": "string", "description": "Company ID.", "example": "123456789"},
+        "company_id": {
+            "type": "string",
+            "description": "Company ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -313,7 +463,9 @@ async def update_hubspot_company(input_data: dict) -> dict:
 async def delete_hubspot_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_company", company_id=input_data["company_id"])
+    return await run_client(
+        "hubspot", "delete_company", company_id=input_data["company_id"]
+    )
 
 
 @action(
@@ -321,9 +473,31 @@ async def delete_hubspot_company(input_data: dict) -> dict:
     description="Search HubSpot companies using query or filter_groups (same shape as contact search).",
     action_sets=["hubspot_companies", "hubspot"],
     input_schema={
-        "query": {"type": "string", "description": "Free-text search.", "example": "acme"},
-        "filter_groups": {"type": "array", "description": "Property filter groups.", "example": [{"filters": [{"propertyName": "domain", "operator": "EQ", "value": "acme.com"}]}]},
-        "properties": {"type": "string", "description": "Comma-separated properties to return.", "example": "name,domain"},
+        "query": {
+            "type": "string",
+            "description": "Free-text search.",
+            "example": "acme",
+        },
+        "filter_groups": {
+            "type": "array",
+            "description": "Property filter groups.",
+            "example": [
+                {
+                    "filters": [
+                        {
+                            "propertyName": "domain",
+                            "operator": "EQ",
+                            "value": "acme.com",
+                        }
+                    ]
+                }
+            ],
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties to return.",
+            "example": "name,domain",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
@@ -334,7 +508,8 @@ async def search_hubspot_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "search_companies",
+        "hubspot",
+        "search_companies",
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -348,8 +523,16 @@ async def search_hubspot_companies(input_data: dict) -> dict:
     description="Read up to 100 companies in a single call.",
     action_sets=["hubspot_companies"],
     input_schema={
-        "ids": {"type": "array", "description": "Company IDs.", "example": ["123", "456"]},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "name,domain"},
+        "ids": {
+            "type": "array",
+            "description": "Company IDs.",
+            "example": ["123", "456"],
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "name,domain",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -358,7 +541,8 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "batch_get_companies",
+        "hubspot",
+        "batch_get_companies",
         ids=input_data["ids"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
@@ -369,7 +553,11 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
     description="Create up to 100 companies in a single call.",
     action_sets=["hubspot_companies"],
     input_schema={
-        "records": {"type": "array", "description": "List of property dicts.", "example": [{"name": "Acme"}, {"name": "Foo"}]},
+        "records": {
+            "type": "array",
+            "description": "List of property dicts.",
+            "example": [{"name": "Acme"}, {"name": "Foo"}],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -377,7 +565,9 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
 async def batch_create_hubspot_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "batch_create_companies", records=input_data["records"])
+    return await run_client(
+        "hubspot", "batch_create_companies", records=input_data["records"]
+    )
 
 
 # ==================================================================
@@ -392,8 +582,16 @@ async def batch_create_hubspot_companies(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "dealname,amount,dealstage,pipeline"},
-        "archived": {"type": "boolean", "description": "Include archived.", "example": False},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "dealname,amount,dealstage,pipeline",
+        },
+        "archived": {
+            "type": "boolean",
+            "description": "Include archived.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -402,7 +600,8 @@ async def list_hubspot_deals(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_deals",
+        "hubspot",
+        "list_deals",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -415,9 +614,21 @@ async def list_hubspot_deals(input_data: dict) -> dict:
     description="Get a HubSpot deal by ID.",
     action_sets=["hubspot_deals"],
     input_schema={
-        "deal_id": {"type": "string", "description": "Deal ID.", "example": "123456789"},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "dealname,amount,dealstage,pipeline,closedate"},
-        "associations": {"type": "string", "description": "Comma-separated association types.", "example": "contacts,companies"},
+        "deal_id": {
+            "type": "string",
+            "description": "Deal ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "dealname,amount,dealstage,pipeline,closedate",
+        },
+        "associations": {
+            "type": "string",
+            "description": "Comma-separated association types.",
+            "example": "contacts,companies",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -427,7 +638,8 @@ async def get_hubspot_deal(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_deal",
+        "hubspot",
+        "get_deal",
         deal_id=input_data["deal_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -439,7 +651,15 @@ async def get_hubspot_deal(input_data: dict) -> dict:
     description="Create a HubSpot deal. Typical properties: dealname, amount, dealstage, pipeline, closedate, hubspot_owner_id.",
     action_sets=["hubspot_deals", "hubspot"],
     input_schema={
-        "properties": {"type": "object", "description": "Flat property dict.", "example": {"dealname": "Q3 renewal", "amount": "50000", "dealstage": "qualifiedtobuy"}},
+        "properties": {
+            "type": "object",
+            "description": "Flat property dict.",
+            "example": {
+                "dealname": "Q3 renewal",
+                "amount": "50000",
+                "dealstage": "qualifiedtobuy",
+            },
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -447,7 +667,9 @@ async def get_hubspot_deal(input_data: dict) -> dict:
 async def create_hubspot_deal(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "create_deal", properties=input_data["properties"])
+    return await run_client(
+        "hubspot", "create_deal", properties=input_data["properties"]
+    )
 
 
 @action(
@@ -455,8 +677,16 @@ async def create_hubspot_deal(input_data: dict) -> dict:
     description="Update a HubSpot deal's properties.",
     action_sets=["hubspot_deals", "hubspot"],
     input_schema={
-        "deal_id": {"type": "string", "description": "Deal ID.", "example": "123456789"},
-        "properties": {"type": "object", "description": "Properties to update.", "example": {"amount": "75000"}},
+        "deal_id": {
+            "type": "string",
+            "description": "Deal ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "object",
+            "description": "Properties to update.",
+            "example": {"amount": "75000"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -465,7 +695,8 @@ async def update_hubspot_deal(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_deal",
+        "hubspot",
+        "update_deal",
         deal_id=input_data["deal_id"],
         properties=input_data["properties"],
     )
@@ -476,7 +707,11 @@ async def update_hubspot_deal(input_data: dict) -> dict:
     description="Archive (soft-delete) a HubSpot deal.",
     action_sets=["hubspot_deals"],
     input_schema={
-        "deal_id": {"type": "string", "description": "Deal ID.", "example": "123456789"},
+        "deal_id": {
+            "type": "string",
+            "description": "Deal ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -492,9 +727,31 @@ async def delete_hubspot_deal(input_data: dict) -> dict:
     description="Search HubSpot deals via query or filter_groups.",
     action_sets=["hubspot_deals"],
     input_schema={
-        "query": {"type": "string", "description": "Free-text search.", "example": "renewal"},
-        "filter_groups": {"type": "array", "description": "Property filter groups.", "example": [{"filters": [{"propertyName": "dealstage", "operator": "EQ", "value": "closedwon"}]}]},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "dealname,amount"},
+        "query": {
+            "type": "string",
+            "description": "Free-text search.",
+            "example": "renewal",
+        },
+        "filter_groups": {
+            "type": "array",
+            "description": "Property filter groups.",
+            "example": [
+                {
+                    "filters": [
+                        {
+                            "propertyName": "dealstage",
+                            "operator": "EQ",
+                            "value": "closedwon",
+                        }
+                    ]
+                }
+            ],
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "dealname,amount",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
@@ -505,7 +762,8 @@ async def search_hubspot_deals(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "search_deals",
+        "hubspot",
+        "search_deals",
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -519,7 +777,11 @@ async def search_hubspot_deals(input_data: dict) -> dict:
     description="Create up to 100 deals in a single call.",
     action_sets=["hubspot_deals"],
     input_schema={
-        "records": {"type": "array", "description": "List of property dicts.", "example": [{"dealname": "A"}, {"dealname": "B"}]},
+        "records": {
+            "type": "array",
+            "description": "List of property dicts.",
+            "example": [{"dealname": "A"}, {"dealname": "B"}],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -527,7 +789,9 @@ async def search_hubspot_deals(input_data: dict) -> dict:
 async def batch_create_hubspot_deals(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "batch_create_deals", records=input_data["records"])
+    return await run_client(
+        "hubspot", "batch_create_deals", records=input_data["records"]
+    )
 
 
 @action(
@@ -535,8 +799,16 @@ async def batch_create_hubspot_deals(input_data: dict) -> dict:
     description="Move a deal to a different pipeline stage. Helper around updating the 'dealstage' property.",
     action_sets=["hubspot_deals", "hubspot"],
     input_schema={
-        "deal_id": {"type": "string", "description": "Deal ID.", "example": "123456789"},
-        "stage_id": {"type": "string", "description": "Target stage ID (use list_hubspot_pipeline_stages to find).", "example": "closedwon"},
+        "deal_id": {
+            "type": "string",
+            "description": "Deal ID.",
+            "example": "123456789",
+        },
+        "stage_id": {
+            "type": "string",
+            "description": "Target stage ID (use list_hubspot_pipeline_stages to find).",
+            "example": "closedwon",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -545,7 +817,8 @@ async def move_hubspot_deal_stage(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "move_deal_stage",
+        "hubspot",
+        "move_deal_stage",
         deal_id=input_data["deal_id"],
         stage_id=input_data["stage_id"],
     )
@@ -556,7 +829,11 @@ async def move_hubspot_deal_stage(input_data: dict) -> dict:
     description="List deals in a specific pipeline. Helper that wraps search with a pipeline filter.",
     action_sets=["hubspot_deals"],
     input_schema={
-        "pipeline_id": {"type": "string", "description": "Pipeline ID.", "example": "default"},
+        "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline ID.",
+            "example": "default",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
@@ -566,7 +843,8 @@ async def list_hubspot_deals_by_pipeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_deals_by_pipeline",
+        "hubspot",
+        "list_deals_by_pipeline",
         pipeline_id=input_data["pipeline_id"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -585,8 +863,16 @@ async def list_hubspot_deals_by_pipeline(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "subject,content,hs_pipeline_stage,hs_ticket_priority"},
-        "archived": {"type": "boolean", "description": "Include archived.", "example": False},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "subject,content,hs_pipeline_stage,hs_ticket_priority",
+        },
+        "archived": {
+            "type": "boolean",
+            "description": "Include archived.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -595,7 +881,8 @@ async def list_hubspot_tickets(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_tickets",
+        "hubspot",
+        "list_tickets",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -608,9 +895,21 @@ async def list_hubspot_tickets(input_data: dict) -> dict:
     description="Get a HubSpot ticket by ID.",
     action_sets=["hubspot_tickets"],
     input_schema={
-        "ticket_id": {"type": "string", "description": "Ticket ID.", "example": "123456789"},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "subject,content,hs_pipeline_stage"},
-        "associations": {"type": "string", "description": "Comma-separated association types.", "example": "contacts,companies"},
+        "ticket_id": {
+            "type": "string",
+            "description": "Ticket ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "subject,content,hs_pipeline_stage",
+        },
+        "associations": {
+            "type": "string",
+            "description": "Comma-separated association types.",
+            "example": "contacts,companies",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -620,7 +919,8 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_ticket",
+        "hubspot",
+        "get_ticket",
         ticket_id=input_data["ticket_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -632,7 +932,15 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
     description="Create a HubSpot support ticket. Typical properties: subject, content, hs_pipeline, hs_pipeline_stage, hs_ticket_priority (LOW/MEDIUM/HIGH/URGENT).",
     action_sets=["hubspot_tickets", "hubspot"],
     input_schema={
-        "properties": {"type": "object", "description": "Flat property dict.", "example": {"subject": "Login fails", "content": "User can't log in", "hs_ticket_priority": "HIGH"}},
+        "properties": {
+            "type": "object",
+            "description": "Flat property dict.",
+            "example": {
+                "subject": "Login fails",
+                "content": "User can't log in",
+                "hs_ticket_priority": "HIGH",
+            },
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -640,7 +948,9 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
 async def create_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "create_ticket", properties=input_data["properties"])
+    return await run_client(
+        "hubspot", "create_ticket", properties=input_data["properties"]
+    )
 
 
 @action(
@@ -648,8 +958,16 @@ async def create_hubspot_ticket(input_data: dict) -> dict:
     description="Update a HubSpot ticket's properties.",
     action_sets=["hubspot_tickets"],
     input_schema={
-        "ticket_id": {"type": "string", "description": "Ticket ID.", "example": "123456789"},
-        "properties": {"type": "object", "description": "Properties to update.", "example": {"hs_ticket_priority": "URGENT"}},
+        "ticket_id": {
+            "type": "string",
+            "description": "Ticket ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "object",
+            "description": "Properties to update.",
+            "example": {"hs_ticket_priority": "URGENT"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -658,7 +976,8 @@ async def update_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_ticket",
+        "hubspot",
+        "update_ticket",
         ticket_id=input_data["ticket_id"],
         properties=input_data["properties"],
     )
@@ -669,7 +988,11 @@ async def update_hubspot_ticket(input_data: dict) -> dict:
     description="Archive (soft-delete) a HubSpot ticket.",
     action_sets=["hubspot_tickets"],
     input_schema={
-        "ticket_id": {"type": "string", "description": "Ticket ID.", "example": "123456789"},
+        "ticket_id": {
+            "type": "string",
+            "description": "Ticket ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -677,7 +1000,9 @@ async def update_hubspot_ticket(input_data: dict) -> dict:
 async def delete_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_ticket", ticket_id=input_data["ticket_id"])
+    return await run_client(
+        "hubspot", "delete_ticket", ticket_id=input_data["ticket_id"]
+    )
 
 
 @action(
@@ -685,9 +1010,31 @@ async def delete_hubspot_ticket(input_data: dict) -> dict:
     description="Search HubSpot tickets via query or filter_groups.",
     action_sets=["hubspot_tickets"],
     input_schema={
-        "query": {"type": "string", "description": "Free-text search.", "example": "login"},
-        "filter_groups": {"type": "array", "description": "Filter groups.", "example": [{"filters": [{"propertyName": "hs_ticket_priority", "operator": "EQ", "value": "HIGH"}]}]},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "subject,content"},
+        "query": {
+            "type": "string",
+            "description": "Free-text search.",
+            "example": "login",
+        },
+        "filter_groups": {
+            "type": "array",
+            "description": "Filter groups.",
+            "example": [
+                {
+                    "filters": [
+                        {
+                            "propertyName": "hs_ticket_priority",
+                            "operator": "EQ",
+                            "value": "HIGH",
+                        }
+                    ]
+                }
+            ],
+        },
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "subject,content",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
@@ -698,7 +1045,8 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "search_tickets",
+        "hubspot",
+        "search_tickets",
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -712,8 +1060,16 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
     description="Move a ticket to its closed stage. Helper around updating 'hs_pipeline_stage'.",
     action_sets=["hubspot_tickets", "hubspot"],
     input_schema={
-        "ticket_id": {"type": "string", "description": "Ticket ID.", "example": "123456789"},
-        "closed_stage_id": {"type": "string", "description": "Closed-stage ID for this pipeline (use list_hubspot_pipeline_stages).", "example": "4"},
+        "ticket_id": {
+            "type": "string",
+            "description": "Ticket ID.",
+            "example": "123456789",
+        },
+        "closed_stage_id": {
+            "type": "string",
+            "description": "Closed-stage ID for this pipeline (use list_hubspot_pipeline_stages).",
+            "example": "4",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -722,7 +1078,8 @@ async def close_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "close_ticket",
+        "hubspot",
+        "close_ticket",
         ticket_id=input_data["ticket_id"],
         closed_stage_id=input_data["closed_stage_id"],
     )
@@ -733,7 +1090,11 @@ async def close_hubspot_ticket(input_data: dict) -> dict:
     description="List tickets in a specific pipeline. Helper that wraps search.",
     action_sets=["hubspot_tickets"],
     input_schema={
-        "pipeline_id": {"type": "string", "description": "Pipeline ID.", "example": "0"},
+        "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline ID.",
+            "example": "0",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
@@ -743,7 +1104,8 @@ async def list_hubspot_tickets_by_pipeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_tickets_by_pipeline",
+        "hubspot",
+        "list_tickets_by_pipeline",
         pipeline_id=input_data["pipeline_id"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -762,7 +1124,11 @@ async def list_hubspot_tickets_by_pipeline(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "hs_task_subject,hs_task_status,hs_timestamp"},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "hs_task_subject,hs_task_status,hs_timestamp",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -771,7 +1137,8 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_tasks",
+        "hubspot",
+        "list_tasks",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -783,14 +1150,46 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
     description="Create a HubSpot task. Optionally associate it with a contact/company/deal/ticket.",
     action_sets=["hubspot_engagements", "hubspot"],
     input_schema={
-        "subject": {"type": "string", "description": "Task title.", "example": "Follow up on demo"},
-        "body": {"type": "string", "description": "Task description.", "example": "Ask about pricing tier"},
-        "due_timestamp_ms": {"type": "integer", "description": "Due date in ms since epoch.", "example": 1735689600000},
-        "owner_id": {"type": "string", "description": "Owner (user) ID to assign.", "example": "12345"},
-        "priority": {"type": "string", "description": "NONE | LOW | MEDIUM | HIGH.", "example": "MEDIUM"},
-        "status": {"type": "string", "description": "NOT_STARTED | IN_PROGRESS | WAITING | COMPLETED | DEFERRED.", "example": "NOT_STARTED"},
-        "associated_object_type": {"type": "string", "description": "Type of object to associate (contacts/companies/deals/tickets).", "example": "contacts"},
-        "associated_object_id": {"type": "string", "description": "ID of the associated object.", "example": "123456789"},
+        "subject": {
+            "type": "string",
+            "description": "Task title.",
+            "example": "Follow up on demo",
+        },
+        "body": {
+            "type": "string",
+            "description": "Task description.",
+            "example": "Ask about pricing tier",
+        },
+        "due_timestamp_ms": {
+            "type": "integer",
+            "description": "Due date in ms since epoch.",
+            "example": 1735689600000,
+        },
+        "owner_id": {
+            "type": "string",
+            "description": "Owner (user) ID to assign.",
+            "example": "12345",
+        },
+        "priority": {
+            "type": "string",
+            "description": "NONE | LOW | MEDIUM | HIGH.",
+            "example": "MEDIUM",
+        },
+        "status": {
+            "type": "string",
+            "description": "NOT_STARTED | IN_PROGRESS | WAITING | COMPLETED | DEFERRED.",
+            "example": "NOT_STARTED",
+        },
+        "associated_object_type": {
+            "type": "string",
+            "description": "Type of object to associate (contacts/companies/deals/tickets).",
+            "example": "contacts",
+        },
+        "associated_object_id": {
+            "type": "string",
+            "description": "ID of the associated object.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -799,7 +1198,8 @@ async def create_hubspot_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_task",
+        "hubspot",
+        "create_task",
         subject=input_data["subject"],
         body=input_data.get("body", ""),
         due_timestamp_ms=input_data.get("due_timestamp_ms"),
@@ -816,8 +1216,16 @@ async def create_hubspot_task(input_data: dict) -> dict:
     description="Update a HubSpot task. Common updates: hs_task_status, hs_task_priority, hs_task_subject.",
     action_sets=["hubspot_engagements"],
     input_schema={
-        "task_id": {"type": "string", "description": "Task ID.", "example": "123456789"},
-        "properties": {"type": "object", "description": "Properties to update.", "example": {"hs_task_status": "COMPLETED"}},
+        "task_id": {
+            "type": "string",
+            "description": "Task ID.",
+            "example": "123456789",
+        },
+        "properties": {
+            "type": "object",
+            "description": "Properties to update.",
+            "example": {"hs_task_status": "COMPLETED"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -826,7 +1234,8 @@ async def update_hubspot_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_task",
+        "hubspot",
+        "update_task",
         task_id=input_data["task_id"],
         properties=input_data["properties"],
     )
@@ -837,7 +1246,11 @@ async def update_hubspot_task(input_data: dict) -> dict:
     description="Archive a HubSpot task.",
     action_sets=["hubspot_engagements"],
     input_schema={
-        "task_id": {"type": "string", "description": "Task ID.", "example": "123456789"},
+        "task_id": {
+            "type": "string",
+            "description": "Task ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -855,7 +1268,11 @@ async def delete_hubspot_task(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "hs_note_body,hs_timestamp"},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "hs_note_body,hs_timestamp",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -864,7 +1281,8 @@ async def list_hubspot_notes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_notes",
+        "hubspot",
+        "list_notes",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -876,10 +1294,22 @@ async def list_hubspot_notes(input_data: dict) -> dict:
     description="Create a HubSpot note (typically attached to a contact/company/deal/ticket).",
     action_sets=["hubspot_engagements", "hubspot"],
     input_schema={
-        "body": {"type": "string", "description": "Note content (HTML supported).", "example": "Customer mentioned interest in Enterprise tier"},
+        "body": {
+            "type": "string",
+            "description": "Note content (HTML supported).",
+            "example": "Customer mentioned interest in Enterprise tier",
+        },
         "owner_id": {"type": "string", "description": "Owner ID.", "example": "12345"},
-        "associated_object_type": {"type": "string", "description": "contacts/companies/deals/tickets.", "example": "contacts"},
-        "associated_object_id": {"type": "string", "description": "ID of associated object.", "example": "123456789"},
+        "associated_object_type": {
+            "type": "string",
+            "description": "contacts/companies/deals/tickets.",
+            "example": "contacts",
+        },
+        "associated_object_id": {
+            "type": "string",
+            "description": "ID of associated object.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -888,7 +1318,8 @@ async def create_hubspot_note(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_note",
+        "hubspot",
+        "create_note",
         body=input_data["body"],
         owner_id=input_data.get("owner_id") or None,
         associated_object_type=input_data.get("associated_object_type") or None,
@@ -901,7 +1332,11 @@ async def create_hubspot_note(input_data: dict) -> dict:
     description="Archive a HubSpot note.",
     action_sets=["hubspot_engagements"],
     input_schema={
-        "note_id": {"type": "string", "description": "Note ID.", "example": "123456789"},
+        "note_id": {
+            "type": "string",
+            "description": "Note ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -919,7 +1354,11 @@ async def delete_hubspot_note(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "hs_call_title,hs_call_duration,hs_call_direction"},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "hs_call_title,hs_call_duration,hs_call_direction",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -928,7 +1367,8 @@ async def list_hubspot_calls(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_calls",
+        "hubspot",
+        "list_calls",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -940,17 +1380,57 @@ async def list_hubspot_calls(input_data: dict) -> dict:
     description="Log a phone call as a HubSpot engagement.",
     action_sets=["hubspot_engagements", "hubspot"],
     input_schema={
-        "title": {"type": "string", "description": "Call title.", "example": "Discovery call"},
-        "body": {"type": "string", "description": "Call notes.", "example": "Discussed pricing"},
-        "timestamp_ms": {"type": "integer", "description": "When the call happened (ms epoch). Defaults to now.", "example": 1735689600000},
-        "duration_ms": {"type": "integer", "description": "Call duration in ms.", "example": 600000},
-        "from_number": {"type": "string", "description": "Caller phone.", "example": "+1-555-0100"},
-        "to_number": {"type": "string", "description": "Callee phone.", "example": "+1-555-0200"},
-        "direction": {"type": "string", "description": "INBOUND | OUTBOUND.", "example": "OUTBOUND"},
-        "disposition": {"type": "string", "description": "Outcome ID (configured per portal).", "example": ""},
+        "title": {
+            "type": "string",
+            "description": "Call title.",
+            "example": "Discovery call",
+        },
+        "body": {
+            "type": "string",
+            "description": "Call notes.",
+            "example": "Discussed pricing",
+        },
+        "timestamp_ms": {
+            "type": "integer",
+            "description": "When the call happened (ms epoch). Defaults to now.",
+            "example": 1735689600000,
+        },
+        "duration_ms": {
+            "type": "integer",
+            "description": "Call duration in ms.",
+            "example": 600000,
+        },
+        "from_number": {
+            "type": "string",
+            "description": "Caller phone.",
+            "example": "+1-555-0100",
+        },
+        "to_number": {
+            "type": "string",
+            "description": "Callee phone.",
+            "example": "+1-555-0200",
+        },
+        "direction": {
+            "type": "string",
+            "description": "INBOUND | OUTBOUND.",
+            "example": "OUTBOUND",
+        },
+        "disposition": {
+            "type": "string",
+            "description": "Outcome ID (configured per portal).",
+            "example": "",
+        },
         "owner_id": {"type": "string", "description": "Owner ID.", "example": "12345"},
-        "associated_object_type": {"type": "string", "description": "contacts/companies/deals/tickets.", "example": "contacts"},
-        "associated_object_id": {"type": "string", "description": "Associated object ID.", "example": "123456789"},
+        "associated_object_type": {
+            "type": "string",
+            "description": "contacts/companies/deals/tickets.",
+            "example": "contacts",
+        },
+        "associated_object_id": {
+            "type": "string",
+            "description": "Associated object ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -959,7 +1439,8 @@ async def log_hubspot_call(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "log_call",
+        "hubspot",
+        "log_call",
         title=input_data["title"],
         body=input_data.get("body", ""),
         timestamp_ms=input_data.get("timestamp_ms"),
@@ -981,7 +1462,11 @@ async def log_hubspot_call(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "hs_email_subject,hs_email_direction"},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "hs_email_subject,hs_email_direction",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -990,7 +1475,8 @@ async def list_hubspot_emails(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_emails",
+        "hubspot",
+        "list_emails",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1002,16 +1488,52 @@ async def list_hubspot_emails(input_data: dict) -> dict:
     description="Log an email as a HubSpot engagement (for record-keeping; doesn't actually send).",
     action_sets=["hubspot_engagements"],
     input_schema={
-        "subject": {"type": "string", "description": "Email subject.", "example": "Re: Pricing"},
-        "text_body": {"type": "string", "description": "Plain-text body.", "example": "Here's the proposal"},
-        "html_body": {"type": "string", "description": "HTML body (optional).", "example": ""},
-        "timestamp_ms": {"type": "integer", "description": "When sent (ms epoch).", "example": 1735689600000},
-        "direction": {"type": "string", "description": "EMAIL (incoming) | INCOMING_EMAIL | FORWARDED_EMAIL.", "example": "EMAIL"},
-        "from_email": {"type": "string", "description": "Sender.", "example": "you@yourdomain.com"},
-        "to_email": {"type": "string", "description": "Recipient.", "example": "customer@example.com"},
+        "subject": {
+            "type": "string",
+            "description": "Email subject.",
+            "example": "Re: Pricing",
+        },
+        "text_body": {
+            "type": "string",
+            "description": "Plain-text body.",
+            "example": "Here's the proposal",
+        },
+        "html_body": {
+            "type": "string",
+            "description": "HTML body (optional).",
+            "example": "",
+        },
+        "timestamp_ms": {
+            "type": "integer",
+            "description": "When sent (ms epoch).",
+            "example": 1735689600000,
+        },
+        "direction": {
+            "type": "string",
+            "description": "EMAIL (incoming) | INCOMING_EMAIL | FORWARDED_EMAIL.",
+            "example": "EMAIL",
+        },
+        "from_email": {
+            "type": "string",
+            "description": "Sender.",
+            "example": "you@yourdomain.com",
+        },
+        "to_email": {
+            "type": "string",
+            "description": "Recipient.",
+            "example": "customer@example.com",
+        },
         "owner_id": {"type": "string", "description": "Owner ID.", "example": "12345"},
-        "associated_object_type": {"type": "string", "description": "contacts/companies/deals/tickets.", "example": "contacts"},
-        "associated_object_id": {"type": "string", "description": "Associated object ID.", "example": "123456789"},
+        "associated_object_type": {
+            "type": "string",
+            "description": "contacts/companies/deals/tickets.",
+            "example": "contacts",
+        },
+        "associated_object_id": {
+            "type": "string",
+            "description": "Associated object ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1020,7 +1542,8 @@ async def log_hubspot_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "log_email",
+        "hubspot",
+        "log_email",
         subject=input_data["subject"],
         text_body=input_data.get("text_body", ""),
         html_body=input_data.get("html_body", ""),
@@ -1041,7 +1564,11 @@ async def log_hubspot_email(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
-        "properties": {"type": "string", "description": "Comma-separated properties.", "example": "hs_meeting_title,hs_meeting_start_time"},
+        "properties": {
+            "type": "string",
+            "description": "Comma-separated properties.",
+            "example": "hs_meeting_title,hs_meeting_start_time",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1050,7 +1577,8 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_meetings",
+        "hubspot",
+        "list_meetings",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1062,15 +1590,47 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
     description="Create a HubSpot meeting engagement record.",
     action_sets=["hubspot_engagements"],
     input_schema={
-        "title": {"type": "string", "description": "Meeting title.", "example": "Quarterly review"},
-        "body": {"type": "string", "description": "Description / agenda.", "example": "Review Q3 numbers"},
-        "start_timestamp_ms": {"type": "integer", "description": "Start time (ms epoch).", "example": 1735689600000},
-        "end_timestamp_ms": {"type": "integer", "description": "End time (ms epoch).", "example": 1735693200000},
-        "location": {"type": "string", "description": "Where (URL or address).", "example": "https://zoom.us/j/123"},
-        "meeting_outcome": {"type": "string", "description": "Outcome ID (configured per portal).", "example": ""},
+        "title": {
+            "type": "string",
+            "description": "Meeting title.",
+            "example": "Quarterly review",
+        },
+        "body": {
+            "type": "string",
+            "description": "Description / agenda.",
+            "example": "Review Q3 numbers",
+        },
+        "start_timestamp_ms": {
+            "type": "integer",
+            "description": "Start time (ms epoch).",
+            "example": 1735689600000,
+        },
+        "end_timestamp_ms": {
+            "type": "integer",
+            "description": "End time (ms epoch).",
+            "example": 1735693200000,
+        },
+        "location": {
+            "type": "string",
+            "description": "Where (URL or address).",
+            "example": "https://zoom.us/j/123",
+        },
+        "meeting_outcome": {
+            "type": "string",
+            "description": "Outcome ID (configured per portal).",
+            "example": "",
+        },
         "owner_id": {"type": "string", "description": "Owner ID.", "example": "12345"},
-        "associated_object_type": {"type": "string", "description": "contacts/companies/deals/tickets.", "example": "deals"},
-        "associated_object_id": {"type": "string", "description": "Associated object ID.", "example": "123456789"},
+        "associated_object_type": {
+            "type": "string",
+            "description": "contacts/companies/deals/tickets.",
+            "example": "deals",
+        },
+        "associated_object_id": {
+            "type": "string",
+            "description": "Associated object ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1079,7 +1639,8 @@ async def create_hubspot_meeting(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_meeting",
+        "hubspot",
+        "create_meeting",
         title=input_data["title"],
         body=input_data.get("body", ""),
         start_timestamp_ms=input_data["start_timestamp_ms"],
@@ -1097,7 +1658,11 @@ async def create_hubspot_meeting(input_data: dict) -> dict:
     description="Archive a HubSpot meeting engagement.",
     action_sets=["hubspot_engagements"],
     input_schema={
-        "meeting_id": {"type": "string", "description": "Meeting ID.", "example": "123456789"},
+        "meeting_id": {
+            "type": "string",
+            "description": "Meeting ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1105,7 +1670,9 @@ async def create_hubspot_meeting(input_data: dict) -> dict:
 async def delete_hubspot_meeting(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_meeting", meeting_id=input_data["meeting_id"])
+    return await run_client(
+        "hubspot", "delete_meeting", meeting_id=input_data["meeting_id"]
+    )
 
 
 # ==================================================================
@@ -1118,8 +1685,16 @@ async def delete_hubspot_meeting(input_data: dict) -> dict:
     description="List/search HubSpot lists. Optionally filter to specific list IDs.",
     action_sets=["hubspot_lists"],
     input_schema={
-        "limit": {"type": "integer", "description": "Max results (1-500).", "example": 30},
-        "list_ids": {"type": "array", "description": "Optional: specific list IDs to fetch.", "example": []},
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-500).",
+            "example": 30,
+        },
+        "list_ids": {
+            "type": "array",
+            "description": "Optional: specific list IDs to fetch.",
+            "example": [],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1127,7 +1702,8 @@ async def list_hubspot_lists(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_lists",
+        "hubspot",
+        "list_lists",
         limit=input_data.get("limit", 30),
         list_ids=input_data.get("list_ids") or None,
     )
@@ -1153,10 +1729,26 @@ async def get_hubspot_list(input_data: dict) -> dict:
     description="Create a HubSpot list. processing_type=MANUAL for static (you add contacts yourself); DYNAMIC for filter-based.",
     action_sets=["hubspot_lists"],
     input_schema={
-        "name": {"type": "string", "description": "List name.", "example": "Q3 prospects"},
-        "object_type_id": {"type": "string", "description": "Object type ID (0-1=contact, 0-2=company, 0-3=deal, 0-5=ticket).", "example": "0-1"},
-        "processing_type": {"type": "string", "description": "MANUAL or DYNAMIC.", "example": "MANUAL"},
-        "filter_branch": {"type": "object", "description": "Filter tree for DYNAMIC lists.", "example": {}},
+        "name": {
+            "type": "string",
+            "description": "List name.",
+            "example": "Q3 prospects",
+        },
+        "object_type_id": {
+            "type": "string",
+            "description": "Object type ID (0-1=contact, 0-2=company, 0-3=deal, 0-5=ticket).",
+            "example": "0-1",
+        },
+        "processing_type": {
+            "type": "string",
+            "description": "MANUAL or DYNAMIC.",
+            "example": "MANUAL",
+        },
+        "filter_branch": {
+            "type": "object",
+            "description": "Filter tree for DYNAMIC lists.",
+            "example": {},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1165,7 +1757,8 @@ async def create_hubspot_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_list",
+        "hubspot",
+        "create_list",
         name=input_data["name"],
         object_type_id=input_data.get("object_type_id", "0-1"),
         processing_type=input_data.get("processing_type", "MANUAL"),
@@ -1195,7 +1788,11 @@ async def delete_hubspot_list(input_data: dict) -> dict:
     action_sets=["hubspot_lists"],
     input_schema={
         "list_id": {"type": "string", "description": "List ID.", "example": "1"},
-        "contact_ids": {"type": "array", "description": "Contact IDs to add.", "example": ["123", "456"]},
+        "contact_ids": {
+            "type": "array",
+            "description": "Contact IDs to add.",
+            "example": ["123", "456"],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1204,7 +1801,8 @@ async def add_contacts_to_hubspot_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "add_contacts_to_list",
+        "hubspot",
+        "add_contacts_to_list",
         list_id=input_data["list_id"],
         contact_ids=input_data["contact_ids"],
     )
@@ -1216,7 +1814,11 @@ async def add_contacts_to_hubspot_list(input_data: dict) -> dict:
     action_sets=["hubspot_lists"],
     input_schema={
         "list_id": {"type": "string", "description": "List ID.", "example": "1"},
-        "contact_ids": {"type": "array", "description": "Contact IDs to remove.", "example": ["123", "456"]},
+        "contact_ids": {
+            "type": "array",
+            "description": "Contact IDs to remove.",
+            "example": ["123", "456"],
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1225,7 +1827,8 @@ async def remove_contacts_from_hubspot_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "remove_contacts_from_list",
+        "hubspot",
+        "remove_contacts_from_list",
         list_id=input_data["list_id"],
         contact_ids=input_data["contact_ids"],
     )
@@ -1241,14 +1844,20 @@ async def remove_contacts_from_hubspot_list(input_data: dict) -> dict:
     description="List all pipelines for an object type (typically 'deals' or 'tickets').",
     action_sets=["hubspot_pipelines"],
     input_schema={
-        "object_type": {"type": "string", "description": "Object type: deals or tickets.", "example": "deals"},
+        "object_type": {
+            "type": "string",
+            "description": "Object type: deals or tickets.",
+            "example": "deals",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def list_hubspot_pipelines(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "list_pipelines", object_type=input_data["object_type"])
+    return await run_client(
+        "hubspot", "list_pipelines", object_type=input_data["object_type"]
+    )
 
 
 @action(
@@ -1256,8 +1865,16 @@ async def list_hubspot_pipelines(input_data: dict) -> dict:
     description="Get a pipeline definition (including stages).",
     action_sets=["hubspot_pipelines"],
     input_schema={
-        "object_type": {"type": "string", "description": "deals or tickets.", "example": "deals"},
-        "pipeline_id": {"type": "string", "description": "Pipeline ID.", "example": "default"},
+        "object_type": {
+            "type": "string",
+            "description": "deals or tickets.",
+            "example": "deals",
+        },
+        "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline ID.",
+            "example": "default",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1265,7 +1882,8 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_pipeline",
+        "hubspot",
+        "get_pipeline",
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
     )
@@ -1276,10 +1894,28 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
     description="Create a new pipeline. 'stages' is a list of {label, displayOrder, metadata:{probability,...}} dicts.",
     action_sets=["hubspot_pipelines"],
     input_schema={
-        "object_type": {"type": "string", "description": "deals or tickets.", "example": "deals"},
-        "label": {"type": "string", "description": "Pipeline name.", "example": "Renewals"},
-        "stages": {"type": "array", "description": "Stage definitions.", "example": [{"label": "New", "displayOrder": 0, "metadata": {"probability": "0.1"}}]},
-        "display_order": {"type": "integer", "description": "Display order among pipelines.", "example": 0},
+        "object_type": {
+            "type": "string",
+            "description": "deals or tickets.",
+            "example": "deals",
+        },
+        "label": {
+            "type": "string",
+            "description": "Pipeline name.",
+            "example": "Renewals",
+        },
+        "stages": {
+            "type": "array",
+            "description": "Stage definitions.",
+            "example": [
+                {"label": "New", "displayOrder": 0, "metadata": {"probability": "0.1"}}
+            ],
+        },
+        "display_order": {
+            "type": "integer",
+            "description": "Display order among pipelines.",
+            "example": 0,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1288,7 +1924,8 @@ async def create_hubspot_pipeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_pipeline",
+        "hubspot",
+        "create_pipeline",
         object_type=input_data["object_type"],
         label=input_data["label"],
         stages=input_data["stages"],
@@ -1301,8 +1938,16 @@ async def create_hubspot_pipeline(input_data: dict) -> dict:
     description="List the stages of a pipeline. Returns stage IDs needed for move_hubspot_deal_stage / close_hubspot_ticket.",
     action_sets=["hubspot_pipelines"],
     input_schema={
-        "object_type": {"type": "string", "description": "deals or tickets.", "example": "deals"},
-        "pipeline_id": {"type": "string", "description": "Pipeline ID.", "example": "default"},
+        "object_type": {
+            "type": "string",
+            "description": "deals or tickets.",
+            "example": "deals",
+        },
+        "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline ID.",
+            "example": "default",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1310,7 +1955,8 @@ async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_pipeline_stages",
+        "hubspot",
+        "list_pipeline_stages",
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
     )
@@ -1321,10 +1967,26 @@ async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
     description="Update a pipeline stage's properties (label, displayOrder, metadata).",
     action_sets=["hubspot_pipelines"],
     input_schema={
-        "object_type": {"type": "string", "description": "deals or tickets.", "example": "deals"},
-        "pipeline_id": {"type": "string", "description": "Pipeline ID.", "example": "default"},
-        "stage_id": {"type": "string", "description": "Stage ID.", "example": "qualifiedtobuy"},
-        "properties": {"type": "object", "description": "Stage fields to update.", "example": {"label": "Qualified — Buying"}},
+        "object_type": {
+            "type": "string",
+            "description": "deals or tickets.",
+            "example": "deals",
+        },
+        "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline ID.",
+            "example": "default",
+        },
+        "stage_id": {
+            "type": "string",
+            "description": "Stage ID.",
+            "example": "qualifiedtobuy",
+        },
+        "properties": {
+            "type": "object",
+            "description": "Stage fields to update.",
+            "example": {"label": "Qualified — Buying"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1333,7 +1995,8 @@ async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_pipeline_stage",
+        "hubspot",
+        "update_pipeline_stage",
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
         stage_id=input_data["stage_id"],
@@ -1351,8 +2014,16 @@ async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
     description="List HubSpot users (owners). Use this to find owner IDs for assignment.",
     action_sets=["hubspot_owners", "hubspot"],
     input_schema={
-        "email": {"type": "string", "description": "Optional: filter to one owner by email.", "example": ""},
-        "limit": {"type": "integer", "description": "Max results (1-500).", "example": 100},
+        "email": {
+            "type": "string",
+            "description": "Optional: filter to one owner by email.",
+            "example": "",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-500).",
+            "example": 100,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1360,7 +2031,8 @@ async def list_hubspot_owners(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_owners",
+        "hubspot",
+        "list_owners",
         email=input_data.get("email") or None,
         limit=input_data.get("limit", 100),
     )
@@ -1391,14 +2063,20 @@ async def get_hubspot_owner(input_data: dict) -> dict:
     description="List all defined properties for an object type. Use this to discover custom-field names before reading/writing them.",
     action_sets=["hubspot_properties"],
     input_schema={
-        "object_type": {"type": "string", "description": "contacts/companies/deals/tickets or custom schema name.", "example": "contacts"},
+        "object_type": {
+            "type": "string",
+            "description": "contacts/companies/deals/tickets or custom schema name.",
+            "example": "contacts",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def list_hubspot_properties(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "list_properties", object_type=input_data["object_type"])
+    return await run_client(
+        "hubspot", "list_properties", object_type=input_data["object_type"]
+    )
 
 
 @action(
@@ -1406,8 +2084,16 @@ async def list_hubspot_properties(input_data: dict) -> dict:
     description="Get a property definition (type, options, group).",
     action_sets=["hubspot_properties"],
     input_schema={
-        "object_type": {"type": "string", "description": "Object type.", "example": "contacts"},
-        "property_name": {"type": "string", "description": "Property internal name.", "example": "firstname"},
+        "object_type": {
+            "type": "string",
+            "description": "Object type.",
+            "example": "contacts",
+        },
+        "property_name": {
+            "type": "string",
+            "description": "Property internal name.",
+            "example": "firstname",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1415,7 +2101,8 @@ async def get_hubspot_property(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_property",
+        "hubspot",
+        "get_property",
         object_type=input_data["object_type"],
         property_name=input_data["property_name"],
     )
@@ -1426,8 +2113,22 @@ async def get_hubspot_property(input_data: dict) -> dict:
     description="Create a new custom property. 'definition' must include name, label, type, fieldType, groupName.",
     action_sets=["hubspot_properties"],
     input_schema={
-        "object_type": {"type": "string", "description": "Object type.", "example": "contacts"},
-        "definition": {"type": "object", "description": "Property definition.", "example": {"name": "favorite_color", "label": "Favorite color", "type": "string", "fieldType": "text", "groupName": "contactinformation"}},
+        "object_type": {
+            "type": "string",
+            "description": "Object type.",
+            "example": "contacts",
+        },
+        "definition": {
+            "type": "object",
+            "description": "Property definition.",
+            "example": {
+                "name": "favorite_color",
+                "label": "Favorite color",
+                "type": "string",
+                "fieldType": "text",
+                "groupName": "contactinformation",
+            },
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1436,7 +2137,8 @@ async def create_hubspot_property(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_property",
+        "hubspot",
+        "create_property",
         object_type=input_data["object_type"],
         definition=input_data["definition"],
     )
@@ -1447,9 +2149,21 @@ async def create_hubspot_property(input_data: dict) -> dict:
     description="Update an existing property's definition (label, description, options).",
     action_sets=["hubspot_properties"],
     input_schema={
-        "object_type": {"type": "string", "description": "Object type.", "example": "contacts"},
-        "property_name": {"type": "string", "description": "Property internal name.", "example": "favorite_color"},
-        "definition": {"type": "object", "description": "Fields to update.", "example": {"label": "Color preference"}},
+        "object_type": {
+            "type": "string",
+            "description": "Object type.",
+            "example": "contacts",
+        },
+        "property_name": {
+            "type": "string",
+            "description": "Property internal name.",
+            "example": "favorite_color",
+        },
+        "definition": {
+            "type": "object",
+            "description": "Fields to update.",
+            "example": {"label": "Color preference"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1458,7 +2172,8 @@ async def update_hubspot_property(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "update_property",
+        "hubspot",
+        "update_property",
         object_type=input_data["object_type"],
         property_name=input_data["property_name"],
         definition=input_data["definition"],
@@ -1470,8 +2185,16 @@ async def update_hubspot_property(input_data: dict) -> dict:
     description="Delete a custom property. Built-in HubSpot properties cannot be deleted.",
     action_sets=["hubspot_properties"],
     input_schema={
-        "object_type": {"type": "string", "description": "Object type.", "example": "contacts"},
-        "property_name": {"type": "string", "description": "Property internal name.", "example": "favorite_color"},
+        "object_type": {
+            "type": "string",
+            "description": "Object type.",
+            "example": "contacts",
+        },
+        "property_name": {
+            "type": "string",
+            "description": "Property internal name.",
+            "example": "favorite_color",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1480,7 +2203,8 @@ async def delete_hubspot_property(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_property",
+        "hubspot",
+        "delete_property",
         object_type=input_data["object_type"],
         property_name=input_data["property_name"],
     )
@@ -1491,7 +2215,11 @@ async def delete_hubspot_property(input_data: dict) -> dict:
     description="List property groups for an object type (the visual sections grouping properties in HubSpot UI).",
     action_sets=["hubspot_properties"],
     input_schema={
-        "object_type": {"type": "string", "description": "Object type.", "example": "contacts"},
+        "object_type": {
+            "type": "string",
+            "description": "Object type.",
+            "example": "contacts",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1499,7 +2227,8 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_property_groups",
+        "hubspot",
+        "list_property_groups",
         object_type=input_data["object_type"],
     )
 
@@ -1514,11 +2243,31 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
     description="Link two objects (e.g. attach a contact to a deal). Leaves association_type_id empty for the default association between the pair.",
     action_sets=["hubspot_associations", "hubspot"],
     input_schema={
-        "from_object_type": {"type": "string", "description": "Source object type.", "example": "deals"},
-        "from_object_id": {"type": "string", "description": "Source object ID.", "example": "123"},
-        "to_object_type": {"type": "string", "description": "Target object type.", "example": "contacts"},
-        "to_object_id": {"type": "string", "description": "Target object ID.", "example": "456"},
-        "association_type_id": {"type": "integer", "description": "Optional: specific association type ID (use list_hubspot_association_types).", "example": 0},
+        "from_object_type": {
+            "type": "string",
+            "description": "Source object type.",
+            "example": "deals",
+        },
+        "from_object_id": {
+            "type": "string",
+            "description": "Source object ID.",
+            "example": "123",
+        },
+        "to_object_type": {
+            "type": "string",
+            "description": "Target object type.",
+            "example": "contacts",
+        },
+        "to_object_id": {
+            "type": "string",
+            "description": "Target object ID.",
+            "example": "456",
+        },
+        "association_type_id": {
+            "type": "integer",
+            "description": "Optional: specific association type ID (use list_hubspot_association_types).",
+            "example": 0,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1527,7 +2276,8 @@ async def create_hubspot_association(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_association",
+        "hubspot",
+        "create_association",
         from_object_type=input_data["from_object_type"],
         from_object_id=input_data["from_object_id"],
         to_object_type=input_data["to_object_type"],
@@ -1541,10 +2291,26 @@ async def create_hubspot_association(input_data: dict) -> dict:
     description="List all objects of a given type associated with a source object.",
     action_sets=["hubspot_associations"],
     input_schema={
-        "from_object_type": {"type": "string", "description": "Source object type.", "example": "deals"},
-        "from_object_id": {"type": "string", "description": "Source object ID.", "example": "123"},
-        "to_object_type": {"type": "string", "description": "Target object type to look up.", "example": "contacts"},
-        "limit": {"type": "integer", "description": "Max results (1-500).", "example": 100},
+        "from_object_type": {
+            "type": "string",
+            "description": "Source object type.",
+            "example": "deals",
+        },
+        "from_object_id": {
+            "type": "string",
+            "description": "Source object ID.",
+            "example": "123",
+        },
+        "to_object_type": {
+            "type": "string",
+            "description": "Target object type to look up.",
+            "example": "contacts",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-500).",
+            "example": 100,
+        },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -1553,7 +2319,8 @@ async def list_hubspot_associations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_associations",
+        "hubspot",
+        "list_associations",
         from_object_type=input_data["from_object_type"],
         from_object_id=input_data["from_object_id"],
         to_object_type=input_data["to_object_type"],
@@ -1567,10 +2334,26 @@ async def list_hubspot_associations(input_data: dict) -> dict:
     description="Remove an association between two objects.",
     action_sets=["hubspot_associations"],
     input_schema={
-        "from_object_type": {"type": "string", "description": "Source type.", "example": "deals"},
-        "from_object_id": {"type": "string", "description": "Source ID.", "example": "123"},
-        "to_object_type": {"type": "string", "description": "Target type.", "example": "contacts"},
-        "to_object_id": {"type": "string", "description": "Target ID.", "example": "456"},
+        "from_object_type": {
+            "type": "string",
+            "description": "Source type.",
+            "example": "deals",
+        },
+        "from_object_id": {
+            "type": "string",
+            "description": "Source ID.",
+            "example": "123",
+        },
+        "to_object_type": {
+            "type": "string",
+            "description": "Target type.",
+            "example": "contacts",
+        },
+        "to_object_id": {
+            "type": "string",
+            "description": "Target ID.",
+            "example": "456",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1579,7 +2362,8 @@ async def delete_hubspot_association(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_association",
+        "hubspot",
+        "delete_association",
         from_object_type=input_data["from_object_type"],
         from_object_id=input_data["from_object_id"],
         to_object_type=input_data["to_object_type"],
@@ -1592,8 +2376,16 @@ async def delete_hubspot_association(input_data: dict) -> dict:
     description="List the available association types between two object types (used when you need a specific labeled association).",
     action_sets=["hubspot_associations"],
     input_schema={
-        "from_object_type": {"type": "string", "description": "Source type.", "example": "deals"},
-        "to_object_type": {"type": "string", "description": "Target type.", "example": "contacts"},
+        "from_object_type": {
+            "type": "string",
+            "description": "Source type.",
+            "example": "deals",
+        },
+        "to_object_type": {
+            "type": "string",
+            "description": "Target type.",
+            "example": "contacts",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1601,7 +2393,8 @@ async def list_hubspot_association_types(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_association_types",
+        "hubspot",
+        "list_association_types",
         from_object_type=input_data["from_object_type"],
         to_object_type=input_data["to_object_type"],
     )
@@ -1626,7 +2419,8 @@ async def list_hubspot_forms(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_forms",
+        "hubspot",
+        "list_forms",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -1637,7 +2431,11 @@ async def list_hubspot_forms(input_data: dict) -> dict:
     description="Get a HubSpot form definition by ID.",
     action_sets=["hubspot_forms"],
     input_schema={
-        "form_id": {"type": "string", "description": "Form GUID.", "example": "abc12345-6789-0abc-def0-123456789abc"},
+        "form_id": {
+            "type": "string",
+            "description": "Form GUID.",
+            "example": "abc12345-6789-0abc-def0-123456789abc",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1652,10 +2450,29 @@ async def get_hubspot_form(input_data: dict) -> dict:
     description="Programmatically submit a HubSpot form. 'fields' is a list of {name, value} dicts.",
     action_sets=["hubspot_forms"],
     input_schema={
-        "portal_id": {"type": "string", "description": "Portal/hub ID.", "example": "12345678"},
-        "form_guid": {"type": "string", "description": "Form GUID.", "example": "abc12345-6789-0abc-def0-123456789abc"},
-        "fields": {"type": "array", "description": "Form fields to submit.", "example": [{"name": "email", "value": "jane@example.com"}, {"name": "firstname", "value": "Jane"}]},
-        "context": {"type": "object", "description": "Optional context (hutk, pageUrl, pageName, ipAddress).", "example": {"pageName": "Demo Request"}},
+        "portal_id": {
+            "type": "string",
+            "description": "Portal/hub ID.",
+            "example": "12345678",
+        },
+        "form_guid": {
+            "type": "string",
+            "description": "Form GUID.",
+            "example": "abc12345-6789-0abc-def0-123456789abc",
+        },
+        "fields": {
+            "type": "array",
+            "description": "Form fields to submit.",
+            "example": [
+                {"name": "email", "value": "jane@example.com"},
+                {"name": "firstname", "value": "Jane"},
+            ],
+        },
+        "context": {
+            "type": "object",
+            "description": "Optional context (hutk, pageUrl, pageName, ipAddress).",
+            "example": {"pageName": "Demo Request"},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1664,7 +2481,8 @@ async def submit_hubspot_form(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "submit_form",
+        "hubspot",
+        "submit_form",
         portal_id=input_data["portal_id"],
         form_guid=input_data["form_guid"],
         fields=input_data["fields"],
@@ -1677,8 +2495,16 @@ async def submit_hubspot_form(input_data: dict) -> dict:
     description="List submissions for a HubSpot form.",
     action_sets=["hubspot_forms"],
     input_schema={
-        "form_guid": {"type": "string", "description": "Form GUID.", "example": "abc12345-6789-0abc-def0-123456789abc"},
-        "limit": {"type": "integer", "description": "Max results (1-50).", "example": 30},
+        "form_guid": {
+            "type": "string",
+            "description": "Form GUID.",
+            "example": "abc12345-6789-0abc-def0-123456789abc",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Max results (1-50).",
+            "example": 30,
+        },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -1687,7 +2513,8 @@ async def list_hubspot_form_submissions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_form_submissions",
+        "hubspot",
+        "list_form_submissions",
         form_guid=input_data["form_guid"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -1713,7 +2540,8 @@ async def list_hubspot_marketing_emails(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_marketing_emails",
+        "hubspot",
+        "list_marketing_emails",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -1724,14 +2552,20 @@ async def list_hubspot_marketing_emails(input_data: dict) -> dict:
     description="Get a marketing email campaign by ID.",
     action_sets=["hubspot_marketing_email"],
     input_schema={
-        "email_id": {"type": "string", "description": "Marketing email ID.", "example": "123456789"},
+        "email_id": {
+            "type": "string",
+            "description": "Marketing email ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_hubspot_marketing_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "get_marketing_email", email_id=input_data["email_id"])
+    return await run_client(
+        "hubspot", "get_marketing_email", email_id=input_data["email_id"]
+    )
 
 
 @action(
@@ -1739,10 +2573,26 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
     description="Send a one-off transactional email based on a pre-built marketing email template.",
     action_sets=["hubspot_marketing_email", "hubspot"],
     input_schema={
-        "email_id": {"type": "string", "description": "Marketing email template ID.", "example": "123456789"},
-        "to_email": {"type": "string", "description": "Recipient email.", "example": "jane@example.com"},
-        "custom_properties": {"type": "object", "description": "Optional template variables.", "example": {"first_name": "Jane"}},
-        "contact_properties": {"type": "object", "description": "Optional contact-property overrides.", "example": {}},
+        "email_id": {
+            "type": "string",
+            "description": "Marketing email template ID.",
+            "example": "123456789",
+        },
+        "to_email": {
+            "type": "string",
+            "description": "Recipient email.",
+            "example": "jane@example.com",
+        },
+        "custom_properties": {
+            "type": "object",
+            "description": "Optional template variables.",
+            "example": {"first_name": "Jane"},
+        },
+        "contact_properties": {
+            "type": "object",
+            "description": "Optional contact-property overrides.",
+            "example": {},
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1751,7 +2601,8 @@ async def send_hubspot_single_send(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "send_single_email",
+        "hubspot",
+        "send_single_email",
         email_id=input_data["email_id"],
         to_email=input_data["to_email"],
         custom_properties=input_data.get("custom_properties") or None,
@@ -1764,7 +2615,11 @@ async def send_hubspot_single_send(input_data: dict) -> dict:
     description="Get aggregated send/open/click statistics for a marketing email.",
     action_sets=["hubspot_marketing_email"],
     input_schema={
-        "email_id": {"type": "string", "description": "Marketing email ID.", "example": "123456789"},
+        "email_id": {
+            "type": "string",
+            "description": "Marketing email ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1772,7 +2627,8 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_marketing_email_statistics",
+        "hubspot",
+        "get_marketing_email_statistics",
         email_id=input_data["email_id"],
     )
 
@@ -1787,10 +2643,26 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
     description="Upload a local file to the HubSpot file manager. 'access' controls visibility: PUBLIC_INDEXABLE / PUBLIC_NOT_INDEXABLE / HIDDEN / PRIVATE.",
     action_sets=["hubspot_files"],
     input_schema={
-        "file_path": {"type": "string", "description": "Local path to the file.", "example": "/tmp/contract.pdf"},
-        "folder_path": {"type": "string", "description": "HubSpot folder path.", "example": "/"},
-        "access": {"type": "string", "description": "PUBLIC_INDEXABLE | PUBLIC_NOT_INDEXABLE | HIDDEN | PRIVATE.", "example": "PRIVATE"},
-        "overwrite": {"type": "boolean", "description": "Overwrite existing file with the same name.", "example": False},
+        "file_path": {
+            "type": "string",
+            "description": "Local path to the file.",
+            "example": "/tmp/contract.pdf",
+        },
+        "folder_path": {
+            "type": "string",
+            "description": "HubSpot folder path.",
+            "example": "/",
+        },
+        "access": {
+            "type": "string",
+            "description": "PUBLIC_INDEXABLE | PUBLIC_NOT_INDEXABLE | HIDDEN | PRIVATE.",
+            "example": "PRIVATE",
+        },
+        "overwrite": {
+            "type": "boolean",
+            "description": "Overwrite existing file with the same name.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1799,7 +2671,8 @@ async def upload_hubspot_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "upload_file",
+        "hubspot",
+        "upload_file",
         file_path=input_data["file_path"],
         folder_path=input_data.get("folder_path", "/"),
         access=input_data.get("access", "PRIVATE"),
@@ -1812,7 +2685,11 @@ async def upload_hubspot_file(input_data: dict) -> dict:
     description="Get a file's metadata (including URL).",
     action_sets=["hubspot_files"],
     input_schema={
-        "file_id": {"type": "string", "description": "File ID.", "example": "123456789"},
+        "file_id": {
+            "type": "string",
+            "description": "File ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1827,7 +2704,11 @@ async def get_hubspot_file(input_data: dict) -> dict:
     description="Delete a file from the HubSpot file manager.",
     action_sets=["hubspot_files"],
     input_schema={
-        "file_id": {"type": "string", "description": "File ID.", "example": "123456789"},
+        "file_id": {
+            "type": "string",
+            "description": "File ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1852,7 +2733,8 @@ async def list_hubspot_folders(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_folders",
+        "hubspot",
+        "list_folders",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -1877,7 +2759,8 @@ async def list_hubspot_conversations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_conversations",
+        "hubspot",
+        "list_conversations",
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -1888,14 +2771,20 @@ async def list_hubspot_conversations(input_data: dict) -> dict:
     description="Get a conversation thread by ID.",
     action_sets=["hubspot_conversations"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": "123456789"},
+        "thread_id": {
+            "type": "string",
+            "description": "Thread ID.",
+            "example": "123456789",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_hubspot_conversation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "get_conversation", thread_id=input_data["thread_id"])
+    return await run_client(
+        "hubspot", "get_conversation", thread_id=input_data["thread_id"]
+    )
 
 
 @action(
@@ -1903,7 +2792,11 @@ async def get_hubspot_conversation(input_data: dict) -> dict:
     description="List messages in a conversation thread.",
     action_sets=["hubspot_conversations"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": "123456789"},
+        "thread_id": {
+            "type": "string",
+            "description": "Thread ID.",
+            "example": "123456789",
+        },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
     },
@@ -1913,7 +2806,8 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_conversation_messages",
+        "hubspot",
+        "list_conversation_messages",
         thread_id=input_data["thread_id"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -1925,12 +2819,44 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
     description="Send a message into a conversation thread. Requires the channel + channel-account IDs from the thread metadata.",
     action_sets=["hubspot_conversations"],
     input_schema={
-        "thread_id": {"type": "string", "description": "Thread ID.", "example": "123456789"},
-        "text": {"type": "string", "description": "Message body.", "example": "Thanks for reaching out!"},
-        "channel_id": {"type": "string", "description": "Channel ID (from thread metadata).", "example": "1000"},
-        "channel_account_id": {"type": "string", "description": "Channel account ID (from thread metadata).", "example": "12345"},
-        "recipients": {"type": "array", "description": "Recipient list [{actorId, deliveryIdentifier:{type,value}}].", "example": [{"actorId": "V-123", "deliveryIdentifier": {"type": "HS_EMAIL_ADDRESS", "value": "jane@example.com"}}]},
-        "sender_actor_id": {"type": "string", "description": "Optional sender actor ID.", "example": ""},
+        "thread_id": {
+            "type": "string",
+            "description": "Thread ID.",
+            "example": "123456789",
+        },
+        "text": {
+            "type": "string",
+            "description": "Message body.",
+            "example": "Thanks for reaching out!",
+        },
+        "channel_id": {
+            "type": "string",
+            "description": "Channel ID (from thread metadata).",
+            "example": "1000",
+        },
+        "channel_account_id": {
+            "type": "string",
+            "description": "Channel account ID (from thread metadata).",
+            "example": "12345",
+        },
+        "recipients": {
+            "type": "array",
+            "description": "Recipient list [{actorId, deliveryIdentifier:{type,value}}].",
+            "example": [
+                {
+                    "actorId": "V-123",
+                    "deliveryIdentifier": {
+                        "type": "HS_EMAIL_ADDRESS",
+                        "value": "jane@example.com",
+                    },
+                }
+            ],
+        },
+        "sender_actor_id": {
+            "type": "string",
+            "description": "Optional sender actor ID.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1939,7 +2865,8 @@ async def send_hubspot_conversation_message(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "send_conversation_message",
+        "hubspot",
+        "send_conversation_message",
         thread_id=input_data["thread_id"],
         text=input_data["text"],
         channel_id=input_data["channel_id"],
@@ -1959,7 +2886,11 @@ async def send_hubspot_conversation_message(input_data: dict) -> dict:
     description="List webhook subscriptions for a HubSpot App. Requires the App ID from the developer console.",
     action_sets=["hubspot_webhooks"],
     input_schema={
-        "app_id": {"type": "string", "description": "HubSpot App ID (developer console).", "example": "1234567"},
+        "app_id": {
+            "type": "string",
+            "description": "HubSpot App ID (developer console).",
+            "example": "1234567",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1967,7 +2898,8 @@ async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_webhook_subscriptions",
+        "hubspot",
+        "list_webhook_subscriptions",
         app_id=input_data["app_id"],
     )
 
@@ -1977,10 +2909,26 @@ async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
     description="Subscribe a HubSpot App to an event type (e.g. contact.creation, contact.propertyChange).",
     action_sets=["hubspot_webhooks"],
     input_schema={
-        "app_id": {"type": "string", "description": "HubSpot App ID.", "example": "1234567"},
-        "event_type": {"type": "string", "description": "Event type to subscribe to.", "example": "contact.creation"},
-        "property_name": {"type": "string", "description": "Property name (only for *.propertyChange event types).", "example": ""},
-        "active": {"type": "boolean", "description": "Whether the subscription is active.", "example": True},
+        "app_id": {
+            "type": "string",
+            "description": "HubSpot App ID.",
+            "example": "1234567",
+        },
+        "event_type": {
+            "type": "string",
+            "description": "Event type to subscribe to.",
+            "example": "contact.creation",
+        },
+        "property_name": {
+            "type": "string",
+            "description": "Property name (only for *.propertyChange event types).",
+            "example": "",
+        },
+        "active": {
+            "type": "boolean",
+            "description": "Whether the subscription is active.",
+            "example": True,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1989,7 +2937,8 @@ async def create_hubspot_webhook_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_webhook_subscription",
+        "hubspot",
+        "create_webhook_subscription",
         app_id=input_data["app_id"],
         event_type=input_data["event_type"],
         property_name=input_data.get("property_name") or None,
@@ -2002,8 +2951,16 @@ async def create_hubspot_webhook_subscription(input_data: dict) -> dict:
     description="Delete a webhook subscription.",
     action_sets=["hubspot_webhooks"],
     input_schema={
-        "app_id": {"type": "string", "description": "HubSpot App ID.", "example": "1234567"},
-        "subscription_id": {"type": "string", "description": "Subscription ID.", "example": "abc123"},
+        "app_id": {
+            "type": "string",
+            "description": "HubSpot App ID.",
+            "example": "1234567",
+        },
+        "subscription_id": {
+            "type": "string",
+            "description": "Subscription ID.",
+            "example": "abc123",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2012,7 +2969,8 @@ async def delete_hubspot_webhook_subscription(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_webhook_subscription",
+        "hubspot",
+        "delete_webhook_subscription",
         app_id=input_data["app_id"],
         subscription_id=input_data["subscription_id"],
     )
