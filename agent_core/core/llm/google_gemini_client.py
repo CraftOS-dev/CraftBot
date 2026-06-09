@@ -766,13 +766,14 @@ class GeminiClient:
         """Download a Veo signed video URI as raw MP4 bytes.
 
         Veo returns a URI on the ``generativelanguage.googleapis.com`` host
-        that requires the API key. Appended via ``?key=`` for symmetry with
-        the rest of this client; the URI may already include other params.
+        that requires the API key. Sent via the ``x-goog-api-key`` header so
+        the key never appears in the URL — otherwise it would leak through
+        ``HTTPError`` messages (which include the request URL) and any
+        request/response logging.
         """
-        sep = "&" if "?" in video_uri else "?"
         response = requests.get(
             video_uri,
-            params={"key": self._api_key},
+            headers={"x-goog-api-key": self._api_key},
             timeout=timeout,
             stream=False,
         )
