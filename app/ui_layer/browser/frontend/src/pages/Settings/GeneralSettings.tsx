@@ -657,7 +657,6 @@ export function GeneralSettings() {
       }
 
       const summary = data.summary || {}
-      const added = (summary.skills_added?.length || 0) + (summary.mcp_added?.length || 0)
       const parts: string[] = []
       if (summary.skills_added?.length) parts.push(`${summary.skills_added.length} skill(s)`)
       if (summary.mcp_added?.length) parts.push(`${summary.mcp_added.length} MCP server(s)`)
@@ -666,11 +665,12 @@ export function GeneralSettings() {
           `${(summary.living_ui_added?.length || 0) + (summary.living_ui_renamed?.length || 0)} Living UI app(s)`
         )
       }
-      const what = parts.length > 0 ? parts.join(', ') : (added > 0 ? 'profile data' : 'profile (nothing new)')
+      const verb = mode === 'overwrite' ? 'Overwrote agent with' : 'Imported'
+      const what = parts.length > 0 ? parts.join(', ') : 'profile'
 
       setProfileStatus({
         type: 'success',
-        message: `Imported ${what}. Restart the agent to apply changes.`,
+        message: `${verb} ${what}. Restart the agent to apply changes.`,
       })
       setShowImportModal(false)
       setImportManifest(null)

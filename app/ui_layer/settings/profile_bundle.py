@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
+    AGENT_FILE_SYSTEM_TEMPLATE_PATH,
     AGENT_WORKSPACE_ROOT,
     APP_CONFIG_PATH,
     PROJECT_ROOT,
@@ -458,27 +459,29 @@ class ImportSummary:
         return asdict(self)
 
 
-def _apply_md_files(
-    src_profile: Path, mode: str, bundle_name: str
-) -> List[str]:
+def _apply_md_files(src_profile: Path, mode: str) -> List[str]:
+    """Write personality MD files from the bundle into the agent file system.
+
+    Both ``replace`` and ``overwrite`` modes write the bundle's content verbatim
+    over the local file. The only difference is what happens to MD files the
+    bundle DIDN'T ship: in ``overwrite`` mode we reset them to their template
+    (so the recipient's agent ends up strictly defined by the bundle); in
+    ``replace`` mode we leave the user's existing file alone.
+    """
     applied: List[str] = []
     AGENT_FILE_SYSTEM_PATH.mkdir(parents=True, exist_ok=True)
     for fname in PROFILE_MD_FILES:
         src = src_profile / fname
-        if not src.is_file():
-            continue
         target = AGENT_FILE_SYSTEM_PATH / fname
         try:
-            incoming = src.read_text(encoding="utf-8")
-            if mode == "replace" or not target.exists():
-                target.write_text(incoming, encoding="utf-8")
-            else:  # merge → append under a divider
-                existing = target.read_text(encoding="utf-8")
-                divider = (
-                    f"\n\n---\n_imported from {bundle_name}_\n\n"
-                )
-                target.write_text(existing.rstrip() + divider + incoming, encoding="utf-8")
-            applied.append(fname)
+            if src.is_file():
+                target.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                applied.append(fname)
+            elif mode == "overwrite":
+                tmpl = AGENT_FILE_SYSTEM_TEMPLATE_PATH / fname
+                if tmpl.is_file():
+                    shutil.copy2(tmpl, target)
+                    applied.append(fname)
         except OSError as exc:
             logger.error(f"[PROFILE_BUNDLE] Failed to apply {fname}: {exc}")
     return applied
@@ -487,13 +490,27 @@ def _apply_md_files(
 def _apply_skills(
     src_skills_dir: Path, mode: str
 ) -> Tuple[List[str], List[str]]:
-    """Copy skill folders and update enabled_skills in skills_config.json."""
+    """Install skill folders and update skills_config.json.
+
+    ``replace`` — bundle overwrites local on name collision; new skills added.
+    ``overwrite`` — every existing skill folder under SKILLS_DIR is deleted,
+    then the bundle's skills are installed and become the entire skill set
+    (no disabled defaults left over).
+    """
     added: List[str] = []
     skipped: List[str] = []
     enabled_list_path = src_skills_dir / "enabled.json"
     bundle_enabled = _load_json(enabled_list_path, {}).get("enabled_skills", [])
 
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if mode == "overwrite":
+        # Strict factory reset: wipe every skill folder, then install the
+        # bundle's. The recipient's skill set ends up exactly = bundle's.
+        for child in list(SKILLS_DIR.iterdir()):
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+
     for skill_name in bundle_enabled:
         src = src_skills_dir / skill_name
         if not src.is_dir():
@@ -510,20 +527,31 @@ def _apply_skills(
             _copy_dir_filtered(src, dst)
             added.append(skill_name)
 
-    # Update skills_config.json's enabled list (additive — never disables).
-    config = _load_json(
-        SKILLS_CONFIG_PATH, {"auto_load": True, "enabled_skills": [], "disabled_skills": []}
-    )
-    enabled_set = list(config.get("enabled_skills", []))
-    disabled_set = list(config.get("disabled_skills", []))
-    for skill_name in bundle_enabled:
-        if skill_name in added:
-            if skill_name not in enabled_set:
-                enabled_set.append(skill_name)
-            if skill_name in disabled_set:
-                disabled_set.remove(skill_name)
-    config["enabled_skills"] = enabled_set
-    config["disabled_skills"] = disabled_set
+    if mode == "overwrite":
+        # Authoritative config: bundle's enabled list IS the skill state.
+        config = {
+            "auto_load": True,
+            "enabled_skills": list(bundle_enabled),
+            "disabled_skills": [],
+        }
+    else:
+        # Additive: only flip skills the bundle landed into the enabled list,
+        # never disable anything the user already had.
+        config = _load_json(
+            SKILLS_CONFIG_PATH,
+            {"auto_load": True, "enabled_skills": [], "disabled_skills": []},
+        )
+        enabled_set = list(config.get("enabled_skills", []))
+        disabled_set = list(config.get("disabled_skills", []))
+        for skill_name in bundle_enabled:
+            if skill_name in added:
+                if skill_name not in enabled_set:
+                    enabled_set.append(skill_name)
+                if skill_name in disabled_set:
+                    disabled_set.remove(skill_name)
+        config["enabled_skills"] = enabled_set
+        config["disabled_skills"] = disabled_set
+
     SKILLS_CONFIG_PATH.write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
@@ -533,7 +561,14 @@ def _apply_skills(
 def _apply_mcp(
     src_mcp_dir: Path, mode: str
 ) -> Tuple[List[str], List[str], List[Dict[str, Any]]]:
-    """Merge or replace MCP server configs."""
+    """Install MCP server configs from the bundle.
+
+    ``replace`` — bundle overwrites local on name collision (preserving any
+    env tokens the user already filled in); new servers added.
+    ``overwrite`` — local mcp_config.json is wiped and replaced entirely with
+    the bundle's servers; no env values are preserved (the recipient's MCP
+    state ends up exactly = bundle's).
+    """
     added: List[str] = []
     skipped: List[str] = []
     needs_env: List[Dict[str, Any]] = []
@@ -541,6 +576,24 @@ def _apply_mcp(
     servers_path = src_mcp_dir / "servers.json"
     bundle_servers = _load_json(servers_path, {}).get("mcp_servers", [])
 
+    if mode == "overwrite":
+        cleaned: List[Dict[str, Any]] = []
+        for server in bundle_servers:
+            name = server.get("name", "")
+            if not name:
+                continue
+            missing_env = [k for k, v in (server.get("env") or {}).items() if not v]
+            if missing_env:
+                needs_env.append({"name": name, "env_keys": missing_env})
+            cleaned.append(server)
+            added.append(name)
+        MCP_CONFIG_PATH.write_text(
+            json.dumps({"mcp_servers": cleaned}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return added, skipped, needs_env
+
+    # replace mode — additive with overwrite-on-conflict + env preservation
     current = _load_json(MCP_CONFIG_PATH, {"mcp_servers": []})
     existing = current.get("mcp_servers", [])
     by_name = {s.get("name", ""): s for s in existing}
@@ -554,20 +607,17 @@ def _apply_mcp(
             needs_env.append({"name": name, "env_keys": missing_env})
 
         if name in by_name:
-            if mode == "replace":
-                # Keep ANY env values the user had set locally — don't blow
-                # them away on replace, since the user's filled-in tokens are
-                # more valuable than the (empty) tokens from the bundle.
-                preserved_env = by_name[name].get("env", {})
-                merged_env = dict(server.get("env", {}))
-                for k, v in preserved_env.items():
-                    if v and k in merged_env and not merged_env[k]:
-                        merged_env[k] = v
-                server["env"] = merged_env
-                by_name[name] = server
-                added.append(name)
-            else:
-                skipped.append(name)
+            # Keep ANY env values the user had set locally — don't blow
+            # them away, since the user's filled-in tokens are more
+            # valuable than the (empty) tokens from the bundle.
+            preserved_env = by_name[name].get("env", {})
+            merged_env = dict(server.get("env", {}))
+            for k, v in preserved_env.items():
+                if v and k in merged_env and not merged_env[k]:
+                    merged_env[k] = v
+            server["env"] = merged_env
+            by_name[name] = server
+            added.append(name)
         else:
             by_name[name] = server
             added.append(name)
@@ -701,36 +751,84 @@ def _register_living_ui_via_file(records: List[Dict[str, Any]]) -> None:
     )
 
 
+def _wipe_living_ui_state(
+    manager: Optional["LivingUIManager"],
+    target_living_dir: Path,
+) -> None:
+    """Delete every existing Living UI folder + clear the registry.
+
+    Used by overwrite mode so the bundle's projects are the only ones present.
+    When a manager is provided, both its in-memory state and the registry file
+    are cleared (via _save_projects). With no manager, the registry file is
+    truncated to ``{"projects": []}`` directly.
+
+    Best-effort on the folders: one held open by a running process may fail to
+    delete on Windows; the on-startup orphan cleanup will sweep it later.
+    """
+    if manager is not None:
+        manager.projects.clear()
+        manager._used_ports.clear()
+        manager._save_projects()
+    else:
+        LIVING_UI_PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LIVING_UI_PROJECTS_FILE.write_text(
+            json.dumps({"projects": []}, indent=2), encoding="utf-8"
+        )
+    if target_living_dir.exists():
+        for child in list(target_living_dir.iterdir()):
+            if child.is_dir():
+                try:
+                    shutil.rmtree(child)
+                except OSError as exc:
+                    logger.warning(
+                        f"[PROFILE_BUNDLE] Failed to delete {child.name}: {exc}"
+                    )
+
+
 def _apply_living_ui(
     src_living_dir: Path,
+    mode: str,
     manager: Optional["LivingUIManager"] = None,
 ) -> Tuple[List[str], List[str]]:
     """Copy Living UI projects into the workspace and register them.
 
-    Always renames on folder/id conflict so existing user data is never
-    overwritten. When ``manager`` is provided, persistence goes through the
-    live ``LivingUIManager`` (required from a running agent); otherwise it
-    falls back to a direct file write.
+    ``replace`` — renames on folder/id conflict so existing user data is never
+    destroyed; new projects added alongside.
+    ``overwrite`` — every existing Living UI project (folders + registry) is
+    deleted first, then the bundle's projects are installed under their
+    original ids/folder names.
+
+    When ``manager`` is provided, persistence goes through the live
+    ``LivingUIManager`` (required from a running agent); otherwise it falls
+    back to a direct file write.
     """
     bundle_projects = _load_living_ui_projects(src_living_dir / "projects.json")
-    if not bundle_projects:
-        return [], []
+    target_living_dir = (
+        manager.living_ui_dir if manager is not None else LIVING_UI_DIR
+    )
+    target_living_dir.mkdir(parents=True, exist_ok=True)
 
-    if manager is not None:
-        target_living_dir = manager.living_ui_dir
+    if mode == "overwrite":
+        _wipe_living_ui_state(manager, target_living_dir)
+        # Empty starting set, so no conflict-rename happens.
+        current_ids: set = set()
+        current_folders: set = set()
+    elif manager is not None:
         current_ids = set(manager.projects.keys())
         current_folders = {
             Path(p.path).name for p in manager.projects.values() if p.path
         }
     else:
-        target_living_dir = LIVING_UI_DIR
         current = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
         current_ids = {p.get("id") for p in current}
         current_folders = {
             Path(p.get("path", "")).name for p in current if p.get("path")
         }
 
-    target_living_dir.mkdir(parents=True, exist_ok=True)
+    if not bundle_projects:
+        # In overwrite mode the empty state was already persisted in
+        # _wipe_living_ui_state(); nothing more to do.
+        return [], []
 
     new_records, added, renamed = _plan_and_copy_living_ui_imports(
         src_living_dir,
@@ -751,16 +849,28 @@ def _apply_living_ui(
     return added, renamed
 
 
+VALID_IMPORT_MODES = ("replace", "overwrite")
+
+
 def import_profile(
     bundle_path: str,
-    mode: str = "merge",
+    mode: str = "replace",
     living_ui_manager: Optional["LivingUIManager"] = None,
 ) -> Dict[str, Any]:
     """Apply a bundle to the current agent.
 
     Args:
         bundle_path: filesystem path to the .craftbot file (already uploaded)
-        mode: "merge" (default — additive) or "replace" (overwrite on conflict)
+        mode:
+            ``"replace"`` (default) — additive; bundle wins on name/id conflict
+            for skills, MCP servers, and personality files; Living UI apps are
+            always copied alongside under a rename. Surfaced in the UI as
+            "Merge and Replace".
+
+            ``"overwrite"`` — strict adoption; wipes the local skills folder,
+            MCP config, and Living UI state, then installs the bundle's
+            content as the entire agent identity. Destructive; the recipient's
+            agent ends up = the bundle's.
         living_ui_manager: live LivingUIManager from the adapter. Required for
             Living UI projects to survive — see _apply_living_ui() for why.
 
@@ -769,7 +879,7 @@ def import_profile(
         a manual restart for the changes to fully take effect; the caller
         surfaces that to the user.
     """
-    if mode not in ("merge", "replace"):
+    if mode not in VALID_IMPORT_MODES:
         return {"success": False, "error": f"Unknown import mode: {mode}"}
 
     path = Path(bundle_path)
@@ -796,11 +906,11 @@ def import_profile(
             }
         bundle_name = manifest.get("name") or "imported profile"
 
-        md_applied = _apply_md_files(work_dir / "profile", mode, bundle_name)
+        md_applied = _apply_md_files(work_dir / "profile", mode)
         skills_added, skills_skipped = _apply_skills(work_dir / "skills", mode)
         mcp_added, mcp_skipped, mcp_needs_env = _apply_mcp(work_dir / "mcp", mode)
         living_added, living_renamed = _apply_living_ui(
-            work_dir / "living_ui", manager=living_ui_manager
+            work_dir / "living_ui", mode, manager=living_ui_manager
         )
 
         # NOTE: agent_name is intentionally NOT applied — per product decision,

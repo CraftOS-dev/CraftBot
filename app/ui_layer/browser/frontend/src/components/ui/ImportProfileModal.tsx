@@ -4,7 +4,7 @@ import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
 import styles from './ImportProfileModal.module.css'
 
-export type ImportMode = 'merge' | 'replace'
+export type ImportMode = 'replace' | 'overwrite'
 
 export interface ProfileBundleManifest {
   name: string
@@ -94,7 +94,7 @@ export function ImportProfileModal({
   onCancel,
   onApply,
 }: ImportProfileModalProps) {
-  const [mode, setMode] = useState<ImportMode>('merge')
+  const [mode, setMode] = useState<ImportMode>('replace')
 
   const contents = manifest?.contents ?? {}
   const skills = contents.skills ?? []
@@ -185,16 +185,17 @@ export function ImportProfileModal({
                 <input
                   type="radio"
                   name="import-mode"
-                  value="merge"
-                  checked={mode === 'merge'}
-                  onChange={() => setMode('merge')}
+                  value="replace"
+                  checked={mode === 'replace'}
+                  onChange={() => setMode('replace')}
                   disabled={isApplying}
                 />
                 <div>
-                  <div className={styles.modeName}>Merge with my agent (recommended)</div>
+                  <div className={styles.modeName}>Merge and Replace (recommended)</div>
                   <div className={styles.modeHint}>
-                    Adds new skills, MCPs, and apps. Keeps your agent name.
-                    Personality files are appended under a divider. Conflicts are skipped.
+                    Adds new skills, MCPs, and apps. Overwrites personality files
+                    and MCP/skill config on name conflict. Living UI apps with
+                    matching names are imported alongside (never destroyed).
                   </div>
                 </div>
               </label>
@@ -202,16 +203,18 @@ export function ImportProfileModal({
                 <input
                   type="radio"
                   name="import-mode"
-                  value="replace"
-                  checked={mode === 'replace'}
-                  onChange={() => setMode('replace')}
+                  value="overwrite"
+                  checked={mode === 'overwrite'}
+                  onChange={() => setMode('overwrite')}
                   disabled={isApplying}
                 />
                 <div>
-                  <div className={styles.modeName}>Replace</div>
+                  <div className={styles.modeName}>Overwrite</div>
                   <div className={styles.modeHint}>
-                    Overwrites personality files and MCP/skill config on conflict.
-                    Living UI apps with matching names are still imported alongside (never destroyed).
+                    <strong>Destructive.</strong> Wipes <em>all</em> existing
+                    skills, MCP servers, and Living UI apps, then installs only
+                    what's in this bundle. Your agent becomes a copy of the
+                    bundle. Cannot be undone.
                   </div>
                 </div>
               </label>
@@ -224,7 +227,7 @@ export function ImportProfileModal({
           Cancel
         </Button>
         <Button
-          variant="primary"
+          variant={mode === 'overwrite' ? 'danger' : 'primary'}
           onClick={() => onApply(mode)}
           disabled={isApplying || !manifest || !!error}
           icon={
@@ -235,7 +238,11 @@ export function ImportProfileModal({
             )
           }
         >
-          {isApplying ? 'Applying…' : 'Apply Profile'}
+          {isApplying
+            ? 'Applying…'
+            : mode === 'overwrite'
+              ? 'Overwrite Agent'
+              : 'Apply Profile'}
         </Button>
       </ModalFooter>
     </Modal>
