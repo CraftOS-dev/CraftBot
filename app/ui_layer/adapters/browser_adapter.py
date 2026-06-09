@@ -3325,6 +3325,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             stream.tail_events = t_records
             stream._total_tokens = sum(get_cached_token_count(r) for r in t_records)
 
+            # Mark restored events as already-seen by the UI controller's
+            # polling loop. Without this, `_watch_agent_events` treats every
+            # restored event as new and re-emits ACTION_START into the
+            # action panel — which flips pre-resume actions from 'completed'
+            # back to 'running'. The matching ACTION_END for terminal
+            # actions (paired with task_end) was never persisted to the
+            # stream in the first place, so the flip is never undone and
+            # the action stays stuck spinning. Same dedup key shape used by
+            # the bootstrap loop in UIController._watch_agent_events.
+            store = self._controller.state_store
+            for record in t_records:
+                ev = record.event
+                store.dispatch(
+                    "MARK_EVENT_SEEN", (ev.iso_ts, ev.kind, ev.message)
+                )
+
             # Sync with state_manager and rebuild session caches so the LLM
             # is set up the same way create_task would set it up.
             if agent.state_manager:
@@ -3355,12 +3371,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             #     short, friendly "Task '<name>' resumed by user." line.
             llm_message = (
                 f"Task '{task.name}' was previously {prior_status} and the user "
-                f"has now reopened it to continue. The actions and reasoning "
-                f"DO NOT repeat this task's full prior history."
-                f"Review the history, decide whether the task is incomplete/abort"
-                f" and require continuation or whether the user's intent has shifted"
-                f", and act on that. Ask user for intent if the task is previously completed."
-                f"DO NOT repeat the task again."
+                f"has now reopened it to continue. Do NOT repeat this task's "
+                f"full prior history. Do NOT call task_end immediately. "
+                f"Review the history, decide whether the task is incomplete and "
+                f"requires continuation or whether the user's intent has shifted, "
+                f"and act on that. If the task was previously completed, you MUST "
+                f"ask the user for their intent FIRST before taking any action."
             )
             agent.event_stream_manager.log(
                 "system",
@@ -3405,9 +3421,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     fire_at=_time.time(),
                     priority=resume_priority,
                     next_action_description=(
-                        "Continue task from prior state — review the event "
-                        "stream history, do not repeat completed work, and "
-                        "end the task immediately if nothing remains."
+                        "Task was resumed by the user. Review the event stream "
+                        "history. Do NOT call task_end immediately. If the task "
+                        "was previously completed, you MUST ask the user for "
+                        "their intent FIRST before taking any action."
                     ),
                     session_id=task_id,
                     payload={"gui_mode": STATE.gui_mode},
