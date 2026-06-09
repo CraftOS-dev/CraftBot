@@ -769,12 +769,20 @@ class VideoGenInterface:
                 )
                 duration_int = chosen
 
-        if person_generation not in _VEO_PERSON_GEN_VALID:
+        _is_image_to_video = bool(reference_image or last_frame or reference_images)
+        _valid_person_gen = (
+            {"allow_adult", "dont_allow"}
+            if _is_image_to_video
+            else {"allow_all", "dont_allow"}
+        )
+        if person_generation not in _valid_person_gen:
             logger.warning(
-                f"[VIDEO_GEN] Veo does not support person_generation="
-                f"{person_generation}. Defaulting to allow_adult."
+                f"[VIDEO_GEN] Veo "
+                f"{'image-to-video' if _is_image_to_video else 'text-to-video'} "
+                f"does not support person_generation={person_generation}; "
+                "omitting it so the model uses its default."
             )
-            person_generation = "allow_adult"
+            person_generation = None
 
         # Audio on Veo 3.x is model-controlled, not a request-time toggle:
         # `veo-3.1-generate-preview` (and likely siblings) rejects the
