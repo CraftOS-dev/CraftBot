@@ -159,15 +159,6 @@
   overflow: visible;
 }
 
-/* The embedded panel's root (.settingsSection) ships with a 600px max-width
-   and auto margins for the Settings page. Inside the onboarding card those
-   constraints leave dead space on the right, so we let it fill the card.
-   Scoped to .integrationsPanel — the Settings page is untouched. */
-.integrationsPanel :global([class*="settingsSection"]) {
-  max-width: none;
-  margin: 0;
-}
-
 /* Scrollbar styling */
 .optionsList::-webkit-scrollbar,
 .integrationsPanel::-webkit-scrollbar {

@@ -59,6 +59,28 @@
 
 ---
 
+## ✨ 功能特色
+
+- **自帶金鑰（BYOK）** — 靈活的 LLM 供應商系統，支援 OpenAI、Google Gemini、Anthropic Claude、BytePlus 及本地 Ollama 模型，可輕鬆切換。
+- **記憶系統** — 每天午夜時分提煉並整合當日所發生的事件。
+- **主動式代理人** — 學習你的偏好、習慣與人生目標，接著進行規劃並（在取得同意後）主動啟動任務，協助你在生活中不斷進步。
+- **Living UI** — 在 CraftBot 中建立、匯入或演進自訂應用。代理人持續感知 UI 的狀態，並可直接讀取、寫入和操作其資料。
+- **外部工具整合** — 連接 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord 及 Telegram（更多服務陸續推出！），內建憑證與 OAuth 支援。
+- **MCP** — 整合 Model Context Protocol，以外部工具與服務擴充代理人的能力。
+- **技能（Skills）** — 可擴充的技能框架，內建任務規劃、研究、程式碼審查、Git 操作等多種技能。
+- **跨平台** — 完整支援 Windows、macOS 與 Linux，並提供對應的平台程式碼與 Docker 容器化。
+
+> [!IMPORTANT]
+> **GUI 模式已停用。** CraftBot 不再支援 GUI（桌面自動化）模式。請改用 Browser 或 CLI 模式。
+
+<div align="center">
+    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
+	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
+---
+
+
 ## 🧰 快速開始
 
 環境需求: Python 3.10+ · 瀏覽器模式需要 Node.js 18+
@@ -98,7 +120,79 @@ python craftbot.py uninstall  # 停止執行、移除自動啟動並解除安裝
 - 一套完全貼合你工作流程的客製化 CRM?
 - 一個 CraftBot 可以代替你讀取並操作的公司儀表板?
 
-把它做成一個 Living UI,與 CraftBot 一起執行,並隨著你的需求持續成長。
+```bash
+# 1. 複製儲存庫
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. 安裝到 conda 環境
+python install.py --conda
+
+# 3. 執行 CraftBot
+conda run -n craftbot python run.py
+
+# 若 conda 不在 PATH（僅 Windows）：
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+> [!NOTE]
+> 每次要執行 CraftBot 時，請使用 `conda run -n craftbot python run.py`。此方式沒有背景服務——由你手動啟停。
+
+---
+
+### 方案三 — 手動安裝（pip）
+
+**適合你，如果：** 你想完全掌控 Python 環境，不需要任何自動服務或背景程序，自己管理 CraftBot。
+
+`install.py`（不帶旗標）會對目前啟用的 Python 環境執行標準 pip 安裝。透過 `run.py` 手動啟停 CraftBot。
+
+```bash
+# 1. 複製儲存庫
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. 在目前 Python 環境中安裝相依套件
+python install.py
+
+# 3. 執行 CraftBot
+python run.py
+```
+
+首次執行時會引導你完成 API 金鑰設定與偏好設定。
+
+> [!NOTE]
+> 若尚未安裝 Node.js，安裝程式會提供逐步指引。你也可以完全略過瀏覽器模式，直接使用 CLI 模式——無需 Node.js：`python run.py --cli`
+
+### 立即能做什麼？
+- 用自然語言與代理人對話
+- 請它執行複雜的多步驟任務
+- 輸入 `/help` 查看可用指令
+- 連接 Google、Slack、Notion 等服務
+
+### 🖥️ 介面模式
+
+<div align="center">
+    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
+</div>
+
+CraftBot 支援多種 UI 模式，可依個人偏好選擇：
+
+| 模式 | 指令 | 需求 | 適用情境 |
+|------|---------|--------------|----------|
+| **Browser** | `python run.py` | Node.js 18+ | 現代化網頁介面，最易使用 |
+| **CLI** | `python run.py --cli` | 無 | 命令列，輕量化 |
+
+**Browser 模式**為預設與建議選項。若沒有 Node.js，安裝程式會提供安裝指引，或你可改用 **CLI 模式**。
+
+---
+
+## 🧬 Living UI
+
+**Living UI 是隨你需求演進的系統／應用／儀表板。**
+
+需要一個內建 AI 副駕駛的看板？量身打造符合你工作流程的 CRM？
+一個 CraftBot 能讀取並驅動的公司儀表板？
+將它作為 Living UI 啟動——它與 CraftBot 並行運作，並隨著你的需求變化而成長。
 
 <div align="center">
     <img src="assets/living-ui-example.png" alt="Living UI example" width="1280"/>
@@ -144,20 +238,140 @@ CraftBot 嵌入在每一個 Living UI 中,並且**對其狀態保持感知**:它
 - **📊 習慣追蹤器** — 培養並追蹤自己的習慣,用類 GitHub 風格的活動日曆像寫程式一樣維護你的習慣。
 - **🐦 Luolinglo** — 不是 Duolingo,但你可以學新語言、做單字卡片,並和 CraftBot 一起練習。
 
-**[瀏覽並參與貢獻 Living UI 市集 →](https://craftos.net/marketplace)**
+## 🧩 架構概覽
+
+| 元件 | 說明 |
+|-----------|-------------|
+| **Agent Base** | 負責管理任務生命週期、協調各元件並處理主要代理人迴圈的核心編排層。 |
+| **LLM Interface** | 支援多家 LLM 供應商（OpenAI、Gemini、Anthropic、BytePlus、Ollama）的統一介面。 |
+| **Context Engine** | 產生最佳化的 Prompt，支援 KV-Cache。 |
+| **Action Manager** | 從動作庫中擷取並執行動作，方便擴充自訂動作。 |
+| **Action Router** | 依任務需求智慧挑選最合適的動作，並在需要時透過 LLM 解析輸入參數。 |
+| **Event Stream** | 即時事件發佈系統，用於任務進度追蹤、UI 更新與執行監控。 |
+| **Memory Manager** | 以 ChromaDB 為基礎的 RAG 語意記憶，處理記憶分塊、嵌入、檢索與增量更新。 |
+| **State Manager** | 全域狀態管理，追蹤代理人執行脈絡、對話歷史與執行期設定。 |
+| **Task Manager** | 管理任務定義，支援簡單與複雜任務模式、待辦清單建立，以及多步驟流程追蹤。 |
+| **Skill Manager** | 載入並將可插拔技能注入到代理人情境中。 |
+| **MCP Adapter** | Model Context Protocol 整合，將 MCP 工具轉換為原生動作。 |
 
 ---
- 
-# CraftBot 與其他方案比較
- 
-|                                  | v0 / Lovable / Bolt | OpenClaw | Claude Code | **CraftBot**                            |
-| -------------------------------- | ------------------- | -------------------- | -------------------- | --------------------------------------- |
-| **建立客製化應用**           | ✅ 一次性生成         | 🚫                   | ✅ (手動)          | ✅ 對話式持續打造                       |
-| **Agent 能操作這個應用**       | 🚫                  | ⚠️ 透過工具呼叫      | 🚫                   | ✅ 內嵌於每一個 Living UI         |
-| **持久化的 Agent 記憶**      | 🚫                  | ✅            | ✅                   | ✅ RAG + Agent 檔案系統 + 蒸餾        |
-| **自架部署**     | ⚠️ 部分支援         | ✅                   | 🚫 SaaS              | ✅ MIT 授權,跑在你自己的機器                    |
-| **模型無關**     | ✅         | ✅                   | ⚠️ 部分支援              | ✅ 主流供應商 + OpenRouter                    |
- 
+
+## 🔜 藍圖
+
+- [X] **記憶模組** — 完成。
+- [ ] **外部工具整合** — 仍在持續新增！
+- [X] **MCP 層** — 完成。
+- [X] **技能層** — 完成。
+- [ ] **主動式行為** — 進行中
+
+---
+
+## 📋 指令參考
+
+### install.py
+
+| 旗標 | 說明 |
+|------|-------------|
+| `--conda` | 使用 conda 環境（選用） |
+
+### run.py
+
+| 旗標 | 說明 |
+|------|-------------|
+| （無） | 以 **Browser** 模式執行（建議，需 Node.js） |
+| `--cli` | 以 **CLI** 模式執行（輕量） |
+
+### craftbot.py
+
+| 指令 | 說明 |
+|---------|-------------|
+| `install` | 安裝相依套件、註冊開機自動啟動，並啟動 CraftBot |
+| `start` | 在背景啟動 CraftBot |
+| `stop` | 停止 CraftBot |
+| `restart` | 停止後重新啟動 |
+| `status` | 顯示執行狀態與自動啟動狀態 |
+| `logs [-n N]` | 顯示最後 N 行記錄（預設 50） |
+| `uninstall` | 移除自動啟動註冊 |
+
+**安裝範例：**
+```bash
+# 單純使用 pip 安裝（不使用 conda）
+python install.py
+
+# 使用 conda 環境（建議給 conda 使用者）
+python install.py --conda
+```
+
+**執行 CraftBot：**
+
+```powershell
+# Browser 模式（預設，需 Node.js）
+python run.py
+
+# CLI 模式（輕量）
+python run.py --cli
+
+# 使用 conda 環境
+conda run -n craftbot python run.py
+
+# 若 conda 不在 PATH，使用完整路徑
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+**Linux/macOS（Bash）：**
+```bash
+# Browser 模式（預設，需 Node.js）
+python run.py
+
+# CLI 模式（輕量）
+python run.py --cli
+
+# 使用 conda 環境
+conda run -n craftbot python run.py
+```
+
+### 🔧 背景服務（建議）
+
+將 CraftBot 當成背景服務執行，即使關閉終端機仍能持續運作。系統會自動建立桌面捷徑，讓你隨時可重新開啟瀏覽器。
+
+```bash
+# 安裝相依套件、註冊登入時自動啟動並啟動 CraftBot
+python craftbot.py install
+```
+
+這樣就完成了。終端機會自動關閉，CraftBot 在背景執行，瀏覽器也會自動開啟。
+
+```bash
+# 其他服務指令：
+python craftbot.py start    # 在背景啟動 CraftBot
+python craftbot.py status   # 檢查是否正在執行
+python craftbot.py stop     # 停止 CraftBot
+python craftbot.py restart  # 重新啟動 CraftBot
+python craftbot.py logs     # 檢視最近的記錄
+```
+
+| 指令 | 說明 |
+|---------|-------------|
+| `python craftbot.py install` | 安裝相依套件、註冊登入時自動啟動、啟動 CraftBot、開啟瀏覽器並自動關閉終端機 |
+| `python craftbot.py start` | 在背景啟動 CraftBot——若已在執行，會自動重啟（終端機自動關閉） |
+| `python craftbot.py stop` | 停止 CraftBot |
+| `python craftbot.py restart` | 停止並重新啟動 CraftBot |
+| `python craftbot.py status` | 檢查 CraftBot 是否執行中，以及自動啟動是否啟用 |
+| `python craftbot.py logs` | 顯示最近的記錄（使用 `-n 100` 顯示更多行） |
+| `python craftbot.py uninstall` | 停止 CraftBot、移除自動啟動註冊、解除 pip 套件並清除 pip 快取 |
+
+> [!TIP]
+> 執行 `craftbot.py start` 或 `craftbot.py install` 後，會自動建立 **CraftBot 桌面捷徑**。若不小心關閉了瀏覽器，雙擊捷徑即可重新開啟。
+
+> [!NOTE]
+> **安裝：** 若相依套件缺失，安裝程式會提供清楚的指引。若找不到 Node.js，會提示你安裝或切換至 CLI 模式。安裝程式會自動偵測 GPU 是否可用，必要時會自動回退至 CPU 模式。
+
+> [!TIP]
+> **首次設定：** CraftBot 會引導你完成初始化流程，包含設定 API 金鑰、代理人名稱、MCP 與技能。
+
+> [!NOTE]
+> **Playwright Chromium：** 整合 WhatsApp Web 時選用。若安裝失敗，代理人仍可正常執行其他任務。稍後可以手動安裝：`playwright install chromium`。
+
 ---
 
 ## 🔧 疑難排解與常見問題
@@ -168,7 +382,7 @@ CraftBot 嵌入在每一個 Living UI 中,並且**對其狀態保持感知**:它
 2. 安裝完成後重啟終端機
 3. 再次執行 `python run.py`
 
-**替代方案:** 改用不需要 Node.js 的 TUI 模式:
+**替代方案：** 改用 CLI 模式（不需 Node.js）：
 ```bash
 python run.py --cli
 ```

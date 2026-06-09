@@ -59,6 +59,28 @@
 
 ---
 
+## ✨ 特徴
+
+- **Bring Your Own Key (BYOK)** — OpenAI、Google Gemini、Anthropic Claude、BytePlus、ローカルOllamaモデルをサポートする柔軟なLLMプロバイダーシステム。プロバイダー間の切り替えが簡単です。
+- **メモリシステム** — 一日を通して起きたイベントを深夜に整理・統合します。
+- **プロアクティブエージェント** — あなたの好み、習慣、人生の目標を学習し、計画を立て、タスクを開始して（もちろん承認付きで）あなたの生活をより良くします。
+- **Living UI** — CraftBotの中で動作するカスタムアプリを構築、インポート、または進化させます。エージェントはUIの状態を常に把握し、そのデータを直接読み取り、書き込み、操作できます。
+- **外部ツール統合** — 埋め込みクレデンシャルとOAuthサポートにより、Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegramに接続（今後さらに追加予定！）。
+- **MCP** — 外部ツールやサービスでエージェント機能を拡張するためのModel Context Protocol統合。
+- **スキル** — タスク計画、リサーチ、コードレビュー、Git操作などの組み込みスキルを含む拡張可能なスキルフレームワーク。
+- **クロスプラットフォーム** — プラットフォーム固有のコードバリアントとDockerコンテナ化によるWindows、macOS、Linuxの完全サポート。
+
+> [!IMPORTANT]
+> **GUIモードは非推奨になりました。** CraftBotはGUI（デスクトップ自動化）モードをサポートしなくなりました。代わりにBrowserまたはCLIモードをご利用ください。
+
+<div align="center">
+    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
+	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
+---
+
+
 ## 🧰 はじめに
 
 必要条件: Python 3.10+ ・ ブラウザモードを使う場合は Node.js 18+
@@ -98,7 +120,79 @@ python craftbot.py uninstall  # 停止・自動起動の解除・パッケージ
 - 自分のワークフローにぴったり合うカスタムCRMは?
 - CraftBotがあなたに代わって読み取り・操作できる社内ダッシュボードは?
 
-CraftBotと並んで動くLiving UIとして立ち上げ、必要に応じて成長させましょう。
+```bash
+# 1. リポジトリをクローン
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. conda環境にインストール
+python install.py --conda
+
+# 3. CraftBotを実行
+conda run -n craftbot python run.py
+
+# condaがPATHにない場合（Windowsのみ）：
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+> [!NOTE]
+> CraftBotを実行するたびに `conda run -n craftbot python run.py` を使用してください。バックグラウンドサービスはありません — 自分で起動と停止を行います。
+
+---
+
+### オプション3 — 手動インストール（pip）
+
+**これを選ぶなら：** Python環境を完全に自分で管理したい場合、自動サービスやバックグラウンドプロセスは不要な場合。
+
+`install.py`（フラグなし）は現在アクティブなPython環境に標準pip installを実行します。`run.py` を使って手動でCraftBotを起動・停止します。
+
+```bash
+# 1. リポジトリをクローン
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. アクティブなPython環境に依存関係をインストール
+python install.py
+
+# 3. CraftBotを実行
+python run.py
+```
+
+初回実行時にAPIキーと設定のセットアップがガイドされます。
+
+> [!NOTE]
+> Node.jsがインストールされていない場合、インストーラーがステップバイステップの手順を提供します。ブラウザモードを完全にスキップしてCLIモードを使用することもできます — Node.js不要：`python run.py --cli`
+
+### インストール後にできること
+- エージェントと自然言語で会話
+- 複雑なマルチステップタスクの実行を依頼
+- `/help` と入力して利用可能なコマンドを確認
+- Google、Slack、Notionなどに接続
+
+### 🖥️ インターフェースモード
+
+<div align="center">
+    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
+</div>
+
+CraftBotは複数のUIモードをサポートしています。お好みに応じて選択してください：
+
+| モード | コマンド | 要件 | 最適な用途 |
+|------|---------|--------------|----------|
+| **ブラウザ** | `python run.py` | Node.js 18+ | モダンなWebインターフェース、最も使いやすい |
+| **CLI** | `python run.py --cli` | なし | コマンドライン、軽量 |
+
+**ブラウザモード**がデフォルトで推奨されます。Node.jsがない場合は、インストーラーがインストール手順を提供するか、代わりに**CLIモード**を使用できます。
+
+---
+
+## 🧬 Living UI
+
+**Living UIは、あなたのニーズに合わせて進化するシステム/アプリ/ダッシュボードです。**
+
+AIコパイロットが組み込まれたカンバンボードが必要ですか？あなたのワークフローに合わせて形作られたカスタムCRMは？
+CraftBotが読み取って操作できる会社のダッシュボードは？
+Living UIとして立ち上げれば、CraftBotと並んで動作し、あなたのニーズの変化に合わせて成長します。
 
 <div align="center">
     <img src="assets/living-ui-example.png" alt="Living UI example" width="1280"/>
@@ -144,20 +238,128 @@ CraftBotはすべてのLiving UIに組み込まれており、**状態を常に�
 - **📊 習慣トラッカー** — 習慣を作り、追跡する。開発者がコミットを刻むように、GitHub風のアクティビティカレンダーで習慣を可視化。
 - **🐦 Luolinglo** — Duolingoではないですが、新しい言語を学び、フラッシュカードを作り、CraftBotと一緒に練習できます。
 
-**[Living UIマーケットプレイスを見る・貢献する →](https://craftos.net/marketplace)**
+## 🧩 アーキテクチャの概要
+
+| コンポーネント | 説明 |
+|-----------|-------------|
+| **エージェントベース** | タスクライフサイクルを管理し、コンポーネント間を調整し、メインのエージェントループを処理するコアオーケストレーションレイヤー。 |
+| **LLMインターフェース** | 複数のLLMプロバイダー（OpenAI、Gemini、Anthropic、BytePlus、Ollama）をサポートする統一インターフェース。 |
+| **コンテキストエンジン** | KVキャッシュサポートで最適化されたプロンプトを生成。 |
+| **アクションマネージャー** | ライブラリからアクションを取得して実行。カスタムアクションの拡張が容易。 |
+| **アクションルーター** | タスク要件に基づいて最適なアクションをインテリジェントに選択し、必要に応じてLLMを介して入力パラメータを解決。 |
+| **イベントストリーム** | タスク進行状況の追跡、UI更新、実行モニタリング用のリアルタイムイベント発行システム。 |
+| **メモリマネージャー** | ChromaDBを使用したRAGベースのセマンティックメモリ。メモリのチャンキング、埋め込み、検索、増分更新を処理。 |
+| **ステートマネージャー** | エージェント実行コンテキスト、会話履歴、ランタイム設定を追跡するグローバルステート管理。 |
+| **タスクマネージャー** | タスク定義を管理し、シンプルタスクと複雑タスクモードの切り替え、TODO作成、マルチステップワークフロー追跡を可能にします。 |
+| **スキルマネージャー** | エージェントコンテキストにプラグイン可能なスキルをロードして注入。 |
+| **MCPアダプター** | MCPツールをネイティブアクションに変換するModel Context Protocol統合。 |
 
 ---
- 
-# CraftBot と他の選択肢を比較
- 
-|                                  | v0 / Lovable / Bolt | OpenClaw | Claude Code | **CraftBot**                            |
-| -------------------------------- | ------------------- | -------------------- | -------------------- | --------------------------------------- |
-| **カスタムアプリを構築**           | ✅ 一発生成         | 🚫                   | ✅ (手動)          | ✅ 会話ベース                       |
-| **エージェントがそのアプリを操作**       | 🚫                  | ⚠️ ツール呼び出し      | 🚫                   | ✅ すべてのLiving UIに組み込み         |
-| **永続的なエージェントメモリ**      | 🚫                  | ✅            | ✅                   | ✅ RAG + エージェントファイルシステム + 蒸留        |
-| **セルフホスト**     | ⚠️ 一部対応         | ✅                   | 🚫 SaaS              | ✅ MIT、あなたのマシンで                    |
-| **モデル非依存**     | ✅         | ✅                   | ⚠️ 一部対応              | ✅ 主要プロバイダー + OpenRouter                    |
- 
+
+## 🔜 ロードマップ
+
+- [X] **メモリモジュール** — 完了。
+- [ ] **外部ツール統合** — さらに追加中！
+- [X] **MCPレイヤー** — 完了。
+- [X] **スキルレイヤー** — 完了。
+- [ ] **プロアクティブな動作** — 実装予定
+
+---
+
+## 📋 コマンドリファレンス
+
+### install.py
+
+| フラグ | 説明 |
+|------|-------------|
+| `--conda` | conda環境を使用（オプション） |
+
+### run.py
+
+| フラグ | 説明 |
+|------|-------------|
+| (なし) | **ブラウザ**モードで実行（推奨、Node.jsが必要） |
+| `--cli` | **CLI**モードで実行（軽量） |
+
+**インストール例:**
+```bash
+# シンプルなpipインストール（condaなし）
+python install.py
+
+# conda環境を使用（condaユーザー向け推奨）
+python install.py --conda
+```
+
+**CraftBotの実行:**
+
+```powershell
+# ブラウザモード（デフォルト、Node.jsが必要）
+python run.py
+
+# CLIモード（軽量）
+python run.py --cli
+
+# conda環境で
+conda run -n craftbot python run.py
+
+# condaがPATHにない場合はフルパスを使用
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+**Linux/macOS (Bash):**
+```bash
+# ブラウザモード（デフォルト、Node.jsが必要）
+python run.py
+
+# CLIモード（軽量）
+python run.py --cli
+
+# conda環境で
+conda run -n craftbot python run.py
+```
+
+### 🔧 バックグラウンドサービス（推奨）
+
+ターミナルを閉じても CraftBot が動き続けるようにバックグラウンドサービスとして実行します。デスクトップショートカットが自動作成されるので、いつでもブラウザを再度開けます。
+
+```bash
+# 依存関係インストール、ログイン時自動起動の登録、CraftBot の起動
+python craftbot.py install
+```
+
+以上です。ターミナルは自動で閉じ、CraftBot はバックグラウンドで動作し、ブラウザが自動で開きます。
+
+```bash
+# その他のサービスコマンド:
+python craftbot.py start    # CraftBot をバックグラウンドで起動
+python craftbot.py status   # 実行中かどうか確認
+python craftbot.py stop     # CraftBot を停止
+python craftbot.py restart  # CraftBot を再起動
+python craftbot.py logs     # 最近のログ出力を確認
+```
+
+| コマンド | 説明 |
+|---------|-------------|
+| `python craftbot.py install` | 依存関係インストール、ログイン時自動起動の登録、CraftBot 起動、ブラウザを開き、ターミナルを自動で閉じる |
+| `python craftbot.py start` | CraftBot をバックグラウンドで起動（すでに実行中の場合は自動再起動、ターミナルは自動で閉じる） |
+| `python craftbot.py stop` | CraftBot を停止 |
+| `python craftbot.py restart` | CraftBot を停止して再起動 |
+| `python craftbot.py status` | CraftBot が実行中か、自動起動が有効かを確認 |
+| `python craftbot.py logs` | 最近のログ出力を表示（`-n 100` でより多く表示） |
+| `python craftbot.py uninstall` | CraftBot を停止、自動起動の登録解除、pip パッケージのアンインストール、pip キャッシュの削除 |
+
+> [!TIP]
+> `craftbot.py start` または `craftbot.py install` の後、**CraftBot デスクトップショートカット**が自動作成されます。ブラウザを誤って閉じた場合は、ショートカットをダブルクリックして再度開けます。
+
+> [!NOTE]
+> **インストール:** インストーラーは依存関係が不足している場合、明確なガイダンスを提供します。Node.jsが見つからない場合は、インストールを促すか、CLIモードに切り替えることができます。インストールはGPUの可用性を自動検出し、必要に応じてCPU専用モードにフォールバックします。
+
+> [!TIP]
+> **初回セットアップ:** CraftBotはAPIキー、エージェントの名前、MCP、スキルを設定するオンボーディングシーケンスをガイドします。
+
+> [!NOTE]
+> **Playwright Chromium:** WhatsApp Web連携にはオプションです。インストールに失敗しても、エージェントは他のタスクでは問題なく動作します。後で手動でインストールできます: `playwright install chromium`
+
 ---
 
 ## 🔧 トラブルシューティングとよくある問題
@@ -168,7 +370,7 @@ CraftBotはすべてのLiving UIに組み込まれており、**状態を常に�
 2. インストール後、ターミナルを再起動
 3. もう一度`python run.py`を実行
 
-**代替手段:** Node.jsが不要なTUIモードを使う:
+**代替手段:** 代わりにCLIモードを使用（Node.js不要）：
 ```bash
 python run.py --cli
 ```

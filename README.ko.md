@@ -47,15 +47,13 @@
 
 자체 SaaS 도구를 만들고 운영할 수 있는 AI 에이전트라는 점 외에도, CraftBot은 에이전트 하네스로서의 핵심 기능을 모두 갖추고 있어 작업, 도구, 메모리, 일상 워크플로 전반에서 범용 AI 에이전트로 사용자와 함께 일할 수 있습니다.
 
-- **Living UI.** CraftBot 안에서 동작하는 커스텀 앱을 빌드하고, 가져오고, 진화시킬 수 있습니다. 에이전트는 UI의 상태를 항상 인지하며 그 데이터를 직접 읽고, 쓰고, 조작할 수 있습니다.
-- **멀티태스킹과 세션 라우팅.** 아직도 `/new` 명령을 직접 입력하고 있나요? CraftBot은 새 세션을 시작해야 할 때와 기존 작업을 이어가야 할 때를 스스로 판단해 대화와 컨텍스트를 하나로 유지합니다.
-- **셀프 호스트와 BYOK.** OpenAI, Google Gemini, Anthropic Claude, OpenRouter 등을 지원하는 유연한 LLM 프로바이더 시스템. Ollama로 직접 모델을 호스트해서 토큰을 전혀 쓰지 않을 수도 있습니다.
-- **메모리 시스템.** RAG + 에이전트 파일 시스템 + 디스틸레이션을 통해 사용자와 CraftBot의 상호작용에서 로컬 지식 베이스를 구축합니다. CraftBot은 자정에 "꿈을 꾸며" 하루 동안 일어난 사건들을 통합합니다.
-- **선제적인 에이전트.** 사용자의 선호, 습관, 인생 목표를 학습한 뒤, 계획을 세우고 (물론 승인을 받아) 작업을 시작해 사용자가 더 나은 삶을 살도록 돕습니다.
-- **외부 도구 통합.** 임베디드 자격증명과 OAuth를 지원하며, Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram과 연결할 수 있습니다 (더 많은 도구가 추가될 예정입니다!).
-- **Skills와 MCP.** 150개 이상의 MCP와 170개 이상의 Skills가 즉시 사용 가능합니다. 새로운 Skills와 MCP를 빠르게 설치할 수 있고, 완료된 작업으로부터 클릭 한 번으로 Skills를 만들거나 개선할 수 있습니다.
-- **크로스 플랫폼.** Windows, macOS, Linux를 완벽히 지원하며, 플랫폼별 코드 분기와 Docker 컨테이너화를 제공합니다.
-- **브라우저 인터페이스와 CLI 지원.** 사용 환경에 맞춰 선택할 수 있습니다. 일상적인 사용은 가벼운 브라우저 UI로, 스크립팅이나 헤드리스 환경에서는 CLI로 사용하세요.
+> [!IMPORTANT]
+> **GUI 모드는 더 이상 지원되지 않습니다.** CraftBot은 GUI(데스크톱 자동화) 모드를 더 이상 지원하지 않습니다. 대신 Browser 또는 CLI 모드를 사용하세요.
+
+<div align="center">
+    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
+	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
+</div>
 
 ---
 
@@ -98,7 +96,79 @@ python craftbot.py uninstall  # 중지, 자동 시작 해제, 패키지 제거
 - 당신의 워크플로에 딱 맞춘 커스텀 CRM은요?
 - CraftBot이 대신 읽고 조작할 수 있는 회사 대시보드는요?
 
-CraftBot과 나란히 동작하는 Living UI로 띄워두고, 필요에 따라 함께 성장시키세요.
+```bash
+# 1. 리포지토리 클론
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. conda 환경에 설치
+python install.py --conda
+
+# 3. CraftBot 실행
+conda run -n craftbot python run.py
+
+# conda가 PATH에 없는 경우 (Windows 전용):
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+> [!NOTE]
+> CraftBot을 실행할 때마다 `conda run -n craftbot python run.py`를 사용하세요. 백그라운드 서비스가 없으므로 직접 시작하고 중지해야 합니다.
+
+---
+
+### 옵션 3 — 수동 설치 (pip)
+
+**이것을 선택하세요:** Python 환경을 완전히 직접 관리하고 싶고, 자동 서비스나 백그라운드 프로세스 없이 CraftBot을 관리하고 싶은 경우.
+
+`install.py`(플래그 없음)는 현재 활성화된 Python 환경에 표준 pip 설치를 수행합니다. `run.py`로 CraftBot을 수동으로 시작하고 중지합니다.
+
+```bash
+# 1. 리포지토리 클론
+git clone https://github.com/CraftOS-dev/CraftBot.git
+cd CraftBot
+
+# 2. 활성 Python 환경에 의존성 설치
+python install.py
+
+# 3. CraftBot 실행
+python run.py
+```
+
+첫 실행 시 API 키 설정 과정을 안내해 줍니다.
+
+> [!NOTE]
+> Node.js가 설치되어 있지 않다면 설치 프로그램이 단계별로 안내해 줍니다. CLI 모드를 사용하면 브라우저 모드를 완전히 건너뛸 수도 있습니다 — Node.js 불필요: `python run.py --cli`
+
+### 바로 할 수 있는 일
+- 에이전트와 자연스럽게 대화
+- 복잡한 다단계 작업 요청
+- `/help`를 입력해 사용 가능한 명령 확인
+- Google, Slack, Notion 등과 연결
+
+### 🖥️ 인터페이스 모드
+
+<div align="center">
+    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
+</div>
+
+CraftBot은 여러 UI 모드를 지원합니다. 선호에 따라 선택하세요.
+
+| 모드 | 명령어 | 요구 사항 | 적합한 용도 |
+|------|---------|--------------|----------|
+| **Browser** | `python run.py` | Node.js 18+ | 최신 웹 인터페이스, 가장 사용하기 쉬움 |
+| **CLI** | `python run.py --cli` | 없음 | 커맨드라인, 경량 |
+
+**브라우저 모드**가 기본이자 권장 모드입니다. Node.js가 없는 경우 설치 프로그램이 설치 안내를 제공하거나, 대신 **CLI 모드**를 사용할 수 있습니다.
+
+---
+
+## 🧬 Living UI
+
+**Living UI는 당신의 필요에 따라 진화하는 시스템/앱/대시보드입니다.**
+
+AI 코파일럿이 내장된 칸반 보드가 필요한가요? 당신의 워크플로에 딱 맞게 만든 맞춤형 CRM은요?
+CraftBot이 읽고 조작할 수 있는 회사 대시보드는요?
+Living UI로 실행하세요 — CraftBot과 함께 작동하며, 당신의 필요가 변할수록 함께 성장합니다.
 
 <div align="center">
     <img src="assets/living-ui-example.png" alt="Living UI example" width="1280"/>
@@ -144,7 +214,21 @@ CraftBot은 모든 Living UI에 내장되어 있으며 그 **상태를 항상 �
 - **📊 습관 트래커** — 습관을 만들고 추적하세요. GitHub 스타일의 활동 캘린더로 개발자처럼 습관을 관리할 수 있습니다.
 - **🐦 Luolinglo** — 듀오링고는 아니지만, 새로운 언어를 배우고 플래시카드를 만들며 CraftBot과 함께 연습할 수 있습니다.
 
-**[Living UI 마켓플레이스 둘러보기 및 기여하기 →](https://craftos.net/marketplace)**
+## 🧩 아키텍처 개요
+
+| 구성 요소 | 설명 |
+|-----------|-------------|
+| **Agent Base** | 작업 라이프사이클을 관리하고 구성 요소 간 조정을 담당하며 주요 에이전틱 루프를 처리하는 핵심 오케스트레이션 계층. |
+| **LLM Interface** | 여러 LLM 제공자(OpenAI, Gemini, Anthropic, BytePlus, Ollama)를 지원하는 통합 인터페이스. |
+| **Context Engine** | KV 캐시를 지원하는 최적화된 프롬프트를 생성합니다. |
+| **Action Manager** | 라이브러리에서 액션을 가져와 실행합니다. 커스텀 액션을 쉽게 확장할 수 있습니다. |
+| **Action Router** | 작업 요구 사항에 가장 잘 맞는 액션을 지능적으로 선택하고, 필요 시 LLM을 통해 입력 매개변수를 해결합니다. |
+| **Event Stream** | 작업 진행 추적, UI 업데이트, 실행 모니터링을 위한 실시간 이벤트 게시 시스템. |
+| **Memory Manager** | ChromaDB 기반의 RAG 시맨틱 메모리. 메모리 청킹, 임베딩, 검색, 점진적 업데이트를 처리합니다. |
+| **State Manager** | 에이전트 실행 컨텍스트, 대화 이력, 런타임 구성을 추적하는 전역 상태 관리. |
+| **Task Manager** | 작업 정의를 관리하며 단순/복잡 작업 모드, 할 일 생성, 다단계 워크플로우 추적을 가능하게 합니다. |
+| **Skill Manager** | 플러그형 스킬을 로드하여 에이전트 컨텍스트에 주입합니다. |
+| **MCP Adapter** | MCP 도구를 네이티브 액션으로 변환하는 Model Context Protocol 통합. |
 
 ---
  
@@ -162,13 +246,121 @@ CraftBot은 모든 Living UI에 내장되어 있으며 그 **상태를 항상 �
 
 ## 🔧 트러블슈팅과 자주 묻는 문제
 
-### Node.js가 없습니다 (브라우저 모드)
-`python run.py` 실행 시 **"npm not found in PATH"** 가 표시된다면:
-1. [nodejs.org](https://nodejs.org/)에서 LTS 버전 다운로드
+### install.py
+
+| 플래그 | 설명 |
+|------|-------------|
+| `--conda` | conda 환경 사용 (선택 사항) |
+
+### run.py
+
+| 플래그 | 설명 |
+|------|-------------|
+| (없음) | **Browser** 모드로 실행 (권장, Node.js 필요) |
+| `--cli` | **CLI** 모드로 실행 (경량) |
+
+### craftbot.py
+
+| 명령 | 설명 |
+|---------|-------------|
+| `install` | 의존성 설치, 자동 시작 등록, CraftBot 실행 |
+| `start` | CraftBot을 백그라운드에서 실행 |
+| `stop` | CraftBot 중지 |
+| `restart` | 중지 후 다시 시작 |
+| `status` | 실행 상태 및 자동 시작 상태 표시 |
+| `logs [-n N]` | 마지막 N개의 로그 라인 표시 (기본값: 50) |
+| `uninstall` | 자동 시작 등록 해제 |
+
+**설치 예시:**
+```bash
+# 간단한 pip 설치 (conda 미사용)
+python install.py
+
+# conda 환경 사용 (conda 사용자에게 권장)
+python install.py --conda
+```
+
+**CraftBot 실행:**
+
+```powershell
+# Browser 모드 (기본, Node.js 필요)
+python run.py
+
+# CLI 모드 (경량)
+python run.py --cli
+
+# conda 환경에서 실행
+conda run -n craftbot python run.py
+
+# conda가 PATH에 없는 경우 전체 경로 사용
+&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
+```
+
+**Linux/macOS (Bash):**
+```bash
+# Browser 모드 (기본, Node.js 필요)
+python run.py
+
+# CLI 모드 (경량)
+python run.py --cli
+
+# conda 환경에서 실행
+conda run -n craftbot python run.py
+```
+
+### 🔧 백그라운드 서비스 (권장)
+
+터미널을 닫아도 CraftBot이 계속 실행되도록 백그라운드 서비스로 실행합니다. 데스크톱 바로가기가 자동으로 생성되므로 언제든지 브라우저를 다시 열 수 있습니다.
+
+```bash
+# 의존성 설치, 로그인 시 자동 시작 등록, CraftBot 실행
+python craftbot.py install
+```
+
+이게 전부입니다. 터미널은 자동으로 닫히고, CraftBot은 백그라운드에서 실행되며, 브라우저가 자동으로 열립니다.
+
+```bash
+# 기타 서비스 명령:
+python craftbot.py start    # CraftBot을 백그라운드에서 시작
+python craftbot.py status   # 실행 여부 확인
+python craftbot.py stop     # CraftBot 중지
+python craftbot.py restart  # CraftBot 재시작
+python craftbot.py logs     # 최근 로그 출력 확인
+```
+
+| 명령 | 설명 |
+|---------|-------------|
+| `python craftbot.py install` | 의존성 설치, 로그인 시 자동 시작 등록, CraftBot 실행, 브라우저 열기 후 터미널 자동 종료 |
+| `python craftbot.py start` | CraftBot을 백그라운드에서 시작 — 이미 실행 중이면 자동 재시작 (터미널 자동 종료) |
+| `python craftbot.py stop` | CraftBot 중지 |
+| `python craftbot.py restart` | CraftBot 중지 후 재시작 |
+| `python craftbot.py status` | CraftBot 실행 여부와 자동 시작 활성화 여부 확인 |
+| `python craftbot.py logs` | 최근 로그 출력 표시 (`-n 100`으로 더 많은 줄 표시) |
+| `python craftbot.py uninstall` | CraftBot 중지, 자동 시작 등록 해제, pip 패키지 제거 및 pip 캐시 정리 |
+
+> [!TIP]
+> `craftbot.py start` 또는 `craftbot.py install` 실행 후 **CraftBot 데스크톱 바로가기**가 자동으로 생성됩니다. 브라우저를 실수로 닫았다면 바로가기를 더블클릭해 다시 열 수 있습니다.
+
+> [!NOTE]
+> **설치:** 의존성이 누락된 경우 설치 프로그램이 명확한 안내를 제공합니다. Node.js가 없으면 설치 여부를 묻거나 CLI 모드로 전환할 수 있습니다. GPU 가용성을 자동으로 감지하고 필요한 경우 CPU 전용 모드로 대체합니다.
+
+> [!TIP]
+> **첫 실행 설정:** CraftBot은 API 키, 에이전트 이름, MCP, 스킬 설정을 위한 온보딩 과정을 안내합니다.
+
+> [!NOTE]
+> **Playwright Chromium:** WhatsApp Web 통합에 필요한 선택 사항입니다. 설치에 실패해도 다른 작업에서는 에이전트가 정상 작동합니다. 나중에 `playwright install chromium`으로 수동 설치할 수 있습니다.
+
+---
+
+## 🔧 문제 해결 및 자주 발생하는 이슈
+
+### Node.js 누락 (브라우저 모드용)
+`python run.py` 실행 시 **"npm not found in PATH"** 오류가 보인다면:
+1. [nodejs.org](https://nodejs.org/)에서 다운로드 (LTS 버전 권장)
 2. 설치 후 터미널 재시작
 3. 다시 `python run.py` 실행
 
-**대안:** Node.js가 필요 없는 TUI 모드를 사용하세요:
+**대안:** CLI 모드를 사용하세요 (Node.js 불필요):
 ```bash
 python run.py --cli
 ```
