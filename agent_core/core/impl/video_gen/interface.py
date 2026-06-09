@@ -334,6 +334,10 @@ class VideoGenInterface:
         self._gemini_client = ctx["gemini_client"]  # GeminiClient (Veo) or None
         self._byteplus = ctx["byteplus"]  # {"api_key", "base_url"} or None
         self._initialized = ctx.get("initialized", False)
+        try:
+            self._main_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()
+        except RuntimeError:
+            self._main_loop = None
 
     @property
     def is_initialized(self) -> bool:
@@ -360,15 +364,10 @@ class VideoGenInterface:
                 output_tokens=output_tokens,
                 cached_tokens=cached_tokens,
             )
-            try:
-                loop = asyncio.get_running_loop()
-                loop.call_soon_threadsafe(
+            if self._main_loop is not None:
+                self._main_loop.call_soon_threadsafe(
                     lambda: asyncio.create_task(self._report_usage(event))
                 )
-            except RuntimeError:
-                # No running loop in this thread — drop usage event with a warning
-                # rather than breaking generation (matches VLM/ImageGen behaviour).
-                asyncio.run(self._report_usage(event))
         except Exception as e:
             logger.warning(f"[VIDEO_GEN] Failed to report usage: {e}")
 
@@ -593,6 +592,7 @@ class VideoGenInterface:
         # public API; we issue `number_of_videos` independent jobs and stitch
         # them into the returned list. Each job is independent so errors on
         # one don't kill the rest — we collect partial results and report.
+        per_job_timeout = poll_timeout_seconds // max(1, number_of_videos)
         paths: List[str] = []
         first_error: Optional[Exception] = None
         for i in range(max(1, int(number_of_videos))):
@@ -619,7 +619,7 @@ class VideoGenInterface:
                 video_id = video_obj.id
 
                 # Poll for completion.
-                final_obj = self._poll_openai_video(video_id, poll_timeout_seconds)
+                final_obj = self._poll_openai_video(video_id, per_job_timeout)
                 mp4_bytes = self._download_openai_video(video_id)
 
                 save_path = _build_save_path(
@@ -1039,13 +1039,14 @@ class VideoGenInterface:
 
         # Number of videos: Seedance generates 1 per task; loop for N>1 so the
         # user can request multiple variations from a single call.
+        per_job_timeout = poll_timeout_seconds // max(1, number_of_videos)
         paths: List[str] = []
         first_error: Optional[Exception] = None
         for i in range(max(1, int(number_of_videos))):
             try:
                 task_id = self._byteplus_submit(api_key, base_url, body)
                 video_url = self._byteplus_poll(
-                    api_key, base_url, task_id, poll_timeout_seconds
+                    api_key, base_url, task_id, per_job_timeout
                 )
                 mp4_bytes = _download_video_url(video_url)
                 save_path = _build_save_path(

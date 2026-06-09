@@ -201,6 +201,10 @@ class ImageGenInterface:
         self.client = ctx["client"]  # OpenAI client or None
         self._gemini_client = ctx["gemini_client"]
         self._initialized = ctx.get("initialized", False)
+        try:
+            self._main_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()
+        except RuntimeError:
+            self._main_loop = None
 
     @property
     def is_initialized(self) -> bool:
@@ -232,9 +236,10 @@ class ImageGenInterface:
                 output_tokens=output_tokens,
                 cached_tokens=cached_tokens,
             )
-            asyncio.get_event_loop().call_soon(
-                lambda: asyncio.create_task(self._report_usage(event))
-            )
+            if self._main_loop is not None:
+                self._main_loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self._report_usage(event))
+                )
         except Exception as e:
             logger.warning(f"[IMAGE_GEN] Failed to report usage: {e}")
 

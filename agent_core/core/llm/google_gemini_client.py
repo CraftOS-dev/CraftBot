@@ -403,7 +403,7 @@ class GeminiClient:
         url = self._endpoint(cache_id)
         response = requests.delete(
             url,
-            params={"key": self._api_key},
+            headers={"x-goog-api-key": self._api_key},
             timeout=self._timeout,
         )
         response.raise_for_status()
@@ -747,7 +747,7 @@ class GeminiClient:
         url = self._endpoint(path)
         response = requests.get(
             url,
-            params={"key": self._api_key},
+            headers={"x-goog-api-key": self._api_key},
             timeout=self._timeout,
         )
         if not response.ok:
@@ -790,7 +790,7 @@ class GeminiClient:
         """Send POST request and return JSON response."""
         response = requests.post(
             self._endpoint(path),
-            params={"key": self._api_key},
+            headers={"x-goog-api-key": self._api_key},
             json=payload,
             timeout=self._timeout,
         )
