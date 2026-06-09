@@ -16,7 +16,12 @@ from typing import Any, Dict, Optional
 from .base import PlatformMessage
 from .config import ConfigStore, MessageCallback
 from .logger import get_logger
-from .registry import autoload_integrations, get_all_clients, get_client
+from .registry import (
+    autoload_integrations,
+    get_all_clients,
+    get_client,
+    invalidate_client,
+)
 
 logger = get_logger(__name__)
 
@@ -66,13 +71,34 @@ class ExternalCommsManager:
         else:
             logger.info("[INTEGRATIONS] No external channels started")
 
+    async def reset_platform(self, platform_id: str) -> None:
+        """Stop (if listening) and discard a platform's client.
+
+        Forces the next ``get_client()``/``start_platform()`` to rebuild the
+        client from disk. Called when an account is connected or disconnected so
+        a cached in-memory credential can't survive an account switch
+        (issue #314).
+        """
+        client = self._active_clients.pop(platform_id, None)
+        if client is not None:
+            try:
+                await client.stop_listening()
+            except Exception as e:
+                logger.warning(
+                    f"[INTEGRATIONS] Error stopping {platform_id} during reset: {e}"
+                )
+        invalidate_client(platform_id)
+
     async def start_platform(self, platform_id: str) -> bool:
-        """Start listening on a specific platform (e.g. just after it was connected)."""
-        if platform_id in self._active_clients:
-            client = self._active_clients[platform_id]
-            if client.is_listening:
-                return True
-            del self._active_clients[platform_id]
+        """Start listening on a specific platform (e.g. just after it was connected).
+
+        Always discards any existing client first and rebuilds from disk. This
+        runs right after an account is (re)connected, so a lingering client
+        instance may still hold the previous account's cached credential —
+        reusing it would keep routing to the wrong account until restart
+        (issue #314).
+        """
+        await self.reset_platform(platform_id)
 
         autoload_integrations()
         client = get_client(platform_id)

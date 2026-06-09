@@ -14,3 +14,6 @@ export const selectActiveLivingUiId = (state: RootState) =>
 
 export const selectLivingUiStates = (state: RootState) =>
   state.livingUi.states
+
+export const selectLivingUiPendingQuestions = (state: RootState) =>
+  state.livingUi.pendingQuestions

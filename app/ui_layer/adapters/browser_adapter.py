@@ -987,6 +987,8 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_progress=self.broadcast_living_ui_progress,
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
+            broadcast_created=self.broadcast_living_ui_created,
+            broadcast_question=self.broadcast_living_ui_question,
         )
 
         # Subscribe the Living UI module to TaskManager todo updates so that
@@ -1494,6 +1496,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "task_cancel":
             task_id = data.get("taskId", "")
             await self._handle_task_cancel(task_id)
+
+        elif msg_type == "task_complete":
+            task_id = data.get("taskId", "")
+            await self._handle_task_complete(task_id)
+
+        elif msg_type == "task_resume":
+            task_id = data.get("taskId", "")
+            message = data.get("message", "") or ""
+            await self._handle_task_resume(task_id, message)
 
         elif msg_type == "option_click":
             value = data.get("value", "")
@@ -2649,6 +2660,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+            # Mirror the new project into chat as a system message so the
+            # request is visible in the conversation (not just the new tab).
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    "Building your app now — track progress in the new tab.",
+                    "system",
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+
             # Broadcast initial status update
             await self._broadcast(
                 {
@@ -3050,6 +3073,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[LIVING_UI] Failed to launch project {project_id}")
             return False
 
+    async def broadcast_living_ui_created(self, project: Dict[str, Any]) -> None:
+        """Broadcast that a Living UI project was created (called from agent action).
+
+        Mirrors the modal create flow's broadcast so a chat-created Living UI is
+        registered in the browser's project list and shows its build progress.
+        """
+        await self._broadcast(
+            {
+                "type": "living_ui_create",
+                "data": {
+                    "success": True,
+                    "projectId": project.get("id", ""),
+                    "project": project,
+                },
+            }
+        )
+
+    async def broadcast_living_ui_question(
+        self, project_id: str, session_id: str, message: str
+    ) -> None:
+        """Mirror an agent question onto the creation screen so the user can
+        answer from the Living UI page even when the chat panel is closed. The
+        on-screen answer is sent back as a reply targeting `session_id`."""
+        await self._broadcast(
+            {
+                "type": "living_ui_question",
+                "data": {
+                    "projectId": project_id,
+                    "sessionId": session_id,
+                    "message": message,
+                },
+            }
+        )
+
     async def broadcast_living_ui_progress(
         self, project_id: str, phase: str, progress: int, message: str
     ) -> None:
@@ -3139,6 +3196,304 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_cancel_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_resume(self, task_id: str, message: str) -> None:
+        """Re-open a terminated task and continue execution.
+
+        Reads the task + persisted event stream from sessions.db (kept around
+        on task end specifically for this flow), reinstates them in memory,
+        flips the action panel row back to running, optionally injects a
+        continuation user message, and enqueues a trigger so the react loop
+        picks up where it left off. Token counters accumulate across resumes.
+        """
+        try:
+            if not task_id:
+                await self._broadcast(
+                    {
+                        "type": "task_resume_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Missing taskId",
+                        },
+                    }
+                )
+                return
+
+            from app.usage.session_storage import get_session_storage
+            from agent_core.core.task import Task
+            from agent_core.core.impl.event_stream.event_stream import (
+                get_cached_token_count,
+            )
+            from app.state.agent_state import STATE
+            from app.trigger import Trigger
+            import time as _time
+
+            agent = self._controller.agent
+            task_manager = agent.task_manager
+
+            # Refuse if the task is still live (already in memory) — resume
+            # only applies to terminated tasks.
+            if task_id in task_manager.tasks:
+                live = task_manager.tasks[task_id]
+                if live.status not in ("completed", "error", "cancelled"):
+                    await self._broadcast(
+                        {
+                            "type": "task_resume_response",
+                            "data": {
+                                "taskId": task_id,
+                                "success": False,
+                                "error": "Task is already running",
+                            },
+                        }
+                    )
+                    return
+
+            storage = get_session_storage()
+            task_dict = storage.get_task(task_id)
+            if not task_dict:
+                await self._broadcast(
+                    {
+                        "type": "task_resume_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": (
+                                "Task context is no longer available. It may "
+                                "have been purged after 24h — please start a "
+                                "new task."
+                            ),
+                        },
+                    }
+                )
+                return
+
+            # Reject internal/system workflows: their post-completion side
+            # effects already ran and resuming them produces inconsistent
+            # state. Mirrors the existing Create Skill gate.
+            wf_id = task_dict.get("workflow_id") or ""
+            selected_skills = task_dict.get("selected_skills") or []
+            if wf_id in self._INTERNAL_WORKFLOW_IDS or any(
+                s in self._INTERNAL_SKILL_NAMES for s in selected_skills
+            ):
+                await self._broadcast(
+                    {
+                        "type": "task_resume_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Internal workflow tasks cannot be resumed",
+                        },
+                    }
+                )
+                return
+
+            # Rebuild the Task and reset terminal fields. Token counters and
+            # action_count stay as-is — a resume is a continuation, not a
+            # restart. Capture the prior terminal status BEFORE the reset so
+            # the resume system event can anchor the LLM with it.
+            task = Task.from_dict(task_dict)
+            prior_status = task.status
+            task.status = "running"
+            task.ended_at = None
+            task.final_summary = None
+            task.errors = []
+            task.waiting_for_user_reply = False
+
+            # Fresh empty temp dir (the old one was rmtree'd at task end).
+            temp_dir = task_manager._prepare_task_temp_dir(task_id)
+            task.temp_dir = str(temp_dir)
+
+            # Re-insert into the live task map BEFORE wiring up the event
+            # stream so subsequent log() calls route to the correct task.
+            task_manager.tasks[task_id] = task
+            task_manager._current_session_id = task_id
+
+            # Restore the persisted event stream so the LLM sees the full
+            # prior conversation. head_summary + tail_events were written
+            # by _make_on_task_remove_persist at task end.
+            stream = agent.event_stream_manager.create_stream(task_id, temp_dir)
+            t_head, t_records = storage.get_event_stream(task_id)
+            stream.head_summary = t_head
+            stream.tail_events = t_records
+            stream._total_tokens = sum(get_cached_token_count(r) for r in t_records)
+
+            # Mark restored events as already-seen by the UI controller's
+            # polling loop. Without this, `_watch_agent_events` treats every
+            # restored event as new and re-emits ACTION_START into the
+            # action panel — which flips pre-resume actions from 'completed'
+            # back to 'running'. The matching ACTION_END for terminal
+            # actions (paired with task_end) was never persisted to the
+            # stream in the first place, so the flip is never undone and
+            # the action stays stuck spinning. Same dedup key shape used by
+            # the bootstrap loop in UIController._watch_agent_events.
+            store = self._controller.state_store
+            for record in t_records:
+                ev = record.event
+                store.dispatch("MARK_EVENT_SEEN", (ev.iso_ts, ev.kind, ev.message))
+
+            # Sync with state_manager and rebuild session caches so the LLM
+            # is set up the same way create_task would set it up.
+            if agent.state_manager:
+                agent.state_manager.on_task_created(task)
+                agent.state_manager.add_to_active_task(task=task)
+            task_manager._create_session_caches(task_id)
+
+            # Mark as the current task on the global state property.
+            STATE.set_agent_property("current_task_id", task_id)
+
+            # Persist the now-running task back to sessions.db (status flip).
+            try:
+                if task_manager._on_task_persist:
+                    task_manager._on_task_persist(task)
+            except Exception:
+                pass
+
+            # Log a system event so the resumed transcript has a clear
+            # marker, then optionally log the user's continuation message
+            # so the next LLM call sees it.
+            #
+            # Two messages here, one event:
+            #   - `message` is what the LLM sees in the event stream — rich
+            #     framing that anchors it as a *continuation*. Without this
+            #     the model tends to re-execute the task from scratch
+            #     because the task name reads like an imperative.
+            #   - `display_message` is what the user sees in chat — the
+            #     short, friendly "Task '<name>' resumed by user." line.
+            llm_message = (
+                f"Task '{task.name}' was previously {prior_status} and the user "
+                f"has now reopened it to continue. Do NOT repeat this task's "
+                f"full prior history. Do NOT call task_end immediately. "
+                f"Review the history, decide whether the task is incomplete and "
+                f"requires continuation or whether the user's intent has shifted, "
+                f"and act on that. If the task was previously completed, you MUST "
+                f"ask the user for their intent FIRST before taking any action."
+            )
+            agent.event_stream_manager.log(
+                "system",
+                llm_message,
+                display_message=f"Task '{task.name}' resumed by user.",
+                task_id=task_id,
+            )
+            if message.strip():
+                agent.state_manager.record_user_message(
+                    message.strip(),
+                    session_id=task_id,
+                )
+
+            # Flip the action panel row back to running so the UI reflects
+            # the new state in both surfaces.
+            for item in self._action_panel._items:
+                if item.id == task_id:
+                    item.status = "running"
+                    item.completed_at = None
+                    item.error_message = None
+                    self._action_panel._persist_item(item)
+                    await self._broadcast(
+                        {
+                            "type": "action_update",
+                            "data": {
+                                "id": task_id,
+                                "status": "running",
+                                "duration": None,
+                                "error": None,
+                            },
+                        }
+                    )
+                    break
+
+            # Enqueue a trigger so the react loop picks up the task. We use
+            # complex-task priority (7) for non-simple tasks, matching what
+            # _create_new_trigger does post-action.
+            is_simple = getattr(task, "mode", "complex") == "simple"
+            resume_priority = 5 if is_simple else 7
+            await agent.triggers.put(
+                Trigger(
+                    fire_at=_time.time(),
+                    priority=resume_priority,
+                    next_action_description=(
+                        "Task was resumed by the user. Review the event stream "
+                        "history. Do NOT call task_end immediately. If the task "
+                        "was previously completed, you MUST ask the user for "
+                        "their intent FIRST before taking any action."
+                    ),
+                    session_id=task_id,
+                    payload={"gui_mode": STATE.gui_mode},
+                ),
+                skip_merge=True,
+            )
+
+            await self._broadcast(
+                {
+                    "type": "task_resume_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                        "status": "running",
+                    },
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[task_resume] Failed to resume {task_id}: {e}")
+            await self._broadcast(
+                {
+                    "type": "task_resume_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_complete(self, task_id: str) -> None:
+        """Mark a running task as completed at the user's request."""
+        try:
+            agent = self._controller.agent
+            task_manager = agent.task_manager
+
+            task = (
+                task_manager.get_task_by_id(task_id) if task_id else task_manager.active
+            )
+            if not task:
+                await self._broadcast(
+                    {
+                        "type": "task_complete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found",
+                        },
+                    }
+                )
+                return
+
+            await task_manager.mark_task_completed(
+                message="Marked completed by user",
+                task_id=task.id,
+            )
+
+            await self._broadcast(
+                {
+                    "type": "task_complete_response",
+                    "data": {
+                        "taskId": task.id,
+                        "success": True,
+                        "status": "completed",
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "task_complete_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,
@@ -4659,6 +5014,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             new_provider = data.get("llmProvider")
             vlm_provider = data.get("vlmProvider")
+            image_gen_provider = data.get("imageGenProvider")
+            video_gen_provider = data.get("videoGenProvider")
             api_key = data.get("apiKey")
             provider_for_key = data.get("providerForKey")
             base_url = data.get("baseUrl")
@@ -4717,12 +5074,41 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     )
                     return
 
+            # Capture the current image-gen provider/model BEFORE saving, so a
+            # failed reinitialize below can roll the persisted values back and
+            # keep settings.json consistent with the still-live interface.
+            prev_image_gen_provider = None
+            prev_image_gen_model = None
+            if image_gen_provider:
+                from app.config import (
+                    get_image_gen_provider as _get_ig_provider,
+                    get_image_gen_model as _get_ig_model,
+                )
+
+                prev_image_gen_provider = _get_ig_provider()
+                prev_image_gen_model = _get_ig_model()
+
+            prev_video_gen_provider = None
+            prev_video_gen_model = None
+            if video_gen_provider:
+                from app.config import (
+                    get_video_gen_provider as _get_vg_provider,
+                    get_video_gen_model as _get_vg_model,
+                )
+
+                prev_video_gen_provider = _get_vg_provider()
+                prev_video_gen_model = _get_vg_model()
+
             # Step 3: Now save settings (validation and connection test passed)
             result = update_model_settings(
                 llm_provider=new_provider,
                 vlm_provider=vlm_provider,
+                image_gen_provider=image_gen_provider,
+                video_gen_provider=video_gen_provider,
                 llm_model=data.get("llmModel"),
                 vlm_model=data.get("vlmModel"),
+                image_gen_model=data.get("imageGenModel"),
+                video_gen_model=data.get("videoGenModel"),
                 api_key=api_key,
                 provider_for_key=provider_for_key,
                 base_url=base_url,
@@ -4743,6 +5129,65 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     result["warning"] = (
                         f"Settings saved but LLM reinitialization failed: {e}"
                     )
+
+            # Reinitialize image gen interface when its provider changes.
+            # Settings are already persisted above, and reinitialize_image_gen
+            # only swaps the live interface on success — so if it fails (e.g.
+            # the new provider has no API key) we must roll the saved image-gen
+            # provider/model back to match the still-live interface. Otherwise
+            # settings.json would advertise a provider the running interface
+            # can't serve.
+            if result.get("success") and image_gen_provider:
+                reinit_ok = False
+                try:
+                    agent = self._controller.agent
+                    reinit_ok = agent.reinitialize_image_gen(image_gen_provider)
+                except Exception as e:
+                    logger.warning(f"[BROWSER] Failed to reinitialize image gen: {e}")
+
+                if reinit_ok:
+                    logger.info(
+                        f"[BROWSER] Image gen reinitialized with provider: {image_gen_provider}"
+                    )
+                else:
+                    # Roll persisted image-gen settings back to the previous
+                    # (still-live) values to avoid a settings/interface mismatch.
+                    update_model_settings(
+                        image_gen_provider=prev_image_gen_provider,
+                        image_gen_model=prev_image_gen_model,
+                    )
+                    msg = (
+                        f"Image generation provider '{image_gen_provider}' could not be "
+                        f"initialized — check its API key. Kept '{prev_image_gen_provider}'."
+                    )
+                    logger.warning(f"[BROWSER] {msg}")
+                    result["warning"] = result.get("warning") or msg
+
+            # Reinitialize video gen interface when its provider changes.
+            # Mirrors the image gen pattern: roll back on reinit failure.
+            if result.get("success") and video_gen_provider:
+                reinit_vid_ok = False
+                try:
+                    agent = self._controller.agent
+                    reinit_vid_ok = agent.reinitialize_video_gen(video_gen_provider)
+                except Exception as e:
+                    logger.warning(f"[BROWSER] Failed to reinitialize video gen: {e}")
+
+                if reinit_vid_ok:
+                    logger.info(
+                        f"[BROWSER] Video gen reinitialized with provider: {video_gen_provider}"
+                    )
+                else:
+                    update_model_settings(
+                        video_gen_provider=prev_video_gen_provider,
+                        video_gen_model=prev_video_gen_model,
+                    )
+                    msg = (
+                        f"Video generation provider '{video_gen_provider}' could not be "
+                        f"initialized — check its API key. Kept '{prev_video_gen_provider}'."
+                    )
+                    logger.warning(f"[BROWSER] {msg}")
+                    result["warning"] = result.get("warning") or msg
 
             await self._broadcast(
                 {
@@ -5915,22 +6360,69 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return
 
+        # Spawn a placeholder tab immediately so the user sees the install is
+        # underway (the install itself is synchronous and can take a while).
+        # install_from_marketplace adopts this id so the same tab becomes the
+        # running app.
+        placeholder = self._living_ui_manager.create_placeholder_project(
+            app_name, app_description
+        )
+        project_id = placeholder.id
+        await self.broadcast_living_ui_created(placeholder.to_dict())
+        await self._broadcast(
+            {
+                "type": "living_ui_status",
+                "data": {
+                    "projectId": project_id,
+                    "phase": "initializing",
+                    "progress": 10,
+                    "message": "Installing from marketplace...",
+                },
+            }
+        )
+
         result = await self._living_ui_manager.install_from_marketplace(
             app_id=app_id,
             app_name=app_name,
             app_description=app_description,
             custom_fields=custom_fields,
+            project_id=project_id,
         )
 
         if result.get("status") == "success":
-            # Also broadcast as living_ui_create so the sidebar updates
+            # The project already exists as a tab (placeholder adopted) — flip
+            # it to running so the iframe loads.
             await self._broadcast(
                 {
-                    "type": "living_ui_create",
+                    "type": "living_ui_ready",
                     "data": {
-                        "success": True,
-                        "projectId": result["project"]["id"],
-                        "project": result["project"],
+                        "projectId": project_id,
+                        "url": result.get("url"),
+                        "port": result["project"].get("port"),
+                    },
+                }
+            )
+
+            # Mirror the install into chat as a system message so the request
+            # is visible in the conversation (not just the new tab).
+            body = f"{app_description}\n\n" if app_description else ""
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {app_name}**\n\n{body}"
+                    "Installed from the marketplace — open it in the new tab.",
+                    "system",
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] marketplace chat message failed: {e}")
+        else:
+            # Install failed — surface the error on the spawned tab.
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": project_id,
+                        "error": result.get("error", "Marketplace install failed"),
                     },
                 }
             )
@@ -5938,7 +6430,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         await self._broadcast(
             {
                 "type": "living_ui_marketplace_install",
-                "data": {**result, "appId": app_id},
+                "data": {**result, "projectId": project_id, "appId": app_id},
             }
         )
 
@@ -5949,13 +6441,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         is_zip = source.lower().endswith(".zip")
 
+        # Spawn a placeholder tab immediately so the user sees the import is
+        # underway (mirrors the form-create flow). The importer skill adopts
+        # this project_id so the same tab transitions to the running app.
+        placeholder = self._living_ui_manager.create_placeholder_project(name)
+        project_id = placeholder.id
+        await self.broadcast_living_ui_created(placeholder.to_dict())
+        await self._broadcast(
+            {
+                "type": "living_ui_status",
+                "data": {
+                    "projectId": project_id,
+                    "phase": "initializing",
+                    "progress": 10,
+                    "message": "Importing project...",
+                },
+            }
+        )
+
+        adopt_note = (
+            f"A tab has already been created for this import with "
+            f'project_id="{project_id}". You MUST pass project_id="{project_id}" '
+            f"to the import action so it populates that existing tab instead of "
+            f"creating a duplicate.\n\n"
+        )
+
         if is_zip:
             task_instruction = (
                 f"Import this Living UI project from a ZIP file:\n"
                 f"ZIP path: {source}\n"
                 f"Name: {name}\n\n"
+                f"{adopt_note}"
                 f"Steps:\n"
-                f"1. Call living_ui_import_zip to extract and register the project\n"
+                f'1. Call living_ui_import_zip (project_id="{project_id}") to extract and register the project\n'
                 f"2. Review the project structure and manifest\n"
                 f"3. Install dependencies if needed\n"
                 f"4. Launch the app and verify it works\n"
@@ -5966,11 +6484,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 f"Import this external app as a Living UI:\n"
                 f"Source: {source}\n"
                 f"Name: {name}\n\n"
+                f"{adopt_note}"
                 f"Follow the living-ui-importer skill instructions:\n"
                 f"1. Clone/copy the source code\n"
                 f"2. Detect the app type (Go, Node, Python, etc.) — NEVER use Docker if native build is possible\n"
                 f"3. Determine build/install command, start command, port config, and health check\n"
-                f"4. Call living_ui_import_external with the detected configuration\n"
+                f'4. Call living_ui_import_external with the detected configuration and project_id="{project_id}"\n'
                 f"5. Launch the app and verify it works\n"
                 f"6. Create LIVING_UI.md documenting the app"
             )
@@ -5987,6 +6506,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             from app.trigger import Trigger
             import time
 
+            # Link the task to the placeholder so question-mirroring and todo
+            # broadcasts (keyed by task id) target this tab.
+            self._living_ui_manager.set_project_task(project_id, task_id)
+
             trigger = Trigger(
                 fire_at=time.time(),
                 priority=50,
@@ -5995,6 +6518,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 payload={"type": "living_ui_import", "source": source},
             )
             await self._controller.agent.triggers.put(trigger)
+        else:
+            # Couldn't create the task — don't leave a stuck "creating" tab.
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {
+                        "projectId": project_id,
+                        "error": "Failed to create import task",
+                    },
+                }
+            )
+
+        # Mirror the import into chat as a system message so the request is
+        # visible in the conversation (not just the new tab).
+        origin = "uploaded ZIP file" if is_zip else source
+        try:
+            await self._display_chat_message(
+                "System",
+                f"**Living UI: {name}**\n\nImporting from {origin}.\n\n"
+                "Setting up your app now — track progress in the new tab.",
+                "system",
+            )
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] import chat message failed: {e}")
 
         await self._broadcast(
             {
@@ -7452,10 +7999,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         from app.ui_layer.settings.general_settings import (
-            AGENT_PROFILE_DIR,
-            AGENT_PROFILE_DEFAULT_FILENAME,
             EXT_TO_MIME,
             _user_profile_picture_path,
+            get_default_picture_path,
         )
         from app.onboarding import onboarding_manager
 
@@ -7470,10 +8016,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 mime_type = EXT_TO_MIME.get(ext.lower(), "application/octet-stream")
 
         if target is None:
-            default_path = AGENT_PROFILE_DIR / AGENT_PROFILE_DEFAULT_FILENAME
-            if default_path.exists():
-                target = default_path
-                mime_type = "image/png"
+            # Falls back to the bundled default (sys._MEIPASS) when the per-user
+            # data dir lacks it — e.g. the packaged macOS app (issue #254).
+            target = get_default_picture_path()
+            mime_type = "image/png"
 
         if target is None:
             raise web.HTTPNotFound(reason="Avatar not available")

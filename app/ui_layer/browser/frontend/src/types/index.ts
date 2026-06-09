@@ -150,6 +150,7 @@ export type WSMessageType =
   | 'living_ui_delete'
   | 'living_ui_state_update'
   | 'living_ui_data_changed'
+  | 'living_ui_question'
   | 'living_ui_error'
 
 export interface WSMessage {
@@ -308,6 +309,13 @@ export interface ModelMetrics {
   modelName: string
 }
 
+export interface IntegrationMetrics {
+  totalIntegrations: number
+  connectedIntegrations: number
+  totalCalls: number
+  topIntegrations: UsageCount[]
+}
+
 export interface DashboardMetrics {
   uptimeSeconds: number
   timestamp: number
@@ -319,6 +327,7 @@ export interface DashboardMetrics {
   usage: UsageMetrics
   mcp: MCPMetrics
   skill: SkillMetrics
+  integration: IntegrationMetrics
   model: ModelMetrics
 }
 
@@ -688,7 +697,10 @@ export interface OnboardingCompleteResponse {
 // Living UI Types
 // ─────────────────────────────────────────────────────────────────────
 
-export type LivingUIStatus = 'creating' | 'ready' | 'running' | 'stopped' | 'error'
+// 'launching'/'stopping' are optimistic transient states set on the client the
+// moment the user clicks launch/stop, so the UI reacts immediately (the backend
+// only reports the terminal 'running'/'stopped'/'error').
+export type LivingUIStatus = 'creating' | 'launching' | 'ready' | 'running' | 'stopping' | 'stopped' | 'error'
 export type LivingUICreationPhase = 'initializing' | 'scaffolding' | 'coding' | 'testing' | 'building' | 'launching'
 
 export interface LivingUIProject {

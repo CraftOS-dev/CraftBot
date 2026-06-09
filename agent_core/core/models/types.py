@@ -16,8 +16,12 @@ class InterfaceType(str, Enum):
     - LLM: Language model for text generation
     - VLM: Vision-language model for image understanding
     - EMBEDDING: Embedding model for vector representations
+    - IMAGE_GEN: Text-to-image generation
+    - VIDEO_GEN: Text-to-video / image-to-video generation
     """
 
     LLM = "llm"
     VLM = "vlm"
     EMBEDDING = "embedding"
+    IMAGE_GEN = "image_gen"
+    VIDEO_GEN = "video_gen"

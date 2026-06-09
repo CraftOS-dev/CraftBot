@@ -29,6 +29,12 @@ class SchedulerManager:
     Fires triggers into the TriggerQueue when schedules are due.
     """
 
+    # A one-time task firing more than this many seconds after its scheduled
+    # time is treated as a "catch-up" (it became overdue while CraftBot was
+    # offline) and the executing agent is given staleness context so it can
+    # decide whether to proceed, confirm with the user, or skip.
+    CATCHUP_THRESHOLD_SECONDS = 120
+
     def __init__(self):
         self._schedules: Dict[str, ScheduledTask] = {}
         self._scheduler_tasks: Dict[str, asyncio.Task] = {}
@@ -543,12 +549,14 @@ class SchedulerManager:
             )
             return
 
+        now = time.time()
+
         # Update runtime state
-        schedule.last_run = time.time()
+        schedule.last_run = now
         schedule.run_count += 1
 
         # Create unique session ID for this run
-        session_id = f"scheduled_{schedule.id}_{int(time.time())}"
+        session_id = f"scheduled_{schedule.id}_{int(now)}"
 
         # Build trigger payload
         payload = {
@@ -562,11 +570,59 @@ class SchedulerManager:
             **schedule.payload,  # Merge custom payload
         }
 
+        description = f"[Scheduled] {schedule.name}: {schedule.instruction}"
+
+        # Catch-up handling: a one-time task can become overdue while CraftBot is
+        # offline. Rather than apply a hard drop/fire cutoff, fire it but hand
+        # the executing agent the staleness context so it can use judgment —
+        # proceed if only slightly late, otherwise confirm with the user or skip
+        # if no longer relevant.
+        if (
+            schedule.schedule.schedule_type == "once"
+            and schedule.schedule.fire_at is not None
+        ):
+            overdue = now - schedule.schedule.fire_at
+            if overdue > self.CATCHUP_THRESHOLD_SECONDS:
+                scheduled_for = datetime.fromtimestamp(
+                    schedule.schedule.fire_at
+                ).strftime("%Y-%m-%d %H:%M:%S")
+                overdue_human = self._format_duration(overdue)
+                catch_up_note = (
+                    f"NOTE: This one-time task was scheduled for {scheduled_for} "
+                    f"but is running about {overdue_human} late because CraftBot "
+                    f"was offline at the scheduled time. Use your judgment: if it "
+                    f"is only slightly late and still relevant, carry it out "
+                    f"normally. If it is significantly late, or the action is "
+                    f"time-sensitive or irreversible (e.g. sending a message or "
+                    f"email), confirm with the user before proceeding, or skip it "
+                    f"if it is no longer relevant."
+                )
+                payload["is_catch_up"] = True
+                payload["overdue_seconds"] = overdue
+                payload["originally_scheduled_for"] = scheduled_for
+                payload["catch_up_note"] = catch_up_note
+                description = f"{description}\n\n{catch_up_note}"
+                logger.info(
+                    f"[SCHEDULER] One-time task {schedule.id} is overdue by "
+                    f"{overdue_human}; firing as catch-up with agent-judgment note"
+                )
+
+        # One-time tasks: remove from the persisted config BEFORE enqueueing so a
+        # crash/restart between firing and removal can never re-fire them. The
+        # in-memory trigger queue is not persisted, so once it's enqueued the
+        # config entry is no longer needed.
+        if not schedule.recurring:
+            self._schedules.pop(schedule.id, None)
+            self._save_config()
+            logger.info(
+                f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
+            )
+
         # Create trigger
         trigger = Trigger(
-            fire_at=time.time(),
+            fire_at=now,
             priority=schedule.priority,
-            next_action_description=f"[Scheduled] {schedule.name}: {schedule.instruction}",
+            next_action_description=description,
             payload=payload,
             session_id=session_id,
         )
@@ -579,15 +635,23 @@ class SchedulerManager:
             f"(run #{schedule.run_count})"
         )
 
-        # Auto-remove non-recurring (immediate) tasks after firing
-        if not schedule.recurring:
-            logger.info(f"[SCHEDULER] One-time task fired, removing: {schedule.id}")
-            asyncio.create_task(self._remove_after_fire(schedule.id))
-
-    async def _remove_after_fire(self, schedule_id: str) -> None:
-        """Remove a one-time schedule after it has fired."""
-        await asyncio.sleep(1)  # Brief delay to ensure trigger is processed
-        self.remove_schedule(schedule_id)
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Format a duration in seconds into a short human-readable string."""
+        seconds = int(seconds)
+        if seconds < 60:
+            unit = "second"
+            value = seconds
+        elif seconds < 3600:
+            unit = "minute"
+            value = seconds // 60
+        elif seconds < 86400:
+            unit = "hour"
+            value = seconds // 3600
+        else:
+            unit = "day"
+            value = seconds // 86400
+        return f"{value} {unit}{'s' if value != 1 else ''}"
 
     def _load_config(self) -> SchedulerConfig:
         """Load configuration from file."""
@@ -610,7 +674,27 @@ class SchedulerManager:
                 expression = schedule_data.get("schedule", "")
                 parsed_schedule = ScheduleParser.parse(expression)
 
+                # One-time tasks: restore the persisted absolute fire time
+                # instead of re-anchoring the raw expression to "now". Re-parsing
+                # "in 10 minutes" on every restart pushed the fire time forward,
+                # delaying the task indefinitely across restarts.
+                if parsed_schedule.schedule_type == "once":
+                    stored_fire_at = schedule_data.get("fire_at")
+                    if stored_fire_at is not None:
+                        parsed_schedule.fire_at = stored_fire_at
+
                 task = ScheduledTask.from_dict(schedule_data, parsed_schedule)
+
+                # Skip one-time tasks that already fired in a previous run but
+                # weren't removed before a crash/restart. Prevents the task from
+                # being executed (e.g. an email sent) a second time.
+                if not task.recurring and task.run_count > 0:
+                    logger.info(
+                        f"[SCHEDULER] Skipping already-fired one-time task: "
+                        f"{task.id} - {task.name}"
+                    )
+                    continue
+
                 task.next_run = ScheduleParser.calculate_next_fire_time(task.schedule)
                 schedules.append(task)
 

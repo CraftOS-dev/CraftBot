@@ -249,6 +249,40 @@
   cursor: not-allowed;
 }
 
+.completeButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-success);
+}
+
+.completeButton:hover:not(:disabled) {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.completeButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.resumeButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-success);
+}
+
+.resumeButton:hover:not(:disabled) {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.resumeButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .detailContent {
   flex: 1;
   overflow-y: auto;

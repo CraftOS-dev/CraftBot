@@ -12,9 +12,9 @@ beautifulsoup4
 chardet
 lxml
 lxml_html_clean
-openai>=1.0.0
+openai>=2.0.0
 google-genai>=1.0.0
-anthropic>=0.25.0
+anthropic>=0.97.0
 chromadb
 onnxruntime
 tiktoken

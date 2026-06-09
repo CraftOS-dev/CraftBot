@@ -9,6 +9,49 @@ without requiring the user to navigate to settings in browser or terminal.
 from agent_core import action
 
 
+# Common aliases the agent/user might use → canonical registered integration id.
+# Google Workspace apps in particular are frequently referred to by short names
+# or lumped under "google", which is not itself an integration.
+_INTEGRATION_ALIASES = {
+    "mail": "gmail",
+    "googlemail": "gmail",
+    "google mail": "gmail",
+    "drive": "google_drive",
+    "gdrive": "google_drive",
+    "googledrive": "google_drive",
+    "google drive": "google_drive",
+    "docs": "google_docs",
+    "gdocs": "google_docs",
+    "googledocs": "google_docs",
+    "google docs": "google_docs",
+    "google_doc": "google_docs",
+    "calendar": "google_calendar",
+    "gcal": "google_calendar",
+    "gcalendar": "google_calendar",
+    "google calendar": "google_calendar",
+    "youtube": "google_youtube",
+}
+
+# Umbrella terms that aren't a single integration — Google Workspace apps are
+# tracked individually, so callers must check the specific app.
+_GOOGLE_UMBRELLA = {
+    "google",
+    "google workspace",
+    "google_workspace",
+    "workspace",
+    "gsuite",
+    "g suite",
+    "google suite",
+}
+_GOOGLE_FAMILY = (
+    "gmail",
+    "google_drive",
+    "google_docs",
+    "google_calendar",
+    "google_youtube",
+)
+
+
 @action(
     name="list_available_integrations",
     description=(
@@ -93,8 +136,11 @@ def list_available_integrations(input_data: dict) -> dict:
         "integration_id": {
             "type": "string",
             "description": (
-                "The integration to connect. Valid values: slack, discord, telegram, "
-                "whatsapp, whatsapp_business, google, notion, linkedin."
+                "The integration to connect, using its exact id. Valid values: slack, "
+                "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, and "
+                "the Google Workspace apps as SEPARATE ids — gmail, google_drive, "
+                "google_docs, google_calendar, google_youtube (there is no single "
+                "'google' integration). Call list_available_integrations if unsure."
             ),
             "example": "telegram",
         },
@@ -162,6 +208,7 @@ def connect_integration(input_data: dict) -> dict:
         return {"status": "success", "message": "Simulated mode", "auth_type": "token"}
 
     integration_id = input_data.get("integration_id", "").strip().lower()
+    integration_id = _INTEGRATION_ALIASES.get(integration_id, integration_id)
     credentials = input_data.get("credentials", {}) or {}
     auth_method = input_data.get("auth_method", "").strip().lower()
 
@@ -378,8 +425,14 @@ def connect_integration(input_data: dict) -> dict:
     input_schema={
         "integration_id": {
             "type": "string",
-            "description": "The integration to check status for.",
-            "example": "telegram",
+            "description": (
+                "The integration to check status for, using its exact id. Google "
+                "Workspace apps are SEPARATE integrations — use 'gmail', "
+                "'google_drive', 'google_docs', 'google_calendar', or "
+                "'google_youtube', NOT 'google'. Call list_available_integrations "
+                "if unsure of the exact id."
+            ),
+            "example": "gmail",
         },
         "session_id": {
             "type": "string",
@@ -427,6 +480,25 @@ def check_integration_status(input_data: dict) -> dict:
     if not integration_id:
         return {"status": "error", "message": "integration_id is required."}
 
+    # Normalize common aliases (e.g. 'gdrive' → 'google_drive').
+    integration_id = _INTEGRATION_ALIASES.get(integration_id, integration_id)
+
+    # 'google' / 'google workspace' is not a single integration — the Workspace
+    # apps are tracked separately. Guide the caller to the specific app instead
+    # of failing with a bare "unknown integration".
+    if integration_id in _GOOGLE_UMBRELLA:
+        return {
+            "status": "error",
+            "connected": False,
+            "accounts": [],
+            "message": (
+                "'google' is not a single integration — Google Workspace apps are "
+                "tracked separately. Check the specific app instead: "
+                + ", ".join(_GOOGLE_FAMILY)
+                + "."
+            ),
+        }
+
     try:
         # If a session_id is provided, check WhatsApp QR session status
         if session_id and integration_id == "whatsapp":
@@ -456,11 +528,22 @@ def check_integration_status(input_data: dict) -> dict:
 
         info = get_integration_info(integration_id)
         if not info:
+            # List the valid ids so the agent can self-correct instead of
+            # repeating an invalid guess.
+            try:
+                from craftos_integrations import list_all
+
+                valid = ", ".join(sorted(list_all()))
+            except Exception:
+                valid = ""
+            message = f"Unknown integration: '{integration_id}'."
+            if valid:
+                message += f" Valid integrations: {valid}."
             return {
                 "status": "error",
                 "connected": False,
                 "accounts": [],
-                "message": f"Unknown integration: '{integration_id}'.",
+                "message": message,
             }
 
         return {
@@ -526,6 +609,7 @@ def disconnect_integration(input_data: dict) -> dict:
         return {"status": "success", "message": "Simulated mode"}
 
     integration_id = input_data.get("integration_id", "").strip().lower()
+    integration_id = _INTEGRATION_ALIASES.get(integration_id, integration_id)
     account_id = input_data.get("account_id", "").strip() or None
 
     if not integration_id:

@@ -55,6 +55,20 @@ def get_all_clients() -> Dict[str, BasePlatformClient]:
     return dict(_client_instances)
 
 
+def invalidate_client(platform_id: str) -> None:
+    """Drop the cached client singleton so the next get_client() rebuilds it.
+
+    Client instances cache the account credential in memory (e.g. the Google
+    mixin's ``_cred``). When an account is connected/disconnected at runtime the
+    credential file on disk changes, but the live instance keeps serving the old
+    account — so integration actions hit the wrong account until the agent is
+    restarted. Dropping the instance here forces a fresh build (and a fresh
+    credential read from disk) on next use, mirroring what a restart does.
+    See issue #314.
+    """
+    _client_instances.pop(platform_id, None)
+
+
 def get_registered_platforms() -> List[str]:
     return list(_client_classes.keys())
 
