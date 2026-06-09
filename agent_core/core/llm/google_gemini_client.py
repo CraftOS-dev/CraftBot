@@ -403,7 +403,7 @@ class GeminiClient:
         url = self._endpoint(cache_id)
         response = requests.delete(
             url,
-            params={"key": self._api_key},
+            headers={"x-goog-api-key": self._api_key},
             timeout=self._timeout,
         )
         response.raise_for_status()
@@ -631,6 +631,156 @@ class GeminiClient:
         }
 
     # ------------------------------------------------------------------
+    # Veo video generation (long-running operation)
+    # ------------------------------------------------------------------
+    def generate_video(
+        self,
+        model: str,
+        *,
+        prompt: str,
+        negative_prompt: Optional[str] = None,
+        image: Optional[tuple] = None,
+        last_frame: Optional[tuple] = None,
+        reference_images: Optional[List[tuple]] = None,
+        aspect_ratio: Optional[str] = None,
+        duration_seconds: Optional[str] = None,
+        resolution: Optional[str] = None,
+        person_generation: Optional[str] = None,
+        number_of_videos: Optional[int] = None,
+        seed: Optional[int] = None,
+        generate_audio: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Kick off a Veo video generation as a long-running operation.
+
+        Args:
+            model: Veo model identifier (e.g. ``veo-3.1-generate-preview``).
+            prompt: Text description of the video to generate.
+            negative_prompt: Optional text describing what to avoid.
+            image: Optional ``(bytes, mime_type)`` start-frame for image-to-video.
+            last_frame: Optional ``(bytes, mime_type)`` end-frame for frame
+                interpolation (Veo 3.1+).
+            reference_images: Optional list of ``(bytes, mime_type)`` reference
+                frames for style guidance (up to 3, Veo 3.1+).
+            aspect_ratio: ``"16:9"`` or ``"9:16"``.
+            duration_seconds: Duration as an INTEGER. Veo 3 accepts ``4`` /
+                ``6`` / ``8``; 1080p+/refs require ``8``. (Earlier docs showed
+                a string, but the live ``veo-3.1-generate-preview`` model
+                rejects strings with 400 INVALID_ARGUMENT.)
+            resolution: ``"720p"`` / ``"1080p"`` / ``"4k"`` (4k unavailable on Lite).
+            person_generation: ``"allow_all"`` / ``"allow_adult"`` / ``"dont_allow"``.
+                ``allow_all`` is geo-restricted (EU/UK/CH/MENA).
+            number_of_videos: Number of videos to generate (typically 1–4).
+            seed: Optional deterministic seed.
+            generate_audio: Whether to generate synchronized native audio.
+                Default behavior is provider-decided; set explicitly to control.
+
+        Returns:
+            Dict with the long-running operation ``{"name": "operations/..."}``.
+            Pass the returned name to :meth:`poll_video_operation` to wait for
+            completion.
+        """
+        instance: Dict[str, Any] = {"prompt": prompt}
+        if image is not None:
+            data, mime = image
+            instance["image"] = {
+                "bytesBase64Encoded": base64.b64encode(data).decode("utf-8"),
+                "mimeType": mime or "image/png",
+            }
+        if last_frame is not None:
+            data, mime = last_frame
+            instance["lastFrame"] = {
+                "bytesBase64Encoded": base64.b64encode(data).decode("utf-8"),
+                "mimeType": mime or "image/png",
+            }
+        if reference_images:
+            instance["referenceImages"] = [
+                {
+                    "image": {
+                        "bytesBase64Encoded": base64.b64encode(data).decode("utf-8"),
+                        "mimeType": mime or "image/png",
+                    }
+                }
+                for data, mime in reference_images
+            ]
+
+        parameters: Dict[str, Any] = {}
+        if aspect_ratio is not None:
+            parameters["aspectRatio"] = aspect_ratio
+        if duration_seconds is not None:
+            # Veo expects an integer; passing a string yields
+            # 400 INVALID_ARGUMENT ("durationSeconds needs to be a number").
+            parameters["durationSeconds"] = int(duration_seconds)
+        if resolution is not None:
+            parameters["resolution"] = resolution
+        if person_generation is not None:
+            parameters["personGeneration"] = person_generation
+        # numberOfVideos is rejected outright by some Veo variants (e.g.
+        # veo-3.1-generate-preview). Only include it when the caller asked
+        # for more than one — single-video requests omit the field.
+        if number_of_videos is not None and number_of_videos > 1:
+            parameters["numberOfVideos"] = number_of_videos
+        if seed is not None:
+            parameters["seed"] = seed
+        if negative_prompt:
+            parameters["negativePrompt"] = negative_prompt
+        if generate_audio is not None:
+            parameters["generateAudio"] = generate_audio
+
+        payload: Dict[str, Any] = {"instances": [instance]}
+        if parameters:
+            payload["parameters"] = parameters
+
+        return self._post_json(
+            f"{_normalise_model_name(model)}:predictLongRunning", payload
+        )
+
+    def poll_video_operation(self, operation_name: str) -> Dict[str, Any]:
+        """Poll a Veo long-running operation. Returns the raw operation JSON.
+
+        The caller should check ``response["done"]`` and, when true, extract
+        ``response["response"]["generateVideoResponse"]["generatedSamples"]``
+        for the resulting video URIs.
+        """
+        path = operation_name.lstrip("/")
+        if path.startswith(f"{self._api_version}/"):
+            path = path[len(f"{self._api_version}/"):]
+        url = self._endpoint(path)
+        response = requests.get(
+            url,
+            headers={"x-goog-api-key": self._api_key},
+            timeout=self._timeout,
+        )
+        if not response.ok:
+            try:
+                logger.warning(
+                    f"[GEMINI ERROR] Veo poll status={response.status_code} body={response.json()}"
+                )
+            except Exception:
+                logger.warning(
+                    f"[GEMINI ERROR] Veo poll status={response.status_code} text={response.text[:1000]}"
+                )
+        response.raise_for_status()
+        return response.json()
+
+    def download_video(self, video_uri: str, *, timeout: int = 120) -> bytes:
+        """Download a Veo signed video URI as raw MP4 bytes.
+
+        Veo returns a URI on the ``generativelanguage.googleapis.com`` host
+        that requires the API key. Sent via the ``x-goog-api-key`` header so
+        the key never appears in the URL — otherwise it would leak through
+        ``HTTPError`` messages (which include the request URL) and any
+        request/response logging.
+        """
+        response = requests.get(
+            video_uri,
+            headers={"x-goog-api-key": self._api_key},
+            timeout=timeout,
+            stream=False,
+        )
+        response.raise_for_status()
+        return response.content
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
     def _endpoint(self, path: str) -> str:
@@ -641,7 +791,7 @@ class GeminiClient:
         """Send POST request and return JSON response."""
         response = requests.post(
             self._endpoint(path),
-            params={"key": self._api_key},
+            headers={"x-goog-api-key": self._api_key},
             json=payload,
             timeout=self._timeout,
         )
