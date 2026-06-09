@@ -193,6 +193,7 @@ AGENT_PROFILE_PROMPT = """
 
 ENVIRONMENTAL_CONTEXT_PROMPT = """
 <agent_environment>
+- Current Date/Time: {current_datetime}
 - User Location: {user_location}
 - Current Working Directory: {working_directory}
 - Operating System: {operating_system} {os_version} ({os_platform})
