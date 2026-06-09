@@ -771,7 +771,8 @@ class GeminiClient:
         """
         sep = "&" if "?" in video_uri else "?"
         response = requests.get(
-            f"{video_uri}{sep}key={self._api_key}",
+            video_uri,
+            params={"key": self._api_key},
             timeout=timeout,
             stream=False,
         )

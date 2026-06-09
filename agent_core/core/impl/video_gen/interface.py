@@ -368,9 +368,7 @@ class VideoGenInterface:
             except RuntimeError:
                 # No running loop in this thread — drop usage event with a warning
                 # rather than breaking generation (matches VLM/ImageGen behaviour).
-                logger.warning(
-                    "[VIDEO_GEN] No running event loop; usage event dropped."
-                )
+                asyncio.run(self._report_usage(event))
         except Exception as e:
             logger.warning(f"[VIDEO_GEN] Failed to report usage: {e}")
 
@@ -676,7 +674,12 @@ class VideoGenInterface:
                 raise RuntimeError(
                     f"OpenAI Sora job ended with status={status}: {error_msg}"
                 )
+            if status not in (None, "pending", "queued", "processing", "running"):
+                raise RuntimeError(
+                    f"OpenAI Sora job {video_id} returned unexpected status: {status!r}"
+                )
 
+            logger.debug(f"[VIDEO_GEN] Sora job {video_id} status={status!r}; retrying in {delay:.1f}s")
             if time.monotonic() >= deadline:
                 raise RuntimeError(
                     f"OpenAI Sora job {video_id} did not complete within "
