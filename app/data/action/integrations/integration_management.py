@@ -9,47 +9,10 @@ without requiring the user to navigate to settings in browser or terminal.
 from agent_core import action
 
 
-# Common aliases the agent/user might use → canonical registered integration id.
-# Google Workspace apps in particular are frequently referred to by short names
-# or lumped under "google", which is not itself an integration.
-_INTEGRATION_ALIASES = {
-    "mail": "gmail",
-    "googlemail": "gmail",
-    "google mail": "gmail",
-    "drive": "google_drive",
-    "gdrive": "google_drive",
-    "googledrive": "google_drive",
-    "google drive": "google_drive",
-    "docs": "google_docs",
-    "gdocs": "google_docs",
-    "googledocs": "google_docs",
-    "google docs": "google_docs",
-    "google_doc": "google_docs",
-    "calendar": "google_calendar",
-    "gcal": "google_calendar",
-    "gcalendar": "google_calendar",
-    "google calendar": "google_calendar",
-    "youtube": "google_youtube",
-}
-
-# Umbrella terms that aren't a single integration — Google Workspace apps are
-# tracked individually, so callers must check the specific app.
-_GOOGLE_UMBRELLA = {
-    "google",
-    "google workspace",
-    "google_workspace",
-    "workspace",
-    "gsuite",
-    "g suite",
-    "google suite",
-}
-_GOOGLE_FAMILY = (
-    "gmail",
-    "google_drive",
-    "google_docs",
-    "google_calendar",
-    "google_youtube",
-)
+# NOTE: integration alias/umbrella constants live in
+# app.data.action.integrations._helpers and are imported INSIDE each handler.
+# Action handlers run via exec() on their own extracted source, so module-level
+# names defined here would NOT be in scope at runtime (NameError).
 
 
 @action(
@@ -207,8 +170,10 @@ def connect_integration(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
         return {"status": "success", "message": "Simulated mode", "auth_type": "token"}
 
+    from app.data.action.integrations._helpers import normalize_integration_id
+
     integration_id = input_data.get("integration_id", "").strip().lower()
-    integration_id = _INTEGRATION_ALIASES.get(integration_id, integration_id)
+    integration_id = normalize_integration_id(integration_id)
     credentials = input_data.get("credentials", {}) or {}
     auth_method = input_data.get("auth_method", "").strip().lower()
 
@@ -474,6 +439,12 @@ def check_integration_status(input_data: dict) -> dict:
             "message": "Simulated",
         }
 
+    from app.data.action.integrations._helpers import (
+        GOOGLE_FAMILY,
+        GOOGLE_UMBRELLA,
+        normalize_integration_id,
+    )
+
     integration_id = input_data.get("integration_id", "").strip().lower()
     session_id = input_data.get("session_id", "").strip()
 
@@ -481,12 +452,12 @@ def check_integration_status(input_data: dict) -> dict:
         return {"status": "error", "message": "integration_id is required."}
 
     # Normalize common aliases (e.g. 'gdrive' → 'google_drive').
-    integration_id = _INTEGRATION_ALIASES.get(integration_id, integration_id)
+    integration_id = normalize_integration_id(integration_id)
 
     # 'google' / 'google workspace' is not a single integration — the Workspace
     # apps are tracked separately. Guide the caller to the specific app instead
     # of failing with a bare "unknown integration".
-    if integration_id in _GOOGLE_UMBRELLA:
+    if integration_id in GOOGLE_UMBRELLA:
         return {
             "status": "error",
             "connected": False,
@@ -494,7 +465,7 @@ def check_integration_status(input_data: dict) -> dict:
             "message": (
                 "'google' is not a single integration — Google Workspace apps are "
                 "tracked separately. Check the specific app instead: "
-                + ", ".join(_GOOGLE_FAMILY)
+                + ", ".join(GOOGLE_FAMILY)
                 + "."
             ),
         }
@@ -608,8 +579,10 @@ def disconnect_integration(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
         return {"status": "success", "message": "Simulated mode"}
 
+    from app.data.action.integrations._helpers import normalize_integration_id
+
     integration_id = input_data.get("integration_id", "").strip().lower()
-    integration_id = _INTEGRATION_ALIASES.get(integration_id, integration_id)
+    integration_id = normalize_integration_id(integration_id)
     account_id = input_data.get("account_id", "").strip() or None
 
     if not integration_id:
