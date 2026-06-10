@@ -16,7 +16,7 @@
 .running,
 .thinking,
 .working {
-  color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .completed {
