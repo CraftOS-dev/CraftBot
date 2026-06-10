@@ -14,9 +14,8 @@ from agent_core import action
         "For tasks that require text reflow (rephrasing paragraphs, inserting new sections, "
         "reformatting layout): use create_pdf to rebuild the document with changes applied — "
         "the user receives the same output path with a clean result. "
-        "When editing a PDF created by create_pdf, use the theme_used value from that call "
-        "to pick matching accent colours: default=#4f46e5, corporate=#0078d4, "
-        "minimal=#505050, warm=#b45309, forest=#16a34a. "
+        "When editing a PDF created by create_pdf, match the accent colour to "
+        "FORMAT.md's highlight value (default #FF4F18) to align with the document style. "
         "Use absolute paths only."
     ),
     mode="CLI",
@@ -586,10 +585,11 @@ def edit_pdf_file(input_data: dict) -> dict:
 
                 # ── fill_field (AcroForm via pypdf) ───────────────────────
                 elif op_type == "fill_field":
-                    # Defer all fill_field ops to after PyMuPDF saves
-                    # (pypdf needs to open the saved file)
-                    # We flag these for post-processing below
-                    pass  # handled in post-processing step
+                    # Validate shape up-front so missing field_name is caught
+                    # immediately, even if post-processing later fails wholesale.
+                    if not str(op.get("field_name", "")).strip():
+                        warnings.append(f"{op_tag}: 'field_name' is required.")
+                    # Actual fill is deferred — see post-processing block below.
 
                 else:
                     warnings.append(f"{op_tag}: unknown operation type '{op_type}'.")
@@ -610,36 +610,56 @@ def edit_pdf_file(input_data: dict) -> dict:
 
         # ── Post-process: AcroForm fill_field via pypdf ───────────────────
         acroform_ops = [
-            op for op in operations if str(op.get("type", "")).lower() == "fill_field"
+            (j, op)
+            for j, op in enumerate(operations)
+            if str(op.get("type", "")).lower() == "fill_field"
         ]
         if acroform_ops:
+            # Step 1: open the saved file — failure here means all fill_field
+            # ops failed for the same upstream reason, warn per-op.
             try:
                 reader = pypdf.PdfReader(abs_output)
                 writer = pypdf.PdfWriter()
                 writer.append(reader)
                 existing_fields = reader.get_fields() or {}
-                for op in acroform_ops:
-                    op_tag = "op[fill_field]"
-                    field_name = str(op.get("field_name", ""))
+            except Exception as e:
+                for j, op in acroform_ops:
+                    op_tag = f"op[{j}] 'fill_field'"
+                    warnings.append(
+                        f"{op_tag}: could not open PDF for AcroForm processing: "
+                        f"{type(e).__name__}: {e}."
+                    )
+            else:
+                # Step 2: apply each fill_field op individually so failures
+                # are isolated — one bad field does not block the others.
+                for j, op in acroform_ops:
+                    op_tag = f"op[{j}] 'fill_field'"
+                    field_name = str(op.get("field_name", "")).strip()
                     value = str(op.get("value", ""))
                     if not field_name:
-                        warnings.append(f"{op_tag}: 'field_name' is required.")
-                        continue
+                        continue  # already warned in main loop validation
                     if field_name not in existing_fields:
                         warnings.append(
                             f"{op_tag}: field '{field_name}' not found in AcroForm. "
-                            f"Available fields: {list(existing_fields.keys())[:10]}."
+                            f"Available: {list(existing_fields.keys())[:10]}."
                         )
                         continue
-                    for page_obj in writer.pages:
-                        writer.update_page_form_field_values(
-                            page_obj, {field_name: value}
-                        )
-                    ops_done += 1
-                with open(abs_output, "wb") as f:
-                    writer.write(f)
-            except Exception as e:
-                warnings.append(f"AcroForm fill failed: {type(e).__name__}: {e}.")
+                    try:
+                        for page_obj in writer.pages:
+                            writer.update_page_form_field_values(
+                                page_obj, {field_name: value}
+                            )
+                        ops_done += 1
+                    except Exception as e:
+                        warnings.append(f"{op_tag}: {type(e).__name__}: {e}.")
+
+                # Step 3: write result — isolated so a disk failure does not
+                # hide which fields were successfully processed.
+                try:
+                    with open(abs_output, "wb") as f:
+                        writer.write(f)
+                except Exception as e:
+                    warnings.append(f"AcroForm write failed: {type(e).__name__}: {e}.")
 
         return _json(
             "success",

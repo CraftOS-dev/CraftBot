@@ -9,6 +9,12 @@ without requiring the user to navigate to settings in browser or terminal.
 from agent_core import action
 
 
+# NOTE: integration alias/umbrella constants live in
+# app.data.action.integrations._helpers and are imported INSIDE each handler.
+# Action handlers run via exec() on their own extracted source, so module-level
+# names defined here would NOT be in scope at runtime (NameError).
+
+
 @action(
     name="list_available_integrations",
     description=(
@@ -93,8 +99,11 @@ def list_available_integrations(input_data: dict) -> dict:
         "integration_id": {
             "type": "string",
             "description": (
-                "The integration to connect. Valid values: slack, discord, telegram, "
-                "whatsapp, whatsapp_business, google, notion, linkedin."
+                "The integration to connect, using its exact id. Valid values: slack, "
+                "discord, telegram, whatsapp, whatsapp_business, notion, linkedin, and "
+                "the Google Workspace apps as SEPARATE ids — gmail, google_drive, "
+                "google_docs, google_calendar, google_youtube (there is no single "
+                "'google' integration). Call list_available_integrations if unsure."
             ),
             "example": "telegram",
         },
@@ -161,7 +170,10 @@ def connect_integration(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
         return {"status": "success", "message": "Simulated mode", "auth_type": "token"}
 
+    from app.data.action.integrations._helpers import normalize_integration_id
+
     integration_id = input_data.get("integration_id", "").strip().lower()
+    integration_id = normalize_integration_id(integration_id)
     credentials = input_data.get("credentials", {}) or {}
     auth_method = input_data.get("auth_method", "").strip().lower()
 
@@ -378,8 +390,14 @@ def connect_integration(input_data: dict) -> dict:
     input_schema={
         "integration_id": {
             "type": "string",
-            "description": "The integration to check status for.",
-            "example": "telegram",
+            "description": (
+                "The integration to check status for, using its exact id. Google "
+                "Workspace apps are SEPARATE integrations — use 'gmail', "
+                "'google_drive', 'google_docs', 'google_calendar', or "
+                "'google_youtube', NOT 'google'. Call list_available_integrations "
+                "if unsure of the exact id."
+            ),
+            "example": "gmail",
         },
         "session_id": {
             "type": "string",
@@ -421,11 +439,36 @@ def check_integration_status(input_data: dict) -> dict:
             "message": "Simulated",
         }
 
+    from app.data.action.integrations._helpers import (
+        GOOGLE_FAMILY,
+        GOOGLE_UMBRELLA,
+        normalize_integration_id,
+    )
+
     integration_id = input_data.get("integration_id", "").strip().lower()
     session_id = input_data.get("session_id", "").strip()
 
     if not integration_id:
         return {"status": "error", "message": "integration_id is required."}
+
+    # Normalize common aliases (e.g. 'gdrive' → 'google_drive').
+    integration_id = normalize_integration_id(integration_id)
+
+    # 'google' / 'google workspace' is not a single integration — the Workspace
+    # apps are tracked separately. Guide the caller to the specific app instead
+    # of failing with a bare "unknown integration".
+    if integration_id in GOOGLE_UMBRELLA:
+        return {
+            "status": "error",
+            "connected": False,
+            "accounts": [],
+            "message": (
+                "'google' is not a single integration — Google Workspace apps are "
+                "tracked separately. Check the specific app instead: "
+                + ", ".join(GOOGLE_FAMILY)
+                + "."
+            ),
+        }
 
     try:
         # If a session_id is provided, check WhatsApp QR session status
@@ -456,11 +499,22 @@ def check_integration_status(input_data: dict) -> dict:
 
         info = get_integration_info(integration_id)
         if not info:
+            # List the valid ids so the agent can self-correct instead of
+            # repeating an invalid guess.
+            try:
+                from craftos_integrations import list_all
+
+                valid = ", ".join(sorted(list_all()))
+            except Exception:
+                valid = ""
+            message = f"Unknown integration: '{integration_id}'."
+            if valid:
+                message += f" Valid integrations: {valid}."
             return {
                 "status": "error",
                 "connected": False,
                 "accounts": [],
-                "message": f"Unknown integration: '{integration_id}'.",
+                "message": message,
             }
 
         return {
@@ -525,7 +579,10 @@ def disconnect_integration(input_data: dict) -> dict:
     if input_data.get("simulated_mode"):
         return {"status": "success", "message": "Simulated mode"}
 
+    from app.data.action.integrations._helpers import normalize_integration_id
+
     integration_id = input_data.get("integration_id", "").strip().lower()
+    integration_id = normalize_integration_id(integration_id)
     account_id = input_data.get("account_id", "").strip() or None
 
     if not integration_id:

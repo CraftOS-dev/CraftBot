@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Maximize2,
   Minimize2,
+  Loader2,
 } from 'lucide-react'
 import { CraftBotMascot } from '@mascot'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -20,7 +21,10 @@ import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
 import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe } from './iframePool'
 import { CreationProgress } from './CreationProgress'
-import type { LivingUIProject } from '../../types'
+import { CreationQuestionForm } from './CreationQuestionForm'
+import { useAppSelector, useAppDispatch } from '../../store/hooks'
+import { selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
+import { clearPendingQuestion } from '../../store/slices/livingUiSlice'
 import styles from './LivingUIPage.module.css'
 
 export function LivingUIPage() {
@@ -33,8 +37,11 @@ export function LivingUIPage() {
     stopLivingUI,
     deleteLivingUI,
     setActiveLivingUI,
+    sendMessage,
   } = useWebSocket()
   const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
+  const dispatch = useAppDispatch()
+  const pendingQuestions = useAppSelector(selectLivingUiPendingQuestions)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showChat, setShowChat] = useState(true)
@@ -71,6 +78,22 @@ export function LivingUIPage() {
 
   // Find the current project
   const project = livingUIProjects.find(p => p.id === projectId)
+
+  // A question the agent mirrored onto this screen (waiting on the user's reply).
+  const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
+
+  // Answer from the screen → send back as a reply targeting the creation task's
+  // session (Rule 2 in chat routing resumes the waiting task). Mirrors a chat reply.
+  const handleAnswer = (text: string) => {
+    if (!projectId || !pendingQuestion) return
+    sendMessage(
+      text,
+      undefined,
+      { sessionId: pendingQuestion.sessionId, originalMessage: pendingQuestion.message },
+      projectId,
+    )
+    dispatch(clearPendingQuestion({ projectId }))
+  }
 
   // Set active Living UI when viewing
   useEffect(() => {
@@ -221,6 +244,13 @@ export function LivingUIPage() {
                 onClick={handleStop}
               />
             </>
+          ) : project.status === 'launching' || project.status === 'stopping' ? (
+            <IconButton
+              size="sm"
+              disabled
+              icon={<Loader2 size={14} className={styles.spinner} />}
+              tooltip={project.status === 'launching' ? 'Launching…' : 'Stopping…'}
+            />
           ) : project.status === 'ready' || project.status === 'stopped' ? (
             <IconButton
               size="sm"
@@ -261,15 +291,29 @@ export function LivingUIPage() {
           {project.status === 'running' && project.url ? (
             <div ref={iframePlaceholderRef} className={styles.iframe} />
           ) : project.status === 'creating' ? (
-            <CreationProgress
-              projectName={project.name}
-              todos={livingUITodos[project.id]}
-            />
+            pendingQuestion ? (
+              <CreationQuestionForm
+                key={pendingQuestion.message}
+                projectName={project.name}
+                message={pendingQuestion.message}
+                onAnswer={handleAnswer}
+              />
+            ) : (
+              <CreationProgress
+                projectName={project.name}
+                todos={livingUITodos[project.id]}
+              />
+            )
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>
               <CraftBotMascot state="launching" size={96} />
               <p>Launching Living UI...</p>
               <p className={styles.hint}>Installing dependencies, running tests, starting servers</p>
+            </div>
+          ) : project.status === 'stopping' ? (
+            <div className={styles.loading}>
+              <Loader2 size={48} className={styles.spinner} />
+              <p>Stopping Living UI...</p>
             </div>
           ) : project.status === 'error' ? (
             <div className={styles.error}>

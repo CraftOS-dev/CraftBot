@@ -30,12 +30,16 @@ import {
 import {
   setLoadingOlder as tasksSetLoadingOlder,
   setCancellingTaskId as tasksSetCancellingTaskId,
+  setCompletingTaskId as tasksSetCompletingTaskId,
+  setResumingTaskId as tasksSetResumingTaskId,
 } from '../store/slices/tasksSlice'
 import {
   selectAllActions,
   selectHasMoreActions,
   selectLoadingOlderActions,
   selectCancellingTaskId,
+  selectCompletingTaskId,
+  selectResumingTaskId,
   selectOldestTaskCreatedAt,
 } from '../store/selectors/tasks'
 import {
@@ -61,6 +65,8 @@ import {
 import { selectLocalLlm } from '../store/selectors/localLlm'
 import {
   setActiveId as livingUiSetActiveId,
+  markLaunching as livingUiMarkLaunching,
+  markStopping as livingUiMarkStopping,
 } from '../store/slices/livingUiSlice'
 import {
   selectLivingUiProjects,
@@ -141,6 +147,8 @@ interface WebSocketContextType extends WebSocketState {
   hasMoreActions: boolean
   loadingOlderActions: boolean
   cancellingTaskId: string | null
+  completingTaskId: string | null
+  resumingTaskId: string | null
   // Slice-backed (dashboardSlice).
   dashboardMetrics: DashboardMetrics | null
   filteredMetricsCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
@@ -171,6 +179,8 @@ interface WebSocketContextType extends WebSocketState {
   sendCommand: (command: string) => void
   clearMessages: () => void
   cancelTask: (taskId: string) => void
+  completeTask: (taskId: string) => void
+  resumeTask: (taskId: string, message?: string) => void
   openFile: (path: string) => void
   openFolder: (path: string) => void
   requestFilteredMetrics: (period: MetricsTimePeriod) => void
@@ -250,6 +260,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const hasMoreActions = useAppSelector(selectHasMoreActions)
   const loadingOlderActions = useAppSelector(selectLoadingOlderActions)
   const cancellingTaskId = useAppSelector(selectCancellingTaskId)
+  const completingTaskId = useAppSelector(selectCompletingTaskId)
+  const resumingTaskId = useAppSelector(selectResumingTaskId)
   const oldestTaskCreatedAt = useAppSelector(selectOldestTaskCreatedAt)
   const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const filteredMetricsCache = useAppSelector(selectFilteredMetricsCache)
@@ -412,6 +424,24 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (client.isConnected) {
       dispatch(tasksSetCancellingTaskId(taskId))
       client.sendString(JSON.stringify({ type: 'task_cancel', taskId }))
+    }
+  }, [dispatch])
+
+  const completeTask = useCallback((taskId: string) => {
+    if (client.isConnected) {
+      dispatch(tasksSetCompletingTaskId(taskId))
+      client.sendString(JSON.stringify({ type: 'task_complete', taskId }))
+    }
+  }, [dispatch])
+
+  const resumeTask = useCallback((taskId: string, message?: string) => {
+    if (client.isConnected) {
+      dispatch(tasksSetResumingTaskId(taskId))
+      client.sendString(JSON.stringify({
+        type: 'task_resume',
+        taskId,
+        message: message || '',
+      }))
     }
   }, [dispatch])
 
@@ -596,24 +626,29 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const launchLivingUI = useCallback((projectId: string) => {
     if (client.isConnected) {
-      // The backend response (living_ui_launch) will flip status to running.
-      // No optimistic transition here — the existing 'launching' literal
-      // wasn't part of LivingUIStatus and was a no-op for the UI.
+      // Optimistically flip to 'launching' so the button shows a spinner and
+      // the content swaps to the launching screen immediately — launch can
+      // take many seconds (install/build/start). The backend response
+      // (living_ui_launch) resolves it to running or error.
+      dispatch(livingUiMarkLaunching({ projectId }))
       client.sendString(JSON.stringify({
         type: 'living_ui_launch',
         projectId,
       }))
     }
-  }, [])
+  }, [dispatch])
 
   const stopLivingUI = useCallback((projectId: string) => {
     if (client.isConnected) {
+      // Optimistically flip to 'stopping' for immediate feedback; the backend
+      // response (living_ui_stop) resolves it to stopped (or reverts on error).
+      dispatch(livingUiMarkStopping({ projectId }))
       client.sendString(JSON.stringify({
         type: 'living_ui_stop',
         projectId,
       }))
     }
-  }, [])
+  }, [dispatch])
 
   const deleteLivingUI = useCallback((projectId: string) => {
     if (client.isConnected) {
@@ -641,6 +676,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         hasMoreActions,
         loadingOlderActions,
         cancellingTaskId,
+        completingTaskId,
+        resumingTaskId,
         dashboardMetrics,
         filteredMetricsCache,
         onboardingStep,
@@ -665,6 +702,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         sendCommand,
         clearMessages,
         cancelTask,
+        completeTask,
+        resumeTask,
         openFile,
         openFolder,
         requestFilteredMetrics,

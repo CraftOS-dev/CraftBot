@@ -32,6 +32,59 @@ import asyncio
 from typing import Any, Callable, Dict, Optional
 
 
+# Common aliases the agent/user might use → canonical registered integration id.
+# Google Workspace apps in particular are frequently referred to by short names
+# or lumped under "google", which is not itself an integration.
+#
+# These live here (not in an action module) because action handlers are executed
+# via exec() on their own extracted source — module-level names in the action
+# file are NOT in scope at runtime. Handlers must import these inside the function
+# body, the same way they import run_client/with_client.
+INTEGRATION_ALIASES = {
+    "mail": "gmail",
+    "googlemail": "gmail",
+    "google mail": "gmail",
+    "drive": "google_drive",
+    "gdrive": "google_drive",
+    "googledrive": "google_drive",
+    "google drive": "google_drive",
+    "docs": "google_docs",
+    "gdocs": "google_docs",
+    "googledocs": "google_docs",
+    "google docs": "google_docs",
+    "google_doc": "google_docs",
+    "calendar": "google_calendar",
+    "gcal": "google_calendar",
+    "gcalendar": "google_calendar",
+    "google calendar": "google_calendar",
+    "youtube": "google_youtube",
+}
+
+# Umbrella terms that aren't a single integration — Google Workspace apps are
+# tracked individually, so callers must check the specific app.
+GOOGLE_UMBRELLA = {
+    "google",
+    "google workspace",
+    "google_workspace",
+    "workspace",
+    "gsuite",
+    "g suite",
+    "google suite",
+}
+GOOGLE_FAMILY = (
+    "gmail",
+    "google_drive",
+    "google_docs",
+    "google_calendar",
+    "google_youtube",
+)
+
+
+def normalize_integration_id(integration_id: str) -> str:
+    """Map a user/agent-supplied integration name through known aliases."""
+    return INTEGRATION_ALIASES.get(integration_id, integration_id)
+
+
 def record_outgoing_message(platform_name: str, recipient: str, text: str) -> None:
     """Best-effort: record an outgoing platform message into the agent's conversation history.
 
@@ -147,12 +200,22 @@ async def run_client(
         raw = method(**kwargs)
         if asyncio.iscoroutine(raw):
             raw = await raw
-        return _shape_result(
+        result = _shape_result(
             raw,
             unwrap_envelope=unwrap_envelope,
             success_message=success_message,
             fail_message=fail_message,
         )
+        if result.get("status") != "error":
+            try:
+                from app.ui_layer.metrics.collector import MetricsCollector
+
+                collector = MetricsCollector.get_instance()
+                if collector:
+                    collector.record_integration_call(integration)
+            except Exception:
+                pass
+        return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -187,12 +250,22 @@ def run_client_sync(
                 "status": "error",
                 "message": f"{method_name!r} is async — use run_client (await) instead",
             }
-        return _shape_result(
+        result = _shape_result(
             raw,
             unwrap_envelope=unwrap_envelope,
             success_message=success_message,
             fail_message=fail_message,
         )
+        if result.get("status") != "error":
+            try:
+                from app.ui_layer.metrics.collector import MetricsCollector
+
+                collector = MetricsCollector.get_instance()
+                if collector:
+                    collector.record_integration_call(integration)
+            except Exception:
+                pass
+        return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -243,6 +316,14 @@ async def with_client(
         result = fn(client, *args, **kwargs)
         if asyncio.iscoroutine(result):
             result = await result
+        try:
+            from app.ui_layer.metrics.collector import MetricsCollector
+
+            collector = MetricsCollector.get_instance()
+            if collector:
+                collector.record_integration_call(integration)
+        except Exception:
+            pass
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "message": str(e)}

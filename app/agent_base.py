@@ -48,6 +48,8 @@ from app.config import (
     LINKEDIN_CLIENT_SECRET,
     NOTION_SHARED_CLIENT_ID,
     NOTION_SHARED_CLIENT_SECRET,
+    HUBSPOT_SHARED_CLIENT_ID,
+    HUBSPOT_SHARED_CLIENT_SECRET,
     SLACK_SHARED_CLIENT_ID,
     SLACK_SHARED_CLIENT_SECRET,
     TELEGRAM_SHARED_BOT_TOKEN,
@@ -70,6 +72,8 @@ from agent_core.core.impl.llm.errors import (
     LLMConsecutiveFailureError,
 )
 from app.vlm_interface import VLMInterface
+from app.image_gen_interface import ImageGenInterface
+from app.video_gen_interface import VideoGenInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
 from agent_core import (
@@ -163,6 +167,8 @@ class AgentBase:
         llm_model: str | None = None,
         vlm_provider: str | None = None,
         vlm_model: str | None = None,
+        image_gen_provider: str | None = None,
+        image_gen_model: str | None = None,
         deferred_init: bool = False,
     ) -> None:
         """
@@ -179,6 +185,8 @@ class AgentBase:
             llm_model: Model name override (None = use registry default).
             vlm_provider: Provider name for VLM (defaults to llm_provider if None).
             vlm_model: VLM model name override (None = use registry default).
+            image_gen_provider: Provider name for image generation (openai or gemini).
+            image_gen_model: Image gen model override (None = use registry default).
             deferred_init: If True, allow LLM/VLM initialization to be deferred
                 until API key is configured (useful for first-time setup).
         """
@@ -210,6 +218,35 @@ class AgentBase:
             api_key=_vlm_api_key,
             base_url=_vlm_base_url,
             deferred=deferred_init,
+        )
+
+        # Image generation uses its own provider/model settings
+        from app.config import get_image_gen_provider as _get_img_prov
+
+        _img_provider = image_gen_provider or _get_img_prov()
+        _img_api_key = get_api_key(_img_provider)
+        self.image_gen = ImageGenInterface(
+            provider=_img_provider,
+            model=image_gen_model,
+            api_key=_img_api_key,
+            deferred=True,  # always deferred — many users won't have an image-gen key
+        )
+
+        # Video generation uses its own provider/model settings (defaults to
+        # Gemini Veo since it's the strongest free-tier option). Always
+        # deferred — most users won't have a video-gen key configured.
+        from app.config import (
+            get_video_gen_provider as _get_vid_prov,
+            get_video_gen_model as _get_vid_model,
+        )
+
+        _vid_provider = _get_vid_prov()
+        _vid_api_key = get_api_key(_vid_provider)
+        self.video_gen = VideoGenInterface(
+            provider=_vid_provider,
+            model=_get_vid_model(),
+            api_key=_vid_api_key,
+            deferred=True,
         )
 
         self.event_stream_manager = EventStreamManager(
@@ -308,6 +345,8 @@ class AgentBase:
             self.task_manager,
             self.state_manager,
             vlm_interface=self.vlm,
+            image_gen_interface=self.image_gen,
+            video_gen_interface=self.video_gen,
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
         )
@@ -410,6 +449,20 @@ class AgentBase:
 
         try:
             logger.debug("[REACT] starting...")
+
+            # ----- WORKFLOW 0: Consolidated restart notice (issue #280) -----
+            # Recorded here, inside the running agent loop, so it reaches the UI
+            # (a boot-time record would be marked "seen" before the UI watcher
+            # starts). No LLM involved — just emit the prebuilt message.
+            if self._is_restart_notice_trigger(trigger):
+                message = trigger.payload.get("message", "")
+                if message:
+                    self.state_manager.record_agent_message(message)
+                # Drop the sentinel session from active tracking since we return
+                # before the normal session cleanup runs.
+                if trigger.session_id:
+                    self.triggers.mark_session_inactive(trigger.session_id)
+                return
 
             # ----- WORKFLOW 1A: Memory Processing -----
             if self._is_memory_trigger(trigger):
@@ -768,6 +821,10 @@ class AgentBase:
         """Check if trigger is for proactive processing (heartbeat or planner)."""
         trigger_type = trigger.payload.get("type", "")
         return trigger_type in ("proactive_heartbeat", "proactive_planner")
+
+    def _is_restart_notice_trigger(self, trigger: Trigger) -> bool:
+        """Check if trigger is the consolidated post-restart notice (issue #280)."""
+        return trigger.payload.get("type") == "restart_notice"
 
     def _is_gui_task_mode(self, session_id: str | None = None) -> bool:
         """Check if in GUI task execution mode."""
@@ -1356,6 +1413,9 @@ class AgentBase:
                 task.waiting_for_user_reply = wait_for_reply
                 if wait_for_reply:
                     logger.info(f"[TASK] Task {task_id} is now waiting for user reply")
+                # Persist immediately so a restart can't restore a stale flag and
+                # resume a waiting task in the background (issue #281).
+                self._persist_task_state(task)
 
         # Check if parallel actions created multiple tasks
         parallel_results = action_output.get("parallel_results")
@@ -1641,6 +1701,8 @@ class AgentBase:
         task = self.task_manager.tasks.get(session_id) if self.task_manager else None
         if task:
             task.waiting_for_user_reply = True
+            # Persist immediately (issue #281) so a restart keeps this paused.
+            self._persist_task_state(task)
 
         # Update UI task status to "paused" - directly await to ensure
         # the WebSocket broadcast completes before the react loop cleans up.
@@ -1703,6 +1765,7 @@ class AgentBase:
 
         # Clear waiting flag
         task.waiting_for_user_reply = False
+        self._persist_task_state(task)
 
         # Log to event stream as system message
         task_label = f' for task "{task.name}"' if task.name else ""
@@ -2230,6 +2293,19 @@ class AgentBase:
                     logger.info(
                         f"[TASK] Task {session_id} no longer waiting for user reply"
                     )
+                    # Persist the cleared flag (issue #281) so a restart resumes
+                    # this now-active task instead of leaving it stuck waiting.
+                    self._persist_task_state(task)
+                    # Dismiss any mirrored question on the Living UI creation
+                    # screen now that the reply has landed — whether it was
+                    # answered in the on-screen box or in chat (no-op unless this
+                    # is a Living UI creation task).
+                    try:
+                        from app.living_ui import broadcast_living_ui_question
+
+                        await broadcast_living_ui_question(session_id, "")
+                    except Exception:
+                        pass
                 if platform and task.source_platform != platform:
                     logger.info(
                         f"[TASK] Task {session_id} source_platform switched "
@@ -2998,6 +3074,78 @@ class AgentBase:
                 )
         return llm_ok and vlm_ok
 
+    def reinitialize_image_gen(self, provider: str | None = None) -> bool:
+        """Reinitialize the image generation interface with updated configuration.
+
+        Creates a fresh ImageGenInterface instance rather than mutating the
+        existing one, so any in-flight action that holds a reference to the
+        old instance completes cleanly against the old provider/client.
+
+        Args:
+            provider: Optional provider to switch to. If None, reads from settings.
+
+        Returns:
+            True if reinitialization was successful.
+        """
+        from app.config import get_image_gen_provider, get_api_key, get_image_gen_model
+        from app.image_gen_interface import ImageGenInterface
+        from app.internal_action_interface import InternalActionInterface
+
+        target_provider = provider or get_image_gen_provider()
+        api_key = get_api_key(target_provider)
+        model = get_image_gen_model()
+
+        new_interface = ImageGenInterface(
+            provider=target_provider,
+            model=model,
+            api_key=api_key,
+            deferred=False,
+        )
+        ok = new_interface.is_initialized
+        if ok:
+            self.image_gen = new_interface
+            InternalActionInterface.image_gen_interface = new_interface
+        logger.info(
+            f"[AGENT] Image gen reinitialized: provider={target_provider}, success={ok}"
+        )
+        return ok
+
+    def reinitialize_video_gen(self, provider: str | None = None) -> bool:
+        """Reinitialize the video generation interface with updated configuration.
+
+        Creates a fresh VideoGenInterface instance rather than mutating the
+        existing one, so any in-flight action that holds a reference to the
+        old instance completes cleanly against the old provider/client.
+
+        Args:
+            provider: Optional provider to switch to. If None, reads from settings.
+
+        Returns:
+            True if reinitialization was successful.
+        """
+        from app.config import get_video_gen_provider, get_api_key, get_video_gen_model
+        from app.video_gen_interface import VideoGenInterface
+        from app.internal_action_interface import InternalActionInterface
+
+        target_provider = provider or get_video_gen_provider()
+        api_key = get_api_key(target_provider)
+        model = get_video_gen_model()
+
+        new_interface = VideoGenInterface(
+            provider=target_provider,
+            model=model,
+            api_key=api_key,
+            deferred=False,
+        )
+        ok = new_interface.is_initialized
+        if ok:
+            self.video_gen = new_interface
+            InternalActionInterface.video_gen_interface = new_interface
+        logger.info(
+            f"[AGENT] Video gen reinitialized: provider={target_provider}, success={ok}"
+        )
+        return ok
+
     @property
     def is_llm_initialized(self) -> bool:
         """Check if the LLM interface is properly initialized."""
@@ -3253,6 +3401,29 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[PERSIST] Session persistence failed: {e}")
 
+    def _persist_task_state(self, task) -> None:
+        """Persist a single task's state to SessionStorage immediately.
+
+        Called whenever a task's ``waiting_for_user_reply`` flag changes. The
+        flag otherwise only reaches disk via the next task-manager persist hook
+        or the graceful-shutdown pass — so a waiting task that goes idle (no
+        further task events) keeps a stale ``False`` on disk. If the app is then
+        force-quit before graceful shutdown, a restart restores the task as
+        not-waiting and resumes it in the background. Persisting on every flag
+        change keeps the on-disk state authoritative. See issue #281.
+        """
+        if not task:
+            return
+        try:
+            from app.usage.session_storage import get_session_storage
+
+            get_session_storage().persist_task(task)
+        except Exception as e:
+            logger.warning(
+                f"[PERSIST] Failed to persist waiting state for task "
+                f"{getattr(task, 'id', '?')}: {e}"
+            )
+
     async def _schedule_restored_task_triggers(self) -> None:
         """
         Schedule triggers for tasks restored from the previous session.
@@ -3262,6 +3433,59 @@ class AgentBase:
         """
         if not hasattr(self, "_restored_task_ids") or not self._restored_task_ids:
             return
+
+        # Consolidated restart notice (issue #280): previously every resumed
+        # task fired its own react cycle and the LLM sent a per-task
+        # "I'm resuming X" acknowledgement — 10 tasks meant 10 messages. Send
+        # ONE message, not tied to any task, summarising what's being restored.
+        # The per-task resume triggers below are told to continue *silently* so
+        # they don't each re-acknowledge.
+        restored_running = [
+            task
+            for tid in self._restored_task_ids
+            if (task := self.task_manager.tasks.get(tid)) and task.status == "running"
+        ]
+        if restored_running:
+            resuming = [t for t in restored_running if not t.waiting_for_user_reply]
+            waiting = [t for t in restored_running if t.waiting_for_user_reply]
+            lines = ["I've restarted and am restoring your in-progress tasks."]
+            if resuming:
+                lines.append("")
+                lines.append(f"Resuming ({len(resuming)}):")
+                lines.extend(f"  • {t.name}" for t in resuming)
+            if waiting:
+                lines.append("")
+                lines.append(f"Waiting for your reply ({len(waiting)}):")
+                lines.extend(f"  • {t.name}" for t in waiting)
+            # Enqueue the notice as a high-priority trigger rather than
+            # recording it directly here. This method runs inside boot(), before
+            # the UI's event watcher starts — anything recorded now is marked
+            # "seen" during the watcher's startup pass and never reaches the UI.
+            # Routing it through a trigger means react() records it inside the
+            # running agent loop, after the watcher is live, so it surfaces in
+            # the interface just like the resumed tasks' own messages.
+            try:
+                await self.triggers.put(
+                    Trigger(
+                        fire_at=time.time(),
+                        priority=1,  # ahead of resumed tasks (priority 5/7)
+                        next_action_description="Restart notice",
+                        # Sentinel id so the heap never merges this with another
+                        # session-less trigger (e.g. memory-at-startup) and
+                        # clobbers the payload.
+                        session_id="__restart_notice__",
+                        payload={
+                            "type": "restart_notice",
+                            "message": "\n".join(lines),
+                            "gui_mode": STATE.gui_mode,
+                        },
+                    ),
+                    skip_merge=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[RESTORE] Failed to enqueue consolidated restart notice: {e}"
+                )
 
         for task_id in self._restored_task_ids:
             task = self.task_manager.tasks.get(task_id)
@@ -3295,7 +3519,15 @@ class AgentBase:
                         Trigger(
                             fire_at=time.time(),
                             priority=restore_priority,
-                            next_action_description=("Resume task after agent restart"),
+                            next_action_description=(
+                                "Resume this task after an app restart. A "
+                                "consolidated restart notice has already been "
+                                "sent to the user, so do NOT send any "
+                                "'resuming', acknowledgement, or greeting "
+                                "message. Silently continue the task from where "
+                                "it left off based on its todos and recent "
+                                "event-stream activity."
+                            ),
                             session_id=task_id,
                             payload={"gui_mode": STATE.gui_mode},
                         ),
@@ -3484,6 +3716,9 @@ class AgentBase:
                 # Notion (only used by the `invite` OAuth path; raw-token login needs nothing)
                 "NOTION_SHARED_CLIENT_ID": NOTION_SHARED_CLIENT_ID,
                 "NOTION_SHARED_CLIENT_SECRET": NOTION_SHARED_CLIENT_SECRET,
+                # HubSpot (only used by the `invite` OAuth path; Private App token login needs nothing)
+                "HUBSPOT_SHARED_CLIENT_ID": HUBSPOT_SHARED_CLIENT_ID,
+                "HUBSPOT_SHARED_CLIENT_SECRET": HUBSPOT_SHARED_CLIENT_SECRET,
                 # Slack (only used by the `invite` OAuth path)
                 "SLACK_SHARED_CLIENT_ID": SLACK_SHARED_CLIENT_ID,
                 "SLACK_SHARED_CLIENT_SECRET": SLACK_SHARED_CLIENT_SECRET,
