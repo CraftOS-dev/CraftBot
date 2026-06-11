@@ -671,7 +671,7 @@
 }
 
 .uploadFileName {
-  flex: 1;
+  flex: 0 0 120px;
   font-size: var(--text-xs);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -681,7 +681,7 @@
 }
 
 .uploadProgressTrack {
-  flex: 2;
+  flex: 1;
   height: 4px;
   background: var(--border-color);
   border-radius: 2px;

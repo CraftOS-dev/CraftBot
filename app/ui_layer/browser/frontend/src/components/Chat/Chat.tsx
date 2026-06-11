@@ -165,9 +165,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     if (totalSize > MAX_TOTAL_SIZE_BYTES) {
       return { valid: false, error: `Total size (${formatFileSize(totalSize)}) exceeds 200 MB limit.` }
     }
-    if (pendingAttachments.some(a => a.uploadStatus === 'uploading')) {
-      return { valid: false, error: null }  // silent block — spinner shown per-attachment
-    }
     return { valid: true, error: null }
   }, [pendingAttachments])
 
