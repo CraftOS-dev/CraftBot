@@ -891,6 +891,15 @@ export function WorkspacePage() {
             </Button>
           )}
           <Button
+            variant="danger"
+            size="sm"
+            fullWidth
+            icon={<Trash2 size={14} />}
+            onClick={() => handleDelete([selectedFile.path])}
+          >
+            Delete
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             fullWidth
@@ -913,15 +922,6 @@ export function WorkspacePage() {
             }}
           >
             Rename
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            fullWidth
-            icon={<Trash2 size={14} />}
-            onClick={() => handleDelete([selectedFile.path])}
-          >
-            Delete
           </Button>
         </div>
       </>

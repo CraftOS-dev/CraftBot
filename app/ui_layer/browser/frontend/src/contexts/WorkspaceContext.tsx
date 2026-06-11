@@ -11,7 +11,6 @@ import type {
   FileMoveResponse,
   FileCopyResponse,
   FileUploadResponse,
-  FileDownloadResponse,
   WSMessage,
 } from '../types'
 import { getSocketClient } from '../store/socket/socketInstance'
@@ -282,20 +281,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const downloadFile = useCallback(async (path: string): Promise<Blob | null> => {
     try {
-      const response = await sendOperation<FileDownloadResponse>(
-        'file_download', { path }, 'file_download',
-      )
-      if (response.success && response.content) {
-        const byteString = atob(response.content)
-        const bytes = new Uint8Array(byteString.length)
-        for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i)
-        return new Blob([bytes])
-      }
-      return null
+      const response = await fetch(`/api/workspace/${path}?download=1`)
+      if (!response.ok) return null
+      return await response.blob()
     } catch {
       return null
     }
-  }, [sendOperation])
+  }, [])
 
   // ─────────────────────────────────────────────────────────────────────
   // Effects

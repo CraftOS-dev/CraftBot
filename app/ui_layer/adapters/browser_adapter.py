@@ -8181,9 +8181,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             raise web.HTTPInternalServerError(reason=str(e))
 
     async def _workspace_file_handler(self, request: "web.Request") -> "web.Response":
-        """Serve files from the workspace directory."""
+        """Serve files from the workspace directory.
+
+        Pass ?download=1 to force Content-Disposition: attachment (triggers a
+        browser Save-As dialog).  Omitting the param keeps 'inline' so chat
+        attachment previews continue to work as before.
+
+        Uses web.FileResponse for true streaming — no full-file read into RAM —
+        which supports arbitrarily large files and HTTP Range requests.
+        """
         from aiohttp import web
-        import mimetypes
 
         try:
             file_path = request.match_info.get("path", "")
@@ -8191,7 +8198,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not file_path:
                 raise web.HTTPNotFound()
 
-            # Validate and get absolute path
             target = self._validate_path(file_path)
 
             if not target.exists():
@@ -8200,19 +8206,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if target.is_dir():
                 raise web.HTTPBadRequest(reason="Cannot serve directory")
 
-            # Determine content type
-            mime_type, _ = mimetypes.guess_type(target.name)
-            if mime_type is None:
-                mime_type = "application/octet-stream"
+            disposition = (
+                "attachment" if request.rel_url.query.get("download") else "inline"
+            )
 
-            # Read and serve file
-            content = target.read_bytes()
-
-            return web.Response(
-                body=content,
-                content_type=mime_type,
+            return web.FileResponse(
+                target,
                 headers={
-                    "Content-Disposition": f'inline; filename="{target.name}"',
+                    "Content-Disposition": f'{disposition}; filename="{target.name}"',
                     "Cache-Control": "no-cache",
                 },
             )
