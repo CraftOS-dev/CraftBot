@@ -127,6 +127,9 @@ export function WorkspacePage() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1)
 
+  // Upload progress: filename → 0–100
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+
   // UI state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null)
   const [emptySpaceMenu, setEmptySpaceMenu] = useState<{ x: number; y: number } | null>(null)
@@ -438,12 +441,30 @@ export function WorkspacePage() {
   }, [clipboard, currentDirectory, copyFile, moveFile, refresh, listDirectory])
 
   const handleUpload = useCallback(async (uploadFiles: FileList) => {
+    const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
     for (const file of Array.from(uploadFiles)) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showToast('error', `"${file.name}" (${formatFileSize(file.size)}) exceeds the 200 MB upload limit`)
+        continue
+      }
       const path = currentDirectory ? `${currentDirectory}/${file.name}` : file.name
-      await uploadFile(path, file)
+      setUploadProgress(prev => ({ ...prev, [file.name]: 0 }))
+      try {
+        await uploadFile(path, file, (pct) =>
+          setUploadProgress(prev => ({ ...prev, [file.name]: pct }))
+        )
+      } catch (e) {
+        showToast('error', `Failed to upload "${file.name}": ${(e as Error).message}`)
+      } finally {
+        setUploadProgress(prev => {
+          const next = { ...prev }
+          delete next[file.name]
+          return next
+        })
+      }
     }
     await refresh()
-  }, [currentDirectory, uploadFile, refresh])
+  }, [currentDirectory, uploadFile, refresh, showToast])
 
   const handleDownload = useCallback(async (path: string, fileName: string) => {
     const blob = await downloadFile(path)
@@ -995,6 +1016,21 @@ export function WorkspacePage() {
           />
         </div>
       </div>
+
+      {/* Upload Progress */}
+      {Object.keys(uploadProgress).length > 0 && (
+        <div className={styles.uploadProgressSection}>
+          {Object.entries(uploadProgress).map(([name, pct]) => (
+            <div key={name} className={styles.uploadProgressItem}>
+              <span className={styles.uploadFileName}>{name}</span>
+              <div className={styles.uploadProgressTrack}>
+                <div className={styles.uploadProgressFill} style={{ width: `${pct}%` }} />
+              </div>
+              <span className={styles.uploadProgressPct}>{pct}%</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Batch Actions Bar */}
       {selectedFiles.size > 1 && (

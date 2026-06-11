@@ -85,7 +85,7 @@ interface WorkspaceContextType {
   batchDelete: (paths: string[]) => Promise<FileBatchDeleteResponse>
   moveFile: (srcPath: string, destPath: string) => Promise<FileMoveResponse>
   copyFile: (srcPath: string, destPath: string) => Promise<FileCopyResponse>
-  uploadFile: (path: string, file: File) => Promise<FileUploadResponse>
+  uploadFile: (path: string, file: File, onProgress?: (percent: number) => void) => Promise<FileUploadResponse>
   downloadFile: (path: string) => Promise<Blob | null>
 }
 
@@ -243,24 +243,42 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     sendOperation<FileCopyResponse>('file_copy', { srcPath, destPath }, 'file_copy'),
   [sendOperation])
 
-  const uploadFile = useCallback(async (path: string, file: File): Promise<FileUploadResponse> => {
+  const uploadFile = useCallback(async (
+    path: string,
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<FileUploadResponse> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = async () => {
-        try {
-          const base64 = (reader.result as string).split(',')[1]
-          const response = await sendOperation<FileUploadResponse>(
-            'file_upload', { path, content: base64 }, 'file_upload',
-          )
-          resolve(response)
-        } catch (e) {
-          reject(e)
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const xhr = new XMLHttpRequest()
+
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
         }
       }
-      reader.onerror = () => reject(new Error('Failed to read file'))
-      reader.readAsDataURL(file)
+
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText) as FileUploadResponse
+          if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+            resolve(data)
+          } else {
+            reject(new Error((data as { error?: string }).error ?? `Upload failed (HTTP ${xhr.status})`))
+          }
+        } catch {
+          reject(new Error(`Upload failed (HTTP ${xhr.status})`))
+        }
+      }
+      xhr.onerror = () => reject(new Error('Network error during upload'))
+      xhr.onabort = () => reject(new Error('Upload cancelled'))
+
+      xhr.open('POST', `/api/workspace/upload?path=${encodeURIComponent(path)}`)
+      xhr.send(formData)
     })
-  }, [sendOperation])
+  }, [])
 
   const downloadFile = useCallback(async (path: string): Promise<Blob | null> => {
     try {
