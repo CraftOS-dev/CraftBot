@@ -100,8 +100,8 @@ class SessionStorage:
                 )
             """)
 
-            # Clean up triggers table from previous versions (no longer used)
-            cursor.execute("DROP TABLE IF EXISTS triggers")
+            # NOTE: the `triggers` table is owned by app/triggers/store.py
+            # (durable trigger store, issue #321) — do not touch it here.
 
             conn.commit()
 

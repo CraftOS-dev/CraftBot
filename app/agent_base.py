@@ -262,6 +262,15 @@ class AgentBase:
             route_to_session_prompt=ROUTE_TO_SESSION_PROMPT,
         )
 
+        # Durable trigger layer (issue #321): triggers are written to
+        # sessions.db before they can run; the queue stays as the in-memory
+        # ordering primitive. The service registers itself as the queue's
+        # lifecycle listener so dropped triggers settle their rows.
+        from app.triggers import TriggerService, TriggerStore
+
+        self.trigger_store = TriggerStore()
+        self.trigger_service = TriggerService(self.trigger_store, self.triggers)
+
         # global state
         self.state_manager = StateManager(self.event_stream_manager)
         self.context_engine = ContextEngine(state_manager=self.state_manager)
@@ -2726,6 +2735,12 @@ class AgentBase:
         """
         # 1. Clear runtime state
         await self.triggers.clear()
+        # Wipe the durable trigger rows too — otherwise the next boot's
+        # rehydration would resurrect the work this reset just cleared.
+        try:
+            self.trigger_store.clear_all()
+        except Exception as e:
+            logger.warning(f"[RESET] Failed to clear trigger store: {e}")
         self.task_manager.reset()
         self.state_manager.reset()
         self.event_stream_manager.clear_all()
@@ -3465,11 +3480,16 @@ class AgentBase:
             # running agent loop, after the watcher is live, so it surfaces in
             # the interface just like the resumed tasks' own messages.
             try:
-                await self.triggers.put(
-                    Trigger(
-                        fire_at=time.time(),
+                from app.triggers import TriggerSource, TriggerSpec
+
+                # No dedup key: each boot composes a fresh notice. A stale
+                # rehydrated notice row from a crashed boot is superseded by
+                # this emit via the queue's same-session replacement.
+                await self.trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.RESTART_NOTICE,
+                        description="Restart notice",
                         priority=1,  # ahead of resumed tasks (priority 5/7)
-                        next_action_description="Restart notice",
                         # Sentinel id so the heap never merges this with another
                         # session-less trigger (e.g. memory-at-startup) and
                         # clobbers the payload.
@@ -3479,8 +3499,8 @@ class AgentBase:
                             "message": "\n".join(lines),
                             "gui_mode": STATE.gui_mode,
                         },
-                    ),
-                    skip_merge=True,
+                        skip_merge=True,
+                    )
                 )
             except Exception as e:
                 logger.warning(
@@ -3497,29 +3517,36 @@ class AgentBase:
                 is_simple = getattr(task, "mode", "complex") == "simple"
                 restore_priority = 5 if is_simple else 7
 
+                from app.triggers import (
+                    TriggerSource,
+                    TriggerSpec,
+                    resume_dedup_key,
+                )
+
                 if task.waiting_for_user_reply:
-                    await self.triggers.put(
-                        Trigger(
-                            fire_at=time.time(),
-                            priority=restore_priority,
-                            next_action_description=(
+                    result = await self.trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.RESUME,
+                            description=(
                                 "Waiting for user reply (resumed after restart)"
                             ),
+                            priority=restore_priority,
                             session_id=task_id,
                             payload={"gui_mode": STATE.gui_mode},
+                            dedup_key=resume_dedup_key(task_id),
                             waiting_for_reply=True,
-                        ),
-                        skip_merge=True,
+                            skip_merge=True,
+                        )
                     )
                     logger.info(
-                        f"[RESTORE] Scheduled waiting trigger for task '{task.name}'"
+                        f"[RESTORE] Scheduled waiting trigger for task "
+                        f"'{task.name}'{' (deduped)' if result.deduped else ''}"
                     )
                 else:
-                    await self.triggers.put(
-                        Trigger(
-                            fire_at=time.time(),
-                            priority=restore_priority,
-                            next_action_description=(
+                    result = await self.trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.RESUME,
+                            description=(
                                 "Resume this task after an app restart. A "
                                 "consolidated restart notice has already been "
                                 "sent to the user, so do NOT send any "
@@ -3528,13 +3555,16 @@ class AgentBase:
                                 "it left off based on its todos and recent "
                                 "event-stream activity."
                             ),
+                            priority=restore_priority,
                             session_id=task_id,
                             payload={"gui_mode": STATE.gui_mode},
-                        ),
-                        skip_merge=True,
+                            dedup_key=resume_dedup_key(task_id),
+                            skip_merge=True,
+                        )
                     )
                     logger.info(
-                        f"[RESTORE] Scheduled resume trigger for task '{task.name}'"
+                        f"[RESTORE] Scheduled resume trigger for task "
+                        f"'{task.name}'{' (deduped)' if result.deduped else ''}"
                     )
             except Exception as e:
                 logger.warning(
@@ -3816,6 +3846,7 @@ class AgentBase:
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
             trigger_queue=self.triggers,
+            trigger_service=self.trigger_service,
         )
         await self.scheduler.start()
 
@@ -3823,6 +3854,15 @@ class AgentBase:
         config_watcher.register(
             scheduler_config_path, self.scheduler.reload, name="scheduler_config.json"
         )
+
+        # Rehydrate unfinished durable triggers from the previous run BEFORE
+        # scheduling restored-task resumes: the resume emits below carry
+        # dedup keys, so a rehydrated resume row blocks the duplicate instead
+        # of double-enqueueing.
+        try:
+            await self.trigger_service.rehydrate()
+        except Exception as e:
+            logger.warning(f"[RESTORE] Trigger rehydration failed: {e}")
 
         # Resume triggers for tasks restored from previous session
         await self._schedule_restored_task_triggers()

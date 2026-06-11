@@ -22,6 +22,7 @@ from agent_core.core.state import get_state_or_none
 if TYPE_CHECKING:
     from agent_core.core.protocols import LLMInterfaceProtocol, TaskManagerProtocol
     from agent_core.core.task import Task
+    from agent_core.core.impl.trigger.listener import TriggerLifecycleListener
 
     # TaskManager type alias for backwards compatibility
     TaskManager = TaskManagerProtocol
@@ -73,6 +74,32 @@ class TriggerQueue:
         self._route_to_session_prompt = route_to_session_prompt
         self._task_manager = task_manager
         self._event_stream_manager = event_stream_manager
+        self._lifecycle_listener: Optional["TriggerLifecycleListener"] = None
+
+    def set_lifecycle_listener(
+        self, listener: Optional["TriggerLifecycleListener"]
+    ) -> None:
+        """Register a listener notified when triggers are discarded unconsumed.
+
+        Used by the durable trigger store to settle rows for triggers the
+        queue drops (same-session replacement, session removal, clear) so
+        they don't rehydrate on the next boot.
+
+        Args:
+            listener: The listener, or None to detach.
+        """
+        self._lifecycle_listener = listener
+
+    def _notify_evicted(
+        self, evicted: List[Trigger], replacement: Optional[Trigger]
+    ) -> None:
+        """Notify the lifecycle listener, swallowing listener errors."""
+        if not self._lifecycle_listener or not evicted:
+            return
+        try:
+            self._lifecycle_listener.on_evicted(evicted, replacement)
+        except Exception as e:
+            logger.warning(f"[TRIGGER QUEUE] Lifecycle listener failed: {e}")
 
     def set_task_manager(self, task_manager: Optional["TaskManager"]) -> None:
         """Set the task manager for accessing task details during routing.
@@ -169,8 +196,10 @@ class TriggerQueue:
         changed.
         """
         async with self._cv:
+            discarded = list(self._heap) + list(self._active.values())
             self._heap.clear()
             self._active.clear()
+            self._notify_evicted(discarded, None)
             self._cv.notify_all()
 
     # =================================================================
@@ -375,6 +404,10 @@ class TriggerQueue:
                 # Remove ALL old triggers for this session
                 self._heap = [t for t in self._heap if t.session_id != trig.session_id]
 
+                # Tell the durable store the old triggers were superseded so
+                # their rows are settled (not silently dropped / rehydrated).
+                self._notify_evicted(same, trig)
+
                 # NEW BEHAVIOUR: prefer new → push new trigger only
                 heapq.heappush(self._heap, trig)
 
@@ -560,10 +593,14 @@ class TriggerQueue:
         if not session_ids:
             return
         async with self._cv:
+            removed = [t for t in self._heap if t.session_id in session_ids]
             self._heap = [t for t in self._heap if t.session_id not in session_ids]
-            # Also remove from active triggers
+            # Also remove from active triggers. Active triggers are NOT
+            # reported as evicted — the consumer still holds them and will
+            # ack/nack when its react cycle finishes.
             for sid in session_ids:
                 self._active.pop(sid, None)
+            self._notify_evicted(removed, None)
             heapq.heapify(self._heap)
             self._cv.notify_all()
 
@@ -636,6 +673,7 @@ class TriggerQueue:
 
         combined_payload: Dict[str, Any] = {}
         combined_desc: OrderedDict[str, None] = OrderedDict()
+        combined_store_ids: List[int] = []
         priority = triggers[0].priority
         fire_at = triggers[0].fire_at
 
@@ -648,6 +686,9 @@ class TriggerQueue:
                 combined_desc[desc] = None
 
             combined_payload.update(trig.payload)
+            # Union store rows so acking the merged trigger settles every
+            # constituent — a missed id would strand its row in CLAIMED.
+            combined_store_ids.extend(trig.store_ids)
 
         merged_desc = (
             "\n\n".join(combined_desc.keys()) or triggers[0].next_action_description
@@ -659,6 +700,9 @@ class TriggerQueue:
             next_action_description=merged_desc,
             payload=combined_payload,
             session_id=session_id,
+            id=triggers[0].id,
+            source=triggers[0].source,
+            store_ids=combined_store_ids,
         )
 
         logger.debug(
