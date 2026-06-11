@@ -323,8 +323,10 @@ export function WorkspacePage() {
     if (result.success) {
       setShowCreateDialog(null)
       setCreateName('')
+    } else {
+      showToast('error', result.error ?? `Failed to create ${showCreateDialog}`)
     }
-  }, [createName, showCreateDialog, currentDirectory, createFile])
+  }, [createName, showCreateDialog, currentDirectory, createFile, showToast])
 
   const handleRenameSubmit = useCallback(async () => {
     if (!editingFile || !editName.trim()) return
@@ -336,8 +338,10 @@ export function WorkspacePage() {
       setEditingFile(null)
       setEditName('')
       setEditExt('')
+    } else {
+      showToast('error', result.error ?? 'Failed to rename')
     }
-  }, [editingFile, editName, editExt, renameFile])
+  }, [editingFile, editName, editExt, renameFile, showToast])
 
   const handleDelete = useCallback((paths: string[]) => {
     if (paths.length === 0) return
