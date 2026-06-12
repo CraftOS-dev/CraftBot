@@ -48,6 +48,15 @@ except Exception:
 # scheduler-only behavior to every source).
 CATCHUP_THRESHOLD_SECONDS = 120
 
+# Retry policy for triggers whose react cycle raised: exponential backoff
+# (30s, 60s, 120s, 240s, capped at 1h), then dead-letter after MAX_ATTEMPTS.
+MAX_ATTEMPTS = 5
+BACKOFF_BASE_SECONDS = 30
+BACKOFF_CAP_SECONDS = 3600
+
+# Settled rows older than this are garbage-collected at boot.
+GC_TTL_HOURS = 7 * 24
+
 
 @dataclass
 class TriggerSpec:
@@ -91,7 +100,15 @@ class TriggerService:
     def __init__(self, store: TriggerStore, queue: TriggerQueue) -> None:
         self._store = store
         self._queue = queue
+        # Optional callback(trigger, error) invoked when a trigger exhausts
+        # its retries and is parked DEAD — the app layer surfaces it to the
+        # user (a dead-lettered trigger is work that silently stopped).
+        self._on_dead_letter = None
         queue.set_lifecycle_listener(self)
+
+    def set_dead_letter_handler(self, handler) -> None:
+        """Register callback(trigger, error) fired on the DEAD transition."""
+        self._on_dead_letter = handler
 
     # ─────────────────────── Producer API ───────────────────────────────────
 
@@ -196,9 +213,52 @@ class TriggerService:
             self._store.ack([trig.id])
 
     async def nack(self, trig: Trigger, error: str) -> None:
-        """The react cycle raised before completing."""
-        if trig.id is not None:
-            self._store.fail([trig.id], error=error)
+        """The react cycle raised before completing — retry with backoff.
+
+        attempts < MAX_ATTEMPTS: the row goes back to PENDING with an
+        exponential backoff floor and is re-enqueued. Otherwise it is parked
+        DEAD and surfaced via the dead-letter handler. (react() handles most
+        of its own errors internally; this path covers consumer-level
+        failures, so the retry budget is rarely consumed.)
+        """
+        if trig.id is None:
+            return
+        row = self._store.get(trig.id)
+        attempts = row["attempts"] if row else MAX_ATTEMPTS
+
+        if attempts >= MAX_ATTEMPTS:
+            self._store.mark_dead([trig.id], error=error)
+            logger.error(
+                f"[TriggerService] Trigger {trig.id} ({trig.source}) dead-lettered "
+                f"after {attempts} attempts: {error}"
+            )
+            if self._on_dead_letter:
+                try:
+                    self._on_dead_letter(trig, error)
+                except Exception as e:
+                    logger.warning(f"[TriggerService] Dead-letter handler failed: {e}")
+            return
+
+        backoff = min(
+            BACKOFF_BASE_SECONDS * (2 ** max(attempts - 1, 0)), BACKOFF_CAP_SECONDS
+        )
+        not_before = time.time() + backoff
+        self._store.retry(trig.id, not_before, error=error)
+        logger.warning(
+            f"[TriggerService] Trigger {trig.id} ({trig.source}) failed "
+            f"(attempt {attempts}/{MAX_ATTEMPTS}), retrying in {int(backoff)}s: {error}"
+        )
+        retry_trig = Trigger(
+            fire_at=not_before,
+            priority=trig.priority,
+            next_action_description=trig.next_action_description,
+            payload=dict(trig.payload),
+            session_id=trig.session_id,
+            waiting_for_reply=trig.waiting_for_reply,
+            id=trig.id,
+            source=trig.source,
+        )
+        await self._queue.put(retry_trig)
 
     # ─────────────────────── fire() pass-through ────────────────────────────
 
@@ -317,6 +377,13 @@ class TriggerService:
                 f"[TriggerService] Rehydrated {requeued} pending trigger(s) "
                 "from previous run"
             )
+
+        # Boot-time housekeeping: drop settled rows past the TTL.
+        try:
+            self._store.gc(ttl_hours=GC_TTL_HOURS)
+        except Exception as e:
+            logger.warning(f"[TriggerService] Trigger GC failed: {e}")
+
         return requeued
 
     # ─────────────────────── Session / reset cleanup ────────────────────────

@@ -3711,14 +3711,37 @@ class AgentBase:
             scheduler_config_path, self.scheduler.reload, name="scheduler_config.json"
         )
 
+        # Dead-letter surfacing: a trigger that exhausts its retries is work
+        # that silently stopped — tell the user instead of hiding it.
+        def _on_dead_letter(trig, _error: str) -> None:
+            # The raw error is already logged by the service; the user gets
+            # the what, not the traceback.
+            desc = (trig.next_action_description or "").strip()
+            if len(desc) > 120:
+                desc = desc[:117] + "..."
+            self.state_manager.record_agent_message(
+                f"⚠️ A background task trigger failed repeatedly and was "
+                f'parked: "{desc}". I won\'t retry it automatically — '
+                f"ask me to try again if it still matters."
+            )
+
+        self.trigger_service.set_dead_letter_handler(_on_dead_letter)
+
         # Rehydrate unfinished durable triggers from the previous run BEFORE
         # scheduling restored-task resumes: the resume emits below carry
         # dedup keys, so a rehydrated resume row blocks the duplicate instead
-        # of double-enqueueing.
+        # of double-enqueueing. (Trigger-store GC runs inside rehydrate.)
         try:
             await self.trigger_service.rehydrate()
         except Exception as e:
             logger.warning(f"[RESTORE] Trigger rehydration failed: {e}")
+
+        # Ledger housekeeping: stale INTENT rows stop blocking, old settled
+        # rows age out (payloads can contain message content).
+        try:
+            self.activity_log.gc()
+        except Exception as e:
+            logger.warning(f"[RESTORE] Activity log GC failed: {e}")
 
         # Resume triggers for tasks restored from previous session
         await self._schedule_restored_task_triggers()

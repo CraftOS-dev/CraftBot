@@ -40,6 +40,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -183,6 +184,47 @@ class ActivityLog:
                 (_now_iso(), idem_key),
             )
             conn.commit()
+
+    def gc(
+        self,
+        intent_ttl_hours: float = 7 * 24,
+        done_ttl_hours: float = 30 * 24,
+    ) -> int:
+        """Boot-time housekeeping for the ledger.
+
+        Stale INTENT rows (an interrupted attempt nobody ever retried) are
+        downgraded to FAILED so they stop blocking, then aged out with the
+        rest. Settled rows are deleted after the TTL — ledger payloads can
+        contain message content, so they must not accumulate forever.
+        """
+        now = time.time()
+        intent_cutoff = datetime.fromtimestamp(
+            now - intent_ttl_hours * 3600, tz=timezone.utc
+        ).isoformat()
+        done_cutoff = datetime.fromtimestamp(
+            now - done_ttl_hours * 3600, tz=timezone.utc
+        ).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE activity_log SET status = 'FAILED', updated_at = ?
+                WHERE status = 'INTENT' AND updated_at < ?
+                """,
+                (_now_iso(), intent_cutoff),
+            )
+            cur = conn.execute(
+                """
+                DELETE FROM activity_log
+                WHERE status IN ('DONE', 'FAILED') AND updated_at < ?
+                """,
+                (done_cutoff,),
+            )
+            conn.commit()
+            if cur.rowcount:
+                logger.info(
+                    f"[ActivityLog] GC removed {cur.rowcount} settled ledger row(s)"
+                )
+            return cur.rowcount
 
     def clear_all(self) -> None:
         with self._connect() as conn:

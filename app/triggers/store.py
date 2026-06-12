@@ -280,14 +280,34 @@ class TriggerStore:
         self._set_status(ids, STATUS_DONE, resolution=RESOLUTION_COMPLETED)
 
     def fail(self, ids: List[int], error: Optional[str] = None) -> None:
-        """The react cycle raised — settle the rows (→ FAILED).
-
-        Phase 5 turns this into retry-with-backoff; until then FAILED is
-        terminal (matching today's behavior where the consumer logs and
-        moves on).
-        """
+        """Settle the rows as FAILED (terminal — retries exhausted or
+        explicitly not retryable)."""
         self._set_status(
             ids, STATUS_FAILED, resolution=RESOLUTION_FAILED, last_error=error
+        )
+
+    def retry(
+        self, row_id: int, not_before: float, error: Optional[str] = None
+    ) -> None:
+        """A failed attempt gets another chance: back to PENDING with a
+        backoff floor. ``attempts`` is preserved (claim increments it)."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE triggers
+                SET status = 'PENDING', not_before = ?, fire_at = ?,
+                    claimed_by = NULL, lease_until = NULL,
+                    last_error = COALESCE(?, last_error), updated_at = ?
+                WHERE id = ?
+                """,
+                (not_before, not_before, error, _now_iso(), row_id),
+            )
+            conn.commit()
+
+    def mark_dead(self, ids: List[int], error: Optional[str] = None) -> None:
+        """Retries exhausted — park the rows as DEAD (dead-letter)."""
+        self._set_status(
+            ids, STATUS_DEAD, resolution=RESOLUTION_FAILED, last_error=error
         )
 
     def supersede(self, ids: List[int], by_id: Optional[int]) -> None:
@@ -402,6 +422,30 @@ class TriggerStore:
                 updated += 1
             conn.commit()
         return updated
+
+    def gc(self, ttl_hours: float = 7 * 24) -> int:
+        """Delete settled rows (DONE/FAILED/DEAD) older than the TTL.
+
+        ISO-8601 UTC timestamps compare lexicographically, so a string
+        comparison against the cutoff is correct.
+        """
+        cutoff = datetime.fromtimestamp(
+            time.time() - ttl_hours * 3600, tz=timezone.utc
+        ).isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM triggers
+                WHERE status IN ('DONE', 'FAILED', 'DEAD') AND updated_at < ?
+                """,
+                (cutoff,),
+            )
+            conn.commit()
+            if cur.rowcount:
+                logger.info(
+                    f"[TriggerStore] GC removed {cur.rowcount} settled trigger row(s)"
+                )
+            return cur.rowcount
 
     def update_session(self, row_id: int, session_id: str) -> None:
         """Assign a session to a row (recovery of unrouted parked messages)."""

@@ -57,7 +57,10 @@ class TestEmitNextAck:
 
         run(scenario())
 
-    def test_nack_marks_failed(self, tmp_path):
+    def test_nack_retries_with_backoff(self, tmp_path):
+        # Phase 5 contract: a nacked trigger is retried (PENDING + backoff),
+        # not terminally failed — see test_trigger_lifecycle_polish for the
+        # full retry/dead-letter ladder.
         store, queue, service = make_stack(tmp_path)
 
         async def scenario():
@@ -65,7 +68,8 @@ class TestEmitNextAck:
             trig = await asyncio.wait_for(service.next(), timeout=2)
             await service.nack(trig, "RuntimeError: kaboom")
             row = store.get(result.trigger_id)
-            assert row["status"] == "FAILED"
+            assert row["status"] == "PENDING"
+            assert row["not_before"] > time.time()
             assert "kaboom" in row["last_error"]
 
         run(scenario())

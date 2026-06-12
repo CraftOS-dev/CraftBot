@@ -649,6 +649,19 @@ class SchedulerManager:
                 # same fire dedups but the next occurrence does not.
                 dedup_key = scheduled_dedup_key(schedule.id, schedule.next_run or now)
 
+            # Built-in schedules (scheduler_config.json) carry their workflow
+            # type in their custom payload — promote it to the typed source
+            # so react() classification doesn't depend on the payload["type"]
+            # fallback (kept only as belt-and-braces for old configs).
+            payload_type_to_source = {
+                "memory_processing": TriggerSource.MEMORY,
+                "proactive_heartbeat": TriggerSource.PROACTIVE_HEARTBEAT,
+                "proactive_planner": TriggerSource.PROACTIVE_PLANNER,
+            }
+            promoted = payload_type_to_source.get(payload.get("type"))
+            if promoted is not None:
+                source = promoted
+
             result = await self._trigger_service.emit(
                 TriggerSpec(
                     source=source,
