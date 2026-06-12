@@ -969,7 +969,9 @@ class BrowserAdapter(InterfaceAdapter):
         )
         # Bind task_manager and trigger_queue for task creation
         agent = self._controller.agent
-        self._living_ui_manager.bind_task_manager(agent.task_manager, agent.triggers)
+        self._living_ui_manager.bind_task_manager(
+            agent.task_manager, agent.triggers, trigger_service=agent.trigger_service
+        )
 
         # Clean up orphan processes and folders from previous sessions
         self._living_ui_manager.cleanup_on_startup()
@@ -3414,20 +3416,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # _create_new_trigger does post-action.
             is_simple = getattr(task, "mode", "complex") == "simple"
             resume_priority = 5 if is_simple else 7
-            await agent.triggers.put(
-                Trigger(
-                    fire_at=_time.time(),
-                    priority=resume_priority,
-                    next_action_description=(
+            from app.triggers import TriggerSource, TriggerSpec, resume_dedup_key
+
+            await agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.RESUME,
+                    description=(
                         "Task was resumed by the user. Review the event stream "
                         "history. Do NOT call task_end immediately. If the task "
                         "was previously completed, you MUST ask the user for "
                         "their intent FIRST before taking any action."
                     ),
+                    priority=resume_priority,
                     session_id=task_id,
                     payload={"gui_mode": STATE.gui_mode},
-                ),
-                skip_merge=True,
+                    dedup_key=resume_dedup_key(task_id),
+                    skip_merge=True,
+                )
             )
 
             await self._broadcast(
@@ -4068,16 +4073,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # ---- Queue trigger so execution actually starts ---------
-            from app.trigger import Trigger
+            from app.triggers import TriggerSource, TriggerSpec
 
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=60,
-                next_action_description=f"{verb} skill '{target}' from completed task",
-                session_id=new_task_id,
-                payload={},
+            await agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.SKILL_WORKFLOW,
+                    description=f"{verb} skill '{target}' from completed task",
+                    priority=60,
+                    session_id=new_task_id,
+                )
             )
-            await agent.triggers.put(trigger)
 
             # Acknowledge in the chat immediately so the user sees the work
             # being picked up. The agent will follow up with a presentation
@@ -4914,17 +4919,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                 if task_id:
                     # Queue trigger to start the task (same as _handle_memory_processing_trigger)
-                    import time
-                    from app.trigger import Trigger
+                    from app.triggers import TriggerSource, TriggerSpec
 
-                    trigger = Trigger(
-                        fire_at=time.time(),
-                        priority=60,
-                        next_action_description="Process unprocessed events into long-term memory",
-                        session_id=task_id,
-                        payload={},
+                    await agent.trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.TASK_CONTINUATION,
+                            description="Process unprocessed events into long-term memory",
+                            priority=60,
+                            session_id=task_id,
+                        )
                     )
-                    await agent.triggers.put(trigger)
 
                 await self._broadcast(
                     {
@@ -6503,21 +6507,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         if task_id:
-            from app.trigger import Trigger
-            import time
+            from app.triggers import TriggerSource, TriggerSpec
 
             # Link the task to the placeholder so question-mirroring and todo
             # broadcasts (keyed by task id) target this tab.
             self._living_ui_manager.set_project_task(project_id, task_id)
 
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=50,
-                next_action_description=f"[Living UI] Import: {name}",
-                session_id=task_id,
-                payload={"type": "living_ui_import", "source": source},
+            await self._controller.agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.LIVING_UI_IMPORT,
+                    description=f"[Living UI] Import: {name}",
+                    priority=50,
+                    session_id=task_id,
+                    payload={"type": "living_ui_import", "source": source},
+                )
             )
-            await self._controller.agent.triggers.put(trigger)
         else:
             # Couldn't create the task — don't leave a stuck "creating" tab.
             await self._broadcast(

@@ -87,6 +87,13 @@ from app.context_engine import ContextEngine
 from app.state.state_manager import StateManager
 from app.state.agent_state import STATE
 from app.trigger import Trigger, TriggerQueue
+from app.triggers import (
+    TriggerService,
+    TriggerSource,
+    TriggerSpec,
+    TriggerStore,
+    resume_dedup_key,
+)
 from app.prompt import ROUTE_TO_SESSION_PROMPT
 from app.state.types import ReasoningResult
 from agent_core.core.task import Task
@@ -261,13 +268,7 @@ class AgentBase:
             llm=self.llm,
             route_to_session_prompt=ROUTE_TO_SESSION_PROMPT,
         )
-
-        # Durable trigger layer (issue #321): triggers are written to
-        # sessions.db before they can run; the queue stays as the in-memory
-        # ordering primitive. The service registers itself as the queue's
-        # lifecycle listener so dropped triggers settle their rows.
-        from app.triggers import TriggerService, TriggerStore
-
+        
         self.trigger_store = TriggerStore()
         self.trigger_service = TriggerService(self.trigger_store, self.triggers)
 
@@ -612,8 +613,6 @@ class AgentBase:
         processing trigger if needed. The trigger goes through normal
         processing flow which creates the task and executes it.
         """
-        import time
-
         # Check if memory is enabled
         if not is_memory_enabled():
             logger.info("[MEMORY] Memory is disabled, skipping startup processing")
@@ -644,17 +643,18 @@ class AgentBase:
             )
 
             # Fire a memory_processing trigger (not scheduled, so won't reschedule)
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=50,
-                next_action_description="Process unprocessed events into long-term memory (startup)",
-                payload={
-                    "type": "memory_processing",
-                    "scheduled": False,  # Don't reschedule after this
-                },
-                session_id="memory_processing_startup",
+            await self.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.MEMORY,
+                    description="Process unprocessed events into long-term memory (startup)",
+                    priority=50,
+                    payload={
+                        "type": "memory_processing",
+                        "scheduled": False,  # Don't reschedule after this
+                    },
+                    session_id="memory_processing_startup",
+                )
             )
-            await self.triggers.put(trigger)
 
         except Exception as e:
             logger.warning(f"[MEMORY] Failed to process memory at startup: {e}")
@@ -748,14 +748,17 @@ class AgentBase:
 
             # Queue trigger to start the task. Lock is now owned by the task and
             # will be released by TaskManager when the task ends.
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=60,
-                next_action_description="Process unprocessed events into long-term memory",
-                session_id=task_id,
-                payload={},
+            # Source is TASK_CONTINUATION (not MEMORY): this trigger starts the
+            # already-created task via the session workflows — a MEMORY source
+            # would re-enter the memory-request branch in react().
+            await self.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.TASK_CONTINUATION,
+                    description="Process unprocessed events into long-term memory",
+                    priority=60,
+                    session_id=task_id,
+                )
             )
-            await self.triggers.put(trigger)
             logger.info(
                 f"[MEMORY] Queued trigger for memory processing task: {task_id}"
             )
@@ -822,18 +825,34 @@ class AgentBase:
 
     # ----- Mode Checks -----
 
+    # Classification is source-first (typed, set once at emit time), with a
+    # payload["type"] fallback for triggers from legacy put() producers and
+    # scheduler-config entries that inject a type via their custom payload.
+    # The fallback is removed in Phase 5 once nothing produces bare types.
+
     def _is_memory_trigger(self, trigger: Trigger) -> bool:
-        """Check if trigger is for memory processing."""
-        return trigger.payload.get("type") == "memory_processing"
+        """Check if trigger is a memory-processing request."""
+        return (
+            trigger.source == TriggerSource.MEMORY
+            or trigger.payload.get("type") == "memory_processing"
+        )
 
     def _is_proactive_trigger(self, trigger: Trigger) -> bool:
-        """Check if trigger is for proactive processing (heartbeat or planner)."""
+        """Check if trigger is a proactive-processing request (heartbeat or planner)."""
+        if trigger.source in (
+            TriggerSource.PROACTIVE_HEARTBEAT,
+            TriggerSource.PROACTIVE_PLANNER,
+        ):
+            return True
         trigger_type = trigger.payload.get("type", "")
         return trigger_type in ("proactive_heartbeat", "proactive_planner")
 
     def _is_restart_notice_trigger(self, trigger: Trigger) -> bool:
         """Check if trigger is the consolidated post-restart notice (issue #280)."""
-        return trigger.payload.get("type") == "restart_notice"
+        return (
+            trigger.source == TriggerSource.RESTART_NOTICE
+            or trigger.payload.get("type") == "restart_notice"
+        )
 
     def _is_gui_task_mode(self, session_id: str | None = None) -> bool:
         """Check if in GUI task execution mode."""
@@ -920,8 +939,6 @@ class AgentBase:
             frequency: Ignored (kept for backward-compat with old configs
                        that still pass a single frequency).
         """
-        import time
-
         # Collect due tasks across ALL frequencies
         all_due_tasks = self.proactive_manager.get_all_due_tasks()
         if not all_due_tasks:
@@ -952,22 +969,20 @@ class AgentBase:
             f"[PROACTIVE] Created unified heartbeat task: {task_id} ({summary})"
         )
 
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=50,
-            next_action_description=f"Execute due proactive tasks ({summary})",
-            session_id=task_id,
-            payload={},
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.TASK_CONTINUATION,
+                description=f"Execute due proactive tasks ({summary})",
+                priority=50,
+                session_id=task_id,
+            )
         )
-        await self.triggers.put(trigger)
         logger.info(f"[PROACTIVE] Queued trigger for heartbeat task: {task_id}")
 
         return True
 
     async def _handle_proactive_planner(self, scope: str) -> bool:
         """Create planner task for the given scope (day, week, month)."""
-        import time
-
         skill_name = f"{scope}-planner"
 
         task_id = self.task_manager.create_task(
@@ -981,14 +996,14 @@ class AgentBase:
         logger.info(f"[PROACTIVE] Created planner task: {task_id} for {scope}")
 
         # Queue trigger to start the task
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=50,
-            next_action_description=f"Execute {scope} planner task",
-            session_id=task_id,
-            payload={},
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.TASK_CONTINUATION,
+                description=f"Execute {scope} planner task",
+                priority=50,
+                session_id=task_id,
+            )
         )
-        await self.triggers.put(trigger)
         logger.info(f"[PROACTIVE] Queued trigger for planner task: {task_id}")
 
         return True
@@ -1740,16 +1755,17 @@ class AgentBase:
 
         # Create a long-delay trigger so the task stays alive
         try:
-            await self.triggers.put(
-                Trigger(
+            await self.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.LIMIT_REACHED,
+                    description="Waiting for user decision on limit reached",
                     fire_at=time.time() + 10800,
                     priority=5,
-                    next_action_description="Waiting for user decision on limit reached",
                     session_id=session_id,
                     payload={"gui_mode": STATE.gui_mode},
                     waiting_for_reply=True,
-                ),
-                skip_merge=True,
+                    skip_merge=True,
+                )
             )
         except Exception as e:
             logger.error(
@@ -1805,8 +1821,8 @@ class AgentBase:
                 )
             )
 
-        # Fire the trigger to resume execution
-        await self.triggers.fire(session_id)
+        # Fire the trigger to resume execution (durably mirrored to the store)
+        await self.trigger_service.fire(session_id)
 
     async def handle_limit_abort(self, session_id: str) -> None:
         """User chose to abort after reaching limit."""
@@ -1934,18 +1950,20 @@ class AgentBase:
             # simple task = 5, complex task = 7
             task_priority = 5 if self.task_manager.is_simple_task() else 7
 
-            # Build and enqueue trigger safely
+            # Build and enqueue trigger safely. No dedup key: a newer
+            # continuation supersedes the queued one via session replacement.
             try:
-                await self.triggers.put(
-                    Trigger(
+                await self.trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.TASK_CONTINUATION,
+                        description=next_action_desc,
                         fire_at=fire_at,
                         priority=task_priority,
-                        next_action_description=next_action_desc,
                         session_id=new_session_id,
                         payload=trigger_payload,
                         waiting_for_reply=wait_for_user_reply,
-                    ),
-                    skip_merge=True,  # Session is already explicitly set, no LLM merge check needed
+                        skip_merge=True,  # Session is already explicitly set, no LLM merge check needed
+                    )
                 )
             except Exception as e:
                 logger.error(
@@ -2284,7 +2302,10 @@ class AgentBase:
 
         Returns True if the trigger was found and fired, False otherwise.
         """
-        fired = await self.triggers.fire(
+        # Routed through the service so the attached user message is durably
+        # persisted before the in-memory retarget — a crash mid-react can no
+        # longer lose it.
+        fired = await self.trigger_service.fire(
             session_id,
             message=chat_content,
             platform=platform,
@@ -2407,18 +2428,18 @@ class AgentBase:
         if platform and platform.lower() != "craftbot interface":
             platform_hint = f" from {platform} (reply on {platform}, NOT send_message)"
 
-        await self.triggers.put(
-            Trigger(
-                fire_at=time.time(),
-                priority=3,
-                next_action_description=(
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.USER_MESSAGE,
+                description=(
                     "Please perform action that best suit this user chat "
                     f"you just received{platform_hint}: {chat_content}"
                 ),
+                priority=3,
                 session_id=await self._generate_unique_session_id(),
                 payload=trigger_payload,
-            ),
-            skip_merge=True,
+                skip_merge=True,
+            )
         )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -2937,8 +2958,6 @@ class AgentBase:
         """
         from app.onboarding import onboarding_manager
         from app.onboarding.soft.task_creator import create_soft_onboarding_task
-        from app.trigger import Trigger
-        import time
 
         # Prevent double-triggering (multiple adapters/paths may call this)
         if not reset and self._soft_onboarding_triggered:
@@ -2953,14 +2972,15 @@ class AgentBase:
         task_id = create_soft_onboarding_task(self.task_manager)
 
         # Fire trigger to start the task
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=1,
-            next_action_description="Begin user profile interview",
-            session_id=task_id,
-            payload={"onboarding": True},
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.ONBOARDING,
+                description="Begin user profile interview",
+                priority=1,
+                session_id=task_id,
+                payload={"onboarding": True},
+            )
         )
-        await self.triggers.put(trigger)
 
         logger.info(f"[ONBOARDING] Triggered soft onboarding task: {task_id}")
         return task_id
@@ -3480,8 +3500,6 @@ class AgentBase:
             # running agent loop, after the watcher is live, so it surfaces in
             # the interface just like the resumed tasks' own messages.
             try:
-                from app.triggers import TriggerSource, TriggerSpec
-
                 # No dedup key: each boot composes a fresh notice. A stale
                 # rehydrated notice row from a crashed boot is superseded by
                 # this emit via the queue's same-session replacement.
@@ -3516,12 +3534,6 @@ class AgentBase:
                 # Determine priority based on task mode: simple=5, complex=7
                 is_simple = getattr(task, "mode", "complex") == "simple"
                 restore_priority = 5 if is_simple else 7
-
-                from app.triggers import (
-                    TriggerSource,
-                    TriggerSpec,
-                    resume_dedup_key,
-                )
 
                 if task.waiting_for_user_reply:
                     result = await self.trigger_service.emit(
