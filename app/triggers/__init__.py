@@ -14,6 +14,7 @@ from app.triggers.sources import (
 )
 from app.triggers.store import TriggerStore, get_trigger_store
 from app.triggers.service import EmitResult, TriggerService, TriggerSpec
+from app.triggers.router import SessionRouter
 
 __all__ = [
     "TriggerSource",
@@ -21,6 +22,7 @@ __all__ = [
     "TriggerService",
     "TriggerSpec",
     "EmitResult",
+    "SessionRouter",
     "get_trigger_store",
     "resume_dedup_key",
     "scheduled_dedup_key",

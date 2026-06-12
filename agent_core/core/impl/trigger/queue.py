@@ -2,30 +2,35 @@
 """
 core.impl.trigger.queue
 
-TriggerQueue implementation - manages agent trigger events with priority ordering.
+TriggerQueue implementation - in-memory ordering primitive for triggers.
+
+The queue holds due-time-ordered triggers and hands them to the single
+consumer loop. It is deliberately dumb (issue #321):
+
+- Durability lives in the app-layer TriggerStore; the queue reports any
+  trigger it discards unconsumed through a TriggerLifecycleListener so the
+  store can settle the corresponding rows.
+- Session routing lives at the producer layer (SessionRouter); triggers
+  arrive here with their session already decided. The pre-#321 in-queue LLM
+  routing was removed — every producer sets a session_id, so it was dead
+  code in practice.
+- Same-session ordering: a new trigger for a session replaces any queued
+  one ("prefer newest"), so at most one trigger per session is ever queued.
 """
 
 from __future__ import annotations
 
 import asyncio
 import heapq
-import json
 import logging
 import time
-from collections import defaultdict, OrderedDict
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from agent_core.decorators import profile, OperationCategory
 from agent_core.core.trigger import Trigger
-from agent_core.core.state import get_state_or_none
 
 if TYPE_CHECKING:
-    from agent_core.core.protocols import LLMInterfaceProtocol, TaskManagerProtocol
-    from agent_core.core.task import Task
     from agent_core.core.impl.trigger.listener import TriggerLifecycleListener
-
-    # TaskManager type alias for backwards compatibility
-    TaskManager = TaskManagerProtocol
 
 # Logging setup
 try:
@@ -42,11 +47,11 @@ class TriggerQueue:
 
     def __init__(
         self,
-        llm: "LLMInterfaceProtocol",
+        llm: Any = None,
         *,
         route_to_session_prompt: str = "",
-        task_manager: Optional["TaskManager"] = None,
-        event_stream_manager: Optional[Any] = None,
+        task_manager: Any = None,
+        event_stream_manager: Any = None,
     ) -> None:
         """
         Initialize a concurrency-safe trigger queue.
@@ -57,23 +62,22 @@ class TriggerQueue:
         loops can await triggers without busy waiting.
 
         Args:
-            llm: Interface used to resolve conflicts between competing triggers
-                for the same session.
-            route_to_session_prompt: Prompt template for routing triggers to sessions.
-                Should contain {item_type}, {item_content}, {existing_sessions},
-                {source_platform}, and {conversation_id} placeholders.
-            task_manager: Optional task manager for accessing task details during routing.
-            event_stream_manager: Optional event stream manager for accessing recent events.
+            llm: Deprecated, ignored. In-queue LLM routing was removed
+                (issue #321 Phase 3); routing happens at the producer layer.
+            route_to_session_prompt: Deprecated, ignored.
+            task_manager: Deprecated, ignored.
+            event_stream_manager: Deprecated, ignored.
         """
+        if llm is not None or route_to_session_prompt:
+            logger.debug(
+                "[TRIGGER QUEUE] llm/route_to_session_prompt are deprecated "
+                "and ignored — routing moved to the producer layer"
+            )
         self._heap: List[Trigger] = []
         self._active: Dict[
             str, Trigger
         ] = {}  # Triggers being processed (session_id -> trigger)
         self._cv = asyncio.Condition()
-        self.llm = llm
-        self._route_to_session_prompt = route_to_session_prompt
-        self._task_manager = task_manager
-        self._event_stream_manager = event_stream_manager
         self._lifecycle_listener: Optional["TriggerLifecycleListener"] = None
 
     def set_lifecycle_listener(
@@ -101,26 +105,6 @@ class TriggerQueue:
         except Exception as e:
             logger.warning(f"[TRIGGER QUEUE] Lifecycle listener failed: {e}")
 
-    def set_task_manager(self, task_manager: Optional["TaskManager"]) -> None:
-        """Set the task manager for accessing task details during routing.
-
-        This allows late binding of task_manager when it's created after TriggerQueue.
-
-        Args:
-            task_manager: The task manager instance to use for routing context.
-        """
-        self._task_manager = task_manager
-
-    def set_event_stream_manager(self, event_stream_manager: Optional[Any]) -> None:
-        """Set the event stream manager for accessing recent events during routing.
-
-        This allows late binding of event_stream_manager when it's created after TriggerQueue.
-
-        Args:
-            event_stream_manager: The event stream manager instance.
-        """
-        self._event_stream_manager = event_stream_manager
-
     # =================================================================
     # Pretty Printer for Debugging
     # =================================================================
@@ -146,47 +130,6 @@ class TriggerQueue:
             )
         logger.debug("=" * 70 + "\n")
 
-    def create_event_stream_state(self) -> str:
-        """Return formatted event stream content for trigger comparison."""
-        state = get_state_or_none()
-        event_stream = state.event_stream if state else None
-        if event_stream:
-            return (
-                "Use the event stream to understand the current situation, past agent actions to craft the input parameters:\nEvent stream (oldest to newest):"
-                f"\n{event_stream}"
-            )
-        return ""
-
-    def create_task_state(self) -> str:
-        """Return formatted task/plan context for trigger comparison."""
-        state = get_state_or_none()
-        current_task: Optional["Task"] = state.current_task if state else None
-        if current_task:
-            # Format task in LLM-friendly way (matching context_engine format)
-            lines = [
-                "<current_task>",
-                f"Task: {current_task.name}",
-                f"Instruction: {current_task.instruction}",
-                "",
-                "Todos:",
-            ]
-
-            if current_task.todos:
-                for todo in current_task.todos:
-                    if todo.status == "completed":
-                        checkbox = "[x]"
-                    elif todo.status == "in_progress":
-                        checkbox = "[>]"
-                    else:
-                        checkbox = "[ ]"
-                    lines.append(f"{checkbox} {todo.content}")
-            else:
-                lines.append("(no todos yet)")
-
-            lines.append("</current_task>")
-            return "\n".join(lines)
-        return ""
-
     async def clear(self) -> None:
         """
         Remove all pending and active triggers from the queue.
@@ -206,192 +149,23 @@ class TriggerQueue:
     # PUT
     # =================================================================
 
-    def _format_sessions_for_routing(
-        self,
-        running_tasks: List["Task"],
-        event_stream_manager: Optional[Any] = None,
-    ) -> str:
-        """Format running tasks with rich context for routing prompt.
-
-        Args:
-            running_tasks: List of currently running tasks from TaskManager
-            event_stream_manager: Optional event stream manager to retrieve recent events
-
-        Returns:
-            Formatted string with session context for routing decision
-        """
-        if not running_tasks:
-            return "No existing sessions."
-
-        sections = []
-        for i, task in enumerate(running_tasks, 1):
-            # Check waiting_for_user_reply state on task
-            is_waiting = getattr(task, "waiting_for_user_reply", False)
-            status = "WAITING FOR REPLY" if is_waiting else "ACTIVE"
-
-            lines = [
-                f"--- Session {i} ---",
-                f"Session ID: {task.id}",
-                f"Status: {status}",
-                f'Task Name: "{task.name}"',
-                f'Original Request: "{task.instruction}"',
-                f"Mode: {task.mode}",
-                f"Created: {task.created_at}",
-            ]
-
-            # Todo progress
-            if task.todos:
-                completed = sum(1 for t in task.todos if t.status == "completed")
-                in_progress_todo = next(
-                    (t for t in task.todos if t.status == "in_progress"), None
-                )
-                lines.append(f"Progress: {completed}/{len(task.todos)} todos completed")
-                if in_progress_todo:
-                    lines.append(f'Currently working on: "{in_progress_todo.content}"')
-
-            # Get recent events from event stream for this task
-            if event_stream_manager and task.id:
-                try:
-                    stream = event_stream_manager.get_stream_by_id(task.id)
-                    if stream and stream.tail_events:
-                        # Get last 10 events for better routing context
-                        recent_events = stream.tail_events[-10:]
-                        lines.append("Recent Activity:")
-                        for rec in recent_events:
-                            lines.append(f"  - {rec.compact_line()}")
-                except Exception:
-                    pass  # Gracefully handle if event stream not available
-
-            # Add platform/conversation info if available
-            platform = getattr(task, "platform", "default")
-            conversation_id = getattr(task, "conversation_id", "N/A")
-            lines.append(f"Platform: {platform}")
-            lines.append(f"Conversation ID: {conversation_id}")
-
-            sections.append("\n".join(lines))
-
-        return "\n\n".join(sections)
-
     @profile("trigger_queue_put", OperationCategory.TRIGGER)
     async def put(self, trig: Trigger, skip_merge: bool = False) -> None:
         """
-        Insert a trigger into the queue, optionally merging with existing session triggers.
+        Insert a trigger into the queue, replacing queued same-session triggers.
 
-        When a trigger arrives for a session that already has queued work, the
-        method consults the LLM to generate a new session identifier that
-        represents the preferred trigger. Existing triggers for that session
-        are removed so the freshest trigger wins.
+        When a trigger arrives for a session that already has queued work,
+        the existing triggers are replaced ("prefer newest") and reported to
+        the lifecycle listener as superseded.
 
         Args:
             trig: Trigger instance describing when and why the agent should act.
-            skip_merge: If True, skip LLM-based trigger merging. Use for system
-                        triggers that should not be merged with user triggers.
+            skip_merge: Deprecated, ignored — kept for call-site compatibility.
+                (It previously skipped the in-queue LLM routing, which was
+                removed; same-session replacement was always unconditional.)
         """
-        logger.debug(
-            f"\n[PUT] Incoming trigger for session={trig.session_id} (skip_merge={skip_merge})"
-        )
+        logger.debug(f"\n[PUT] Incoming trigger for session={trig.session_id}")
         self._print_queue("BEFORE PUT")
-
-        # Get running tasks from TaskManager (the source of truth for active sessions)
-        # This includes tasks being processed (trigger consumed) AND tasks with queued triggers
-        running_tasks: List["Task"] = []
-        if self._task_manager:
-            running_tasks = [
-                t for t in self._task_manager.tasks.values() if t.status == "running"
-            ]
-
-        # Skip LLM routing if:
-        # 1. Trigger already has a session_id assigned (proceed with that session)
-        # 2. skip_merge is True (already routed at message handler level)
-        # 3. System triggers (memory_processing, task_execution, scheduled)
-        trigger_type = trig.payload.get("type", "")
-        is_system_trigger = trigger_type in (
-            "memory_processing",
-            "task_execution",
-            "scheduled",
-        )
-        has_session_id = trig.session_id is not None and trig.session_id != ""
-
-        if has_session_id:
-            logger.debug(
-                f"[PUT] Trigger already has session_id={trig.session_id}, skipping LLM routing"
-            )
-        elif (
-            len(running_tasks) > 0
-            and not skip_merge
-            and not is_system_trigger
-            and self._route_to_session_prompt
-        ):
-            # Use unified routing prompt with rich task context from running tasks
-            existing_sessions = self._format_sessions_for_routing(
-                running_tasks,
-                event_stream_manager=self._event_stream_manager,
-            )
-
-            # Build recent conversation context for routing
-            recent_conversation = "No recent conversation history."
-            if self._event_stream_manager:
-                recent_msgs = (
-                    self._event_stream_manager.get_recent_conversation_messages(
-                        limit=10
-                    )
-                )
-                if recent_msgs:
-                    conv_lines = []
-                    for evt in recent_msgs:
-                        ts = (
-                            evt.ts.strftime("%Y-%m-%d %H:%M:%S")
-                            if evt.ts
-                            else "unknown"
-                        )
-                        conv_line = f"[{ts}] [{evt.kind}]: {evt.message}"
-                        if len(conv_line) > 300:
-                            conv_line = conv_line[:297] + "..."
-                        conv_lines.append(conv_line)
-                    recent_conversation = "\n".join(conv_lines)
-
-            # Format prompt with available placeholders
-            usr_msg = self._route_to_session_prompt.format(
-                item_type="trigger",
-                item_content=trig.next_action_description,
-                source_platform=trig.payload.get("platform", "default"),
-                conversation_id=trig.payload.get("conversation_id", "N/A"),
-                existing_sessions=existing_sessions,
-                recent_conversation=recent_conversation,
-                current_living_ui_id=trig.payload.get("living_ui_id")
-                or "(not on a Living UI page)",
-            )
-
-            logger.debug(f"[UNIFIED ROUTING PROMPT]:\n{usr_msg}")
-            response = await self.llm.generate_response_async(
-                system_prompt="You are a session routing system.",
-                user_prompt=usr_msg,
-            )
-            logger.debug(f"[UNIFIED ROUTING RESPONSE]: {response}")
-
-            # Parse routing response
-            try:
-                routing_result = json.loads(response)
-                action = routing_result.get("action", "route")
-
-                if action == "route":
-                    matched_session_id = routing_result.get("session_id", "new")
-                else:  # action == "new" or unknown
-                    matched_session_id = "new"
-            except (json.JSONDecodeError, TypeError):
-                logger.error("[PUT] Failed to parse routing response JSON")
-                matched_session_id = "new"
-
-            # Update the incoming trigger's session ID based on routing result
-            if matched_session_id != "new":
-                trig.session_id = matched_session_id
-                logger.debug(f"[PUT] Routed to existing session: {matched_session_id}")
-            else:
-                logger.debug("[PUT] Creating new session (no match found)")
-        else:
-            logger.debug(
-                f"[PUT] Skipping LLM routing (no_running_tasks={len(running_tasks) == 0}, skip_merge={skip_merge}, is_system={is_system_trigger})"
-            )
 
         async with self._cv:
             # find all triggers in heap with same session_id
@@ -431,14 +205,16 @@ class TriggerQueue:
         """
         Retrieve the next trigger to execute, waiting until one is ready.
 
-        The method drains all triggers that are ready to fire, merges triggers
-        belonging to the same session, and returns the highest-priority
-        combined trigger. If no trigger is ready, it waits until either the
-        earliest trigger's ``fire_at`` time arrives or a producer notifies the
-        condition.
+        Pops the highest-priority due trigger. If no trigger is ready, waits
+        until either the earliest trigger's ``fire_at`` time arrives or a
+        producer notifies the condition.
+
+        Same-session replacement in put() guarantees at most one queued
+        trigger per session, so no cross-trigger merging is needed here
+        (the pre-#321 merge machinery was removed with that invariant).
 
         Returns:
-            The next merged :class:`Trigger` ready for execution.
+            The next :class:`Trigger` ready for execution.
         """
         logger.debug("\n[GET] CALLED")
         self._print_queue("QUEUE BEFORE GET")
@@ -454,25 +230,22 @@ class TriggerQueue:
 
                 if ready:
                     logger.debug(f"[GET] {len(ready)} trigger(s) are ready")
-                    self._print_queue("READY BEFORE MERGE (GET)")
 
-                    merged_ready = self._merge_ready_triggers(ready)
-                    merged_ready.sort(key=lambda t: (t.priority, t.fire_at))
-
-                    trig = merged_ready.pop(0)
+                    ready.sort(key=lambda t: (t.priority, t.fire_at))
+                    trig = ready.pop(0)
                     logger.info(
                         f"[TRIGGER FIRED] session={trig.session_id} | desc={trig.next_action_description}"
                     )
 
                     # requeue leftover
-                    for t in merged_ready:
+                    for t in ready:
                         heapq.heappush(self._heap, t)
 
                     # Track as active so fire() can find it while processing
                     if trig.session_id:
                         self._active[trig.session_id] = trig
 
-                    self._print_queue("QUEUE AFTER GET (POST-MERGE)")
+                    self._print_queue("QUEUE AFTER GET")
                     return trig
 
                 # wait for next trigger
@@ -647,65 +420,3 @@ class TriggerQueue:
             )
 
         return message, platform
-
-    # =================================================================
-    # MERGE HELPERS
-    # =================================================================
-    def _merge_ready_triggers(self, ready: List[Trigger]) -> List[Trigger]:
-        grouped = defaultdict(list)
-        for trig in ready:
-            grouped[trig.session_id].append(trig)
-
-        result = []
-        for session_id, triggers in grouped.items():
-            logger.debug(
-                f"[MERGE READY] Merging {len(triggers)} triggers for session={session_id}"
-            )
-            result.append(self._merge_trigger_group(session_id, triggers))
-
-        return result
-
-    def _merge_trigger_group(
-        self, session_id: Optional[str], triggers: List[Trigger]
-    ) -> Trigger:
-        logger.debug(f"[MERGE GROUP] session={session_id}, count={len(triggers)}")
-        triggers.sort(key=lambda t: (t.priority, t.fire_at))
-
-        combined_payload: Dict[str, Any] = {}
-        combined_desc: OrderedDict[str, None] = OrderedDict()
-        combined_store_ids: List[int] = []
-        priority = triggers[0].priority
-        fire_at = triggers[0].fire_at
-
-        for trig in triggers:
-            priority = min(priority, trig.priority)
-            fire_at = min(fire_at, trig.fire_at)
-
-            desc = (trig.next_action_description or "").strip()
-            if desc and desc not in combined_desc:
-                combined_desc[desc] = None
-
-            combined_payload.update(trig.payload)
-            # Union store rows so acking the merged trigger settles every
-            # constituent — a missed id would strand its row in CLAIMED.
-            combined_store_ids.extend(trig.store_ids)
-
-        merged_desc = (
-            "\n\n".join(combined_desc.keys()) or triggers[0].next_action_description
-        )
-
-        merged = Trigger(
-            fire_at=fire_at,
-            priority=priority,
-            next_action_description=merged_desc,
-            payload=combined_payload,
-            session_id=session_id,
-            id=triggers[0].id,
-            source=triggers[0].source,
-            store_ids=combined_store_ids,
-        )
-
-        logger.debug(
-            f"[MERGE RESULT] session={session_id}, fire_at={fire_at}, priority={priority}"
-        )
-        return merged

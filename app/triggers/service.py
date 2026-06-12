@@ -13,8 +13,13 @@ boot. The service also implements the queue's lifecycle-listener protocol so
 triggers the queue discards (same-session replacement, session removal,
 clear) settle their rows instead of resurrecting on the next boot.
 
-Legacy producers that still call ``queue.put()`` directly keep working:
-their triggers carry no ``store_ids``, so claim/ack are no-ops for them.
+Producers that still call ``queue.put()`` directly keep working: their
+triggers carry no store ``id``, so claim/ack are no-ops for them.
+
+For user messages there is additionally ``park()``: the message is durably
+recorded BEFORE the session-routing LLM call, so a crash mid-routing no
+longer loses it — the parked row is re-delivered (as a fresh session) by
+the next boot's rehydration.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -55,6 +61,8 @@ class TriggerSpec:
     session_id: Optional[str] = None
     payload: Dict[str, Any] = field(default_factory=dict)
     dedup_key: Optional[str] = None
+    # Deprecated, ignored: in-queue routing was removed (Phase 3); the queue
+    # treats every put identically. Kept so existing call sites don't break.
     skip_merge: bool = False
     waiting_for_reply: bool = False
 
@@ -128,29 +136,70 @@ class TriggerService:
             waiting_for_reply=spec.waiting_for_reply,
             id=row_id,
             source=source,
-            store_ids=[row_id] if row_id is not None else [],
         )
-        await self._queue.put(trig, skip_merge=spec.skip_merge)
+        await self._queue.put(trig)
         return EmitResult(row_id, False)
+
+    def park(self, spec: TriggerSpec) -> Optional[int]:
+        """Durably record a trigger WITHOUT enqueueing it.
+
+        Used for incoming user messages before session routing: the routing
+        LLM call takes seconds and a crash during it would otherwise lose
+        the message entirely. The caller settles the parked row once the
+        message reaches its destination (``settle_parked``); if it never
+        does, rehydration re-delivers the row as a fresh session.
+        """
+        fire_at = spec.fire_at if spec.fire_at is not None else time.time()
+        source = (
+            spec.source.value
+            if isinstance(spec.source, TriggerSource)
+            else str(spec.source)
+        )
+        row_id, _ = self._store.insert(
+            source=source,
+            description=spec.description,
+            fire_at=fire_at,
+            priority=spec.priority,
+            session_id=spec.session_id,
+            payload=spec.payload,
+            dedup_key=spec.dedup_key,
+            waiting_for_reply=spec.waiting_for_reply,
+        )
+        return row_id
+
+    def settle_parked(
+        self, row_id: Optional[int], delivered_as: Optional[int] = None
+    ) -> None:
+        """Mark a parked row as delivered to its destination.
+
+        Args:
+            row_id: The parked row (None is a no-op for convenience).
+            delivered_as: The store row that now carries the work — the new
+                session's trigger row, or None when the message was attached
+                to an existing session's trigger via fire().
+        """
+        if row_id is None:
+            return
+        self._store.supersede([row_id], by_id=delivered_as)
 
     # ─────────────────────── Consumer API ───────────────────────────────────
 
     async def next(self) -> Trigger:
-        """Wait for the next due trigger and claim its store rows."""
+        """Wait for the next due trigger and claim its store row."""
         trig = await self._queue.get()
-        if trig.store_ids:
-            self._store.claim(trig.store_ids)
+        if trig.id is not None:
+            self._store.claim([trig.id])
         return trig
 
     async def ack(self, trig: Trigger) -> None:
         """The react cycle for this trigger completed."""
-        if trig.store_ids:
-            self._store.ack(trig.store_ids)
+        if trig.id is not None:
+            self._store.ack([trig.id])
 
     async def nack(self, trig: Trigger, error: str) -> None:
         """The react cycle raised before completing."""
-        if trig.store_ids:
-            self._store.fail(trig.store_ids, error=error)
+        if trig.id is not None:
+            self._store.fail([trig.id], error=error)
 
     # ─────────────────────── fire() pass-through ────────────────────────────
 
@@ -237,18 +286,29 @@ class TriggerService:
                 payload["overdue_seconds"] = overdue
                 description = f"{description}\n\n{note}"
 
+            # A row with no session is a parked user message whose routing
+            # never completed (crash mid-route). Re-deliver it as a fresh
+            # session — the agent handles it like a newly arrived message.
+            session_id = row["session_id"]
+            if not session_id:
+                session_id = uuid.uuid4().hex[:6]
+                self._store.update_session(row["id"], session_id)
+                logger.info(
+                    f"[TriggerService] Recovered unrouted trigger {row['id']} "
+                    f"as new session {session_id}"
+                )
+
             trig = Trigger(
                 fire_at=row["fire_at"],
                 priority=row["priority"],
                 next_action_description=description,
                 payload=payload,
-                session_id=row["session_id"],
+                session_id=session_id,
                 waiting_for_reply=bool(row["waiting_for_reply"]),
                 id=row["id"],
                 source=row["source"] or "",
-                store_ids=[row["id"]],
             )
-            await self._queue.put(trig, skip_merge=True)
+            await self._queue.put(trig)
             requeued += 1
 
         if stale_ids:
@@ -277,7 +337,7 @@ class TriggerService:
         self, evicted: List[Trigger], replacement: Optional[Trigger]
     ) -> None:
         """Queue discarded triggers unconsumed — settle their rows."""
-        ids = [row_id for t in evicted for row_id in (t.store_ids or [])]
+        ids = [t.id for t in evicted if t.id is not None]
         if not ids:
             return
         if replacement is not None:

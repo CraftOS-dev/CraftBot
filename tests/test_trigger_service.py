@@ -49,7 +49,7 @@ class TestEmitNextAck:
             assert store.get(result.trigger_id)["status"] == "PENDING"
 
             trig = await asyncio.wait_for(service.next(), timeout=2)
-            assert trig.store_ids == [result.trigger_id]
+            assert trig.id == result.trigger_id
             assert store.get(result.trigger_id)["status"] == "CLAIMED"
 
             await service.ack(trig)
@@ -88,8 +88,8 @@ class TestEmitNextAck:
         run(scenario())
 
     def test_legacy_put_passthrough(self, tmp_path):
-        # Producers not yet migrated still work; their triggers carry no
-        # store rows and ack is a no-op.
+        # Direct queue.put() still works; such triggers carry no store row
+        # and ack is a no-op.
         store, queue, service = make_stack(tmp_path)
 
         async def scenario():
@@ -99,11 +99,10 @@ class TestEmitNextAck:
                     priority=3,
                     next_action_description="legacy",
                     session_id="legacy-session",
-                ),
-                skip_merge=True,
+                )
             )
             trig = await asyncio.wait_for(service.next(), timeout=2)
-            assert trig.store_ids == []
+            assert trig.id is None
             await service.ack(trig)  # must not raise
             assert store.count_by_status() == {}
 
@@ -123,7 +122,7 @@ class TestCrashRecovery:
             assert await queue2.size() == 1
 
             trig = await asyncio.wait_for(service2.next(), timeout=2)
-            assert trig.store_ids == [result.trigger_id]
+            assert trig.id == result.trigger_id
             await service2.ack(trig)
 
             # a second restart must not re-deliver settled work
@@ -207,7 +206,7 @@ class TestEvictionSettlesRows:
             requeued = await service2.rehydrate()
             assert requeued == 1
             trig = await asyncio.wait_for(service2.next(), timeout=2)
-            assert trig.store_ids == [r2.trigger_id]
+            assert trig.id == r2.trigger_id
 
         run(scenario())
 
@@ -233,11 +232,11 @@ class TestEvictionSettlesRows:
         run(scenario())
 
 
-class TestMergedTriggerAck:
-    def test_merge_unions_store_ids_and_ack_settles_all(self, tmp_path):
-        # put() replaces same-session triggers, so two same-session entries
-        # can only coexist via internal paths — inject directly to verify the
-        # merge/ack contract (a missed id would strand a row in CLAIMED).
+class TestSequentialConsumption:
+    def test_directly_pushed_same_session_triggers_each_settle(self, tmp_path):
+        # The pre-#321 merge machinery is gone: if two same-session triggers
+        # ever coexist (only possible via direct heap pushes — put() replaces),
+        # they are consumed one at a time and each settles its own row.
         store, queue, service = make_stack(tmp_path)
 
         async def scenario():
@@ -257,13 +256,14 @@ class TestMergedTriggerAck:
                         session_id="s1",
                         id=row_id,
                         source="scheduled",
-                        store_ids=[row_id],
                     ),
                 )
 
-            trig = await asyncio.wait_for(service.next(), timeout=2)
-            assert sorted(trig.store_ids) == sorted([id1, id2])
-            await service.ack(trig)
+            first = await asyncio.wait_for(service.next(), timeout=2)
+            await service.ack(first)
+            second = await asyncio.wait_for(service.next(), timeout=2)
+            await service.ack(second)
+            assert {first.id, second.id} == {id1, id2}
             assert store.get(id1)["status"] == "DONE"
             assert store.get(id2)["status"] == "DONE"
 

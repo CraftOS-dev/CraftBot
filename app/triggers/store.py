@@ -403,6 +403,15 @@ class TriggerStore:
             conn.commit()
         return updated
 
+    def update_session(self, row_id: int, session_id: str) -> None:
+        """Assign a session to a row (recovery of unrouted parked messages)."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE triggers SET session_id = ?, updated_at = ? WHERE id = ?",
+                (session_id, _now_iso(), row_id),
+            )
+            conn.commit()
+
     # ─────────────────────── Utilities ──────────────────────────────────────
 
     def get(self, row_id: int) -> Optional[Dict[str, Any]]:

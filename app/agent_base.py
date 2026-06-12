@@ -30,7 +30,7 @@ import time
 import uuid
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
+from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
 from agent_core import settings_manager, config_watcher
@@ -88,6 +88,7 @@ from app.state.state_manager import StateManager
 from app.state.agent_state import STATE
 from app.trigger import Trigger, TriggerQueue
 from app.triggers import (
+    SessionRouter,
     TriggerService,
     TriggerSource,
     TriggerSpec,
@@ -264,13 +265,17 @@ class AgentBase:
         # action & task layers
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
 
-        self.triggers = TriggerQueue(
+        self.triggers = TriggerQueue()
+
+        self.trigger_store = TriggerStore()
+        self.trigger_service = TriggerService(self.trigger_store, self.triggers)
+
+        # The single session-routing implementation (Phase 3): consulted by
+        # the chat handler only, after the message is durably parked.
+        self.session_router = SessionRouter(
             llm=self.llm,
             route_to_session_prompt=ROUTE_TO_SESSION_PROMPT,
         )
-        
-        self.trigger_store = TriggerStore()
-        self.trigger_service = TriggerService(self.trigger_store, self.triggers)
 
         # global state
         self.state_manager = StateManager(self.event_stream_manager)
@@ -306,9 +311,12 @@ class AgentBase:
 
         # Bind task_manager so state_manager can look up tasks by session_id
         self.state_manager.bind_task_manager(self.task_manager)
-        # Bind task_manager and event_stream_manager to trigger queue for rich routing context
-        self.triggers.set_task_manager(self.task_manager)
-        self.triggers.set_event_stream_manager(self.event_stream_manager)
+        # Bind task_manager and event_stream_manager to the router for rich
+        # routing context (the queue no longer routes — Phase 3).
+        self.session_router.bind(
+            task_manager=self.task_manager,
+            event_stream_manager=self.event_stream_manager,
+        )
 
         # Set _interface_mode early so context_engine.make_prompt() works during restore
         # (will be updated again in run() based on selected interface)
@@ -1977,168 +1985,8 @@ class AgentBase:
             )
 
     # ----- Chat Handling -----
-
-    def _format_sessions_for_routing(
-        self, active_task_ids: List[str], triggers: Optional[List[Trigger]] = None
-    ) -> str:
-        """Format active sessions with rich context for routing prompt.
-
-        Uses active task IDs from state_manager (not just triggers in queue) to ensure
-        all running tasks are visible for routing decisions.
-
-        Args:
-            active_task_ids: List of task IDs from state_manager.main_state.active_task_ids
-            triggers: Optional list of triggers (used to check waiting_for_reply status)
-
-        Returns:
-            Formatted string with session context for routing decisions.
-        """
-        if not active_task_ids:
-            return "No existing sessions."
-
-        # Build a lookup of triggers by session_id for waiting_for_reply status
-        trigger_map = {}
-        if triggers:
-            for tr in triggers:
-                if tr.session_id:
-                    trigger_map[tr.session_id] = tr
-
-        sections = []
-        for i, task_id in enumerate(active_task_ids, 1):
-            task = self.task_manager.tasks.get(task_id) if self.task_manager else None
-            trigger = trigger_map.get(task_id)
-
-            # Check waiting_for_reply from trigger OR from task state
-            is_waiting = False
-            if trigger and trigger.waiting_for_reply:
-                is_waiting = True
-            if (
-                task
-                and hasattr(task, "waiting_for_user_reply")
-                and task.waiting_for_user_reply
-            ):
-                is_waiting = True
-
-            status = "WAITING FOR REPLY" if is_waiting else "ACTIVE"
-            platform = (
-                trigger.payload.get("platform", "default") if trigger else "default"
-            )
-
-            lines = [
-                f"--- Session {i} ---",
-                f"Session ID: {task_id}",
-                f"Status: {status}",
-            ]
-
-            if task:
-                lines.extend(
-                    [
-                        f'Task Name: "{task.name}"',
-                        f'Original Request: "{task.instruction}"',
-                        f"Mode: {task.mode}",
-                        f"Created: {task.created_at}",
-                    ]
-                )
-
-                # Todo progress
-                if task.todos:
-                    completed = sum(1 for t in task.todos if t.status == "completed")
-                    in_progress_todo = next(
-                        (t for t in task.todos if t.status == "in_progress"), None
-                    )
-                    lines.append(
-                        f"Progress: {completed}/{len(task.todos)} todos completed"
-                    )
-                    if in_progress_todo:
-                        lines.append(
-                            f'Currently working on: "{in_progress_todo.content}"'
-                        )
-
-                # Get recent events from event stream for this task
-                if self.event_stream_manager and task_id:
-                    stream = self.event_stream_manager.get_stream_by_id(task_id)
-                    if stream and stream.tail_events:
-                        # Get last 10 events for better routing context
-                        # (5 was insufficient - file creation events were missed)
-                        recent_events = stream.tail_events[-10:]
-                        lines.append("Recent Activity:")
-                        for rec in recent_events:
-                            # Only truncate very long event messages (500+ chars)
-                            # Short truncation caused loss of important context like file paths
-                            event_line = rec.compact_line()
-                            if len(event_line) > 500:
-                                event_line = event_line[:497] + "..."
-                            lines.append(f"  - {event_line}")
-            else:
-                # Fallback to trigger description if no task found
-                desc = trigger.next_action_description if trigger else "Unknown task"
-                lines.append(f'Description: "{desc}"')
-
-            lines.append(f"Platform: {platform}")
-
-            # Add Living UI context if the user is on a Living UI page
-            living_ui_id = trigger.payload.get("living_ui_id") if trigger else None
-            if living_ui_id:
-                lines.append(f"Living UI ID: {living_ui_id}")
-                try:
-                    from app.living_ui import get_living_ui_manager
-
-                    mgr = get_living_ui_manager()
-                    if mgr:
-                        proj = mgr.get_project(living_ui_id)
-                        if proj:
-                            lines.append(f"Living UI Name: {proj.name}")
-                            lines.append(f"Living UI Path: {proj.path}")
-                            lines.append(
-                                f"  Read {proj.path}/LIVING_UI.md for app context"
-                            )
-                            lines.append(
-                                "  If debugging issues, FIRST read these logs:"
-                            )
-                            lines.append(
-                                f"    - {proj.path}/backend/logs/subprocess_output.log (crashes, stack traces)"
-                            )
-                            lines.append(
-                                f"    - {proj.path}/backend/logs/frontend_console.log (frontend errors, network failures)"
-                            )
-                except Exception:
-                    pass
-
-            sections.append("\n".join(lines))
-
-        return "\n\n".join(sections)
-
-    def _format_recent_conversation(self, limit: int = 10) -> str:
-        """Format recent conversation messages for routing context.
-
-        Provides the routing LLM with recent conversation history so it can
-        recognize messages related to completed tasks that are no longer in
-        the active sessions list.
-
-        Args:
-            limit: Maximum number of recent messages to include.
-
-        Returns:
-            Formatted string of recent conversation messages.
-        """
-        if not self.event_stream_manager:
-            return "No recent conversation history."
-
-        recent_msgs = self.event_stream_manager.get_recent_conversation_messages(
-            limit=limit
-        )
-        if not recent_msgs:
-            return "No recent conversation history."
-
-        lines = []
-        for evt in recent_msgs:
-            ts = evt.ts.strftime("%Y-%m-%d %H:%M:%S") if evt.ts else "unknown"
-            line = f"[{ts}] [{evt.kind}]: {evt.message}"
-            if len(line) > 300:
-                line = line[:297] + "..."
-            lines.append(line)
-
-        return "\n".join(lines)
+    # Session routing (LLM decision + context formatting) lives in
+    # app/triggers/router.py (SessionRouter) as of Phase 3.
 
     async def _generate_unique_session_id(self) -> str:
         """Generate a unique 6-character session ID.
@@ -2176,68 +2024,6 @@ class AgentBase:
             "Could not generate unique 6-char session ID after 100 attempts, using full UUID"
         )
         return uuid.uuid4().hex
-
-    async def _route_to_session(
-        self,
-        item_type: str,
-        item_content: str,
-        existing_sessions: str,
-        source_platform: str = "default",
-        current_living_ui_id: Optional[str] = None,
-        recent_conversation: str = "(no recent conversation)",
-    ) -> Dict[str, Any]:
-        """Route incoming item to appropriate session using unified prompt.
-
-        Args:
-            item_type: Type of incoming item ("message" or "trigger")
-            item_content: The content of the message or trigger description
-            existing_sessions: Formatted string of existing sessions
-            source_platform: The platform the message came from (e.g., "cli", "gui")
-            current_living_ui_id: The Living UI page the user is currently viewing,
-                if any. Used by the prompt to default context-dependent messages
-                ("fix this", "it's broken") to that Living UI's task while still
-                allowing explicit cross-Living-UI references to override.
-            recent_conversation: Formatted recent messages across sessions for
-                cross-session context (helps disambiguate "and Spanish" style
-                continuations and references to completed tasks).
-
-        Returns:
-            Dict with routing decision containing:
-            - action: "route" | "new"
-            - session_id: The session to route to (or "new")
-            - reason: Explanation of the routing decision
-        """
-        prompt = ROUTE_TO_SESSION_PROMPT.format(
-            item_type=item_type,
-            item_content=item_content,
-            source_platform=source_platform,
-            existing_sessions=existing_sessions,
-            current_living_ui_id=current_living_ui_id or "(not on a Living UI page)",
-            recent_conversation=recent_conversation,
-        )
-
-        logger.debug(f"[UNIFIED ROUTING PROMPT]:\n{prompt}")
-        response = await self.llm.generate_response_async(
-            system_prompt="You are a session routing system.",
-            user_prompt=prompt,
-        )
-        logger.debug(f"[UNIFIED ROUTING RESPONSE]: {response}")
-
-        try:
-            result = json.loads(response)
-            # Ensure action field exists for backward compatibility
-            if "action" not in result:
-                result["action"] = (
-                    "route" if result.get("session_id", "new") != "new" else "new"
-                )
-            return result
-        except json.JSONDecodeError:
-            logger.error("[ROUTING] Failed to parse routing response JSON")
-            return {
-                "action": "new",
-                "session_id": "new",
-                "reason": "Failed to parse routing response",
-            }
 
     # ─────────────────────────────────────────────────────────────────────
     # Chat routing helpers
@@ -2378,8 +2164,15 @@ class AgentBase:
         payload: Dict,
         platform: str,
         gui_mode: Optional[bool],
+        parked_row_id: Optional[int] = None,
     ) -> None:
-        """Start a new session and queue a trigger to handle this message."""
+        """Start a new session and queue a trigger to handle this message.
+
+        Args:
+            parked_row_id: The durably-parked copy of this message (written
+                before routing); settled here once the new session's own
+                trigger row exists.
+        """
         await self.state_manager.start_session(gui_mode)
 
         # Prepend Living UI context to the message if the user is on a Living UI page.
@@ -2428,7 +2221,7 @@ class AgentBase:
         if platform and platform.lower() != "craftbot interface":
             platform_hint = f" from {platform} (reply on {platform}, NOT send_message)"
 
-        await self.trigger_service.emit(
+        result = await self.trigger_service.emit(
             TriggerSpec(
                 source=TriggerSource.USER_MESSAGE,
                 description=(
@@ -2438,8 +2231,12 @@ class AgentBase:
                 priority=3,
                 session_id=await self._generate_unique_session_id(),
                 payload=trigger_payload,
-                skip_merge=True,
             )
+        )
+        # The message now lives in the new session's own trigger row — the
+        # parked pre-routing copy is settled (superseded by that row).
+        self.trigger_service.settle_parked(
+            parked_row_id, delivered_as=result.trigger_id
         )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -2513,6 +2310,35 @@ class AgentBase:
                 self._post_third_party_notification(payload, platform)
                 return
 
+            # ── Durable parking (issue #321): record the message in the
+            # trigger store BEFORE any routing work. Routing below may take
+            # an LLM call (seconds) — with the row parked, a crash anywhere
+            # in this method no longer loses the message; the next boot's
+            # rehydration re-delivers it as a fresh session. Every delivery
+            # path below settles the row once the message lands.
+            parked_id = None
+            try:
+                parked_payload = {
+                    "gui_mode": gui_mode,
+                    "platform": platform,
+                    "user_message": chat_content,
+                }
+                if living_ui_id:
+                    parked_payload["living_ui_id"] = living_ui_id
+                parked_id = self.trigger_service.park(
+                    TriggerSpec(
+                        source=TriggerSource.USER_MESSAGE,
+                        description=(
+                            "Please perform action that best suit this user chat "
+                            f"you just received: {chat_content}"
+                        ),
+                        priority=3,
+                        payload=parked_payload,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"[CHAT] Failed to park message durably: {e}")
+
             active_task_ids = self.state_manager.get_main_state().active_task_ids
 
             # ── Rule 2: Explicit UI reply with valid target_session_id.
@@ -2521,6 +2347,9 @@ class AgentBase:
                 if await self._fire_session(
                     target_session_id, chat_content, platform, living_ui_id
                 ):
+                    # Message durably attached to the session's trigger row
+                    # by trigger_service.fire() — the parked copy is settled.
+                    self.trigger_service.settle_parked(parked_id)
                     return
                 logger.warning(
                     f"[CHAT] target_session_id {target_session_id} not found — falling through to next rule"
@@ -2534,7 +2363,7 @@ class AgentBase:
                     "[CHAT] UI reply marker without valid target — creating new session"
                 )
                 await self._create_new_session_trigger(
-                    chat_content, payload, platform, gui_mode
+                    chat_content, payload, platform, gui_mode, parked_row_id=parked_id
                 )
                 return
 
@@ -2547,11 +2376,13 @@ class AgentBase:
             # deserves its own session.
             if active_task_ids:
                 active_triggers = await self.triggers.list_triggers()
-                existing_sessions = self._format_sessions_for_routing(
+                existing_sessions = self.session_router.format_sessions_for_routing(
                     active_task_ids, active_triggers
                 )
-                recent_conversation = self._format_recent_conversation(limit=10)
-                routing_result = await self._route_to_session(
+                recent_conversation = self.session_router.format_recent_conversation(
+                    limit=10
+                )
+                routing_result = await self.session_router.route(
                     item_type="message",
                     item_content=chat_content,
                     existing_sessions=existing_sessions,
@@ -2568,6 +2399,7 @@ class AgentBase:
                         if await self._fire_session(
                             matched, chat_content, platform, living_ui_id
                         ):
+                            self.trigger_service.settle_parked(parked_id)
                             return
                         logger.warning(
                             f"[CHAT] LLM routed to {matched} but trigger not found — creating new session"
@@ -2575,7 +2407,7 @@ class AgentBase:
 
             # ── Rule 5: Default — create a new session.
             await self._create_new_session_trigger(
-                chat_content, payload, platform, gui_mode
+                chat_content, payload, platform, gui_mode, parked_row_id=parked_id
             )
 
         except Exception as e:
