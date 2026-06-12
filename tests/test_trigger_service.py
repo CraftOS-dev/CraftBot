@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Integration tests for TriggerService + TriggerQueue + TriggerStore
-(issue #321, Phase 1) — including crash/restart simulations."""
+ — including crash/restart simulations."""
 
 import asyncio
 import heapq

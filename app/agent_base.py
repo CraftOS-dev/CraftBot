@@ -282,6 +282,13 @@ class AgentBase:
         self.context_engine = ContextEngine(state_manager=self.state_manager)
         self.context_engine.set_role_info_hook(self._generate_role_info_prompt)
 
+        # Idempotency guard: actions flagged
+        # irreversible=True record intent to the activity ledger before the
+        # side effect and their completed runs are never silently re-executed
+        # after a crash — "did this already run?" is a database check.
+        from app.triggers.activity_log import ActivityLogGuard, get_activity_log
+
+        self.activity_log = get_activity_log()
         self.action_manager = ActionManager(
             self.action_library,
             self.llm,
@@ -289,6 +296,7 @@ class AgentBase:
             self.event_stream_manager,
             self.context_engine,
             self.state_manager,
+            idempotency_guard=ActivityLogGuard(self.activity_log),
         )
         self.action_router = ActionRouter(
             self.action_library, self.llm, self.context_engine
@@ -2310,7 +2318,7 @@ class AgentBase:
                 self._post_third_party_notification(payload, platform)
                 return
 
-            # ── Durable parking (issue #321): record the message in the
+            # ── Durable parking: record the message in the
             # trigger store BEFORE any routing work. Routing below may take
             # an LLM call (seconds) — with the row parked, a crash anywhere
             # in this method no longer loses the message; the next boot's
@@ -2594,6 +2602,10 @@ class AgentBase:
             self.trigger_store.clear_all()
         except Exception as e:
             logger.warning(f"[RESET] Failed to clear trigger store: {e}")
+        try:
+            self.activity_log.clear_all()
+        except Exception as e:
+            logger.warning(f"[RESET] Failed to clear activity log: {e}")
         self.task_manager.reset()
         self.state_manager.reset()
         self.event_stream_manager.clear_all()

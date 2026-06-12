@@ -8,6 +8,7 @@ from agent_core import action
 
 @action(
     name="send_whatsapp_web_text_message",
+    irreversible=True,
     description="Send a text message via WhatsApp Web.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -42,6 +43,7 @@ async def send_whatsapp_web_text_message(input_data: dict) -> dict:
 
 @action(
     name="send_whatsapp_web_media_message",
+    irreversible=True,
     description="Send a media file (image / video / audio / document) via WhatsApp Web. Set send_as_sticker / send_as_voice / send_as_document to override the default mode.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -102,6 +104,7 @@ async def send_whatsapp_web_media_message(input_data: dict) -> dict:
 
 @action(
     name="send_whatsapp_location",
+    irreversible=True,
     description="Send a location pin via WhatsApp Web.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -136,6 +139,7 @@ async def send_whatsapp_location(input_data: dict) -> dict:
 
 @action(
     name="reply_whatsapp_message",
+    irreversible=True,
     description="Quote-reply to a specific WhatsApp message.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -220,6 +224,7 @@ async def delete_whatsapp_message(input_data: dict) -> dict:
 
 @action(
     name="forward_whatsapp_message",
+    irreversible=True,
     description="Forward a message to another chat.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={

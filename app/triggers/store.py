@@ -2,7 +2,7 @@
 """
 app.triggers.store
 
-Durable trigger store (issue #321, Primitive A).
+Durable trigger store.
 
 SQLite-backed write-ahead store for triggers: a trigger accepted by
 TriggerService is INSERTed here as PENDING before it can run, claimed

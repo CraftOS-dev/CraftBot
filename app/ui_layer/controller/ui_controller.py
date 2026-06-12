@@ -513,7 +513,7 @@ class UIController:
     async def _consume_triggers(self) -> None:
         """Consume triggers and run agent reactions.
 
-        Durable lifecycle (issue #321): ``next()`` claims the trigger's store
+        Durable lifecycle: ``next()`` claims the trigger's store
         rows (CLAIMED), ``ack()`` settles them when the react cycle completes,
         ``nack()`` on an exception. A crash or cancellation mid-react leaves
         the rows CLAIMED, and the next boot's reclaim scan re-delivers them —

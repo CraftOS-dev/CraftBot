@@ -101,7 +101,7 @@ class SessionStorage:
             """)
 
             # NOTE: the `triggers` table is owned by app/triggers/store.py
-            # (durable trigger store, issue #321) — do not touch it here.
+            # (durable trigger store) — do not touch it here.
 
             conn.commit()
 

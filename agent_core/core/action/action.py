@@ -61,6 +61,7 @@ class Action:
         requirements: Optional[List[str]] = None,
         timeout: Optional[int] = None,
         parallelizable: bool = True,
+        irreversible: bool = False,
     ):
         """
         Initialize a new Action definition.
@@ -101,6 +102,10 @@ class Action:
             parallelizable: Whether this action can be executed in parallel with others.
                 Defaults to True. Set to False for write operations, GUI actions,
                 state changes, send_message, etc.
+            irreversible: Whether the action's side effect cannot be undone once
+                it reaches the outside world (send email/message, post publicly).
+                Irreversible actions are guarded by the activity ledger so a
+                completed run is never silently re-executed after a crash.
         """
         self.name = name
         self.description = description
@@ -125,6 +130,7 @@ class Action:
         self.requirements = requirements or []
         self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
         self.parallelizable = parallelizable
+        self.irreversible = irreversible
 
     @property
     def display_name(self) -> str:
@@ -168,6 +174,7 @@ class Action:
             "requirements": self.requirements,
             "timeout": self.timeout,
             "parallelizable": self.parallelizable,
+            "irreversible": self.irreversible,
         }
 
     @classmethod
@@ -211,6 +218,7 @@ class Action:
             requirements=data.get("requirements", []),
             timeout=data.get("timeout"),
             parallelizable=data.get("parallelizable", True),
+            irreversible=data.get("irreversible", False),
         )
 
         return data_to_return

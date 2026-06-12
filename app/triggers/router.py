@@ -2,8 +2,7 @@
 """
 app.triggers.router
 
-SessionRouter — decides which session an incoming item belongs to
-(issue #321, Phase 3).
+SessionRouter — decides which session an incoming item belongs to.
 
 This is the ONE routing implementation. It was extracted from AgentBase
 (`_route_to_session` + context formatters); the second, near-duplicate

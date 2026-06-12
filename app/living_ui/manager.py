@@ -142,7 +142,7 @@ class LivingUIManager:
             task_manager: TaskManager instance for creating tasks
             trigger_queue: TriggerQueue instance for firing triggers
             trigger_service: Optional TriggerService for durable emits
-                (issue #321); falls back to direct queue puts when None.
+                ; falls back to direct queue puts when None.
         """
         self._task_manager = task_manager
         self._trigger_queue = trigger_queue

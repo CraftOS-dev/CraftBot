@@ -58,7 +58,7 @@ class SchedulerManager:
             config_path: Path to scheduler_config.json
             trigger_queue: TriggerQueue to fire triggers into
             trigger_service: Optional TriggerService. When provided, fires are
-                emitted durably with dedup keys (issue #321); when None, falls
+                emitted durably with dedup keys; when None, falls
                 back to direct queue puts (legacy behavior, used by old tests).
         """
         self._config_path = Path(config_path)

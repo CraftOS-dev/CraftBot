@@ -5,7 +5,7 @@ core.impl.trigger.queue
 TriggerQueue implementation - in-memory ordering primitive for triggers.
 
 The queue holds due-time-ordered triggers and hands them to the single
-consumer loop. It is deliberately dumb (issue #321):
+consumer loop. It is deliberately dumb:
 
 - Durability lives in the app-layer TriggerStore; the queue reports any
   trigger it discards unconsumed through a TriggerLifecycleListener so the
@@ -63,7 +63,7 @@ class TriggerQueue:
 
         Args:
             llm: Deprecated, ignored. In-queue LLM routing was removed
-                (issue #321 Phase 3); routing happens at the producer layer.
+                ; routing happens at the producer layer.
             route_to_session_prompt: Deprecated, ignored.
             task_manager: Deprecated, ignored.
             event_stream_manager: Deprecated, ignored.

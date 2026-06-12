@@ -149,7 +149,7 @@ async def schedule_task(input_data: dict) -> dict:
                 }
 
         # Handle immediate execution — queue_immediate_trigger emits durably
-        # via TriggerService when the scheduler has one wired (issue #321).
+        # via TriggerService when the scheduler has one wired.
         if schedule_expr.lower() == "immediate":
             return await scheduler.queue_immediate_trigger(
                 name=name,

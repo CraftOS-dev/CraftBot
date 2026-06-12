@@ -2,7 +2,7 @@
 """
 app.triggers
 
-Durable trigger execution (issue #321): typed sources, the SQLite-backed
+Durable trigger execution: typed sources, the SQLite-backed
 TriggerStore, and the TriggerService producer/consumer front door.
 """
 

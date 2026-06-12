@@ -2,8 +2,7 @@
 """
 app.triggers.service
 
-TriggerService — the single producer front door for durable triggers
-(issue #321, Primitive A).
+TriggerService — the single producer front door for durable triggers.
 
 ``emit()`` writes the trigger to the store FIRST (no LLM call, sub-ms), then
 feeds the in-memory TriggerQueue, which stays as the ordering primitive. The

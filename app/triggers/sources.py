@@ -2,7 +2,7 @@
 """
 app.triggers.sources
 
-Typed trigger sources and dedup-key builders (issue #321).
+Typed trigger sources and dedup-key builders.
 
 Phase 1 defines only the sources migrated to TriggerService so far; Phase 2
 extends this enum to every producer and removes the scattered

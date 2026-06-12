@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for the durable trigger store (issue #321, Phase 1)."""
+"""Unit tests for the durable trigger store."""
 
 import sqlite3
 import time
