@@ -36,3 +36,6 @@ export type { SkillCreatorModalProps, SkillCreatorMode, SkillCreatorSubmit } fro
 
 export { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 export type { SlashCommandAutocompleteHandle } from './SlashCommandAutocomplete'
+
+export { PlaybookModal } from './PlaybookModal'
+export type { PlaybookModalProps } from './PlaybookModal'

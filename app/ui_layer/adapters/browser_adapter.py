@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -17,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
-from app.config import AGENT_WORKSPACE_ROOT
+from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
     # General settings
@@ -1832,6 +1833,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             source = data.get("source", "")
             name = data.get("name", "External App")
             asyncio.create_task(self._handle_living_ui_import(source, name))
+
+        # Playbook catalogue handlers
+        elif msg_type == "playbook_list":
+            await self._handle_playbook_list()
 
         # WhatsApp QR code flow handlers
         elif msg_type == "whatsapp_start_qr":
@@ -6379,6 +6384,66 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         await self._broadcast(
             {"type": "living_ui_project_setting_update", "data": result}
         )
+
+    # =====================
+    # Playbook Handlers
+    # =====================
+
+    async def _handle_playbook_list(self) -> None:
+        """Read the bundled playbook catalogue and broadcast it to the client.
+
+        Lookup order mirrors `get_default_picture_path` for read-only bundled
+        assets: APP_DATA_PATH first (source mode + writable per-user dir),
+        then `_MEIPASS/app/data/playbooks` so packaged builds resolve too.
+        """
+        candidates = [APP_DATA_PATH / "playbooks" / "catalogue.json"]
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(
+                Path(meipass) / "app" / "data" / "playbooks" / "catalogue.json"
+            )
+
+        catalogue_path: Optional[Path] = next(
+            (p for p in candidates if p.exists()), None
+        )
+
+        if catalogue_path is None:
+            await self._broadcast(
+                {
+                    "type": "playbook_list",
+                    "data": {
+                        "success": False,
+                        "error": "Playbook catalogue not found.",
+                        "playbooks": [],
+                    },
+                }
+            )
+            return
+
+        try:
+            with open(catalogue_path, "r", encoding="utf-8") as f:
+                catalogue = json.load(f)
+            await self._broadcast(
+                {
+                    "type": "playbook_list",
+                    "data": {
+                        "success": True,
+                        "playbooks": catalogue.get("playbooks", []),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[PLAYBOOK] Failed to read catalogue: {e}")
+            await self._broadcast(
+                {
+                    "type": "playbook_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "playbooks": [],
+                    },
+                }
+            )
 
     # =====================
     # Marketplace Handlers
