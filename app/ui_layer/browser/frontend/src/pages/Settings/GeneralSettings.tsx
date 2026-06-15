@@ -670,7 +670,7 @@ export function GeneralSettings() {
 
       setProfileStatus({
         type: 'success',
-        message: `${verb} ${what}. Restart the agent to apply changes.`,
+        message: `${verb} ${what}.`,
       })
       setShowImportModal(false)
       setImportManifest(null)

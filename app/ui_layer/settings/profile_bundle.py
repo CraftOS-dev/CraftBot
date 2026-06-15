@@ -448,6 +448,7 @@ def inspect_bundle(bundle_path: str) -> Dict[str, Any]:
 class ImportSummary:
     skills_added: List[str]
     skills_skipped: List[str]
+    skills_missing: List[str]
     mcp_added: List[str]
     mcp_skipped: List[str]
     mcp_needs_env: List[Dict[str, Any]]
@@ -489,16 +490,29 @@ def _apply_md_files(src_profile: Path, mode: str) -> List[str]:
 
 def _apply_skills(
     src_skills_dir: Path, mode: str
-) -> Tuple[List[str], List[str]]:
+) -> Tuple[List[str], List[str], List[str]]:
     """Install skill folders and update skills_config.json.
 
     ``replace`` — bundle overwrites local on name collision; new skills added.
     ``overwrite`` — every existing skill folder under SKILLS_DIR is deleted,
     then the bundle's skills are installed and become the entire skill set
     (no disabled defaults left over).
+
+    Bundles produced by agent_bundle/build.py list every skill the agent uses
+    in ``enabled.json`` but only ship folders for the "bundled" ones — the
+    "default" skills are assumed to already exist on the recipient's install.
+    We split bundle_enabled into three buckets accordingly:
+
+    - ``added``: bundle shipped a folder; copied to disk and enabled.
+    - ``already_present``: no folder in bundle, but recipient already has it
+      locally; enabled (replace mode only — overwrite mode wipes local first
+      so this bucket is always empty there).
+    - ``missing``: bundle expected the recipient to already have it but they
+      don't; NOT enabled (would leave a ghost entry pointing at no folder).
     """
     added: List[str] = []
-    skipped: List[str] = []
+    already_present: List[str] = []
+    missing: List[str] = []
     enabled_list_path = src_skills_dir / "enabled.json"
     bundle_enabled = _load_json(enabled_list_path, {}).get("enabled_skills", [])
 
@@ -513,49 +527,57 @@ def _apply_skills(
 
     for skill_name in bundle_enabled:
         src = src_skills_dir / skill_name
-        if not src.is_dir():
-            continue
         dst = SKILLS_DIR / skill_name
-        if dst.exists():
-            if mode == "replace":
-                shutil.rmtree(dst, ignore_errors=True)
-                _copy_dir_filtered(src, dst)
-                added.append(skill_name)
+        if not src.is_dir():
+            # Bundle didn't include a folder for this one — it's a "default"
+            # skill the recipient is expected to have. Keep it enabled only if
+            # the folder actually exists locally; otherwise drop it so the
+            # enabled list never contains ghost entries.
+            if dst.is_dir():
+                already_present.append(skill_name)
             else:
-                skipped.append(skill_name)
-        else:
-            _copy_dir_filtered(src, dst)
-            added.append(skill_name)
+                missing.append(skill_name)
+                logger.warning(
+                    f"[PROFILE_BUNDLE] Bundle expected default skill "
+                    f"'{skill_name}' but no folder exists locally; skipping."
+                )
+            continue
+        if dst.exists():
+            shutil.rmtree(dst, ignore_errors=True)
+        _copy_dir_filtered(src, dst)
+        added.append(skill_name)
+
+    installed_now = added + already_present
 
     if mode == "overwrite":
-        # Authoritative config: bundle's enabled list IS the skill state.
+        # Authoritative config: bundle's enabled list IS the skill state, but
+        # filtered to entries that physically exist on disk after the copy.
         config = {
             "auto_load": True,
-            "enabled_skills": list(bundle_enabled),
+            "enabled_skills": installed_now,
             "disabled_skills": [],
         }
     else:
-        # Additive: only flip skills the bundle landed into the enabled list,
-        # never disable anything the user already had.
+        # Additive: enable everything the bundle wanted that we can back with
+        # a real folder, but never disable anything the user already had.
         config = _load_json(
             SKILLS_CONFIG_PATH,
             {"auto_load": True, "enabled_skills": [], "disabled_skills": []},
         )
         enabled_set = list(config.get("enabled_skills", []))
         disabled_set = list(config.get("disabled_skills", []))
-        for skill_name in bundle_enabled:
-            if skill_name in added:
-                if skill_name not in enabled_set:
-                    enabled_set.append(skill_name)
-                if skill_name in disabled_set:
-                    disabled_set.remove(skill_name)
+        for skill_name in installed_now:
+            if skill_name not in enabled_set:
+                enabled_set.append(skill_name)
+            if skill_name in disabled_set:
+                disabled_set.remove(skill_name)
         config["enabled_skills"] = enabled_set
         config["disabled_skills"] = disabled_set
 
     SKILLS_CONFIG_PATH.write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    return added, skipped
+    return added, already_present, missing
 
 
 def _apply_mcp(
@@ -907,7 +929,9 @@ def import_profile(
         bundle_name = manifest.get("name") or "imported profile"
 
         md_applied = _apply_md_files(work_dir / "profile", mode)
-        skills_added, skills_skipped = _apply_skills(work_dir / "skills", mode)
+        skills_added, skills_already_present, skills_missing = _apply_skills(
+            work_dir / "skills", mode
+        )
         mcp_added, mcp_skipped, mcp_needs_env = _apply_mcp(work_dir / "mcp", mode)
         living_added, living_renamed = _apply_living_ui(
             work_dir / "living_ui", mode, manager=living_ui_manager
@@ -918,7 +942,8 @@ def import_profile(
 
         summary = ImportSummary(
             skills_added=skills_added,
-            skills_skipped=skills_skipped,
+            skills_skipped=skills_already_present,
+            skills_missing=skills_missing,
             mcp_added=mcp_added,
             mcp_skipped=mcp_skipped,
             mcp_needs_env=mcp_needs_env,
@@ -931,7 +956,7 @@ def import_profile(
             "mode": mode,
             "bundle_name": bundle_name,
             "summary": summary.to_dict(),
-            "restart_required": True,
+            "restart_required": False,
         }
     except (ValueError, json.JSONDecodeError) as exc:
         return {"success": False, "error": str(exc)}
