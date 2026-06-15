@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -59,27 +59,6 @@ Darüber hinaus bringt CraftBot alle Kernfunktionen eines universellen Agent-Fra
 
 ---
 
-## ✨ Funktionen
-
-- **Bring Your Own Key (BYOK)** — Flexibles LLM-Provider-System mit Unterstützung für OpenAI, Google Gemini, Anthropic Claude, BytePlus und lokale Ollama-Modelle. Wechsle Anbieter mühelos.
-- **Speichersystem** — Destilliert und konsolidiert um Mitternacht die Ereignisse des Tages.
-- **Proaktiver Agent** — Lernt deine Vorlieben, Gewohnheiten und Lebensziele kennen. Anschließend plant er und startet (selbstverständlich nach Freigabe) Aufgaben, die dir beim Fortschritt helfen.
-- **Living UI** — Baue, importiere oder entwickle eigene Apps weiter, die in CraftBot leben. Der Agent behält den UI-Zustand stets im Blick und kann deren Daten direkt lesen, schreiben und verarbeiten.
-- **Externe Tool-Integration** — Verbinde dich mit Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord und Telegram (weitere folgen!) mit eingebetteten Zugangsdaten und OAuth-Unterstützung.
-- **MCP** — Integration des Model Context Protocol, um die Fähigkeiten des Agents um externe Tools und Dienste zu erweitern.
-- **Skills** — Erweiterbares Skill-Framework mit eingebauten Skills für Aufgabenplanung, Recherche, Code-Reviews, Git-Operationen und mehr.
-- **Plattformübergreifend** — Vollständige Unterstützung für Windows, macOS und Linux mit plattformspezifischen Code-Varianten und Docker-Containerisierung.
-
-> [!IMPORTANT]
-> **Der GUI-Modus ist veraltet.** CraftBot unterstützt den GUI-Modus (Desktop-Automatisierung) nicht mehr. Bitte verwende stattdessen den Browser- oder CLI-Modus.
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
----
-
 
 ## 🧰 Erste Schritte
 
@@ -115,6 +94,10 @@ python craftbot.py uninstall  # Stoppen, Autostart entfernen und Pakete deinstal
 ## 🌱 Living UI
 
 **Eine Living UI ist ein System / eine App / ein Dashboard, das mit deinen Anforderungen mitwächst.**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - Brauchst du ein Kanban-Board mit eingebautem KI-Copiloten?
 - Ein maßgeschneidertes CRM, das exakt deinem Workflow folgt?

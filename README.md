@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -59,27 +59,6 @@ Aside from being an AI agent that can create and operate its own SaaS tools, Cra
 
 ---
 
-## ✨ Features
-
-- **Bring Your Own Key (BYOK)** — Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, BytePlus, and local Ollama models. Easily switch between providers.
-- **Memory System** — Distill and consolidate events that happened through the day at midnight.
-- **Proactive Agent** — Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
-- **Living UI** — Build, import, or evolve custom apps that live inside CraftBot. The agent stays aware of the UI's state and can read, write, and act on its data directly.
-- **External Tools Integration** — Connect to Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, and Telegram (more to come!) with embedded credentials and OAuth support.
-- **MCP** — Model Context Protocol integration for extending agent capabilities with external tools and services.
-- **Skills** — Extensible skill framework with built-in skills for task planning, research, code review, git operations, and more.
-- **Cross-Platform** — Full support for Windows, macOS, and Linux with platform-specific code variants and Docker containerization.
-
-> [!IMPORTANT]
-> **GUI mode is deprecated.** CraftBot no longer supports GUI (desktop automation) mode. Please use Browser or CLI mode instead.
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
----
-
 
 ## 🧰 Getting Started
 
@@ -115,6 +94,10 @@ python craftbot.py uninstall  # Stop, remove auto-start, and uninstall packages
 ## 🌱 Living UI
 
 **Living UI is a system/app/dashboard that evolves with your needs.**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - Need a kanban board with an AI co-pilot built in?
 - A custom CRM shaped exactly like your workflow?

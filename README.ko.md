@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -47,14 +47,6 @@
 
 자체 SaaS 도구를 만들고 운영할 수 있는 AI 에이전트라는 점 외에도, CraftBot은 에이전트 하네스로서의 핵심 기능을 모두 갖추고 있어 작업, 도구, 메모리, 일상 워크플로 전반에서 범용 AI 에이전트로 사용자와 함께 일할 수 있습니다.
 
-> [!IMPORTANT]
-> **GUI 모드는 더 이상 지원되지 않습니다.** CraftBot은 GUI(데스크톱 자동화) 모드를 더 이상 지원하지 않습니다. 대신 Browser 또는 CLI 모드를 사용하세요.
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
 ---
 
 ## 🧰 시작하기
@@ -91,6 +83,10 @@ python craftbot.py uninstall  # 중지, 자동 시작 해제, 패키지 제거
 ## 🌱 Living UI
 
 **Living UI는 사용자의 필요에 맞춰 함께 진화하는 시스템/앱/대시보드입니다.**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - AI 코파일럿이 내장된 칸반 보드가 필요한가요?
 - 당신의 워크플로에 딱 맞춘 커스텀 CRM은요?

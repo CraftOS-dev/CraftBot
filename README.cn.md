@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -56,27 +56,6 @@
 - **Skills 与 MCP.** 已就绪 150+ MCP 与 170+ Skills,支持快速安装新的 Skills 与 MCP,也可以从已完成的任务中一键创建或改进 Skills。
 - **跨平台支持.** 完整支持 Windows、macOS 和 Linux,提供平台特定的代码分支以及 Docker 容器化方案。
 - **浏览器界面与 CLI 支持.** 用最适合你的方式使用 CraftBot:日常使用走简洁的浏览器 UI,脚本和无界面环境则可以走 CLI。
-
----
-
-## 🧰 快速开始
-
-- **自带密钥 (BYOK)** — 灵活的 LLM 提供商系统，支持 OpenAI、Google Gemini、Anthropic Claude、BytePlus 和本地 Ollama 模型。可轻松切换提供商。
-- **记忆系统** — 在午夜整理并汇总一天中发生的事件。
-- **主动式代理** — 学习你的偏好、习惯和人生目标，然后进行规划并启动任务（当然需要你的批准）来帮助你改善生活。
-- **Living UI** — 在 CraftBot 中构建、导入或演进自定义应用。代理始终感知 UI 的状态，并可直接读取、写入和操作其数据。
-- **外部工具集成** — 连接 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord 和 Telegram（更多即将推出！），支持嵌入式凭据和 OAuth。
-- **MCP** — 模型上下文协议（Model Context Protocol）集成，通过外部工具和服务扩展代理能力。
-- **技能系统** — 可扩展的技能框架，内置任务规划、研究、代码审查、Git 操作等技能。
-- **跨平台** — 完整支持 Windows、macOS 和 Linux，具有平台特定代码变体和 Docker 容器化。
-
-> [!IMPORTANT]
-> **GUI 模式已弃用。** CraftBot 不再支持 GUI（桌面自动化）模式。请改用 Browser 或 CLI 模式。
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
 
 ---
 
@@ -139,6 +118,10 @@ python craftbot.py uninstall  # 停止运行、移除自启动并卸载所有依
 ## 🌱 Living UI
 
 **Living UI 是会随你的需求一同演进的系统/应用/仪表盘。**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - 想要一个内置 AI 协作伙伴的看板?
 - 一套完全贴合你工作流的定制 CRM?
