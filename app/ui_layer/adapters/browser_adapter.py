@@ -961,13 +961,6 @@ class BrowserAdapter(InterfaceAdapter):
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
 
-        # Staged bundle path set by the inspect endpoint and consumed by the
-        # import endpoint. Storing it server-side means: (a) the import handler
-        # never trusts a client-supplied filesystem path, and (b) if the user
-        # closes the modal without importing, the next inspect call cleans up
-        # the leftover temp file.
-        self._staged_import_path: Optional[str] = None
-
         # Living UI manager
         template_path = (
             Path(__file__).parent.parent.parent / "data" / "living_ui_template"
@@ -3010,17 +3003,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
         from app.ui_layer.settings.profile_bundle import inspect_bundle
 
-        # Clean up any leftover staged file from a previous cancelled import.
-        if self._staged_import_path:
-            try:
-                p = Path(self._staged_import_path)
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
-            self._staged_import_path = None
-
-        bundle_path: Optional[str] = None
         try:
             bundle_path = await self._stage_uploaded_bundle(request)
             if not bundle_path:
@@ -3028,23 +3010,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     {"error": "No bundle file uploaded"}, status=400
                 )
             result = inspect_bundle(bundle_path)
-            if result.get("success"):
-                # Store server-side so the import handler can use it without
-                # trusting a client-supplied filesystem path.
-                self._staged_import_path = bundle_path
-                bundle_path = None  # ownership transferred — don't clean up below
+            # Return the temp path so the subsequent /api/profile/import call
+            # can reuse it instead of re-uploading the bundle.
+            result["bundle_path"] = bundle_path
             return web.json_response(result)
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Inspect failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
-        finally:
-            # Clean up the staged file only if inspection failed (success path
-            # transferred ownership to self._staged_import_path above).
-            if bundle_path:
-                try:
-                    Path(bundle_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
 
     async def _profile_import_handler(self, request: "web.Request") -> "web.Response":
         """Apply a previously-inspected bundle to the agent."""
@@ -3058,17 +3030,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {"error": "Invalid JSON body"}, status=400
             )
 
-        # Use the server-side staged path set by the inspect endpoint.
-        # We intentionally ignore any bundle_path from the request body so that
-        # a client cannot point this handler at an arbitrary filesystem path.
-        bundle_path = self._staged_import_path
-        mode = payload.get("mode", "replace")
+        bundle_path = payload.get("bundle_path") or ""
+        mode = payload.get("mode", "merge")
         if not bundle_path:
             return web.json_response(
-                {"error": "No bundle staged. Upload a bundle via /api/profile/inspect first."}, status=400
+                {"error": "bundle_path is required"}, status=400
             )
-
-        self._staged_import_path = None  # clear before import so a failure doesn't leave it set
 
         try:
             # Pass the live LivingUIManager so imported projects land in its
@@ -3085,7 +3052,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         finally:
             # Best-effort cleanup of the staged upload.
             try:
-                Path(bundle_path).unlink(missing_ok=True)
+                p = Path(bundle_path)
+                if p.exists():
+                    p.unlink()
             except Exception:
                 pass
 
