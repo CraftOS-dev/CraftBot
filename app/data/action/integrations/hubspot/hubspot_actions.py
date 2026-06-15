@@ -2570,6 +2570,7 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
 
 @action(
     name="send_hubspot_single_send",
+    irreversible=True,
     description="Send a one-off transactional email based on a pre-built marketing email template.",
     action_sets=["hubspot_marketing_email", "hubspot"],
     input_schema={
@@ -2816,6 +2817,7 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
 
 @action(
     name="send_hubspot_conversation_message",
+    irreversible=True,
     description="Send a message into a conversation thread. Requires the channel + channel-account IDs from the thread metadata.",
     action_sets=["hubspot_conversations"],
     input_schema={

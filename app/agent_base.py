@@ -30,7 +30,7 @@ import time
 import uuid
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
+from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
 from agent_core import settings_manager, config_watcher
@@ -87,6 +87,14 @@ from app.context_engine import ContextEngine
 from app.state.state_manager import StateManager
 from app.state.agent_state import STATE
 from app.trigger import Trigger, TriggerQueue
+from app.triggers import (
+    SessionRouter,
+    TriggerService,
+    TriggerSource,
+    TriggerSpec,
+    TriggerStore,
+    resume_dedup_key,
+)
 from app.prompt import ROUTE_TO_SESSION_PROMPT
 from app.state.types import ReasoningResult
 from agent_core.core.task import Task
@@ -257,7 +265,14 @@ class AgentBase:
         # action & task layers
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
 
-        self.triggers = TriggerQueue(
+        self.triggers = TriggerQueue()
+
+        self.trigger_store = TriggerStore()
+        self.trigger_service = TriggerService(self.trigger_store, self.triggers)
+
+        # The single session-routing implementation (Phase 3): consulted by
+        # the chat handler only, after the message is durably parked.
+        self.session_router = SessionRouter(
             llm=self.llm,
             route_to_session_prompt=ROUTE_TO_SESSION_PROMPT,
         )
@@ -267,6 +282,13 @@ class AgentBase:
         self.context_engine = ContextEngine(state_manager=self.state_manager)
         self.context_engine.set_role_info_hook(self._generate_role_info_prompt)
 
+        # Idempotency guard: actions flagged
+        # irreversible=True record intent to the activity ledger before the
+        # side effect and their completed runs are never silently re-executed
+        # after a crash — "did this already run?" is a database check.
+        from app.triggers.activity_log import ActivityLogGuard, get_activity_log
+
+        self.activity_log = get_activity_log()
         self.action_manager = ActionManager(
             self.action_library,
             self.llm,
@@ -274,6 +296,7 @@ class AgentBase:
             self.event_stream_manager,
             self.context_engine,
             self.state_manager,
+            idempotency_guard=ActivityLogGuard(self.activity_log),
         )
         self.action_router = ActionRouter(
             self.action_library, self.llm, self.context_engine
@@ -296,9 +319,12 @@ class AgentBase:
 
         # Bind task_manager so state_manager can look up tasks by session_id
         self.state_manager.bind_task_manager(self.task_manager)
-        # Bind task_manager and event_stream_manager to trigger queue for rich routing context
-        self.triggers.set_task_manager(self.task_manager)
-        self.triggers.set_event_stream_manager(self.event_stream_manager)
+        # Bind task_manager and event_stream_manager to the router for rich
+        # routing context (the queue no longer routes — Phase 3).
+        self.session_router.bind(
+            task_manager=self.task_manager,
+            event_stream_manager=self.event_stream_manager,
+        )
 
         # Set _interface_mode early so context_engine.make_prompt() works during restore
         # (will be updated again in run() based on selected interface)
@@ -603,8 +629,6 @@ class AgentBase:
         processing trigger if needed. The trigger goes through normal
         processing flow which creates the task and executes it.
         """
-        import time
-
         # Check if memory is enabled
         if not is_memory_enabled():
             logger.info("[MEMORY] Memory is disabled, skipping startup processing")
@@ -635,17 +659,18 @@ class AgentBase:
             )
 
             # Fire a memory_processing trigger (not scheduled, so won't reschedule)
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=50,
-                next_action_description="Process unprocessed events into long-term memory (startup)",
-                payload={
-                    "type": "memory_processing",
-                    "scheduled": False,  # Don't reschedule after this
-                },
-                session_id="memory_processing_startup",
+            await self.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.MEMORY,
+                    description="Process unprocessed events into long-term memory (startup)",
+                    priority=50,
+                    payload={
+                        "type": "memory_processing",
+                        "scheduled": False,  # Don't reschedule after this
+                    },
+                    session_id="memory_processing_startup",
+                )
             )
-            await self.triggers.put(trigger)
 
         except Exception as e:
             logger.warning(f"[MEMORY] Failed to process memory at startup: {e}")
@@ -739,14 +764,17 @@ class AgentBase:
 
             # Queue trigger to start the task. Lock is now owned by the task and
             # will be released by TaskManager when the task ends.
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=60,
-                next_action_description="Process unprocessed events into long-term memory",
-                session_id=task_id,
-                payload={},
+            # Source is TASK_CONTINUATION (not MEMORY): this trigger starts the
+            # already-created task via the session workflows — a MEMORY source
+            # would re-enter the memory-request branch in react().
+            await self.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.TASK_CONTINUATION,
+                    description="Process unprocessed events into long-term memory",
+                    priority=60,
+                    session_id=task_id,
+                )
             )
-            await self.triggers.put(trigger)
             logger.info(
                 f"[MEMORY] Queued trigger for memory processing task: {task_id}"
             )
@@ -813,18 +841,34 @@ class AgentBase:
 
     # ----- Mode Checks -----
 
+    # Classification is source-first (typed, set once at emit time), with a
+    # payload["type"] fallback for triggers from legacy put() producers and
+    # scheduler-config entries that inject a type via their custom payload.
+    # The fallback is removed in Phase 5 once nothing produces bare types.
+
     def _is_memory_trigger(self, trigger: Trigger) -> bool:
-        """Check if trigger is for memory processing."""
-        return trigger.payload.get("type") == "memory_processing"
+        """Check if trigger is a memory-processing request."""
+        return (
+            trigger.source == TriggerSource.MEMORY
+            or trigger.payload.get("type") == "memory_processing"
+        )
 
     def _is_proactive_trigger(self, trigger: Trigger) -> bool:
-        """Check if trigger is for proactive processing (heartbeat or planner)."""
+        """Check if trigger is a proactive-processing request (heartbeat or planner)."""
+        if trigger.source in (
+            TriggerSource.PROACTIVE_HEARTBEAT,
+            TriggerSource.PROACTIVE_PLANNER,
+        ):
+            return True
         trigger_type = trigger.payload.get("type", "")
         return trigger_type in ("proactive_heartbeat", "proactive_planner")
 
     def _is_restart_notice_trigger(self, trigger: Trigger) -> bool:
         """Check if trigger is the consolidated post-restart notice (issue #280)."""
-        return trigger.payload.get("type") == "restart_notice"
+        return (
+            trigger.source == TriggerSource.RESTART_NOTICE
+            or trigger.payload.get("type") == "restart_notice"
+        )
 
     def _is_gui_task_mode(self, session_id: str | None = None) -> bool:
         """Check if in GUI task execution mode."""
@@ -911,8 +955,6 @@ class AgentBase:
             frequency: Ignored (kept for backward-compat with old configs
                        that still pass a single frequency).
         """
-        import time
-
         # Collect due tasks across ALL frequencies
         all_due_tasks = self.proactive_manager.get_all_due_tasks()
         if not all_due_tasks:
@@ -943,22 +985,20 @@ class AgentBase:
             f"[PROACTIVE] Created unified heartbeat task: {task_id} ({summary})"
         )
 
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=50,
-            next_action_description=f"Execute due proactive tasks ({summary})",
-            session_id=task_id,
-            payload={},
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.TASK_CONTINUATION,
+                description=f"Execute due proactive tasks ({summary})",
+                priority=50,
+                session_id=task_id,
+            )
         )
-        await self.triggers.put(trigger)
         logger.info(f"[PROACTIVE] Queued trigger for heartbeat task: {task_id}")
 
         return True
 
     async def _handle_proactive_planner(self, scope: str) -> bool:
         """Create planner task for the given scope (day, week, month)."""
-        import time
-
         skill_name = f"{scope}-planner"
 
         task_id = self.task_manager.create_task(
@@ -972,14 +1012,14 @@ class AgentBase:
         logger.info(f"[PROACTIVE] Created planner task: {task_id} for {scope}")
 
         # Queue trigger to start the task
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=50,
-            next_action_description=f"Execute {scope} planner task",
-            session_id=task_id,
-            payload={},
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.TASK_CONTINUATION,
+                description=f"Execute {scope} planner task",
+                priority=50,
+                session_id=task_id,
+            )
         )
-        await self.triggers.put(trigger)
         logger.info(f"[PROACTIVE] Queued trigger for planner task: {task_id}")
 
         return True
@@ -1731,16 +1771,17 @@ class AgentBase:
 
         # Create a long-delay trigger so the task stays alive
         try:
-            await self.triggers.put(
-                Trigger(
+            await self.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.LIMIT_REACHED,
+                    description="Waiting for user decision on limit reached",
                     fire_at=time.time() + 10800,
                     priority=5,
-                    next_action_description="Waiting for user decision on limit reached",
                     session_id=session_id,
                     payload={"gui_mode": STATE.gui_mode},
                     waiting_for_reply=True,
-                ),
-                skip_merge=True,
+                    skip_merge=True,
+                )
             )
         except Exception as e:
             logger.error(
@@ -1796,8 +1837,8 @@ class AgentBase:
                 )
             )
 
-        # Fire the trigger to resume execution
-        await self.triggers.fire(session_id)
+        # Fire the trigger to resume execution (durably mirrored to the store)
+        await self.trigger_service.fire(session_id)
 
     async def handle_limit_abort(self, session_id: str) -> None:
         """User chose to abort after reaching limit."""
@@ -1925,18 +1966,20 @@ class AgentBase:
             # simple task = 5, complex task = 7
             task_priority = 5 if self.task_manager.is_simple_task() else 7
 
-            # Build and enqueue trigger safely
+            # Build and enqueue trigger safely. No dedup key: a newer
+            # continuation supersedes the queued one via session replacement.
             try:
-                await self.triggers.put(
-                    Trigger(
+                await self.trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.TASK_CONTINUATION,
+                        description=next_action_desc,
                         fire_at=fire_at,
                         priority=task_priority,
-                        next_action_description=next_action_desc,
                         session_id=new_session_id,
                         payload=trigger_payload,
                         waiting_for_reply=wait_for_user_reply,
-                    ),
-                    skip_merge=True,  # Session is already explicitly set, no LLM merge check needed
+                        skip_merge=True,  # Session is already explicitly set, no LLM merge check needed
+                    )
                 )
             except Exception as e:
                 logger.error(
@@ -1950,168 +1993,8 @@ class AgentBase:
             )
 
     # ----- Chat Handling -----
-
-    def _format_sessions_for_routing(
-        self, active_task_ids: List[str], triggers: Optional[List[Trigger]] = None
-    ) -> str:
-        """Format active sessions with rich context for routing prompt.
-
-        Uses active task IDs from state_manager (not just triggers in queue) to ensure
-        all running tasks are visible for routing decisions.
-
-        Args:
-            active_task_ids: List of task IDs from state_manager.main_state.active_task_ids
-            triggers: Optional list of triggers (used to check waiting_for_reply status)
-
-        Returns:
-            Formatted string with session context for routing decisions.
-        """
-        if not active_task_ids:
-            return "No existing sessions."
-
-        # Build a lookup of triggers by session_id for waiting_for_reply status
-        trigger_map = {}
-        if triggers:
-            for tr in triggers:
-                if tr.session_id:
-                    trigger_map[tr.session_id] = tr
-
-        sections = []
-        for i, task_id in enumerate(active_task_ids, 1):
-            task = self.task_manager.tasks.get(task_id) if self.task_manager else None
-            trigger = trigger_map.get(task_id)
-
-            # Check waiting_for_reply from trigger OR from task state
-            is_waiting = False
-            if trigger and trigger.waiting_for_reply:
-                is_waiting = True
-            if (
-                task
-                and hasattr(task, "waiting_for_user_reply")
-                and task.waiting_for_user_reply
-            ):
-                is_waiting = True
-
-            status = "WAITING FOR REPLY" if is_waiting else "ACTIVE"
-            platform = (
-                trigger.payload.get("platform", "default") if trigger else "default"
-            )
-
-            lines = [
-                f"--- Session {i} ---",
-                f"Session ID: {task_id}",
-                f"Status: {status}",
-            ]
-
-            if task:
-                lines.extend(
-                    [
-                        f'Task Name: "{task.name}"',
-                        f'Original Request: "{task.instruction}"',
-                        f"Mode: {task.mode}",
-                        f"Created: {task.created_at}",
-                    ]
-                )
-
-                # Todo progress
-                if task.todos:
-                    completed = sum(1 for t in task.todos if t.status == "completed")
-                    in_progress_todo = next(
-                        (t for t in task.todos if t.status == "in_progress"), None
-                    )
-                    lines.append(
-                        f"Progress: {completed}/{len(task.todos)} todos completed"
-                    )
-                    if in_progress_todo:
-                        lines.append(
-                            f'Currently working on: "{in_progress_todo.content}"'
-                        )
-
-                # Get recent events from event stream for this task
-                if self.event_stream_manager and task_id:
-                    stream = self.event_stream_manager.get_stream_by_id(task_id)
-                    if stream and stream.tail_events:
-                        # Get last 10 events for better routing context
-                        # (5 was insufficient - file creation events were missed)
-                        recent_events = stream.tail_events[-10:]
-                        lines.append("Recent Activity:")
-                        for rec in recent_events:
-                            # Only truncate very long event messages (500+ chars)
-                            # Short truncation caused loss of important context like file paths
-                            event_line = rec.compact_line()
-                            if len(event_line) > 500:
-                                event_line = event_line[:497] + "..."
-                            lines.append(f"  - {event_line}")
-            else:
-                # Fallback to trigger description if no task found
-                desc = trigger.next_action_description if trigger else "Unknown task"
-                lines.append(f'Description: "{desc}"')
-
-            lines.append(f"Platform: {platform}")
-
-            # Add Living UI context if the user is on a Living UI page
-            living_ui_id = trigger.payload.get("living_ui_id") if trigger else None
-            if living_ui_id:
-                lines.append(f"Living UI ID: {living_ui_id}")
-                try:
-                    from app.living_ui import get_living_ui_manager
-
-                    mgr = get_living_ui_manager()
-                    if mgr:
-                        proj = mgr.get_project(living_ui_id)
-                        if proj:
-                            lines.append(f"Living UI Name: {proj.name}")
-                            lines.append(f"Living UI Path: {proj.path}")
-                            lines.append(
-                                f"  Read {proj.path}/LIVING_UI.md for app context"
-                            )
-                            lines.append(
-                                "  If debugging issues, FIRST read these logs:"
-                            )
-                            lines.append(
-                                f"    - {proj.path}/backend/logs/subprocess_output.log (crashes, stack traces)"
-                            )
-                            lines.append(
-                                f"    - {proj.path}/backend/logs/frontend_console.log (frontend errors, network failures)"
-                            )
-                except Exception:
-                    pass
-
-            sections.append("\n".join(lines))
-
-        return "\n\n".join(sections)
-
-    def _format_recent_conversation(self, limit: int = 10) -> str:
-        """Format recent conversation messages for routing context.
-
-        Provides the routing LLM with recent conversation history so it can
-        recognize messages related to completed tasks that are no longer in
-        the active sessions list.
-
-        Args:
-            limit: Maximum number of recent messages to include.
-
-        Returns:
-            Formatted string of recent conversation messages.
-        """
-        if not self.event_stream_manager:
-            return "No recent conversation history."
-
-        recent_msgs = self.event_stream_manager.get_recent_conversation_messages(
-            limit=limit
-        )
-        if not recent_msgs:
-            return "No recent conversation history."
-
-        lines = []
-        for evt in recent_msgs:
-            ts = evt.ts.strftime("%Y-%m-%d %H:%M:%S") if evt.ts else "unknown"
-            line = f"[{ts}] [{evt.kind}]: {evt.message}"
-            if len(line) > 300:
-                line = line[:297] + "..."
-            lines.append(line)
-
-        return "\n".join(lines)
+    # Session routing (LLM decision + context formatting) lives in
+    # app/triggers/router.py (SessionRouter) as of Phase 3.
 
     async def _generate_unique_session_id(self) -> str:
         """Generate a unique 6-character session ID.
@@ -2149,68 +2032,6 @@ class AgentBase:
             "Could not generate unique 6-char session ID after 100 attempts, using full UUID"
         )
         return uuid.uuid4().hex
-
-    async def _route_to_session(
-        self,
-        item_type: str,
-        item_content: str,
-        existing_sessions: str,
-        source_platform: str = "default",
-        current_living_ui_id: Optional[str] = None,
-        recent_conversation: str = "(no recent conversation)",
-    ) -> Dict[str, Any]:
-        """Route incoming item to appropriate session using unified prompt.
-
-        Args:
-            item_type: Type of incoming item ("message" or "trigger")
-            item_content: The content of the message or trigger description
-            existing_sessions: Formatted string of existing sessions
-            source_platform: The platform the message came from (e.g., "cli", "gui")
-            current_living_ui_id: The Living UI page the user is currently viewing,
-                if any. Used by the prompt to default context-dependent messages
-                ("fix this", "it's broken") to that Living UI's task while still
-                allowing explicit cross-Living-UI references to override.
-            recent_conversation: Formatted recent messages across sessions for
-                cross-session context (helps disambiguate "and Spanish" style
-                continuations and references to completed tasks).
-
-        Returns:
-            Dict with routing decision containing:
-            - action: "route" | "new"
-            - session_id: The session to route to (or "new")
-            - reason: Explanation of the routing decision
-        """
-        prompt = ROUTE_TO_SESSION_PROMPT.format(
-            item_type=item_type,
-            item_content=item_content,
-            source_platform=source_platform,
-            existing_sessions=existing_sessions,
-            current_living_ui_id=current_living_ui_id or "(not on a Living UI page)",
-            recent_conversation=recent_conversation,
-        )
-
-        logger.debug(f"[UNIFIED ROUTING PROMPT]:\n{prompt}")
-        response = await self.llm.generate_response_async(
-            system_prompt="You are a session routing system.",
-            user_prompt=prompt,
-        )
-        logger.debug(f"[UNIFIED ROUTING RESPONSE]: {response}")
-
-        try:
-            result = json.loads(response)
-            # Ensure action field exists for backward compatibility
-            if "action" not in result:
-                result["action"] = (
-                    "route" if result.get("session_id", "new") != "new" else "new"
-                )
-            return result
-        except json.JSONDecodeError:
-            logger.error("[ROUTING] Failed to parse routing response JSON")
-            return {
-                "action": "new",
-                "session_id": "new",
-                "reason": "Failed to parse routing response",
-            }
 
     # ─────────────────────────────────────────────────────────────────────
     # Chat routing helpers
@@ -2275,7 +2096,10 @@ class AgentBase:
 
         Returns True if the trigger was found and fired, False otherwise.
         """
-        fired = await self.triggers.fire(
+        # Routed through the service so the attached user message is durably
+        # persisted before the in-memory retarget — a crash mid-react can no
+        # longer lose it.
+        fired = await self.trigger_service.fire(
             session_id,
             message=chat_content,
             platform=platform,
@@ -2348,8 +2172,15 @@ class AgentBase:
         payload: Dict,
         platform: str,
         gui_mode: Optional[bool],
+        parked_row_id: Optional[int] = None,
     ) -> None:
-        """Start a new session and queue a trigger to handle this message."""
+        """Start a new session and queue a trigger to handle this message.
+
+        Args:
+            parked_row_id: The durably-parked copy of this message (written
+                before routing); settled here once the new session's own
+                trigger row exists.
+        """
         await self.state_manager.start_session(gui_mode)
 
         # Prepend Living UI context to the message if the user is on a Living UI page.
@@ -2398,18 +2229,22 @@ class AgentBase:
         if platform and platform.lower() != "craftbot interface":
             platform_hint = f" from {platform} (reply on {platform}, NOT send_message)"
 
-        await self.triggers.put(
-            Trigger(
-                fire_at=time.time(),
-                priority=3,
-                next_action_description=(
+        result = await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.USER_MESSAGE,
+                description=(
                     "Please perform action that best suit this user chat "
                     f"you just received{platform_hint}: {chat_content}"
                 ),
+                priority=3,
                 session_id=await self._generate_unique_session_id(),
                 payload=trigger_payload,
-            ),
-            skip_merge=True,
+            )
+        )
+        # The message now lives in the new session's own trigger row — the
+        # parked pre-routing copy is settled (superseded by that row).
+        self.trigger_service.settle_parked(
+            parked_row_id, delivered_as=result.trigger_id
         )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -2483,6 +2318,35 @@ class AgentBase:
                 self._post_third_party_notification(payload, platform)
                 return
 
+            # ── Durable parking: record the message in the
+            # trigger store BEFORE any routing work. Routing below may take
+            # an LLM call (seconds) — with the row parked, a crash anywhere
+            # in this method no longer loses the message; the next boot's
+            # rehydration re-delivers it as a fresh session. Every delivery
+            # path below settles the row once the message lands.
+            parked_id = None
+            try:
+                parked_payload = {
+                    "gui_mode": gui_mode,
+                    "platform": platform,
+                    "user_message": chat_content,
+                }
+                if living_ui_id:
+                    parked_payload["living_ui_id"] = living_ui_id
+                parked_id = self.trigger_service.park(
+                    TriggerSpec(
+                        source=TriggerSource.USER_MESSAGE,
+                        description=(
+                            "Please perform action that best suit this user chat "
+                            f"you just received: {chat_content}"
+                        ),
+                        priority=3,
+                        payload=parked_payload,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"[CHAT] Failed to park message durably: {e}")
+
             active_task_ids = self.state_manager.get_main_state().active_task_ids
 
             # ── Rule 2: Explicit UI reply with valid target_session_id.
@@ -2491,6 +2355,9 @@ class AgentBase:
                 if await self._fire_session(
                     target_session_id, chat_content, platform, living_ui_id
                 ):
+                    # Message durably attached to the session's trigger row
+                    # by trigger_service.fire() — the parked copy is settled.
+                    self.trigger_service.settle_parked(parked_id)
                     return
                 logger.warning(
                     f"[CHAT] target_session_id {target_session_id} not found — falling through to next rule"
@@ -2504,7 +2371,7 @@ class AgentBase:
                     "[CHAT] UI reply marker without valid target — creating new session"
                 )
                 await self._create_new_session_trigger(
-                    chat_content, payload, platform, gui_mode
+                    chat_content, payload, platform, gui_mode, parked_row_id=parked_id
                 )
                 return
 
@@ -2517,11 +2384,13 @@ class AgentBase:
             # deserves its own session.
             if active_task_ids:
                 active_triggers = await self.triggers.list_triggers()
-                existing_sessions = self._format_sessions_for_routing(
+                existing_sessions = self.session_router.format_sessions_for_routing(
                     active_task_ids, active_triggers
                 )
-                recent_conversation = self._format_recent_conversation(limit=10)
-                routing_result = await self._route_to_session(
+                recent_conversation = self.session_router.format_recent_conversation(
+                    limit=10
+                )
+                routing_result = await self.session_router.route(
                     item_type="message",
                     item_content=chat_content,
                     existing_sessions=existing_sessions,
@@ -2538,6 +2407,7 @@ class AgentBase:
                         if await self._fire_session(
                             matched, chat_content, platform, living_ui_id
                         ):
+                            self.trigger_service.settle_parked(parked_id)
                             return
                         logger.warning(
                             f"[CHAT] LLM routed to {matched} but trigger not found — creating new session"
@@ -2545,7 +2415,7 @@ class AgentBase:
 
             # ── Rule 5: Default — create a new session.
             await self._create_new_session_trigger(
-                chat_content, payload, platform, gui_mode
+                chat_content, payload, platform, gui_mode, parked_row_id=parked_id
             )
 
         except Exception as e:
@@ -2726,6 +2596,16 @@ class AgentBase:
         """
         # 1. Clear runtime state
         await self.triggers.clear()
+        # Wipe the durable trigger rows too — otherwise the next boot's
+        # rehydration would resurrect the work this reset just cleared.
+        try:
+            self.trigger_store.clear_all()
+        except Exception as e:
+            logger.warning(f"[RESET] Failed to clear trigger store: {e}")
+        try:
+            self.activity_log.clear_all()
+        except Exception as e:
+            logger.warning(f"[RESET] Failed to clear activity log: {e}")
         self.task_manager.reset()
         self.state_manager.reset()
         self.event_stream_manager.clear_all()
@@ -2922,8 +2802,6 @@ class AgentBase:
         """
         from app.onboarding import onboarding_manager
         from app.onboarding.soft.task_creator import create_soft_onboarding_task
-        from app.trigger import Trigger
-        import time
 
         # Prevent double-triggering (multiple adapters/paths may call this)
         if not reset and self._soft_onboarding_triggered:
@@ -2938,14 +2816,15 @@ class AgentBase:
         task_id = create_soft_onboarding_task(self.task_manager)
 
         # Fire trigger to start the task
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=1,
-            next_action_description="Begin user profile interview",
-            session_id=task_id,
-            payload={"onboarding": True},
+        await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.ONBOARDING,
+                description="Begin user profile interview",
+                priority=1,
+                session_id=task_id,
+                payload={"onboarding": True},
+            )
         )
-        await self.triggers.put(trigger)
 
         logger.info(f"[ONBOARDING] Triggered soft onboarding task: {task_id}")
         return task_id
@@ -3465,11 +3344,14 @@ class AgentBase:
             # running agent loop, after the watcher is live, so it surfaces in
             # the interface just like the resumed tasks' own messages.
             try:
-                await self.triggers.put(
-                    Trigger(
-                        fire_at=time.time(),
+                # No dedup key: each boot composes a fresh notice. A stale
+                # rehydrated notice row from a crashed boot is superseded by
+                # this emit via the queue's same-session replacement.
+                await self.trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.RESTART_NOTICE,
+                        description="Restart notice",
                         priority=1,  # ahead of resumed tasks (priority 5/7)
-                        next_action_description="Restart notice",
                         # Sentinel id so the heap never merges this with another
                         # session-less trigger (e.g. memory-at-startup) and
                         # clobbers the payload.
@@ -3479,8 +3361,8 @@ class AgentBase:
                             "message": "\n".join(lines),
                             "gui_mode": STATE.gui_mode,
                         },
-                    ),
-                    skip_merge=True,
+                        skip_merge=True,
+                    )
                 )
             except Exception as e:
                 logger.warning(
@@ -3498,28 +3380,29 @@ class AgentBase:
                 restore_priority = 5 if is_simple else 7
 
                 if task.waiting_for_user_reply:
-                    await self.triggers.put(
-                        Trigger(
-                            fire_at=time.time(),
-                            priority=restore_priority,
-                            next_action_description=(
+                    result = await self.trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.RESUME,
+                            description=(
                                 "Waiting for user reply (resumed after restart)"
                             ),
+                            priority=restore_priority,
                             session_id=task_id,
                             payload={"gui_mode": STATE.gui_mode},
+                            dedup_key=resume_dedup_key(task_id),
                             waiting_for_reply=True,
-                        ),
-                        skip_merge=True,
+                            skip_merge=True,
+                        )
                     )
                     logger.info(
-                        f"[RESTORE] Scheduled waiting trigger for task '{task.name}'"
+                        f"[RESTORE] Scheduled waiting trigger for task "
+                        f"'{task.name}'{' (deduped)' if result.deduped else ''}"
                     )
                 else:
-                    await self.triggers.put(
-                        Trigger(
-                            fire_at=time.time(),
-                            priority=restore_priority,
-                            next_action_description=(
+                    result = await self.trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.RESUME,
+                            description=(
                                 "Resume this task after an app restart. A "
                                 "consolidated restart notice has already been "
                                 "sent to the user, so do NOT send any "
@@ -3528,13 +3411,16 @@ class AgentBase:
                                 "it left off based on its todos and recent "
                                 "event-stream activity."
                             ),
+                            priority=restore_priority,
                             session_id=task_id,
                             payload={"gui_mode": STATE.gui_mode},
-                        ),
-                        skip_merge=True,
+                            dedup_key=resume_dedup_key(task_id),
+                            skip_merge=True,
+                        )
                     )
                     logger.info(
-                        f"[RESTORE] Scheduled resume trigger for task '{task.name}'"
+                        f"[RESTORE] Scheduled resume trigger for task "
+                        f"'{task.name}'{' (deduped)' if result.deduped else ''}"
                     )
             except Exception as e:
                 logger.warning(
@@ -3816,6 +3702,7 @@ class AgentBase:
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
             trigger_queue=self.triggers,
+            trigger_service=self.trigger_service,
         )
         await self.scheduler.start()
 
@@ -3823,6 +3710,38 @@ class AgentBase:
         config_watcher.register(
             scheduler_config_path, self.scheduler.reload, name="scheduler_config.json"
         )
+
+        # Dead-letter surfacing: a trigger that exhausts its retries is work
+        # that silently stopped — tell the user instead of hiding it.
+        def _on_dead_letter(trig, _error: str) -> None:
+            # The raw error is already logged by the service; the user gets
+            # the what, not the traceback.
+            desc = (trig.next_action_description or "").strip()
+            if len(desc) > 120:
+                desc = desc[:117] + "..."
+            self.state_manager.record_agent_message(
+                f"⚠️ A background task trigger failed repeatedly and was "
+                f'parked: "{desc}". I won\'t retry it automatically — '
+                f"ask me to try again if it still matters."
+            )
+
+        self.trigger_service.set_dead_letter_handler(_on_dead_letter)
+
+        # Rehydrate unfinished durable triggers from the previous run BEFORE
+        # scheduling restored-task resumes: the resume emits below carry
+        # dedup keys, so a rehydrated resume row blocks the duplicate instead
+        # of double-enqueueing. (Trigger-store GC runs inside rehydrate.)
+        try:
+            await self.trigger_service.rehydrate()
+        except Exception as e:
+            logger.warning(f"[RESTORE] Trigger rehydration failed: {e}")
+
+        # Ledger housekeeping: stale INTENT rows stop blocking, old settled
+        # rows age out (payloads can contain message content).
+        try:
+            self.activity_log.gc()
+        except Exception as e:
+            logger.warning(f"[RESTORE] Activity log GC failed: {e}")
 
         # Resume triggers for tasks restored from previous session
         await self._schedule_restored_task_triggers()

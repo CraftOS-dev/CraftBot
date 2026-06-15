@@ -247,6 +247,7 @@ def rate_youtube_video(input_data: dict) -> dict:
 
 @action(
     name="post_youtube_comment",
+    irreversible=True,
     description="Post a top-level comment on a YouTube video.",
     action_sets=["google_youtube"],
     input_schema={

@@ -8,6 +8,7 @@ from agent_core import action
 
 @action(
     name="send_slack_message",
+    irreversible=True,
     description="Send a message to a Slack channel or DM. Pass thread_ts to reply in a thread.",
     action_sets=["slack_messages", "slack"],
     input_schema={
@@ -112,6 +113,7 @@ def delete_slack_message(input_data: dict) -> dict:
 
 @action(
     name="send_slack_ephemeral",
+    irreversible=True,
     description="Send an ephemeral message visible only to one user in a channel.",
     action_sets=["slack_messages", "slack"],
     input_schema={
