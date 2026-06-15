@@ -415,6 +415,10 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         return
       }
     }
+    if (e.nativeEvent.isComposing) {
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (autocompleteRef.current?.handleEnter()) {
