@@ -961,6 +961,9 @@ class BrowserAdapter(InterfaceAdapter):
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
 
+        # Staged bundle bytes keyed by short-lived token (inspect → import flow)
+        self._staged_bundles: Dict[str, bytes] = {}
+
         # Living UI manager
         template_path = (
             Path(__file__).parent.parent.parent / "data" / "living_ui_template"
@@ -3003,6 +3006,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
         from app.ui_layer.settings.profile_bundle import inspect_bundle
 
+        bundle_path = None
         try:
             bundle_path = await self._stage_uploaded_bundle(request)
             if not bundle_path:
@@ -3010,13 +3014,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     {"error": "No bundle file uploaded"}, status=400
                 )
             result = inspect_bundle(bundle_path)
-            # Return the temp path so the subsequent /api/profile/import call
-            # can reuse it instead of re-uploading the bundle.
-            result["bundle_path"] = bundle_path
+            # Read bytes into memory and delete the temp file immediately so a
+            # cancelled import (user closes modal) never leaks a file to %TEMP%.
+            bundle_bytes = Path(bundle_path).read_bytes()
+            token = str(uuid.uuid4())
+            self._staged_bundles[token] = bundle_bytes
+            result["bundle_token"] = token
             return web.json_response(result)
         except Exception as exc:
             logger.error(f"[PROFILE_BUNDLE] Inspect failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
+        finally:
+            if bundle_path:
+                try:
+                    Path(bundle_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     async def _profile_import_handler(self, request: "web.Request") -> "web.Response":
         """Apply a previously-inspected bundle to the agent."""
@@ -3030,19 +3043,35 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {"error": "Invalid JSON body"}, status=400
             )
 
-        bundle_path = payload.get("bundle_path") or ""
-        mode = payload.get("mode", "merge")
-        if not bundle_path:
+        token = payload.get("bundle_token") or ""
+        mode = payload.get("mode", "replace")
+        if not token:
             return web.json_response(
-                {"error": "bundle_path is required"}, status=400
+                {"error": "bundle_token is required"}, status=400
             )
 
+        bundle_bytes = self._staged_bundles.get(token)
+        if bundle_bytes is None:
+            return web.json_response(
+                {"error": "bundle_token not found or already used"}, status=400
+            )
+
+        import tempfile
+        tmp_path = None
         try:
+            with tempfile.NamedTemporaryFile(
+                suffix=".craftbot",
+                prefix="craftbot_profile_in_",
+                delete=False,
+            ) as tmp:
+                tmp.write(bundle_bytes)
+                tmp_path = tmp.name
+
             # Pass the live LivingUIManager so imported projects land in its
             # in-memory state. Without this, the manager's stale state will
             # overwrite our file on the next status update / watchdog tick.
             result = import_profile(
-                bundle_path,
+                tmp_path,
                 mode=mode,
                 living_ui_manager=self._living_ui_manager,
             )
@@ -3050,13 +3079,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
             return web.json_response({"error": str(exc)}, status=500)
         finally:
-            # Best-effort cleanup of the staged upload.
-            try:
-                p = Path(bundle_path)
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
+            self._staged_bundles.pop(token, None)
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         return web.json_response(result)
 

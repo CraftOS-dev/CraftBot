@@ -108,7 +108,7 @@ export function GeneralSettings() {
     { type: 'success' | 'error' | 'info'; message: string } | null
   >(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [importBundlePath, setImportBundlePath] = useState<string | null>(null)
+  const [importBundleToken, setImportBundleToken] = useState<string | null>(null)
   const [importManifest, setImportManifest] = useState<ProfileBundleManifest | null>(null)
   const [importPreview, setImportPreview] = useState<ProfileBundlePreview | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -610,7 +610,7 @@ export function GeneralSettings() {
     setImportManifest(null)
     setImportPreview(null)
     setImportError(null)
-    setImportBundlePath(null)
+    setImportBundleToken(null)
     setShowImportModal(true)
 
     try {
@@ -626,7 +626,7 @@ export function GeneralSettings() {
       }
       setImportManifest(data.manifest)
       setImportPreview(data.preview)
-      setImportBundlePath(data.bundle_path)
+      setImportBundleToken(data.bundle_token)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not read bundle'
       setImportError(msg)
@@ -638,18 +638,18 @@ export function GeneralSettings() {
     setImportManifest(null)
     setImportPreview(null)
     setImportError(null)
-    setImportBundlePath(null)
+    setImportBundleToken(null)
   }
 
   const handleImportApply = async (mode: ImportMode) => {
-    if (!importBundlePath) return
+    if (!importBundleToken) return
     setIsApplyingImport(true)
     setImportError(null)
     try {
       const response = await fetch('/api/profile/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bundle_path: importBundlePath, mode }),
+        body: JSON.stringify({ bundle_token: importBundleToken, mode }),
       })
       const data = await response.json()
       if (!response.ok || !data.success) {
@@ -675,7 +675,7 @@ export function GeneralSettings() {
       setShowImportModal(false)
       setImportManifest(null)
       setImportPreview(null)
-      setImportBundlePath(null)
+      setImportBundleToken(null)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Import failed'
       setImportError(msg)
