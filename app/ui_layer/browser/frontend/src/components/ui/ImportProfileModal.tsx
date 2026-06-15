@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Loader2, AlertTriangle, Package, Wrench, Server, Layout, FileText } from 'lucide-react'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
@@ -95,6 +95,12 @@ export function ImportProfileModal({
   onApply,
 }: ImportProfileModalProps) {
   const [mode, setMode] = useState<ImportMode>('replace')
+
+  // Always start on the safe default when the modal opens so a previous
+  // 'overwrite' selection can't accidentally persist into the next session.
+  useEffect(() => {
+    if (isOpen) setMode('replace')
+  }, [isOpen])
 
   const contents = manifest?.contents ?? {}
   const skills = contents.skills ?? []
