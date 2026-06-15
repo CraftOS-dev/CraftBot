@@ -97,6 +97,7 @@ class SessionRouter:
         response = await self._llm.generate_response_async(
             system_prompt="You are a session routing system.",
             user_prompt=prompt,
+            prompt_name="ROUTE_TO_SESSION",
         )
         logger.debug(f"[UNIFIED ROUTING RESPONSE]: {response}")
 

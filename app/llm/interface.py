@@ -9,7 +9,7 @@ for state access (using STATE singleton) and usage reporting.
 from typing import Optional
 
 from agent_core.core.impl.llm import LLMInterface as _LLMInterface
-from agent_core.core.hooks.types import UsageEventData
+from agent_core.core.hooks.types import UsageEventData, LLMCallRecord
 from app.state.agent_state import get_session_props
 
 
@@ -28,6 +28,38 @@ async def _report_usage(event: UsageEventData) -> None:
     from app.usage import get_usage_reporter
 
     await get_usage_reporter().report(event)
+
+
+def _record_llm_call(record: LLMCallRecord) -> None:
+    """Persist a full LLM call (prompt + response + identity + latency) to the
+    local llm_calls store — the capture substrate for the prompt profiler and
+    eval-case harvesting (docs/design/prompt-optimization.md).
+
+    Runs synchronously in the LLM worker thread; the base wraps the call in
+    try/except so a storage hiccup never breaks an LLM call.
+    """
+    from app.usage import get_llm_call_storage, LLMCallRow
+
+    get_llm_call_storage().insert(
+        LLMCallRow(
+            provider=record.provider,
+            model=record.model,
+            system_prompt=record.system_prompt,
+            user_prompt=record.user_prompt,
+            response=record.response,
+            status=record.status,
+            input_tokens=record.input_tokens,
+            output_tokens=record.output_tokens,
+            cached_tokens=record.cached_tokens,
+            latency_ms=record.latency_ms,
+            prompt_name=record.prompt_name,
+            prompt_version=record.prompt_version,
+            call_type=record.call_type,
+            task_id=record.task_id,
+            session_id=record.session_id,
+            metadata=record.metadata,
+        )
+    )
 
 
 class LLMInterface(_LLMInterface):
@@ -59,6 +91,7 @@ class LLMInterface(_LLMInterface):
             get_token_count=_get_token_count,
             set_token_count=_set_token_count,
             report_usage=_report_usage,  # Report usage to local SQLite storage
+            record_llm_call=_record_llm_call,  # Full-call capture for profiler/eval
         )
 
     def _report_usage_async(
