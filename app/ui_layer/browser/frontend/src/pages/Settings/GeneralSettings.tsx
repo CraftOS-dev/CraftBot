@@ -13,8 +13,18 @@ import {
   Trash2,
   Eraser,
   ListChecks,
+  Package,
+  PackageOpen,
 } from 'lucide-react'
-import { Button, Badge, ConfirmModal } from '../../components/ui'
+import {
+  Button,
+  Badge,
+  ConfirmModal,
+  ImportProfileModal,
+  type ImportMode,
+  type ProfileBundleManifest,
+  type ProfileBundlePreview,
+} from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useConfirmModal } from '../../hooks'
@@ -91,6 +101,19 @@ export function GeneralSettings() {
   const [pictureError, setPictureError] = useState<string | null>(null)
   const [isUploadingPicture, setIsUploadingPicture] = useState(false)
   const pictureInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Agent profile bundle (import/export)
+  const [isExportingProfile, setIsExportingProfile] = useState(false)
+  const [profileStatus, setProfileStatus] = useState<
+    { type: 'success' | 'error' | 'info'; message: string } | null
+  >(null)
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importBundleToken, setImportBundleToken] = useState<string | null>(null)
+  const [importManifest, setImportManifest] = useState<ProfileBundleManifest | null>(null)
+  const [importPreview, setImportPreview] = useState<ProfileBundlePreview | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [isApplyingImport, setIsApplyingImport] = useState(false)
+  const profileImportInputRef = useRef<HTMLInputElement | null>(null)
 
   // Keep local preview in sync with the central context value (e.g. after reconnect)
   useEffect(() => {
@@ -537,6 +560,130 @@ export function GeneralSettings() {
     })
   }
 
+  // ─── Agent profile bundle ───────────────────────────────────────────
+
+  const handleExportProfile = async () => {
+    setIsExportingProfile(true)
+    setProfileStatus(null)
+    try {
+      const response = await fetch('/api/profile/export')
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error || `Export failed (${response.status})`)
+      }
+      const blob = await response.blob()
+      const disposition = response.headers.get('Content-Disposition') || ''
+      const match = /filename="([^"]+)"/.exec(disposition)
+      const filename = match ? match[1] : 'agent-profile.craftbot'
+
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+
+      setProfileStatus({ type: 'success', message: 'Profile exported' })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Export failed'
+      setProfileStatus({ type: 'error', message: msg })
+    } finally {
+      setIsExportingProfile(false)
+      setTimeout(() => setProfileStatus(null), 4000)
+    }
+  }
+
+  const handleImportProfileClick = () => {
+    profileImportInputRef.current?.click()
+  }
+
+  const handleProfileFileSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    setProfileStatus(null)
+    setImportManifest(null)
+    setImportPreview(null)
+    setImportError(null)
+    setImportBundleToken(null)
+    setShowImportModal(true)
+
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const response = await fetch('/api/profile/inspect', {
+        method: 'POST',
+        body: form,
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Could not read bundle')
+      }
+      setImportManifest(data.manifest)
+      setImportPreview(data.preview)
+      setImportBundleToken(data.bundle_token)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not read bundle'
+      setImportError(msg)
+    }
+  }
+
+  const handleImportCancel = () => {
+    setShowImportModal(false)
+    setImportManifest(null)
+    setImportPreview(null)
+    setImportError(null)
+    setImportBundleToken(null)
+  }
+
+  const handleImportApply = async (mode: ImportMode) => {
+    if (!importBundleToken) return
+    setIsApplyingImport(true)
+    setImportError(null)
+    try {
+      const response = await fetch('/api/profile/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bundle_token: importBundleToken, mode }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Import failed')
+      }
+
+      const summary = data.summary || {}
+      const parts: string[] = []
+      if (summary.skills_added?.length) parts.push(`${summary.skills_added.length} skill(s)`)
+      if (summary.mcp_added?.length) parts.push(`${summary.mcp_added.length} MCP server(s)`)
+      if (summary.living_ui_added?.length || summary.living_ui_renamed?.length) {
+        parts.push(
+          `${(summary.living_ui_added?.length || 0) + (summary.living_ui_renamed?.length || 0)} Living UI app(s)`
+        )
+      }
+      const verb = mode === 'overwrite' ? 'Overwrote agent with' : 'Imported'
+      const what = parts.length > 0 ? parts.join(', ') : 'profile'
+
+      setProfileStatus({
+        type: 'success',
+        message: `${verb} ${what}.`,
+      })
+      setShowImportModal(false)
+      setImportManifest(null)
+      setImportPreview(null)
+      setImportBundleToken(null)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Import failed'
+      setImportError(msg)
+    } finally {
+      setIsApplyingImport(false)
+    }
+  }
+
   return (
     <div className={styles.settingsSection}>
       <div className={styles.sectionHeader}>
@@ -814,6 +961,60 @@ export function GeneralSettings() {
         )}
       </div>
 
+      {/* Agent Profile (import/export) */}
+      <div className={styles.profileSection}>
+        <div className={styles.profileHeader}>
+          <Package size={18} className={styles.profileIcon} />
+          <h4>Agent Profile</h4>
+        </div>
+        <p className={styles.profileDescription}>
+          Share your agent's personality, skills, MCP servers, and Living UI apps
+          as a single <code>.craftbot</code> file. API keys, personal memory, and
+          conversation history are never included.
+        </p>
+        <div className={styles.profileActions}>
+          <input
+            ref={profileImportInputRef}
+            type="file"
+            accept=".craftbot,application/octet-stream,application/zip"
+            onChange={handleProfileFileSelected}
+            style={{ display: 'none' }}
+          />
+          <Button
+            variant="primary"
+            onClick={handleExportProfile}
+            disabled={isExportingProfile}
+            icon={
+              isExportingProfile ? (
+                <Loader2 size={14} className={styles.spinning} />
+              ) : (
+                <Download size={14} />
+              )
+            }
+          >
+            {isExportingProfile ? 'Exporting…' : 'Export Profile'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleImportProfileClick}
+            disabled={isApplyingImport}
+            icon={<PackageOpen size={14} />}
+          >
+            Import Profile
+          </Button>
+          {profileStatus?.type === 'success' && (
+            <span className={styles.statusSuccess}>
+              <Check size={14} /> {profileStatus.message}
+            </span>
+          )}
+          {profileStatus?.type === 'error' && (
+            <span className={styles.statusError}>
+              <X size={14} /> {profileStatus.message}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Advanced Section */}
       <div className={styles.advancedSection}>
         <button
@@ -1030,6 +1231,17 @@ export function GeneralSettings() {
 
       {/* Confirm Modal */}
       <ConfirmModal {...confirmModalProps} />
+
+      {/* Import Profile Modal */}
+      <ImportProfileModal
+        isOpen={showImportModal}
+        manifest={importManifest}
+        preview={importPreview}
+        isApplying={isApplyingImport}
+        error={importError}
+        onCancel={handleImportCancel}
+        onApply={handleImportApply}
+      />
     </div>
   )
 }
