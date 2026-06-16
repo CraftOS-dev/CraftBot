@@ -29,6 +29,7 @@ from agent_core.core.hooks import (
     UsageEventData,
 )
 from agent_core.utils.logger import logger
+from app.i18n import classify_provider_error
 
 try:
     from PIL import Image as _PilImage  # type: ignore[import]
@@ -55,53 +56,6 @@ _OPENAI_QUALITY_MAP: Dict[str, str] = {
     "2K": "high",
     "4K": "high",  # API tops out at 1536px; warn caller
 }
-
-# ── Error message catalog (provider-keyed, English) ──────────────────────────
-# Used to build human-readable RuntimeErrors that flow back through the
-# action-selection loop, matching VLMInterface's raise-don't-return pattern.
-_ERR: Dict[str, Dict[str, str]] = {
-    "openai": {
-        "quota": "OpenAI API rate limit or quota exceeded",
-        "invalid_key": "Invalid OpenAI API key — verify your key in settings.",
-        "content_policy": "Request blocked by OpenAI content policy — modify your prompt.",
-        "model_not_found": (
-            "OpenAI model not available — ensure your account has access to gpt-image-2."
-        ),
-        "generic": "OpenAI image generation failed",
-    },
-    "gemini": {
-        "quota": "Gemini API rate limit or quota exceeded",
-        "invalid_key": "Invalid Gemini API key — verify your Google API key in settings.",
-        "content_policy": "Request blocked by Gemini safety filters — modify your prompt.",
-        "model_not_found": (
-            "Gemini model not available — ensure your account has access to the "
-            "image generation preview model."
-        ),
-        "generic": "Gemini image generation failed",
-    },
-}
-
-
-def _classify_error(provider: str, exc: Exception) -> str:
-    """Map a raw exception message to a catalog entry for the given provider."""
-    msg = str(exc).lower()
-    catalog = _ERR.get(provider, _ERR["openai"])
-    if (
-        "quota" in msg
-        or "rate" in msg
-        or "billing" in msg
-        or "insufficient_quota" in msg
-    ):
-        return catalog["quota"]
-    if "invalid" in msg and "key" in msg:
-        return catalog["invalid_key"]
-    if "content_policy" in msg or "safety" in msg or "blocked" in msg:
-        return catalog["content_policy"]
-    if "not found" in msg or "404" in msg or "not available" in msg:
-        return catalog["model_not_found"]
-    # Do NOT include the raw exception — SDK error messages can contain API key fragments.
-    return catalog["generic"]
-
 
 # ── File-path helpers ─────────────────────────────────────────────────────────
 
@@ -404,7 +358,7 @@ class ImageGenInterface:
                     quality=quality,
                 )
         except Exception as exc:
-            raise RuntimeError(_classify_error("openai", exc)) from exc
+            raise RuntimeError(classify_provider_error(exc, provider="openai", model=self.model)) from exc
 
         usage = getattr(response, "usage", None)
         if usage is not None:
@@ -519,7 +473,7 @@ class ImageGenInterface:
                 safety_settings=safety_settings,
             )
         except Exception as exc:
-            raise RuntimeError(_classify_error("gemini", exc)) from exc
+            raise RuntimeError(classify_provider_error(exc, provider="gemini", model=self.model)) from exc
 
         usage_md = result.get("usage_metadata") or {}
         if usage_md:

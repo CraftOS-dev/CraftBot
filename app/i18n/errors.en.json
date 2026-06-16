@@ -1,0 +1,9 @@
+{
+  "provider_rate_limit":      "{provider_label} API rate limit or quota exceeded.",
+  "provider_invalid_key":     "Invalid {provider_label} API key — verify your key in settings.",
+  "provider_safety_block":    "Request blocked by {provider_label} safety filters — modify your prompt.",
+  "provider_access_denied":   "{provider_label} denied access — check your account permissions.",
+  "provider_model_not_found": "{provider_label} model not available — ensure your account has access to {model}.",
+  "provider_timeout":         "{provider_label} generation timed out while polling for completion.",
+  "provider_generic":         "{provider_label} generation failed."
+}
