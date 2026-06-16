@@ -1,0 +1,9 @@
+{
+  "provider_rate_limit":      "{provider_label} API のレート制限またはクォータを超過しました。",
+  "provider_invalid_key":     "{provider_label} API キーが無効です。設定でキーを確認してください。",
+  "provider_safety_block":    "{provider_label} の安全フィルターによりリクエストがブロックされました — プロンプトを変更してください。",
+  "provider_access_denied":   "{provider_label} へのアクセスが拒否されました — アカウントの権限を確認してください。",
+  "provider_model_not_found": "{provider_label} モデルが利用できません — アカウントが {model} にアクセスできることを確認してください。",
+  "provider_timeout":         "完了のポーリング中に {provider_label} の生成がタイムアウトしました。",
+  "provider_generic":         "{provider_label} の生成に失敗しました。"
+}
