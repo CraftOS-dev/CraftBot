@@ -389,6 +389,7 @@ class LLMInterface:
         token_count_input: int,
         token_count_output: int,
         cached_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> None:
         """Call the log_to_db hook if set, and capture the full call for the
         prompt profiler / eval harvesting.
@@ -430,6 +431,7 @@ class LLMInterface:
                         input_tokens=token_count_input,
                         output_tokens=token_count_output,
                         cached_tokens=cached_tokens,
+                        cache_creation_tokens=cache_creation_tokens,
                         latency_ms=latency_ms,
                         prompt_name=ctx.get("prompt_name"),
                         call_type=ctx.get("call_type"),
@@ -1290,6 +1292,7 @@ class LLMInterface:
             "success",
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -1355,6 +1358,7 @@ class LLMInterface:
             "success",
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         return {"tokens_used": total_tokens or 0, "content": content or ""}
@@ -1435,6 +1439,7 @@ class LLMInterface:
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
+        cached_tokens = 0
         session_key = f"{task_id}:{call_type}"
 
         try:
@@ -1558,6 +1563,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -1756,6 +1762,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage. service_type stays "llm_openai" (the request shape) but
@@ -2172,6 +2179,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -2471,6 +2479,8 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens,  # cache_read — was MISSING (always 0)
+            cache_creation_tokens=cache_creation,  # cache_write — to settle write-vs-expiry
         )
 
         # Report usage
@@ -2672,6 +2682,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         self._report_usage_async(

@@ -51,6 +51,7 @@ def _record_llm_call(record: LLMCallRecord) -> None:
             input_tokens=record.input_tokens,
             output_tokens=record.output_tokens,
             cached_tokens=record.cached_tokens,
+            cache_creation_tokens=record.cache_creation_tokens,
             latency_ms=record.latency_ms,
             prompt_name=record.prompt_name,
             prompt_version=record.prompt_version,

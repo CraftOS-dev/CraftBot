@@ -47,7 +47,8 @@ class LLMCallRow:
     status: str
     input_tokens: int = 0
     output_tokens: int = 0
-    cached_tokens: int = 0
+    cached_tokens: int = 0  # served FROM cache (read)
+    cache_creation_tokens: int = 0  # WRITTEN to cache
     latency_ms: int = 0
     prompt_name: Optional[str] = None
     prompt_version: Optional[str] = None
@@ -103,10 +104,18 @@ class LLMCallStorage:
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
                     cached_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
                     latency_ms INTEGER NOT NULL DEFAULT 0,
                     metadata TEXT
                 )
             """)
+            # Migrate older DBs that predate a column.
+            existing = {r[1] for r in cursor.execute("PRAGMA table_info(llm_calls)")}
+            for col, decl in (
+                ("cache_creation_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if col not in existing:
+                    cursor.execute(f"ALTER TABLE llm_calls ADD COLUMN {col} {decl}")
             for col in ("timestamp", "prompt_name", "call_type", "task_id", "model"):
                 cursor.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_llm_calls_{col} "
@@ -124,8 +133,8 @@ class LLMCallStorage:
                 (timestamp, provider, model, prompt_name, prompt_version,
                  call_type, task_id, session_id, system_prompt, user_prompt,
                  response, status, input_tokens, output_tokens, cached_tokens,
-                 latency_ms, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_creation_tokens, latency_ms, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     (row.timestamp or datetime.now()).isoformat(),
@@ -143,6 +152,7 @@ class LLMCallStorage:
                     row.input_tokens,
                     row.output_tokens,
                     row.cached_tokens,
+                    row.cache_creation_tokens,
                     row.latency_ms,
                     json.dumps(row.metadata) if row.metadata else None,
                 ),

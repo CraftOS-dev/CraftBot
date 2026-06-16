@@ -322,7 +322,8 @@ class LLMCallRecord:
     status: str  # "success" or "failed"
     input_tokens: int = 0
     output_tokens: int = 0
-    cached_tokens: int = 0
+    cached_tokens: int = 0  # tokens served FROM cache (read)
+    cache_creation_tokens: int = 0  # tokens WRITTEN to cache (provider-dependent)
     latency_ms: int = 0
     # Identity / linkage (resolved from the per-call context when available)
     prompt_name: Optional[str] = None
