@@ -289,7 +289,6 @@ class ActionRouter:
 
         decision_prompt_name = "SELECT_ACTION_IN_TASK"
         static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
             memory_context=memory_context,
             event_stream="",  # Empty for static prompt
@@ -298,7 +297,6 @@ class ActionRouter:
             integration_essentials=integration_essentials,
         )
         full_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
             memory_context=memory_context,
             event_stream=event_stream_content,
