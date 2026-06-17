@@ -8,6 +8,7 @@ from agent_core import action
 
 @action(
     name="send_discord_message",
+    irreversible=True,
     description="Send a message to a Discord channel.",
     action_sets=["discord_messages", "discord"],
     input_schema={
@@ -1890,6 +1891,7 @@ def get_discord_bot_user(input_data: dict) -> dict:
 
 @action(
     name="send_discord_dm",
+    irreversible=True,
     description="Send a direct message to a Discord user.",
     action_sets=["discord_messages", "discord"],
     input_schema={
@@ -1938,6 +1940,7 @@ def get_discord_user_account(input_data: dict) -> dict:
 
 @action(
     name="send_discord_user_message",
+    irreversible=True,
     description="Send user message (self-bot).",
     action_sets=["discord_user"],
     input_schema={
@@ -1990,6 +1993,7 @@ def get_discord_user_dm_channels(input_data: dict) -> dict:
 
 @action(
     name="send_discord_user_dm",
+    irreversible=True,
     description="Send user DM.",
     action_sets=["discord_user"],
     input_schema={

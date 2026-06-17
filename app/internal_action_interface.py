@@ -105,7 +105,7 @@ class InternalActionInterface:
                 "InternalActionInterface not initialized with LLMInterface."
             )
         response = await cls.llm_interface.generate_response_async(
-            prompt, system_message
+            prompt, system_message, prompt_name="USE_LLM"
         )
         return {"llm_response": response}
 
@@ -643,6 +643,7 @@ class InternalActionInterface:
             response = await cls.llm_interface.generate_response_async(
                 user_prompt=prompt,
                 system_prompt="You are a helpful assistant that selects action sets for tasks. Return only valid JSON.",
+                prompt_name="ACTION_SET_SELECTION",
             )
 
             # Step 4: Parse the JSON response
@@ -744,6 +745,7 @@ class InternalActionInterface:
             response = await cls.llm_interface.generate_response_async(
                 user_prompt=prompt,
                 system_prompt="You are a helpful assistant that selects skills for tasks. Return only valid JSON.",
+                prompt_name="SKILL_SELECTION",
             )
 
             # Parse response (clean up markdown if present)
@@ -892,6 +894,7 @@ class InternalActionInterface:
             response = await cls.llm_interface.generate_response_async(
                 user_prompt=prompt,
                 system_prompt="You are a helpful assistant that selects skills and action sets for tasks. Return only valid JSON.",
+                prompt_name="SKILLS_AND_ACTION_SETS_SELECTION",
             )
 
             # Parse response (clean up markdown if present)

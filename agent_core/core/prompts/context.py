@@ -193,13 +193,20 @@ AGENT_PROFILE_PROMPT = """
 
 ENVIRONMENTAL_CONTEXT_PROMPT = """
 <agent_environment>
-- Current Date/Time: {current_datetime}
 - User Location: {user_location}
 - Current Working Directory: {working_directory}
 - Operating System: {operating_system} {os_version} ({os_platform})
 - VM Operating System: {vm_operating_system} {vm_os_version} ({vm_os_platform})
 </agent_environment>
 """
+
+# Dynamic clock block — injected into the (uncached) user/event-stream tail, NOT
+# the cached system prefix. Keeping the per-second timestamp out of the static
+# system prompt is what lets the prompt prefix stay byte-stable across a task so
+# Gemini implicit caching actually hits (see docs/design/prompt-optimization.md).
+CURRENT_DATETIME_PROMPT = """<current_datetime>
+Current date/time: {current_datetime}
+</current_datetime>"""
 
 AGENT_FILE_SYSTEM_CONTEXT_PROMPT = """
 <agent_file_system>
@@ -254,6 +261,7 @@ __all__ = [
     "SOUL_PROMPT",
     "AGENT_PROFILE_PROMPT",
     "ENVIRONMENTAL_CONTEXT_PROMPT",
+    "CURRENT_DATETIME_PROMPT",
     "AGENT_FILE_SYSTEM_CONTEXT_PROMPT",
     "LANGUAGE_INSTRUCTION",
 ]

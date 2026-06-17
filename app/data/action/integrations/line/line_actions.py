@@ -9,6 +9,7 @@ from agent_core import action
 
 @action(
     name="send_line_message",
+    irreversible=True,
     description="Push a text message to a LINE user/group/room.",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -32,6 +33,7 @@ def send_line_message(input_data: dict) -> dict:
 
 @action(
     name="reply_line_message",
+    irreversible=True,
     description="Reply to a LINE message using the reply token (1-minute window).",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -126,6 +128,7 @@ def push_line_messages(input_data: dict) -> dict:
 
 @action(
     name="reply_line_messages",
+    irreversible=True,
     description="Reply with up to 5 LINE message objects (rich reply).",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -218,6 +221,7 @@ def broadcast_line_messages(input_data: dict) -> dict:
 
 @action(
     name="send_line_image",
+    irreversible=True,
     description="Push an image. Image must be publicly accessible HTTPS URL.",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -250,6 +254,7 @@ def send_line_image(input_data: dict) -> dict:
 
 @action(
     name="send_line_video",
+    irreversible=True,
     description="Push a video (HTTPS URL + preview image).",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -282,6 +287,7 @@ def send_line_video(input_data: dict) -> dict:
 
 @action(
     name="send_line_audio",
+    irreversible=True,
     description="Push an audio file. duration_ms is required.",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -314,6 +320,7 @@ def send_line_audio(input_data: dict) -> dict:
 
 @action(
     name="send_line_location",
+    irreversible=True,
     description="Push a location pin.",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -346,6 +353,7 @@ def send_line_location(input_data: dict) -> dict:
 
 @action(
     name="send_line_sticker",
+    irreversible=True,
     description="Push a LINE sticker. See https://developers.line.biz/en/docs/messaging-api/sticker-list/ for IDs.",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -378,6 +386,7 @@ def send_line_sticker(input_data: dict) -> dict:
 
 @action(
     name="send_line_flex",
+    irreversible=True,
     description="Push a Flex Message — LINE's rich, interactive card format. contents is the Flex container JSON (bubble or carousel).",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -410,6 +419,7 @@ def send_line_flex(input_data: dict) -> dict:
 
 @action(
     name="send_line_template",
+    irreversible=True,
     description="Push a template message: buttons / confirm / carousel / image_carousel. template is the Template object.",
     action_sets=["line_messages", "line"],
     input_schema={
@@ -438,6 +448,7 @@ def send_line_template(input_data: dict) -> dict:
 
 @action(
     name="send_line_imagemap",
+    irreversible=True,
     description="Push an imagemap: a clickable image overlaid with tappable regions. actions is a list of imagemap-action objects.",
     action_sets=["line_messages"],
     input_schema={
@@ -1008,6 +1019,7 @@ def bulk_unlink_line_rich_menu(input_data: dict) -> dict:
 
 @action(
     name="send_line_narrowcast",
+    irreversible=True,
     description="Send messages to a filtered subset of friends (demographics or audience groups). Returns a request_id; poll with get_line_narrowcast_progress.",
     action_sets=["line_audiences", "line"],
     input_schema={

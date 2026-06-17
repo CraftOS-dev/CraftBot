@@ -17,6 +17,7 @@ import livingUiSettingsReducer from './slices/livingUiSettingsSlice'
 import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
+import chatInputReducer from './slices/chatInputSlice'
 import { socketMiddleware } from './socket/socketMiddleware'
 
 export const store = configureStore({
@@ -39,6 +40,7 @@ export const store = configureStore({
     generalSettings: generalSettingsReducer,
     modelSettings: modelSettingsReducer,
     integrationsSettings: integrationsSettingsReducer,
+    chatInput: chatInputReducer,
   },
   middleware: (getDefault) => getDefault().concat(socketMiddleware),
 })

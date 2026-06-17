@@ -197,6 +197,12 @@ async def run_scenario(
         get_session_storage().clear_all()
     except Exception:
         pass
+    # Wipe durable trigger rows too — otherwise rows from a previous test run
+    # would rehydrate into this one.
+    try:
+        agent.trigger_store.clear_all()
+    except Exception:
+        pass
 
     async with record_llm_calls(agent), record_action_calls(agent):
         # Poll each requested integration's session status until it's ready.
@@ -276,10 +282,13 @@ async def run_scenario(
                 break
             try:
                 trig = await asyncio.wait_for(
-                    agent.triggers.get(), timeout=per_iter_timeout
+                    agent.trigger_service.next(), timeout=per_iter_timeout
                 )
             except asyncio.TimeoutError:
                 break
             await agent.react(trig)
+            # Settle the durable rows like the production consumer does —
+            # without this, claimed rows pile up and rehydrate next run.
+            await agent.trigger_service.ack(trig)
 
     return bridge_statuses

@@ -17,6 +17,7 @@ All hooks are optional - if not provided, the component operates in
 local-only mode (suitable for CraftBot).
 """
 
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -295,4 +296,51 @@ Args:
 
 Used by both CraftBot and CraftBot when db_interface is provided.
 The runtime wrapper creates this hook from the db_interface.
+"""
+
+
+# =============================================================================
+# LLM Call Capture Hook (prompt profiler / eval — issue #322)
+# =============================================================================
+
+
+@dataclass
+class LLMCallRecord:
+    """A full record of one LLM call, captured for the prompt profiler and
+    eval-case harvesting (see docs/design/prompt-optimization.md).
+
+    Unlike UsageEventData (token accounting only), this carries the full
+    prompt/response text plus the prompt identity + latency so a single
+    `llm_calls` row can back the profiler, harvesting, and outcome linkage.
+    """
+
+    provider: str
+    model: str
+    system_prompt: Optional[str]
+    user_prompt: str
+    response: str
+    status: str  # "success" or "failed"
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0  # tokens served FROM cache (read)
+    cache_creation_tokens: int = 0  # tokens WRITTEN to cache (provider-dependent)
+    latency_ms: int = 0
+    # Identity / linkage (resolved from the per-call context when available)
+    prompt_name: Optional[str] = None
+    prompt_version: Optional[str] = None
+    call_type: Optional[str] = None
+    task_id: Optional[str] = None
+    session_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+RecordLLMCallHook = Callable[[LLMCallRecord], None]
+"""
+Persists a full LLM call record (prompt + response + identity + latency).
+
+Args:
+    record: The LLMCallRecord describing the call that just completed.
+
+Used by CraftBot to write to the `llm_calls` store for profiling/harvesting.
+Optional — if not provided, capture is disabled.
 """

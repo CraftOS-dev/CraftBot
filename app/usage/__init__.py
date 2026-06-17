@@ -41,6 +41,12 @@ from app.usage.skill_storage import (
     get_skill_storage,
 )
 
+from app.usage.llm_call_storage import (
+    LLMCallRow,
+    LLMCallStorage,
+    get_llm_call_storage,
+)
+
 __all__ = [
     # Storage
     "UsageEvent",
@@ -65,4 +71,8 @@ __all__ = [
     # Skill Storage
     "SkillStorage",
     "get_skill_storage",
+    # LLM Call Storage (prompt profiler / eval)
+    "LLMCallRow",
+    "LLMCallStorage",
+    "get_llm_call_storage",
 ]

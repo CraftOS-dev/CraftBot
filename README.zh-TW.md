@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -59,27 +59,6 @@
 
 ---
 
-## ✨ 功能特色
-
-- **自帶金鑰（BYOK）** — 靈活的 LLM 供應商系統，支援 OpenAI、Google Gemini、Anthropic Claude、BytePlus 及本地 Ollama 模型，可輕鬆切換。
-- **記憶系統** — 每天午夜時分提煉並整合當日所發生的事件。
-- **主動式代理人** — 學習你的偏好、習慣與人生目標，接著進行規劃並（在取得同意後）主動啟動任務，協助你在生活中不斷進步。
-- **Living UI** — 在 CraftBot 中建立、匯入或演進自訂應用。代理人持續感知 UI 的狀態，並可直接讀取、寫入和操作其資料。
-- **外部工具整合** — 連接 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord 及 Telegram（更多服務陸續推出！），內建憑證與 OAuth 支援。
-- **MCP** — 整合 Model Context Protocol，以外部工具與服務擴充代理人的能力。
-- **技能（Skills）** — 可擴充的技能框架，內建任務規劃、研究、程式碼審查、Git 操作等多種技能。
-- **跨平台** — 完整支援 Windows、macOS 與 Linux，並提供對應的平台程式碼與 Docker 容器化。
-
-> [!IMPORTANT]
-> **GUI 模式已停用。** CraftBot 不再支援 GUI（桌面自動化）模式。請改用 Browser 或 CLI 模式。
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
----
-
 
 ## 🧰 快速開始
 
@@ -115,6 +94,10 @@ python craftbot.py uninstall  # 停止執行、移除自動啟動並解除安裝
 ## 🌱 Living UI
 
 **Living UI 是會隨著你的需求一起演進的系統/應用/儀表板。**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - 想要一塊內建 AI 協作夥伴的 Kanban 看板?
 - 一套完全貼合你工作流程的客製化 CRM?

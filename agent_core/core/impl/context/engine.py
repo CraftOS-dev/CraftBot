@@ -17,6 +17,7 @@ from typing import Optional, Dict, Any, Callable
 from tzlocal import get_localzone
 
 from agent_core.core.prompts import (
+    CURRENT_DATETIME_PROMPT,
     AGENT_ROLE_PROMPT,
     AGENT_INFO_PROMPT,
     ENVIRONMENTAL_CONTEXT_PROMPT,
@@ -182,9 +183,15 @@ class ContextEngine:
         return POLICY_PROMPT
 
     def create_system_environmental_context(self) -> str:
-        """Create a system message block with environmental context."""
+        """Create a system message block with environmental context.
+
+        NOTE: the current date/time is deliberately NOT included here — it would
+        change every call and live in the cached system prefix, busting Gemini's
+        prefix-based implicit cache. It is injected into the dynamic event-stream
+        tail instead (see `current_datetime_block` / `get_event_stream`). Only
+        stable environment facts belong in this cached block.
+        """
         import platform
-        from datetime import datetime
 
         try:
             from app.config import AGENT_WORKSPACE_ROOT
@@ -192,10 +199,7 @@ class ContextEngine:
             AGENT_WORKSPACE_ROOT = "."
 
         local_timezone = get_localzone()
-        now = datetime.now(local_timezone)
-        current_datetime = now.strftime("%Y-%m-%d %H:%M:%S") + f" ({local_timezone})"
         return ENVIRONMENTAL_CONTEXT_PROMPT.format(
-            current_datetime=current_datetime,
             user_location=local_timezone,
             working_directory=AGENT_WORKSPACE_ROOT,
             operating_system=platform.system(),
@@ -205,6 +209,17 @@ class ContextEngine:
             vm_os_version="6.12.13",
             vm_os_platform="Linux a5e39e32118c 6.12.13 #1 SMP Thu Mar 13 11:34:50 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux",
         )
+
+    def current_datetime_block(self) -> str:
+        """Render the current date/time as a dynamic block for the user/event
+        tail. Kept out of the cached system prefix on purpose (see
+        create_system_environmental_context)."""
+        from datetime import datetime
+
+        local_timezone = get_localzone()
+        now = datetime.now(local_timezone)
+        current_datetime = now.strftime("%Y-%m-%d %H:%M:%S") + f" ({local_timezone})"
+        return CURRENT_DATETIME_PROMPT.format(current_datetime=current_datetime)
 
     def create_system_file_system_context(self) -> str:
         """Create a system message block with agent file system context."""
@@ -281,6 +296,10 @@ class ContextEngine:
             2. Current task's event stream (real-time events for this task)
         """
         sections = []
+
+        # Current date/time goes in this dynamic tail (NOT the cached system
+        # prefix) so the prompt prefix stays byte-stable for cache hits.
+        sections.append(self.current_datetime_block())
 
         # Get conversation history (recent messages from BEFORE this task)
         # This provides context without injecting into the actual event stream
@@ -463,12 +482,19 @@ class ContextEngine:
                 )
             current_task = get_state().current_task
 
+        # Active Task ID lives in task_state (relocated from agent_state).
+        if session:
+            task_id = session.get_agent_properties().get("current_task_id", "")
+        else:
+            task_id = get_state().get_agent_properties().get("current_task_id", "")
+
         if current_task:
             is_simple = getattr(current_task, "mode", "complex") == "simple"
 
             if is_simple:
                 return (
                     "<current_task>\n"
+                    f"Active Task ID: {task_id}\n"
                     f"Task: {current_task.name} [SIMPLE MODE]\n"
                     f"Instruction: {current_task.instruction}\n"
                     "Mode: Simple task - execute directly, no todos required\n"
@@ -477,6 +503,7 @@ class ContextEngine:
 
             lines = [
                 "<current_task>",
+                f"Active Task ID: {task_id}",
                 f"Task: {current_task.name}",
                 f"Instruction: {current_task.instruction}",
                 "Mode: Complex task - use todos in event stream to track progress",
@@ -546,7 +573,6 @@ class ContextEngine:
         # Try session-specific state first
         session = get_session_or_none(session_id)
         if session:
-            agent_properties = session.get_agent_properties()
             gui_mode_status = "GUI mode" if session.gui_mode else "CLI mode"
         else:
             # CRITICAL: Log warning when falling back to global state
@@ -555,16 +581,9 @@ class ContextEngine:
                     f"[CONTEXT_ENGINE] get_agent_state: Session not found for session_id={session_id!r}, "
                     f"falling back to global STATE. This may cause context leakage!"
                 )
-            agent_properties = get_state().get_agent_properties()
             gui_mode_status = "GUI mode" if get_state().gui_mode else "CLI mode"
 
-        if agent_properties:
-            return (
-                "<agent_state>\n"
-                f"- Active Task ID: {agent_properties.get('current_task_id')}\n"
-                f"- Current Mode: {gui_mode_status}\n"
-                "</agent_state>"
-            )
+        # Active Task ID now lives in task_state (see get_task_state).
         return f"<agent_state>\n- Current Mode: {gui_mode_status}\n</agent_state>"
 
     def get_conversation_history(self) -> str:

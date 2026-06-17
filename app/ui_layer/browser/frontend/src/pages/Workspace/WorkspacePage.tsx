@@ -127,6 +127,9 @@ export function WorkspacePage() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1)
 
+  // Upload progress: filename → 0–100
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+
   // UI state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null)
   const [emptySpaceMenu, setEmptySpaceMenu] = useState<{ x: number; y: number } | null>(null)
@@ -320,8 +323,10 @@ export function WorkspacePage() {
     if (result.success) {
       setShowCreateDialog(null)
       setCreateName('')
+    } else {
+      showToast('error', result.error ?? `Failed to create ${showCreateDialog}`)
     }
-  }, [createName, showCreateDialog, currentDirectory, createFile])
+  }, [createName, showCreateDialog, currentDirectory, createFile, showToast])
 
   const handleRenameSubmit = useCallback(async () => {
     if (!editingFile || !editName.trim()) return
@@ -333,8 +338,10 @@ export function WorkspacePage() {
       setEditingFile(null)
       setEditName('')
       setEditExt('')
+    } else {
+      showToast('error', result.error ?? 'Failed to rename')
     }
-  }, [editingFile, editName, editExt, renameFile])
+  }, [editingFile, editName, editExt, renameFile, showToast])
 
   const handleDelete = useCallback((paths: string[]) => {
     if (paths.length === 0) return
@@ -438,12 +445,30 @@ export function WorkspacePage() {
   }, [clipboard, currentDirectory, copyFile, moveFile, refresh, listDirectory])
 
   const handleUpload = useCallback(async (uploadFiles: FileList) => {
+    const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
     for (const file of Array.from(uploadFiles)) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showToast('error', `"${file.name}" (${formatFileSize(file.size)}) exceeds the 200 MB upload limit`)
+        continue
+      }
       const path = currentDirectory ? `${currentDirectory}/${file.name}` : file.name
-      await uploadFile(path, file)
+      setUploadProgress(prev => ({ ...prev, [file.name]: 0 }))
+      try {
+        await uploadFile(path, file, (pct) =>
+          setUploadProgress(prev => ({ ...prev, [file.name]: pct }))
+        )
+      } catch (e) {
+        showToast('error', `Failed to upload "${file.name}": ${(e as Error).message}`)
+      } finally {
+        setUploadProgress(prev => {
+          const next = { ...prev }
+          delete next[file.name]
+          return next
+        })
+      }
     }
     await refresh()
-  }, [currentDirectory, uploadFile, refresh])
+  }, [currentDirectory, uploadFile, refresh, showToast])
 
   const handleDownload = useCallback(async (path: string, fileName: string) => {
     const blob = await downloadFile(path)
@@ -870,6 +895,15 @@ export function WorkspacePage() {
             </Button>
           )}
           <Button
+            variant="danger"
+            size="sm"
+            fullWidth
+            icon={<Trash2 size={14} />}
+            onClick={() => handleDelete([selectedFile.path])}
+          >
+            Delete
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             fullWidth
@@ -892,15 +926,6 @@ export function WorkspacePage() {
             }}
           >
             Rename
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            fullWidth
-            icon={<Trash2 size={14} />}
-            onClick={() => handleDelete([selectedFile.path])}
-          >
-            Delete
           </Button>
         </div>
       </>
@@ -995,6 +1020,21 @@ export function WorkspacePage() {
           />
         </div>
       </div>
+
+      {/* Upload Progress */}
+      {Object.keys(uploadProgress).length > 0 && (
+        <div className={styles.uploadProgressSection}>
+          {Object.entries(uploadProgress).map(([name, pct]) => (
+            <div key={name} className={styles.uploadProgressItem}>
+              <span className={styles.uploadFileName}>{name}</span>
+              <div className={styles.uploadProgressTrack}>
+                <div className={styles.uploadProgressFill} style={{ width: `${pct}%` }} />
+              </div>
+              <span className={styles.uploadProgressPct}>{pct}%</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Batch Actions Bar */}
       {selectedFiles.size > 1 && (

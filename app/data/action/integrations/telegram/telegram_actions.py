@@ -9,6 +9,7 @@ from agent_core import action
 
 @action(
     name="send_telegram_bot_message",
+    irreversible=True,
     description="Send a text message to a Telegram chat via bot. Use this ONLY when replying to Telegram Bot messages.",
     action_sets=["telegram_messages", "telegram"],
     input_schema={
@@ -68,6 +69,7 @@ async def send_telegram_bot_message(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_text_message",
+    irreversible=True,
     description="Send a text message via Telegram bot (alias for sendMessage with full options).",
     action_sets=["telegram_messages"],
     input_schema={
@@ -311,6 +313,7 @@ async def copy_telegram_message(input_data: dict) -> dict:
 
 @action(
     name="forward_telegram_message",
+    irreversible=True,
     description="Forward a message via bot.",
     action_sets=["telegram_messages", "telegram"],
     input_schema={
@@ -342,6 +345,7 @@ async def forward_telegram_message(input_data: dict) -> dict:
 
 @action(
     name="forward_telegram_messages",
+    irreversible=True,
     description="Forward multiple messages of any kind.",
     action_sets=["telegram_messages"],
     input_schema={
@@ -512,6 +516,7 @@ async def send_telegram_chat_action(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_photo",
+    irreversible=True,
     description="Send a photo to a Telegram chat via bot.",
     action_sets=["telegram_media", "telegram"],
     input_schema={
@@ -539,6 +544,7 @@ async def send_telegram_photo(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_document",
+    irreversible=True,
     description="Send a document to a Telegram chat via bot.",
     action_sets=["telegram_media", "telegram"],
     input_schema={
@@ -570,6 +576,7 @@ async def send_telegram_document(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_video",
+    irreversible=True,
     description="Send a video file via bot.",
     action_sets=["telegram_media"],
     input_schema={
@@ -609,6 +616,7 @@ async def send_telegram_video(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_audio",
+    irreversible=True,
     description="Send an audio file (music) via bot.",
     action_sets=["telegram_media"],
     input_schema={
@@ -640,6 +648,7 @@ async def send_telegram_audio(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_voice",
+    irreversible=True,
     description="Send a voice message (OGG opus) via bot.",
     action_sets=["telegram_media"],
     input_schema={
@@ -673,6 +682,7 @@ async def send_telegram_voice(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_video_note",
+    irreversible=True,
     description="Send a rounded square video note (short circular video).",
     action_sets=["telegram_media"],
     input_schema={
@@ -706,6 +716,7 @@ async def send_telegram_video_note(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_animation",
+    irreversible=True,
     description="Send an animation (GIF or H.264/MPEG-4 without sound).",
     action_sets=["telegram_media"],
     input_schema={
@@ -733,6 +744,7 @@ async def send_telegram_animation(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_sticker",
+    irreversible=True,
     description="Send a sticker (.webp / .tgs / .webm).",
     action_sets=["telegram_media"],
     input_schema={
@@ -758,6 +770,7 @@ async def send_telegram_sticker(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_location",
+    irreversible=True,
     description="Send a geographic location.",
     action_sets=["telegram_media"],
     input_schema={
@@ -791,6 +804,7 @@ async def send_telegram_location(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_venue",
+    irreversible=True,
     description="Send a venue with name and address.",
     action_sets=["telegram_media"],
     input_schema={
@@ -826,6 +840,7 @@ async def send_telegram_venue(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_contact",
+    irreversible=True,
     description="Send a phone contact card.",
     action_sets=["telegram_media"],
     input_schema={
@@ -859,6 +874,7 @@ async def send_telegram_contact(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_dice",
+    irreversible=True,
     description="Send an animated dice / emoji-game (🎲 🎯 🏀 ⚽ 🎳 🎰).",
     action_sets=["telegram_media"],
     input_schema={
@@ -884,6 +900,7 @@ async def send_telegram_dice(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_poll",
+    irreversible=True,
     description="Send a poll to a chat.",
     action_sets=["telegram_media"],
     input_schema={
@@ -964,6 +981,7 @@ async def stop_telegram_poll(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_media_group",
+    irreversible=True,
     description="Send a group of photos/videos/audios/documents as an album.",
     action_sets=["telegram_media"],
     input_schema={
@@ -2187,6 +2205,7 @@ async def read_telegram_messages(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_user_message",
+    irreversible=True,
     description="Send a text message via Telegram user account. IMPORTANT: Use @username (e.g., '@emadtavana7') NOT numeric ID. Use 'self' or 'user' to message the owner's Saved Messages.",
     action_sets=["telegram_user", "telegram"],
     input_schema={
@@ -2216,6 +2235,7 @@ async def send_telegram_user_message(input_data: dict) -> dict:
 
 @action(
     name="send_telegram_user_file",
+    irreversible=True,
     description="Send a file via Telegram user account.",
     action_sets=["telegram_user"],
     input_schema={

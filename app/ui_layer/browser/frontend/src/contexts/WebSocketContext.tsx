@@ -97,7 +97,8 @@ interface PendingAttachment {
   name: string
   type: string
   size: number
-  content: string  // base64
+  content: string       // base64 for small files; '' when serverPath is set
+  serverPath?: string   // pre-uploaded via HTTP (large files)
 }
 
 // Reply target for reply-to-chat/task feature
@@ -405,7 +406,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendOrQueue(JSON.stringify({
       type: 'message',
       content,
-      attachments: attachments || [],
+      attachments: (attachments || []).map(att => att.serverPath
+        ? { name: att.name, type: att.type, size: att.size, serverPath: att.serverPath }
+        : { name: att.name, type: att.type, size: att.size, content: att.content }
+      ),
       replyContext: replyContext || null,
       livingUIId: livingUIId || null,
       clientId,

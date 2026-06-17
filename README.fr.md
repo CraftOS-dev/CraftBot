@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -56,27 +56,6 @@ En plus d'être un agent IA capable de créer et d'opérer ses propres outils Sa
 - **Skills et MCP.** Plus de 150 MCP et 170 Skills disponibles. Installation rapide de nouveaux Skills et MCP. Créez ou améliorez des Skills à partir de tâches terminées en un clic.
 - **Multi-plateforme.** Prise en charge complète de Windows, macOS et Linux, avec des variantes de code spécifiques à chaque plateforme et une conteneurisation Docker.
 - **Interface web et CLI.** Utilisez CraftBot comme il vous convient le mieux : via une UI navigateur simple pour un usage quotidien, ou via la CLI pour le scripting et les environnements headless.
-
----
-
-## 🧰 Premiers pas
-
-- **Bring Your Own Key (BYOK)** — Système flexible de fournisseurs LLM prenant en charge OpenAI, Google Gemini, Anthropic Claude, BytePlus et les modèles locaux Ollama. Basculez facilement entre fournisseurs.
-- **Système de mémoire** — Distille et consolide les événements de la journée à minuit.
-- **Agent proactif** — Apprend vos préférences, habitudes et objectifs de vie. Puis planifie et lance des tâches (avec votre accord, bien sûr) pour vous aider à progresser.
-- **Living UI** — Créez, importez ou faites évoluer des applications personnalisées qui vivent au sein de CraftBot. L'agent reste conscient de l'état de l'UI et peut lire, écrire et agir directement sur ses données.
-- **Intégration d'outils externes** — Connectez-vous à Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord et Telegram (d'autres à venir !) avec des identifiants intégrés et le support OAuth.
-- **MCP** — Intégration du Model Context Protocol pour étendre les capacités de l'agent avec des outils et services externes.
-- **Skills** — Framework de skills extensible avec des skills intégrées pour la planification de tâches, la recherche, la revue de code, les opérations git, etc.
-- **Multiplateforme** — Prise en charge complète de Windows, macOS et Linux avec des variantes de code spécifiques à chaque plateforme et la conteneurisation Docker.
-
-> [!IMPORTANT]
-> **Le mode GUI est déprécié.** CraftBot ne prend plus en charge le mode GUI (automatisation de bureau). Utilisez plutôt le mode Browser ou CLI.
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
 
 ---
 
@@ -139,6 +118,10 @@ python craftbot.py uninstall  # Arrête, supprime le démarrage auto et désinst
 ## 🌱 Living UI
 
 **La Living UI est un système / une app / un tableau de bord qui évolue avec vos besoins.**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - Besoin d'un tableau kanban avec un copilote IA intégré ?
 - D'un CRM sur mesure, conçu exactement à la forme de votre workflow ?
