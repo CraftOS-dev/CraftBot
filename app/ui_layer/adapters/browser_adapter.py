@@ -1157,6 +1157,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
         self._app.router.add_post(
             "/api/chat-attachments/upload", self._chat_attachment_upload_handler
+        )
+
         # Agent profile bundle import/export routes
         self._app.router.add_get(
             "/api/profile/export", self._profile_export_handler
