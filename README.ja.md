@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
 </div>
 
 <div align="center">
@@ -59,27 +59,6 @@
 
 ---
 
-## ✨ 特徴
-
-- **Bring Your Own Key (BYOK)** — OpenAI、Google Gemini、Anthropic Claude、BytePlus、ローカルOllamaモデルをサポートする柔軟なLLMプロバイダーシステム。プロバイダー間の切り替えが簡単です。
-- **メモリシステム** — 一日を通して起きたイベントを深夜に整理・統合します。
-- **プロアクティブエージェント** — あなたの好み、習慣、人生の目標を学習し、計画を立て、タスクを開始して（もちろん承認付きで）あなたの生活をより良くします。
-- **Living UI** — CraftBotの中で動作するカスタムアプリを構築、インポート、または進化させます。エージェントはUIの状態を常に把握し、そのデータを直接読み取り、書き込み、操作できます。
-- **外部ツール統合** — 埋め込みクレデンシャルとOAuthサポートにより、Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegramに接続（今後さらに追加予定！）。
-- **MCP** — 外部ツールやサービスでエージェント機能を拡張するためのModel Context Protocol統合。
-- **スキル** — タスク計画、リサーチ、コードレビュー、Git操作などの組み込みスキルを含む拡張可能なスキルフレームワーク。
-- **クロスプラットフォーム** — プラットフォーム固有のコードバリアントとDockerコンテナ化によるWindows、macOS、Linuxの完全サポート。
-
-> [!IMPORTANT]
-> **GUIモードは非推奨になりました。** CraftBotはGUI（デスクトップ自動化）モードをサポートしなくなりました。代わりにBrowserまたはCLIモードをご利用ください。
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
----
-
 
 ## 🧰 はじめに
 
@@ -115,6 +94,10 @@ python craftbot.py uninstall  # 停止・自動起動の解除・パッケージ
 ## 🌱 Living UI
 
 **Living UIは、あなたのニーズに合わせて進化していくシステム/アプリ/ダッシュボードです。**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - AIコパイロット付きのカンバンボードが欲しい?
 - 自分のワークフローにぴったり合うカスタムCRMは?

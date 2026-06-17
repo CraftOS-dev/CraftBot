@@ -8,6 +8,7 @@ from agent_core import action
 
 @action(
     name="send_lark_message",
+    irreversible=True,
     description="Send a plain text message in Lark. receive_id_type: open_id | user_id | email | chat_id | union_id.",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -40,6 +41,7 @@ async def send_lark_message(input_data: dict) -> dict:
 
 @action(
     name="reply_lark_message",
+    irreversible=True,
     description="Reply to a Lark message by message_id.",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -66,6 +68,7 @@ async def reply_lark_message(input_data: dict) -> dict:
 
 @action(
     name="send_lark_rich_message",
+    irreversible=True,
     description="Send a generic Lark message. msg_type: text | post | image | file | audio | media | sticker | interactive | share_chat | share_user. content is the per-type dict (this action JSON-encodes it for you).",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -110,6 +113,7 @@ async def send_lark_rich_message(input_data: dict) -> dict:
 
 @action(
     name="send_lark_image",
+    irreversible=True,
     description="Send an image (use upload_lark_image first to get image_key).",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -142,6 +146,7 @@ async def send_lark_image(input_data: dict) -> dict:
 
 @action(
     name="send_lark_file",
+    irreversible=True,
     description="Send a file (use upload_lark_im_file first to get file_key).",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -174,6 +179,7 @@ async def send_lark_file(input_data: dict) -> dict:
 
 @action(
     name="send_lark_card",
+    irreversible=True,
     description="Send an interactive card (Lark's Block Kit equivalent). card is the card schema dict.",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -202,6 +208,7 @@ async def send_lark_card(input_data: dict) -> dict:
 
 @action(
     name="send_lark_post",
+    irreversible=True,
     description="Send a rich-text 'post' message (multi-line, styled). post is Lark's post schema: {zh_cn: {title, content: [[{tag,text}]]}}.",
     action_sets=["lark_messages"],
     input_schema={
@@ -230,6 +237,7 @@ async def send_lark_post(input_data: dict) -> dict:
 
 @action(
     name="reply_lark_rich_message",
+    irreversible=True,
     description="Reply with non-text content (image / file / card / etc.). reply_in_thread starts a thread off the parent.",
     action_sets=["lark_messages"],
     input_schema={
@@ -337,6 +345,7 @@ async def update_lark_message(input_data: dict) -> dict:
 
 @action(
     name="forward_lark_message",
+    irreversible=True,
     description="Forward a message to another recipient.",
     action_sets=["lark_messages", "lark"],
     input_schema={
@@ -603,6 +612,7 @@ async def list_lark_pinned_messages(input_data: dict) -> dict:
 
 @action(
     name="send_lark_urgent",
+    irreversible=True,
     description="Escalate a message to selected users. urgent_type: app (in-app push) | sms | phone (call). Use sparingly — sms/phone require special permission.",
     action_sets=["lark_messages"],
     input_schema={

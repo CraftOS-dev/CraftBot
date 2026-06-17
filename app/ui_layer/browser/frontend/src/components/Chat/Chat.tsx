@@ -7,6 +7,9 @@ import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator, Attachme
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { selectPendingPrefill } from '../../store/selectors/chatInput'
+import { clearPendingPrefill } from '../../store/slices/chatInputSlice'
 import styles from './Chat.module.css'
 
 // Pending attachment type
@@ -127,6 +130,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   }, [messages])
 
   const [input, setInput] = useState('')
+  const dispatch = useAppDispatch()
+  const pendingPrefill = useAppSelector(selectPendingPrefill)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -278,6 +283,24 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     adjustTextareaHeight()
   }, [input, adjustTextareaHeight])
 
+  // Consume a one-shot prefill payload from the chatInput slice (e.g. when the
+  // user picks a playbook). Replaces the current input so the prompt is ready
+  // to send or edit, then clears the payload so it doesn't re-apply.
+  useEffect(() => {
+    if (pendingPrefill === null) return
+    setInput(pendingPrefill)
+    dispatch(clearPendingPrefill())
+    // Focus + move caret to the end after the textarea has updated.
+    setTimeout(() => {
+      const ta = inputRef.current
+      if (ta) {
+        ta.focus()
+        const end = ta.value.length
+        ta.setSelectionRange(end, end)
+      }
+    }, 0)
+  }, [pendingPrefill, dispatch])
+
   const handleChatReply = useCallback((
     sessionId: string | undefined,
     displayName: string,
@@ -418,6 +441,10 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         e.preventDefault()
         return
       }
+    }
+    if (e.nativeEvent.isComposing) {
+      e.preventDefault()
+      return
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()

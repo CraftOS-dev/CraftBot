@@ -352,6 +352,7 @@ def get_linkedin_connections(input_data: dict) -> dict:
 
 @action(
     name="send_linkedin_message",
+    irreversible=True,
     description="Send a message to LinkedIn users.",
     action_sets=["linkedin"],
     input_schema={
@@ -389,6 +390,7 @@ async def send_linkedin_message(input_data: dict) -> dict:
 
 @action(
     name="send_linkedin_connection_request",
+    irreversible=True,
     description="Send connection request.",
     action_sets=["linkedin"],
     input_schema={

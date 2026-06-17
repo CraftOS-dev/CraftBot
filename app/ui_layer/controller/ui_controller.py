@@ -511,20 +511,38 @@ class UIController:
                 )
 
     async def _consume_triggers(self) -> None:
-        """Consume triggers and run agent reactions."""
+        """Consume triggers and run agent reactions.
+
+        Durable lifecycle: ``next()`` claims the trigger's store
+        rows (CLAIMED), ``ack()`` settles them when the react cycle completes,
+        ``nack()`` on an exception. A crash or cancellation mid-react leaves
+        the rows CLAIMED, and the next boot's reclaim scan re-delivers them —
+        at-least-once instead of silently lost.
+        """
         logger.info("[CONSUMER] Trigger consumer started")
         try:
             while self._running and self._agent.is_running:
+                trigger = None
                 try:
-                    trigger = await self._agent.triggers.get()
+                    trigger = await self._agent.trigger_service.next()
                     await self._agent.react(trigger)
+                    await self._agent.trigger_service.ack(trigger)
                 except asyncio.CancelledError:
+                    # Shutdown: deliberately no ack/nack — the row stays
+                    # CLAIMED and is reclaimed (re-delivered) on next boot.
                     raise
                 except Exception as e:
                     logger.error(
                         f"[CONSUMER] Exception during trigger processing: {e!r}",
                         exc_info=True,
                     )
+                    if trigger is not None:
+                        try:
+                            await self._agent.trigger_service.nack(trigger, repr(e))
+                        except Exception:
+                            logger.error(
+                                "[CONSUMER] Failed to nack trigger", exc_info=True
+                            )
                     await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             logger.info("[CONSUMER] Trigger consumer cancelled")

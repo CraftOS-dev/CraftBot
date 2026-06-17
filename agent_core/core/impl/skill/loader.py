@@ -90,37 +90,29 @@ class SkillLoader:
 
         content = skill_path.read_text(encoding="utf-8")
 
-        # Parse frontmatter and instructions
+        # Frontmatter is optional. Files without a `---` block (hand-written
+        # skills, imported skills from agent bundles) load with metadata
+        # derived from the folder name + first body paragraph.
         match = SkillLoader.FRONTMATTER_PATTERN.match(content)
+        if match:
+            frontmatter_str = match.group(1)
+            instructions = match.group(2).strip()
+            try:
+                frontmatter = yaml.safe_load(frontmatter_str)
+                if not isinstance(frontmatter, dict):
+                    raise ValueError("Frontmatter must be a YAML dictionary")
+            except yaml.YAMLError as e:
+                raise ValueError(f"Invalid YAML frontmatter: {e}")
+        else:
+            frontmatter = {}
+            instructions = content.strip()
 
-        if not match:
-            raise ValueError(
-                f"Invalid SKILL.md format (missing frontmatter): {skill_path}"
-            )
-
-        frontmatter_str = match.group(1)
-        instructions = match.group(2).strip()
-
-        # Parse YAML frontmatter
-        try:
-            frontmatter = yaml.safe_load(frontmatter_str)
-            if not isinstance(frontmatter, dict):
-                raise ValueError("Frontmatter must be a YAML dictionary")
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML frontmatter: {e}")
-
-        # Validate required fields
         if "name" not in frontmatter:
-            # Try to infer name from directory
             frontmatter["name"] = skill_path.parent.name
 
         if "description" not in frontmatter:
-            # Try to extract description from first paragraph
-            first_para = instructions.split("\n\n")[0] if instructions else ""
-            # Remove markdown headers
-            first_para = re.sub(r"^#+\s+.*\n", "", first_para).strip()
             frontmatter["description"] = (
-                first_para[:200] if first_para else "No description"
+                SkillLoader._derive_description(instructions) or "No description"
             )
 
         # Create metadata
@@ -134,6 +126,22 @@ class SkillLoader:
             directory=skill_path.parent,
             enabled=True,
         )
+
+    @staticmethod
+    def _derive_description(instructions: str) -> str:
+        """Pick a description out of the body when frontmatter doesn't supply one.
+
+        Walks paragraphs, strips leading markdown headings and blockquote
+        markers, and returns the first non-empty result (capped at 200 chars).
+        Matches the convention used by the agent_bundle SKILL.md files, where
+        the first non-heading paragraph is a `> tagline` blockquote.
+        """
+        for para in instructions.split("\n\n"):
+            para = re.sub(r"^#+\s+[^\n]*\n?", "", para.strip()).strip()
+            para = re.sub(r"^>\s?", "", para, flags=re.MULTILINE).strip()
+            if para:
+                return para[:200]
+        return ""
 
     @staticmethod
     def substitute_variables(instructions: str, arguments: str) -> str:
