@@ -160,7 +160,9 @@ class ActionRouter:
         current_prompt = full_prompt
 
         for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(current_prompt, is_task=False)
+            decision = await self._prompt_for_decision(
+                current_prompt, is_task=False, prompt_name="SELECT_ACTION"
+            )
 
             # Parse parallel action decisions with format error detection
             actions, format_error = self._parse_parallel_action_decisions(decision)
@@ -285,8 +287,8 @@ class ActionRouter:
             logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
             integration_essentials = ""
 
+        decision_prompt_name = "SELECT_ACTION_IN_TASK"
         static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
             memory_context=memory_context,
             event_stream="",  # Empty for static prompt
@@ -295,7 +297,6 @@ class ActionRouter:
             integration_essentials=integration_essentials,
         )
         full_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
             memory_context=memory_context,
             event_stream=event_stream_content,
@@ -314,6 +315,7 @@ class ActionRouter:
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
+                prompt_name=decision_prompt_name,
             )
 
             # Parse parallel action decisions with format error detection
@@ -433,6 +435,7 @@ class ActionRouter:
             logger.debug(f"[ACTION] simple-task essentials lookup failed: {e}")
             integration_essentials = ""
 
+        decision_prompt_name = "SELECT_ACTION_IN_SIMPLE_TASK"
         static_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -462,6 +465,7 @@ class ActionRouter:
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
+                prompt_name=decision_prompt_name,
             )
 
             # Parse parallel action decisions with format error detection
@@ -554,6 +558,7 @@ class ActionRouter:
         event_stream_content = self.context_engine.get_event_stream(
             session_id=session_id
         )
+        decision_prompt_name = "SELECT_ACTION_IN_GUI"
         static_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -579,6 +584,7 @@ class ActionRouter:
                 static_prompt=static_prompt,
                 call_type=LLMCallType.GUI_ACTION_SELECTION,
                 session_id=session_id,
+                prompt_name=decision_prompt_name,
             )
 
             # Check for GUI format errors
@@ -629,6 +635,7 @@ class ActionRouter:
         static_prompt: Optional[str] = None,
         call_type: str = LLMCallType.ACTION_SELECTION,
         session_id: Optional[str] = None,
+        prompt_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -639,6 +646,8 @@ class ActionRouter:
             static_prompt: Optional static portion for caching.
             call_type: Type of LLM call for cache keying.
             session_id: Optional session ID for session-specific state lookup.
+            prompt_name: Identity of the named prompt, tagged onto the captured
+                LLM call for per-prompt profiling.
         """
         max_retries = 3
         last_error: Optional[Exception] = None
@@ -710,6 +719,7 @@ class ActionRouter:
                                     call_type=call_type,
                                     user_prompt=delta_events,
                                     system_prompt_for_new_session=system_prompt,
+                                    prompt_name=prompt_name,
                                 )
                                 # Mark events as synced after successful call
                                 self.context_engine.mark_event_stream_synced(
@@ -739,6 +749,7 @@ class ActionRouter:
                                 call_type=call_type,
                                 user_prompt=current_prompt,
                                 system_prompt_for_new_session=system_prompt,
+                                prompt_name=prompt_name,
                             )
                             # Mark events as synced after successful session creation
                             self.context_engine.mark_event_stream_synced(
@@ -747,12 +758,12 @@ class ActionRouter:
                     else:
                         # No session registered (simple task) - use prefix cache / regular response
                         raw_response = await self.llm_interface.generate_response_async(
-                            system_prompt, current_prompt
+                            system_prompt, current_prompt, prompt_name=prompt_name
                         )
                 else:
                     # Not in task context - use regular response
                     raw_response = await self.llm_interface.generate_response_async(
-                        system_prompt, current_prompt
+                        system_prompt, current_prompt, prompt_name=prompt_name
                     )
 
                 # Validate response before parsing

@@ -593,6 +593,7 @@ class GUIModule:
             response = await self.llm.generate_response_async(
                 system_prompt=system_prompt,
                 user_prompt=prompt,
+                prompt_name="GUI_REASONING",
             )
 
             try:

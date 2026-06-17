@@ -14,8 +14,10 @@ Hooks allow runtime-specific behavior:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import re
+import time
 import requests
 from typing import Any, Dict, List, Optional
 
@@ -38,10 +40,21 @@ from agent_core.core.hooks import (
     ReportUsageHook,
     LogToDbHook,
     UsageEventData,
+    LLMCallRecord,
+    RecordLLMCallHook,
 )
 
 # Logging setup - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
+
+# Per-call metadata (prompt identity + start time) propagated from the public
+# entry methods down to the capture chokepoint (_call_log_to_db) without
+# threading it through every provider method. asyncio.to_thread copies the
+# context into the worker thread, so this survives the sync offload, and each
+# asyncio Task / thread gets its own copy so concurrent calls don't clobber.
+_llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_llm_call_ctx", default={}
+)
 
 
 class _EmptyResponse(Exception):
@@ -120,6 +133,7 @@ class LLMInterface:
         set_token_count: Optional[SetTokenCountHook] = None,
         report_usage: Optional[ReportUsageHook] = None,
         log_to_db: Optional[LogToDbHook] = None,
+        record_llm_call: Optional[RecordLLMCallHook] = None,
     ) -> None:
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -137,6 +151,7 @@ class LLMInterface:
         self._set_token_count = set_token_count or (lambda x: None)
         self._report_usage = report_usage
         self._log_to_db = log_to_db
+        self._record_llm_call = record_llm_call
 
         # Consecutive failure tracking to prevent infinite retry loops
         self._consecutive_failures = 0
@@ -373,8 +388,18 @@ class LLMInterface:
         status: str,
         token_count_input: int,
         token_count_output: int,
+        cached_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> None:
-        """Call the log_to_db hook if set."""
+        """Call the log_to_db hook if set, and capture the full call for the
+        prompt profiler / eval harvesting.
+
+        This method is invoked from every provider path right after the
+        response is parsed, so it is the single chokepoint where the full
+        prompt, response, and token counts coexist. Prompt identity + latency
+        are read from the per-call context (`_llm_call_ctx`) set at the public
+        entry point.
+        """
         if self._log_to_db:
             try:
                 self._log_to_db(
@@ -387,6 +412,56 @@ class LLMInterface:
                 )
             except Exception as e:
                 logger.warning(f"[LLM] Failed to log to database: {e}")
+
+        if self._record_llm_call:
+            try:
+                ctx = _llm_call_ctx.get() or {}
+                start = ctx.get("start")
+                latency_ms = (
+                    int((time.perf_counter() - start) * 1000) if start else 0
+                )
+                self._record_llm_call(
+                    LLMCallRecord(
+                        provider=self.provider or "",
+                        model=self.model or "",
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response=output,
+                        status=status,
+                        input_tokens=token_count_input,
+                        output_tokens=token_count_output,
+                        cached_tokens=cached_tokens,
+                        cache_creation_tokens=cache_creation_tokens,
+                        latency_ms=latency_ms,
+                        prompt_name=ctx.get("prompt_name"),
+                        call_type=ctx.get("call_type"),
+                        task_id=ctx.get("task_id"),
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"[LLM] Failed to capture LLM call: {e}")
+
+    def _begin_call(
+        self,
+        prompt_name: Optional[str] = None,
+        call_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ) -> None:
+        """Stamp per-call identity + start time into the context for capture.
+
+        Called at the public entry points; read back at the capture chokepoint
+        (`_call_log_to_db`). The explicit `prompt_name` (passed by the call
+        site) is what lets the profiler tell apart prompts that share a
+        call_type (e.g. the three action-selection prompts).
+        """
+        _llm_call_ctx.set(
+            {
+                "prompt_name": prompt_name,
+                "call_type": call_type,
+                "task_id": task_id,
+                "start": time.perf_counter(),
+            }
+        )
 
     # ───────────────────────────  Public helpers  ────────────────────────────
     def _generate_response_sync(
@@ -521,8 +596,10 @@ class LLMInterface:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Generate a single response from the configured provider."""
+        self._begin_call(prompt_name=prompt_name)
         return self._generate_response_sync(system_prompt, user_prompt, log_response)
 
     @profile("llm_generate_response_async", OperationCategory.LLM)
@@ -531,8 +608,12 @@ class LLMInterface:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread."""
+        # Stamp the context here, in the caller's context, so asyncio.to_thread
+        # copies it into the worker thread where the capture runs.
+        self._begin_call(prompt_name=prompt_name)
         return await asyncio.to_thread(
             self._generate_response_sync,
             system_prompt,
@@ -1211,6 +1292,7 @@ class LLMInterface:
             "success",
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -1276,6 +1358,7 @@ class LLMInterface:
             "success",
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         return {"tokens_used": total_tokens or 0, "content": content or ""}
@@ -1287,6 +1370,7 @@ class LLMInterface:
         user_prompt: str,
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Synchronous session-based response generation.
 
@@ -1296,7 +1380,11 @@ class LLMInterface:
             user_prompt: The user prompt to send.
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
+            prompt_name: Identity of the named prompt, for capture/profiling.
         """
+        self._begin_call(
+            prompt_name=prompt_name, call_type=call_type, task_id=task_id
+        )
         return self._generate_response_with_session_sync(
             task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
         )
@@ -1309,6 +1397,7 @@ class LLMInterface:
         user_prompt: str,
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Async wrapper for session-based response generation.
 
@@ -1318,7 +1407,13 @@ class LLMInterface:
             user_prompt: The user prompt to send.
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
+            prompt_name: Identity of the named prompt, for capture/profiling.
         """
+        # Stamp here (caller's context) so asyncio.to_thread copies it into the
+        # worker thread where capture runs.
+        self._begin_call(
+            prompt_name=prompt_name, call_type=call_type, task_id=task_id
+        )
         return await asyncio.to_thread(
             self._generate_response_with_session_sync,
             task_id,
@@ -1344,6 +1439,7 @@ class LLMInterface:
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
+        cached_tokens = 0
         session_key = f"{task_id}:{call_type}"
 
         try:
@@ -1467,6 +1563,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -1665,6 +1762,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage. service_type stays "llm_openai" (the request shape) but
@@ -1922,6 +2020,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens,
         )
 
         # Report usage
@@ -2080,6 +2179,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -2379,6 +2479,8 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens,  # cache_read — was MISSING (always 0)
+            cache_creation_tokens=cache_creation,  # cache_write — to settle write-vs-expiry
         )
 
         # Report usage
@@ -2580,6 +2682,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         self._report_usage_async(
