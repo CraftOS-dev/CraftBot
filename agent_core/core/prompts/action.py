@@ -227,7 +227,7 @@ File Reading Best Practices:
   3. Use read_file with appropriate offset to read that section
 
 Missions (multi-session / ongoing work):
-- If a task continues earlier multi-session work, or the user references an ongoing project, check workspace/missions/ and follow the Mission Protocol in AGENT.md (when to create, scan-on-start, the INDEX.md template, and updating INDEX.md at task end).
+- If a task continues earlier multi-session work, or the user references an ongoing project, check workspace/missions/ and you MUST grep and read the "Mission Protocol" section in AGENT.md (when to create, scan-on-start, the INDEX.md template, and updating INDEX.md at task end).
 </rules>
 
 <parallel_actions>
