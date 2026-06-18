@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="256"/>
 </div>
 
@@ -43,18 +39,23 @@ Beyond that, CraftBot has all the core capabilities of a general-purpose agent h
   <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ Highlighted Features
 
 Aside from being an AI agent that can create and operate its own SaaS tools, CraftBot includes all the core features of an agent harness, enabling it to work as a general AI agent alongside you across your tasks, tools, memory, and daily workflows.
 
+- **Agent Profiles** 40+ Agent Profiles (CEO agent, Finance agent, marketing lead agent, devops engineer, video producer agent, or 37 others) ready to work for you. Find the desire roles from **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** and import them with one-click.
+- **Playbook catalogue** Not sure how to automate with AI agent? CraftBot has 120 playbooks ready for use (across 19 categories). Open the playbook picker from the top bar, pick a playbook, and it start running task for you.
 - **Living UI.** Build, import, or evolve custom apps that live inside CraftBot. The agent stays aware of the UI's state and can read, write, and act on its data directly.
 - **Multi-tasking and session routing.** Still using `/new` command? CraftBot knows when to start a new session and when to resume a task, keeping conversation and context unified.
 - **Self-hosted and BYOK.** Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, OpenRoute, and more. Or host your own model with 0 tokens spent using Ollama.
 - **Memory System.** Local knowledge base built from your interaction with CraftBot via RAG + Agent File System + distillation. CraftBot dreams and consolidates events that happened throughout the day at midnight.
 - **Proactive Agent.** Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
-- **External Tools Integration.** Connect to Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, and Telegram (more to come!) with embedded credentials and OAuth support.
+- **External Tools Integration.** Connect to your apps like Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram and more (more to come!) with OAuth support or your own key.
 - **Skills and MCP.** 150+ MCP and 170+ Skills ready. Quick installation of new Skills and MCPs. Create/improve Skills from completed tasks with one click.
-- **Cross-Platform** Full support for Windows, macOS, and Linux with platform-specific code variants and Docker containerization.
 - **Browser interface and CLI support.** Use CraftBot the way it fits: through a simple browser UI for everyday interaction, or via the CLI for scripting and headless environments.
 
 ---

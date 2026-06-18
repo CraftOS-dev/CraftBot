@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="400"/>
 </div>
 
@@ -43,9 +39,24 @@
   <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ 주요 기능
 
 자체 SaaS 도구를 만들고 운영할 수 있는 AI 에이전트라는 점 외에도, CraftBot은 에이전트 하네스로서의 핵심 기능을 모두 갖추고 있어 작업, 도구, 메모리, 일상 워크플로 전반에서 범용 AI 에이전트로 사용자와 함께 일할 수 있습니다.
+
+- **에이전트 프로필** 40개 이상의 에이전트 프로필(CEO 에이전트, 재무 에이전트, 마케팅 리드 에이전트, DevOps 엔지니어, 영상 프로듀서 에이전트 등 37종)이 당신을 위해 일할 준비가 되어 있습니다. **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** 에서 원하는 역할을 찾아 원클릭으로 가져올 수 있습니다.
+- **플레이북 카탈로그** AI 에이전트로 무엇을 자동화해야 할지 모르시겠나요? CraftBot에는 120개의 플레이북(19개 카테고리에 걸쳐)이 바로 사용할 수 있도록 준비되어 있습니다. 상단 바에서 플레이북 선택기를 열고 플레이북을 고르면, 바로 작업을 실행해 줍니다.
+- **Living UI.** CraftBot 안에서 동작하는 커스텀 앱을 만들고, 가져오고, 발전시킬 수 있습니다. 에이전트는 UI의 상태를 항상 인지하고 있으며, 그 데이터를 직접 읽고 쓰고 다룰 수 있습니다.
+- **멀티태스킹과 세션 라우팅.** 아직도 `/new` 명령어를 직접 입력하시나요? CraftBot은 언제 새 세션을 시작하고 언제 기존 작업을 이어갈지 스스로 판단하여 대화와 컨텍스트를 하나로 유지합니다.
+- **셀프 호스팅 & BYOK.** OpenAI, Google Gemini, Anthropic Claude, OpenRouter 등을 지원하는 유연한 LLM 제공자 시스템. 또는 Ollama로 토큰 소비 0으로 자신만의 모델을 호스팅할 수 있습니다.
+- **메모리 시스템.** RAG + 에이전트 파일 시스템 + 디스틸레이션을 통해 CraftBot과의 상호작용으로부터 로컬 지식 베이스를 구축합니다. CraftBot은 자정에 "꿈을 꾸며" 하루 동안 일어난 이벤트를 통합합니다.
+- **능동적 에이전트.** 당신의 선호, 습관, 인생 목표를 학습합니다. 그리고 계획을 세우고 작업을 시작(물론 승인을 받아)하여 당신이 인생에서 더 나아질 수 있도록 돕습니다.
+- **외부 도구 통합.** Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram 등 당신의 앱(더 많이 추가될 예정!)과 OAuth 또는 자체 키로 연결할 수 있습니다.
+- **Skills와 MCP.** 150개 이상의 MCP와 170개 이상의 Skills가 준비되어 있습니다. 새로운 Skills와 MCP를 빠르게 설치할 수 있고, 완료된 작업에서 한 번의 클릭으로 Skills를 만들거나 개선할 수 있습니다.
+- **브라우저 인터페이스와 CLI 지원.** 당신에게 맞는 방식으로 CraftBot을 사용하세요. 일상적인 사용에는 간단한 브라우저 UI를, 스크립팅과 헤드리스 환경에는 CLI를 사용할 수 있습니다.
 
 ---
 
