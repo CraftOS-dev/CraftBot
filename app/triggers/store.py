@@ -92,8 +92,7 @@ class TriggerStore:
             # If a table without our dedup_key column is present, it's that
             # relic — replace it.
             cols = [
-                row[1]
-                for row in conn.execute("PRAGMA table_info(triggers)").fetchall()
+                row[1] for row in conn.execute("PRAGMA table_info(triggers)").fetchall()
             ]
             # "queue" is the newest column — its absence also catches a table
             # created by an earlier pre-release iteration of this branch.

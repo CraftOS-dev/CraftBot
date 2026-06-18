@@ -103,7 +103,9 @@ def _copy_dir_filtered(src: Path, dst: Path) -> None:
             try:
                 shutil.copy2(entry, target)
             except OSError as exc:
-                logger.warning(f"[PROFILE_BUNDLE] Skipping unreadable file {entry}: {exc}")
+                logger.warning(
+                    f"[PROFILE_BUNDLE] Skipping unreadable file {entry}: {exc}"
+                )
 
 
 def _agent_name() -> str:
@@ -124,7 +126,9 @@ def _looks_like_secret(env_key: str) -> bool:
     return any(hint in upper for hint in SECRET_ENV_HINTS)
 
 
-def _strip_mcp_secrets(servers: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[str]]:
+def _strip_mcp_secrets(
+    servers: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[str]]:
     """Strip env-var values that look like secrets. Returns (cleaned, stripped_names)."""
     stripped: List[str] = []
     cleaned: List[Dict[str, Any]] = []
@@ -176,9 +180,7 @@ def _gather_export_contents() -> Dict[str, Any]:
     """Pre-flight inventory used by manifest + README."""
     skills_config = _load_json(SKILLS_CONFIG_PATH, {"enabled_skills": []})
     enabled_skills = [
-        s
-        for s in skills_config.get("enabled_skills", [])
-        if (SKILLS_DIR / s).is_dir()
+        s for s in skills_config.get("enabled_skills", []) if (SKILLS_DIR / s).is_dir()
     ]
 
     mcp_config = _load_json(MCP_CONFIG_PATH, {"mcp_servers": []})
@@ -189,9 +191,7 @@ def _gather_export_contents() -> Dict[str, Any]:
         s for s in mcp_config.get("mcp_servers", []) if s.get("enabled", False)
     ]
 
-    md_present = [
-        f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()
-    ]
+    md_present = [f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()]
 
     living_ui_projects = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
 
@@ -419,7 +419,9 @@ def inspect_bundle(bundle_path: str) -> Dict[str, Any]:
                 env = server.get("env") or {}
                 missing = [k for k in env if not env.get(k)]
                 if missing:
-                    mcp_needs_env.append({"name": server.get("name", ""), "env_keys": missing})
+                    mcp_needs_env.append(
+                        {"name": server.get("name", ""), "env_keys": missing}
+                    )
 
             contents = manifest.get("contents", {})
             return {
@@ -825,9 +827,7 @@ def _apply_living_ui(
     back to a direct file write.
     """
     bundle_projects = _load_living_ui_projects(src_living_dir / "projects.json")
-    target_living_dir = (
-        manager.living_ui_dir if manager is not None else LIVING_UI_DIR
-    )
+    target_living_dir = manager.living_ui_dir if manager is not None else LIVING_UI_DIR
     target_living_dir.mkdir(parents=True, exist_ok=True)
 
     if mode == "overwrite":
