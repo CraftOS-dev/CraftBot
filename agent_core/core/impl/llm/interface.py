@@ -46,6 +46,7 @@ from agent_core.core.hooks import (
 
 # Logging setup - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
+from agent_core.utils.token import billable_tokens
 
 # Per-call metadata (prompt identity + start time) propagated from the public
 # entry methods down to the capture chokepoint (_call_log_to_db) without
@@ -554,7 +555,7 @@ class LLMInterface:
 
             # Update token count via hook
             current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
+            self._set_token_count(current_count + billable_tokens(response))
 
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
@@ -910,7 +911,7 @@ class LLMInterface:
                 self._CODE_BLOCK_RE, "", response.get("content", "").strip()
             )
             current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
+            self._set_token_count(current_count + billable_tokens(response))
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
@@ -984,7 +985,7 @@ class LLMInterface:
                 self._CODE_BLOCK_RE, "", response.get("content", "").strip()
             )
             current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
+            self._set_token_count(current_count + billable_tokens(response))
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
@@ -1073,7 +1074,7 @@ class LLMInterface:
                 self._CODE_BLOCK_RE, "", response.get("content", "").strip()
             )
             current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
+            self._set_token_count(current_count + billable_tokens(response))
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
@@ -1168,7 +1169,7 @@ class LLMInterface:
                 self._CODE_BLOCK_RE, "", response.get("content", "").strip()
             )
             current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
+            self._set_token_count(current_count + billable_tokens(response))
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
@@ -1228,7 +1229,7 @@ class LLMInterface:
         cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
 
         current_count = self._get_token_count()
-        self._set_token_count(current_count + response.get("tokens_used", 0))
+        self._set_token_count(current_count + billable_tokens(response))
         if log_response:
             logger.info(f"[LLM RECV] {cleaned}")
         return cleaned
@@ -1303,7 +1304,11 @@ class LLMInterface:
             cached_tokens or 0,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def _process_prefix_response(
         self, result: Dict[str, Any], session_key: str
@@ -1359,7 +1364,11 @@ class LLMInterface:
             cached_tokens=cached_tokens or 0,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def generate_response_with_session(
         self,
@@ -1578,7 +1587,11 @@ class LLMInterface:
             cached_tokens,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     # ───────────────────── Provider‑specific private helpers ─────────────────────
     @profile("llm_openai_call", OperationCategory.LLM)
@@ -2186,7 +2199,11 @@ class LLMInterface:
             cached_tokens or 0,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.
