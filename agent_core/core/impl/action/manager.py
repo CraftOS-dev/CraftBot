@@ -28,6 +28,7 @@ from agent_core.core.protocols.event_stream import EventStreamManagerProtocol
 from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.impl.action.executor import ActionExecutor
+from agent_core.core.impl.action.idempotency import IdempotencyGuard
 from agent_core.utils.logger import logger
 
 # ============================================================================
@@ -120,6 +121,7 @@ class ActionManager:
         on_action_start: Optional[OnActionStartHook] = None,
         on_action_end: Optional[OnActionEndHook] = None,
         get_parent_id: Optional[GetParentIdHook] = None,
+        idempotency_guard: Optional["IdempotencyGuard"] = None,
     ):
         """
         Build an ActionManager that can execute and track actions.
@@ -134,6 +136,10 @@ class ActionManager:
             on_action_start: Optional hook called when action starts.
             on_action_end: Optional hook called when action ends.
             get_parent_id: Optional hook to resolve parent_id from task context.
+            idempotency_guard: Optional guard consulted before/after actions
+                flagged ``irreversible=True``: records intent
+                before the side effect and prevents a completed run from
+                being silently re-executed after a crash.
         """
         self.action_library = action_library
         self.llm_interface = llm_interface
@@ -150,6 +156,7 @@ class ActionManager:
         self._on_action_start = on_action_start
         self._on_action_end = on_action_end
         self._get_parent_id = get_parent_id
+        self._idempotency_guard = idempotency_guard
 
     def _generate_unique_session_id(self) -> str:
         """Generate a unique 6-character session ID.
@@ -234,6 +241,50 @@ class ActionManager:
             input_data["_session_id"] = session_id
 
         logger.debug(f"[INPUT DATA] {input_data}")
+
+        # ── Idempotency guard for irreversible actions ──
+        # BEFORE the side effect: record intent durably, and refuse to
+        # re-execute work the ledger shows as already completed (or as
+        # interrupted mid-flight, where the effect may have happened).
+        idem_key = None
+        if getattr(action, "irreversible", False) and self._idempotency_guard:
+            try:
+                decision = self._idempotency_guard.begin(
+                    action.name, input_data, session_id
+                )
+            except Exception as exc:
+                logger.warning(f"Idempotency guard begin() failed: {exc}")
+                decision = None
+            if decision is not None:
+                idem_key = decision.idem_key
+                if not decision.proceed:
+                    if decision.stored_output is not None:
+                        skip_outputs = decision.stored_output
+                        skip_message = (
+                            f"Action {action.name} skipped — an identical run "
+                            f"already completed; returning its stored output."
+                        )
+                    else:
+                        skip_outputs = {
+                            "status": "error",
+                            "error": decision.note,
+                            "error_code": "irreversible_uncertain",
+                        }
+                        skip_message = (
+                            f"Action {action.name} blocked — a previous "
+                            f"attempt was interrupted and its side effect may "
+                            f"already have happened. See the action output."
+                        )
+                    self._log_event_stream(
+                        is_gui_task=is_gui_task,
+                        event_type="action_end",
+                        event=skip_message,
+                        display_message=f"{action.display_name} → skipped (idempotent)",
+                        action_name=action.name,
+                        session_id=session_id,
+                    )
+                    return skip_outputs
+
         run_id = str(uuid.uuid4())
         started_at = datetime.utcnow().isoformat()
 
@@ -364,6 +415,16 @@ class ActionManager:
             logger.exception(f"[ERROR] Exception while executing action {action.name}")
 
         ended_at = datetime.utcnow().isoformat()
+
+        # ── Idempotency guard: record the outcome durably ──
+        # AFTER the side effect, BEFORE anything that could fail below — a
+        # crash between the side effect and this line is the §4.2 window the
+        # ledger exists to shrink.
+        if idem_key and self._idempotency_guard:
+            try:
+                self._idempotency_guard.complete(idem_key, status, outputs)
+            except Exception as exc:
+                logger.warning(f"Idempotency guard complete() failed: {exc}")
 
         # Re-resolve parent_id after execution if hook provided
         if not parent_id and self._get_parent_id:

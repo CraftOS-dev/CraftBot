@@ -40,6 +40,7 @@ class SchedulerManager:
         self._scheduler_tasks: Dict[str, asyncio.Task] = {}
         self._config_path: Optional[Path] = None
         self._trigger_queue: Optional[TriggerQueue] = None
+        self._trigger_service = None  # Optional[TriggerService] — durable emit path
         self._is_running: bool = False
         self._master_enabled: bool = True  # Track master enabled state for config saves
         self._lock = asyncio.Lock()
@@ -48,6 +49,7 @@ class SchedulerManager:
         self,
         config_path: Path,
         trigger_queue: TriggerQueue,
+        trigger_service=None,
     ) -> None:
         """
         Initialize the scheduler with configuration.
@@ -55,9 +57,13 @@ class SchedulerManager:
         Args:
             config_path: Path to scheduler_config.json
             trigger_queue: TriggerQueue to fire triggers into
+            trigger_service: Optional TriggerService. When provided, fires are
+                emitted durably with dedup keys; when None, falls
+                back to direct queue puts (legacy behavior, used by old tests).
         """
         self._config_path = Path(config_path)
         self._trigger_queue = trigger_queue
+        self._trigger_service = trigger_service
 
         # Load configuration
         config = self._load_config()
@@ -331,17 +337,30 @@ class SchedulerManager:
             **(payload or {}),
         }
 
-        # Create trigger
-        trigger = Trigger(
-            fire_at=time.time(),  # Fire immediately
-            priority=priority,
-            next_action_description=f"[Immediate] {name}: {instruction}",
-            payload=trigger_payload,
-            session_id=session_id,
-        )
+        # Queue the trigger — durably when the service is wired
+        # No dedup key: each immediate request is intentionally a new fire.
+        if self._trigger_service is not None:
+            from app.triggers import TriggerSource, TriggerSpec
 
-        # Queue the trigger
-        await self._trigger_queue.put(trigger)
+            await self._trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.SCHEDULED_IMMEDIATE,
+                    description=f"[Immediate] {name}: {instruction}",
+                    fire_at=time.time(),  # Fire immediately
+                    priority=priority,
+                    session_id=session_id,
+                    payload=trigger_payload,
+                )
+            )
+        else:
+            trigger = Trigger(
+                fire_at=time.time(),  # Fire immediately
+                priority=priority,
+                next_action_description=f"[Immediate] {name}: {instruction}",
+                payload=trigger_payload,
+                session_id=session_id,
+            )
+            await self._trigger_queue.put(trigger)
 
         logger.info(
             f"[SCHEDULER] Queued immediate trigger: {name} (session: {session_id})"
@@ -607,28 +626,85 @@ class SchedulerManager:
                     f"{overdue_human}; firing as catch-up with agent-judgment note"
                 )
 
-        # One-time tasks: remove from the persisted config BEFORE enqueueing so a
-        # crash/restart between firing and removal can never re-fire them. The
-        # in-memory trigger queue is not persisted, so once it's enqueued the
-        # config entry is no longer needed.
-        if not schedule.recurring:
-            self._schedules.pop(schedule.id, None)
-            self._save_config()
-            logger.info(
-                f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
+        if self._trigger_service is not None:
+            # Durable path: emit FIRST — the dedup key is the
+            # crash guard now. A crash anywhere after the INSERT can't lose
+            # the fire, and a re-fire attempt (config not yet saved, or the
+            # run_count>0 reload skip missed) collides with the active row
+            # and is a no-op. Then remove one-time tasks from the config.
+            from app.triggers import (
+                TriggerSource,
+                TriggerSpec,
+                scheduled_dedup_key,
+                scheduled_once_dedup_key,
             )
 
-        # Create trigger
-        trigger = Trigger(
-            fire_at=now,
-            priority=schedule.priority,
-            next_action_description=description,
-            payload=payload,
-            session_id=session_id,
-        )
+            if not schedule.recurring:
+                source = TriggerSource.SCHEDULED_ONCE
+                dedup_key = scheduled_once_dedup_key(schedule.id)
+            else:
+                source = TriggerSource.SCHEDULED
+                # Bucket by this fire's scheduled minute (next_run was set to
+                # this fire's target by the schedule loop) so retrying the
+                # same fire dedups but the next occurrence does not.
+                dedup_key = scheduled_dedup_key(schedule.id, schedule.next_run or now)
 
-        # Fire!
-        await self._trigger_queue.put(trigger)
+            # Built-in schedules (scheduler_config.json) carry their workflow
+            # type in their custom payload — promote it to the typed source
+            # so react() classification doesn't depend on the payload["type"]
+            # fallback (kept only as belt-and-braces for old configs).
+            payload_type_to_source = {
+                "memory_processing": TriggerSource.MEMORY,
+                "proactive_heartbeat": TriggerSource.PROACTIVE_HEARTBEAT,
+                "proactive_planner": TriggerSource.PROACTIVE_PLANNER,
+            }
+            promoted = payload_type_to_source.get(payload.get("type"))
+            if promoted is not None:
+                source = promoted
+
+            result = await self._trigger_service.emit(
+                TriggerSpec(
+                    source=source,
+                    description=description,
+                    fire_at=now,
+                    priority=schedule.priority,
+                    session_id=session_id,
+                    payload=payload,
+                    dedup_key=dedup_key,
+                )
+            )
+            if result.deduped:
+                logger.info(
+                    f"[SCHEDULER] Fire deduped (already queued/in-flight): "
+                    f"{schedule.id} - {schedule.name}"
+                )
+
+            if not schedule.recurring:
+                self._schedules.pop(schedule.id, None)
+                self._save_config()
+                logger.info(
+                    f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
+                )
+        else:
+            # Legacy path (no durable store wired): keep the Phase 0 ordering —
+            # remove one-time tasks from the persisted config BEFORE enqueueing
+            # so a crash/restart between firing and removal can never re-fire
+            # them.
+            if not schedule.recurring:
+                self._schedules.pop(schedule.id, None)
+                self._save_config()
+                logger.info(
+                    f"[SCHEDULER] One-time task fired, removed from config: {schedule.id}"
+                )
+
+            trigger = Trigger(
+                fire_at=now,
+                priority=schedule.priority,
+                next_action_description=description,
+                payload=payload,
+                session_id=session_id,
+            )
+            await self._trigger_queue.put(trigger)
 
         logger.info(
             f"[SCHEDULER] Fired schedule: {schedule.id} - {schedule.name} "

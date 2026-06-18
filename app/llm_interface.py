@@ -49,6 +49,11 @@ except Exception:  # pragma: no cover
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
+# Shared definition lives in agent_core so the LLM/VLM limit counters stay in
+# sync. Aliased to the existing private name to keep call sites unchanged.
+from agent_core.utils.token import billable_tokens as _billable_tokens
+
+
 # ─────────────────────────── Shared Cache Configuration ───────────────────────────
 @dataclass
 class CacheConfig:
@@ -1023,7 +1028,8 @@ class LLMInterface:
         tokens_used = response.get("tokens_used", 0)
         _props = get_session_props()
         _props.set_property(
-            "token_count", _props.get_property("token_count", 0) + tokens_used
+            "token_count",
+            _props.get_property("token_count", 0) + _billable_tokens(response),
         )
 
         if _slow_mode_active and tokens_used > 0:
@@ -1317,7 +1323,8 @@ class LLMInterface:
             _tokens_used = response.get("tokens_used", 0)
             _props = get_session_props(task_id)
             _props.set_property(
-                "token_count", _props.get_property("token_count", 0) + _tokens_used
+                "token_count",
+                _props.get_property("token_count", 0) + _billable_tokens(response),
             )
             if _slow_mode_active and _tokens_used > 0:
                 from app.rate_limiter import get_rate_limiter
@@ -1349,7 +1356,8 @@ class LLMInterface:
             _tokens_used = response.get("tokens_used", 0)
             _props = get_session_props(task_id)
             _props.set_property(
-                "token_count", _props.get_property("token_count", 0) + _tokens_used
+                "token_count",
+                _props.get_property("token_count", 0) + _billable_tokens(response),
             )
             if _slow_mode_active and _tokens_used > 0:
                 from app.rate_limiter import get_rate_limiter
@@ -1447,7 +1455,8 @@ class LLMInterface:
             _tokens_used = response.get("tokens_used", 0)
             _props = get_session_props(task_id)
             _props.set_property(
-                "token_count", _props.get_property("token_count", 0) + _tokens_used
+                "token_count",
+                _props.get_property("token_count", 0) + _billable_tokens(response),
             )
             if _slow_mode_active and _tokens_used > 0:
                 from app.rate_limiter import get_rate_limiter
@@ -1546,7 +1555,8 @@ class LLMInterface:
         _tokens_used = response.get("tokens_used", 0)
         _props = get_session_props(task_id)
         _props.set_property(
-            "token_count", _props.get_property("token_count", 0) + _tokens_used
+            "token_count",
+            _props.get_property("token_count", 0) + _billable_tokens(response),
         )
         if _slow_mode_active and _tokens_used > 0:
             from app.rate_limiter import get_rate_limiter
@@ -1615,7 +1625,11 @@ class LLMInterface:
             token_count_output,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def _process_prefix_response(
         self, result: Dict[str, Any], session_key: str
@@ -1670,7 +1684,11 @@ class LLMInterface:
             token_count_output,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def generate_response_with_session(
         self,
@@ -1733,6 +1751,7 @@ class LLMInterface:
         """
         token_count_input = token_count_output = 0
         total_tokens = 0
+        cached_tokens = 0
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
@@ -1860,7 +1879,11 @@ class LLMInterface:
             token_count_input,
             token_count_output,
         )
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     # ───────────────────── Provider‑specific private helpers ─────────────────────
     @profile("llm_openai_call", OperationCategory.LLM)
@@ -2173,6 +2196,7 @@ class LLMInterface:
         """
         token_count_input = token_count_output = 0
         total_tokens = 0
+        cached_tokens = 0
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
@@ -2263,7 +2287,11 @@ class LLMInterface:
             token_count_input,
             token_count_output,
         )
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.

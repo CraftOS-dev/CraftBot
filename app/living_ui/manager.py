@@ -116,6 +116,7 @@ class LivingUIManager:
         # Task and trigger management (set via bind_task_manager)
         self._task_manager: Optional["TaskManager"] = None
         self._trigger_queue: Optional["TriggerQueue"] = None
+        self._trigger_service = None  # Optional[TriggerService] — durable emit path
 
         # Watchdog state
         self._watchdog_task: Optional[asyncio.Task] = None
@@ -129,7 +130,10 @@ class LivingUIManager:
         self._load_projects()
 
     def bind_task_manager(
-        self, task_manager: "TaskManager", trigger_queue: "TriggerQueue"
+        self,
+        task_manager: "TaskManager",
+        trigger_queue: "TriggerQueue",
+        trigger_service=None,
     ) -> None:
         """
         Bind the task manager and trigger queue for creating development tasks.
@@ -137,9 +141,12 @@ class LivingUIManager:
         Args:
             task_manager: TaskManager instance for creating tasks
             trigger_queue: TriggerQueue instance for firing triggers
+            trigger_service: Optional TriggerService for durable emits
+                ; falls back to direct queue puts when None.
         """
         self._task_manager = task_manager
         self._trigger_queue = trigger_queue
+        self._trigger_service = trigger_service
         logger.info("[LIVING_UI] Task manager and trigger queue bound")
 
     # ========================================================================
@@ -475,17 +482,33 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 selected_skills=["living-ui-creator"],
             )
 
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=30,  # Higher priority than normal creation tasks
-                next_action_description=f"[Living UI] Fix crash: {project.name}",
-                session_id=task_id,
-                payload={
-                    "type": "living_ui_crash_fix",
-                    "project_id": project_id,
-                },
-            )
-            await self._trigger_queue.put(trigger)
+            if self._trigger_service is not None:
+                from app.triggers import TriggerSource, TriggerSpec
+
+                await self._trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.LIVING_UI_CRASH_FIX,
+                        description=f"[Living UI] Fix crash: {project.name}",
+                        priority=30,  # Higher priority than normal creation tasks
+                        session_id=task_id,
+                        payload={
+                            "type": "living_ui_crash_fix",
+                            "project_id": project_id,
+                        },
+                    )
+                )
+            else:
+                trigger = Trigger(
+                    fire_at=time.time(),
+                    priority=30,  # Higher priority than normal creation tasks
+                    next_action_description=f"[Living UI] Fix crash: {project.name}",
+                    session_id=task_id,
+                    payload={
+                        "type": "living_ui_crash_fix",
+                        "project_id": project_id,
+                    },
+                )
+                await self._trigger_queue.put(trigger)
 
             project.task_id = task_id
             self._save_projects()
@@ -2565,17 +2588,33 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             self.update_project_status(project_id, "creating")
 
             # Create and fire the trigger to start execution
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=50,
-                next_action_description=f"[Living UI] Create: {project.name}",
-                session_id=task_id,
-                payload={
-                    "type": "living_ui_development",
-                    "project_id": project_id,
-                },
-            )
-            await self._trigger_queue.put(trigger)
+            if self._trigger_service is not None:
+                from app.triggers import TriggerSource, TriggerSpec
+
+                await self._trigger_service.emit(
+                    TriggerSpec(
+                        source=TriggerSource.LIVING_UI_DEV,
+                        description=f"[Living UI] Create: {project.name}",
+                        priority=50,
+                        session_id=task_id,
+                        payload={
+                            "type": "living_ui_development",
+                            "project_id": project_id,
+                        },
+                    )
+                )
+            else:
+                trigger = Trigger(
+                    fire_at=time.time(),
+                    priority=50,
+                    next_action_description=f"[Living UI] Create: {project.name}",
+                    session_id=task_id,
+                    payload={
+                        "type": "living_ui_development",
+                        "project_id": project_id,
+                    },
+                )
+                await self._trigger_queue.put(trigger)
 
             logger.info(
                 f"[LIVING_UI] Created task {task_id} and fired trigger for project {project_id}"

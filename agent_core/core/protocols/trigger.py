@@ -41,11 +41,3 @@ class TriggerQueueProtocol(Protocol):
     async def clear(self) -> None:
         """Remove all pending triggers from the queue."""
         ...
-
-    def create_event_stream_state(self) -> str:
-        """Return formatted event stream content."""
-        ...
-
-    def create_task_state(self) -> str:
-        """Return formatted task/plan context."""
-        ...

@@ -23,6 +23,7 @@
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
   width: 100%;
+  max-height: 92vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;

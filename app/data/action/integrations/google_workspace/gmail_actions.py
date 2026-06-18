@@ -8,6 +8,7 @@ from agent_core import action
 
 @action(
     name="send_gmail",
+    irreversible=True,
     description="Send an email via Gmail.",
     action_sets=["gmail_mail", "gmail"],
     input_schema={
@@ -182,6 +183,7 @@ def search_gmail(input_data: dict) -> dict:
 
 @action(
     name="reply_gmail",
+    irreversible=True,
     description="Reply to a Gmail message. Preserves thread + In-Reply-To/References headers. Set reply_all=true to also CC the original To/Cc.",
     action_sets=["gmail_mail", "gmail"],
     input_schema={
@@ -222,6 +224,7 @@ def reply_gmail(input_data: dict) -> dict:
 
 @action(
     name="forward_gmail",
+    irreversible=True,
     description="Forward a Gmail message to another address.",
     action_sets=["gmail_mail", "gmail"],
     input_schema={
@@ -728,6 +731,7 @@ def update_gmail_draft(input_data: dict) -> dict:
 
 @action(
     name="send_gmail_draft",
+    irreversible=True,
     description="Send a previously-created Gmail draft.",
     action_sets=["gmail_drafts", "gmail"],
     input_schema={
@@ -1013,6 +1017,7 @@ def get_gmail_profile(input_data: dict) -> dict:
 
 @action(
     name="send_google_workspace_email",
+    irreversible=True,
     description="Send email via Google Workspace.",
     action_sets=["gmail_mail"],
     input_schema={

@@ -8,12 +8,13 @@ from agent_core import action
 
 @action(
     name="send_whatsapp_web_text_message",
+    irreversible=True,
     description="Send a text message via WhatsApp Web.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
         "to": {
             "type": "string",
-            "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix.",
+            "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix. Pass `user` (or `me` / `owner` / `self`) to send to your own (the owner's) number — use this to reply to the user on a WhatsApp-originated task.",
             "example": "1234567890",
         },
         "message": {
@@ -42,6 +43,7 @@ async def send_whatsapp_web_text_message(input_data: dict) -> dict:
 
 @action(
     name="send_whatsapp_web_media_message",
+    irreversible=True,
     description="Send a media file (image / video / audio / document) via WhatsApp Web. Set send_as_sticker / send_as_voice / send_as_document to override the default mode.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -102,6 +104,7 @@ async def send_whatsapp_web_media_message(input_data: dict) -> dict:
 
 @action(
     name="send_whatsapp_location",
+    irreversible=True,
     description="Send a location pin via WhatsApp Web.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -136,6 +139,7 @@ async def send_whatsapp_location(input_data: dict) -> dict:
 
 @action(
     name="reply_whatsapp_message",
+    irreversible=True,
     description="Quote-reply to a specific WhatsApp message.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={
@@ -220,6 +224,7 @@ async def delete_whatsapp_message(input_data: dict) -> dict:
 
 @action(
     name="forward_whatsapp_message",
+    irreversible=True,
     description="Forward a message to another chat.",
     action_sets=["whatsapp_messages", "whatsapp"],
     input_schema={

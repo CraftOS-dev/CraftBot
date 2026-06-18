@@ -56,6 +56,13 @@ from app.ui_layer.settings.general_settings import (
     update_general_settings,
 )
 
+# Agent profile bundle (import/export)
+from app.ui_layer.settings.profile_bundle import (
+    export_profile,
+    inspect_bundle,
+    import_profile,
+)
+
 # Proactive/scheduler settings
 from app.ui_layer.settings.proactive_settings import (
     # Proactive mode control
@@ -146,6 +153,10 @@ __all__ = [
     "reset_agent_state",
     "get_general_settings",
     "update_general_settings",
+    # Agent profile bundle
+    "export_profile",
+    "inspect_bundle",
+    "import_profile",
     # Proactive mode control
     "is_proactive_enabled",
     "get_proactive_mode",

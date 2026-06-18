@@ -3,6 +3,7 @@ from agent_core import action
 
 @action(
     name="send_message_with_attachment",
+    irreversible=True,
     description="Send a message to the user with one or more file attachments. Use this when you need to share files (documents, images, reports, etc.) with the user. All files must exist at the specified paths.",
     default=True,
     action_sets=["core"],

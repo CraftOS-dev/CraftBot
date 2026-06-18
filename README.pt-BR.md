@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="400"/>
 </div>
 
@@ -43,40 +39,24 @@ Além disso, o CraftBot tem todas as capacidades essenciais de um framework de a
   <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ Principais recursos
 
 Além de ser um agente de IA capaz de criar e operar suas próprias ferramentas SaaS, o CraftBot conta com todas as capacidades essenciais de um framework de agente, podendo atuar como um agente de IA de uso geral que te acompanha em suas tarefas, ferramentas, memória e fluxos de trabalho do dia a dia.
 
+- **Perfis de agente** Mais de 40 perfis de agente (agente CEO, agente financeiro, agente líder de marketing, engenheiro DevOps, agente produtor de vídeo e mais 37) prontos para trabalhar por você. Encontre os papéis desejados em **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** e importe-os com um clique.
+- **Catálogo de playbooks** Não sabe como automatizar com agente de IA? O CraftBot tem 120 playbooks prontos para uso (em 19 categorias). Abra o seletor de playbooks pela barra superior, escolha um playbook e ele começa a executar a tarefa por você.
 - **Living UI.** Construa, importe ou evolua aplicações personalizadas que vivem dentro do CraftBot. O agente conhece o estado atual da UI o tempo todo e pode ler, escrever e agir sobre seus dados diretamente.
 - **Multitarefa e roteamento de sessões.** Ainda digitando `/new` manualmente? O CraftBot decide quando abrir uma nova sessão e quando retomar uma tarefa, mantendo conversa e contexto unificados.
 - **Self-hosted e BYOK.** Sistema flexível de provedores de LLM com suporte a OpenAI, Google Gemini, Anthropic Claude, OpenRouter e mais. Ou hospede seu próprio modelo gastando 0 tokens com o Ollama.
 - **Sistema de memória.** Uma base de conhecimento local construída a partir da sua interação com o CraftBot via RAG + sistema de arquivos do agente + destilação. À meia-noite, o CraftBot "sonha" e consolida os eventos do dia.
 - **Agente proativo.** Aprende suas preferências, hábitos e objetivos de vida. Em seguida, planeja e inicia tarefas (com sua aprovação, claro) para te ajudar a evoluir.
-- **Integração com ferramentas externas.** Conecte-se a Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord e Telegram (e muito mais por vir!), com credenciais embutidas e suporte a OAuth.
+- **Integração com ferramentas externas.** Conecte-se aos seus apps como Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram e mais (e muito mais por vir!), com suporte a OAuth ou usando sua própria chave.
 - **Skills e MCP.** Mais de 150 MCPs e 170 Skills prontos para uso. Instalação rápida de novos Skills e MCPs. Crie ou melhore Skills a partir de tarefas concluídas com um clique.
-- **Multiplataforma.** Suporte completo a Windows, macOS e Linux, com variantes de código por plataforma e containerização via Docker.
 - **Interface de navegador e suporte a CLI.** Use o CraftBot do jeito que melhor te servir: pela UI simples no navegador para o dia a dia, ou via CLI para scripts e ambientes headless.
-
----
-
-## 🧰 Primeiros passos
-
-- **Bring Your Own Key (BYOK)** — Sistema flexível de provedores de LLM com suporte a OpenAI, Google Gemini, Anthropic Claude, BytePlus e modelos locais do Ollama. Troque de provedor com facilidade.
-- **Sistema de Memória** — Destila e consolida os eventos ocorridos durante o dia à meia-noite.
-- **Agente Proativo** — Aprende suas preferências, hábitos e metas de vida. Depois, planeja e inicia tarefas (com sua aprovação, claro) para ajudá-lo a evoluir.
-- **Living UI** — Construa, importe ou evolua aplicativos personalizados que vivem dentro do CraftBot. O agente permanece ciente do estado da UI e pode ler, escrever e agir sobre seus dados diretamente.
-- **Integração com ferramentas externas** — Conecte-se a Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord e Telegram (mais a caminho!) com credenciais embutidas e suporte a OAuth.
-- **MCP** — Integração com o Model Context Protocol para ampliar as capacidades do agente com ferramentas e serviços externos.
-- **Skills** — Framework de skills extensível com skills embutidas para planejamento de tarefas, pesquisa, revisão de código, operações de git e muito mais.
-- **Multiplataforma** — Suporte completo para Windows, macOS e Linux, com variantes de código específicas por plataforma e conteinerização via Docker.
-
-> [!IMPORTANT]
-> **O modo GUI foi descontinuado.** O CraftBot não oferece mais suporte ao modo GUI (automação de desktop). Use os modos Browser ou CLI em vez disso.
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
 
 ---
 
@@ -139,6 +119,10 @@ python craftbot.py uninstall  # Para o serviço, remove o autoinício e desinsta
 ## 🌱 Living UI
 
 **Living UI é um sistema/app/dashboard que evolui junto com suas necessidades.**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - Precisa de um quadro kanban com um copiloto de IA embutido?
 - Um CRM sob medida, exatamente no formato do seu fluxo de trabalho?

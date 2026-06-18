@@ -74,6 +74,11 @@ class ActionMetadata:
     # Whether this action can be executed in parallel with other actions.
     # Set to False for: write operations, GUI actions, state changes, send_message, etc.
     parallelizable: bool = True
+    # Whether this action's side effect cannot be undone once it reaches the
+    # outside world (send email/message, post publicly). Irreversible actions
+    # are guarded by the activity ledger: intent is recorded
+    # before execution and a completed run is never silently re-executed.
+    irreversible: bool = False
 
     @property
     def display_name(self) -> str:
@@ -264,6 +269,7 @@ class ActionRegistry:
             "code": main_code_str,
             "platform_overrides": {},
             "parallelizable": meta.parallelizable,
+            "irreversible": meta.irreversible,
         }
 
         # 3. Handle Platform Overrides
@@ -405,6 +411,7 @@ def action(
     test_payload: Optional[Dict[str, Any]] = None,
     action_sets: Optional[List[str]] = None,
     parallelizable: bool = True,
+    irreversible: bool = False,
 ):
     """
     Decorator used by developers to register functions as actions.
@@ -425,6 +432,10 @@ def action(
                      (e.g., ["file_operations", "core"])
         parallelizable: Whether this action can run in parallel with others.
                         Set to False for write operations, GUI actions, state changes, etc.
+        irreversible: Whether the action's side effect cannot be undone once
+                      it reaches the outside world (send email/message, post
+                      publicly). Guarded by the activity ledger: a completed
+                      run is never silently re-executed after a crash.
     """
     # Normalize platforms input to a list of lowercase strings
     if platforms is None:
@@ -449,6 +460,7 @@ def action(
             test_payload=test_payload,
             action_sets=action_sets or [],
             parallelizable=parallelizable,
+            irreversible=irreversible,
         )
 
         # 2. Create the full registration object

@@ -302,7 +302,9 @@ class EventStream:
             logger.info(
                 f"[EventStream] Running synchronous summarization ({self._total_tokens} tokens)"
             )
-            llm_output = self.llm.generate_response(user_prompt=prompt)
+            llm_output = self.llm.generate_response(
+                user_prompt=prompt, prompt_name="EVENT_STREAM_SUMMARIZATION"
+            )
             new_summary = (llm_output or "").strip()
 
             logger.debug(

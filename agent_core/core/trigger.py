@@ -27,6 +27,12 @@ class Trigger:
         session_id: Optional session identifier for multi-user scenarios.
         waiting_for_reply: Whether this trigger is waiting for a user response
             (used by CraftBot for multi-user chat scenarios).
+        id: Durable-store row id when this trigger is backed by a TriggerStore
+            row; None for in-memory-only triggers. Claim/ack/nack operate on
+            this id (the queue holds at most one trigger per session, so one
+            trigger maps to exactly one row).
+        source: Typed origin of the trigger (TriggerSource value); empty for
+            producers that haven't been migrated to TriggerService.
     """
 
     fire_at: float
@@ -35,3 +41,5 @@ class Trigger:
     payload: Dict[str, Any] = field(default_factory=dict, compare=False)
     session_id: Optional[str] = field(default=None, compare=False)
     waiting_for_reply: bool = field(default=False, compare=False)
+    id: Optional[int] = field(default=None, compare=False)
+    source: str = field(default="", compare=False)

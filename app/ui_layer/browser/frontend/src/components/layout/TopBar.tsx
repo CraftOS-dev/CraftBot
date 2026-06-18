@@ -1,6 +1,6 @@
-import React from 'react'
-import { Sun, Moon, Github } from 'lucide-react'
-import { IconButton } from '../ui'
+import React, { useState } from 'react'
+import { Sun, Moon, Github, BookOpen } from 'lucide-react'
+import { IconButton, PlaybookModal } from '../ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator } from '../ui/StatusIndicator'
@@ -23,6 +23,7 @@ export function TopBar() {
   const { theme, toggleTheme } = useTheme()
   const { connected, actions, messages } = useWebSocket()
   const version = useAppSelector(selectVersion)
+  const [playbookOpen, setPlaybookOpen] = useState(false)
 
   // Derive agent status from actions and messages
   const derivedStatus = useDerivedAgentStatus({
@@ -56,6 +57,12 @@ export function TopBar() {
       <div className={styles.right}>
         {version && <span className={styles.versionBadge}>v{version}</span>}
         <IconButton
+          icon={<BookOpen />}
+          onClick={() => setPlaybookOpen(true)}
+          size="sm"
+          tooltip="Playbooks"
+        />
+        <IconButton
           icon={theme === 'dark' ? <Sun /> : <Moon />}
           onClick={toggleTheme}
           size="sm"
@@ -74,6 +81,7 @@ export function TopBar() {
           onClick={() => window.open('https://discord.gg/bSdZf9HSgq', '_blank')}
         />
       </div>
+      <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
     </header>
   )
 }
