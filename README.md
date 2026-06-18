@@ -157,10 +157,6 @@ The first run will guide you through setting up your API keys and preferences.
 
 ### 🖥️ Interface Modes
 
-<div align="center">
-    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
-</div>
-
 CraftBot supports multiple UI modes. Choose based on your preference:
 
 | Mode | Command | Requirements | Best For |
