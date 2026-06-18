@@ -417,9 +417,7 @@ class LLMInterface:
             try:
                 ctx = _llm_call_ctx.get() or {}
                 start = ctx.get("start")
-                latency_ms = (
-                    int((time.perf_counter() - start) * 1000) if start else 0
-                )
+                latency_ms = int((time.perf_counter() - start) * 1000) if start else 0
                 self._record_llm_call(
                     LLMCallRecord(
                         provider=self.provider or "",
@@ -1382,9 +1380,7 @@ class LLMInterface:
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
         """
-        self._begin_call(
-            prompt_name=prompt_name, call_type=call_type, task_id=task_id
-        )
+        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
         return self._generate_response_with_session_sync(
             task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
         )
@@ -1411,9 +1407,7 @@ class LLMInterface:
         """
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
-        self._begin_call(
-            prompt_name=prompt_name, call_type=call_type, task_id=task_id
-        )
+        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
         return await asyncio.to_thread(
             self._generate_response_with_session_sync,
             task_id,

@@ -151,9 +151,7 @@ class TestFireMirroring:
         settled, _ = insert_basic(store, session_id="s1")
         store.ack([settled])
 
-        updated = store.update_for_fire(
-            "s1", 123.0, {"pending_user_message": "hi"}
-        )
+        updated = store.update_for_fire("s1", 123.0, {"pending_user_message": "hi"})
         assert updated == 1
         row = store.get(active)
         assert row["fire_at"] == 123.0

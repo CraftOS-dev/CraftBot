@@ -4,7 +4,6 @@
 
 import asyncio
 import json
-import time
 
 from app.triggers import SessionRouter, TriggerSource, TriggerSpec
 from app.triggers.service import TriggerService

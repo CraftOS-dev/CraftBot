@@ -1160,15 +1160,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         # Agent profile bundle import/export routes
-        self._app.router.add_get(
-            "/api/profile/export", self._profile_export_handler
-        )
-        self._app.router.add_post(
-            "/api/profile/inspect", self._profile_inspect_handler
-        )
-        self._app.router.add_post(
-            "/api/profile/import", self._profile_import_handler
-        )
+        self._app.router.add_get("/api/profile/export", self._profile_export_handler)
+        self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
+        self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
         # Integration bridge routes (Living UI → external APIs)
         from app.living_ui.integration_bridge import IntegrationBridge
@@ -3021,7 +3015,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from aiohttp import web
 
         try:
-            name = request.rel_url.query.get("name", "attachment").strip() or "attachment"
+            name = (
+                request.rel_url.query.get("name", "attachment").strip() or "attachment"
+            )
             file_type = (
                 request.rel_url.query.get("type", "application/octet-stream").strip()
                 or "application/octet-stream"
@@ -3068,6 +3064,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[CHAT ATTACHMENT] Upload error: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
+
     # ─────────────────────────────────────────────────────────────────────
     # Agent profile bundle (.craftbot) — export / inspect / import
     # ─────────────────────────────────────────────────────────────────────
@@ -3168,16 +3165,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             payload = await request.json()
         except Exception:
-            return web.json_response(
-                {"error": "Invalid JSON body"}, status=400
-            )
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
 
         token = payload.get("bundle_token") or ""
         mode = payload.get("mode", "replace")
         if not token:
-            return web.json_response(
-                {"error": "bundle_token is required"}, status=400
-            )
+            return web.json_response({"error": "bundle_token is required"}, status=400)
 
         bundle_bytes = self._staged_bundles.get(token)
         if bundle_bytes is None:
@@ -3186,6 +3179,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
         import tempfile
+
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -3530,8 +3524,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 get_cached_token_count,
             )
             from app.state.agent_state import STATE
-            from app.trigger import Trigger
-            import time as _time
 
             agent = self._controller.agent
             task_manager = agent.task_manager
