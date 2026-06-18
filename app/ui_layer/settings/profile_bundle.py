@@ -98,6 +98,7 @@ def _validate_skill_md(skill_md: Path) -> Optional[str]:
     """
     import re as _re
     import yaml as _yaml
+
     if not skill_md.is_file():
         return "SKILL.md missing"
     try:
@@ -565,6 +566,7 @@ def _is_system_skill_md(skill_md: Path) -> bool:
     """
     import re as _re
     import yaml as _yaml
+
     if not skill_md.is_file():
         return False
     try:
@@ -678,8 +680,7 @@ def _apply_skills(
         # is left on disk untouched so the user can inspect/repair the file.
         copy_err = _validate_skill_md(dst / "SKILL.md")
         if copy_err:
-            invalid.append({"name": skill_name, "reason": copy_err,
-                             "origin": "bundle"})
+            invalid.append({"name": skill_name, "reason": copy_err, "origin": "bundle"})
             logger.warning(
                 f"[PROFILE_BUNDLE] Bundled skill '{skill_name}' fails "
                 f"validation ({copy_err}); NOT enabling, folder left on "
