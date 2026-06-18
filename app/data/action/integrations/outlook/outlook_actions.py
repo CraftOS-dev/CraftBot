@@ -8,6 +8,7 @@ from agent_core import action
 
 @action(
     name="send_outlook_email",
+    irreversible=True,
     description="Send an email via Outlook (Microsoft 365).",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
@@ -173,6 +174,7 @@ def search_outlook_emails(input_data: dict) -> dict:
 
 @action(
     name="reply_outlook_email",
+    irreversible=True,
     description="Reply to the sender of an email. Sent immediately.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
@@ -217,6 +219,7 @@ def reply_outlook_email(input_data: dict) -> dict:
 
 @action(
     name="reply_all_outlook_email",
+    irreversible=True,
     description="Reply-all to an email. Sent immediately.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
@@ -245,6 +248,7 @@ def reply_all_outlook_email(input_data: dict) -> dict:
 
 @action(
     name="forward_outlook_email",
+    irreversible=True,
     description="Forward an email to other recipients.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
@@ -451,6 +455,7 @@ def update_outlook_draft(input_data: dict) -> dict:
 
 @action(
     name="send_outlook_draft",
+    irreversible=True,
     description="Send a previously-created draft.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={

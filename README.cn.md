@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="400"/>
 </div>
 
@@ -43,40 +39,24 @@
   <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ 核心特性
 
 除了能够创建并运行自有 SaaS 工具,CraftBot 还具备 Agent 框架的全部核心能力,可以作为一个通用 AI Agent 陪你处理任务、工具、记忆与日常工作流。
 
+- **Agent 配置档案** 40+ Agent 配置档案(CEO Agent、财务 Agent、市场负责人 Agent、DevOps 工程师、视频制作 Agent 等共 37 种)随时为你服务。从 **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** 找到所需角色,一键导入。
+- **Playbook 目录** 不知道如何用 AI Agent 自动化?CraftBot 内置 120 个 Playbook(覆盖 19 个分类)随时可用。从顶部栏打开 Playbook 选择器,挑选一个 Playbook,它就会开始为你执行任务。
 - **Living UI.** 在 CraftBot 内部构建、导入或演进自定义应用。Agent 始终感知 UI 状态,并能直接读取、写入和操作其中的数据。
 - **多任务与会话路由.** 还在手动敲 `/new` 吗?CraftBot 能自行判断何时开启新会话、何时继续旧任务,让对话与上下文保持统一。
 - **自托管与 BYOK.** 灵活的 LLM 提供商体系,支持 OpenAI、Google Gemini、Anthropic Claude、OpenRouter 等。也可以用 Ollama 自行托管模型,实现零 Token 消耗。
 - **记忆系统.** 通过 RAG + Agent 文件系统 + 蒸馏,从你与 CraftBot 的交互中构建本地知识库。CraftBot 会在午夜「做梦」,整合一整天发生的事件。
 - **主动型 Agent.** 学习你的偏好、习惯和人生目标,然后主动进行规划并发起任务(当然要经过你的同意),帮你在生活中变得更好。
-- **外部工具集成.** 内置凭据与 OAuth 支持,可连接 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord 和 Telegram(还有更多正在路上)。
+- **外部工具集成.** 连接你的应用,例如 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegram 等(还有更多正在路上),支持 OAuth 或使用你自己的密钥。
 - **Skills 与 MCP.** 已就绪 150+ MCP 与 170+ Skills,支持快速安装新的 Skills 与 MCP,也可以从已完成的任务中一键创建或改进 Skills。
-- **跨平台支持.** 完整支持 Windows、macOS 和 Linux,提供平台特定的代码分支以及 Docker 容器化方案。
 - **浏览器界面与 CLI 支持.** 用最适合你的方式使用 CraftBot:日常使用走简洁的浏览器 UI,脚本和无界面环境则可以走 CLI。
-
----
-
-## 🧰 快速开始
-
-- **自带密钥 (BYOK)** — 灵活的 LLM 提供商系统，支持 OpenAI、Google Gemini、Anthropic Claude、BytePlus 和本地 Ollama 模型。可轻松切换提供商。
-- **记忆系统** — 在午夜整理并汇总一天中发生的事件。
-- **主动式代理** — 学习你的偏好、习惯和人生目标，然后进行规划并启动任务（当然需要你的批准）来帮助你改善生活。
-- **Living UI** — 在 CraftBot 中构建、导入或演进自定义应用。代理始终感知 UI 的状态，并可直接读取、写入和操作其数据。
-- **外部工具集成** — 连接 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord 和 Telegram（更多即将推出！），支持嵌入式凭据和 OAuth。
-- **MCP** — 模型上下文协议（Model Context Protocol）集成，通过外部工具和服务扩展代理能力。
-- **技能系统** — 可扩展的技能框架，内置任务规划、研究、代码审查、Git 操作等技能。
-- **跨平台** — 完整支持 Windows、macOS 和 Linux，具有平台特定代码变体和 Docker 容器化。
-
-> [!IMPORTANT]
-> **GUI 模式已弃用。** CraftBot 不再支持 GUI（桌面自动化）模式。请改用 Browser 或 CLI 模式。
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
 
 ---
 
@@ -139,6 +119,10 @@ python craftbot.py uninstall  # 停止运行、移除自启动并卸载所有依
 ## 🌱 Living UI
 
 **Living UI 是会随你的需求一同演进的系统/应用/仪表盘。**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - 想要一个内置 AI 协作伙伴的看板?
 - 一套完全贴合你工作流的定制 CRM?

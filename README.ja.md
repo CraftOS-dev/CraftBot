@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="400"/>
 </div>
 
@@ -43,40 +39,24 @@
   <a href="README.md">English</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ 主な特徴
 
 自前のSaaSツールを作って動かせるAIエージェントというだけでなく、CraftBotはエージェントハーネスのコア機能をひと通り備えており、あなたのタスク・ツール・記憶・日々のワークフローと一緒に動く汎用AIエージェントとして機能します。
 
+- **エージェントプロファイル** 40以上のエージェントプロファイル(CEOエージェント、財務エージェント、マーケティングリードエージェント、DevOpsエンジニア、動画プロデューサーエージェントなど37種類)があなたのために働く準備が整っています。**[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** から欲しいロールを見つけ、ワンクリックでインポートできます。
+- **プレイブックカタログ** AIエージェントで何を自動化すればよいかわからない?CraftBotには120のプレイブック(19カテゴリーにまたがる)がすぐに使える状態で用意されています。上部バーからプレイブックピッカーを開き、プレイブックを選ぶと、すぐにタスクを実行してくれます。
 - **Living UI.** CraftBotの中で動くカスタムアプリを構築・インポート・進化させられます。エージェントはUIの状態を常に把握し、そのデータを直接読み書き・操作できます。
 - **マルチタスクとセッションルーティング.** まだ`/new`コマンドを叩いていますか？CraftBotは、いつ新しいセッションを始め、いつ既存のタスクを再開すべきかを自分で判断し、会話とコンテキストを一本化します。
 - **セルフホスト & BYOK.** OpenAI、Google Gemini、Anthropic Claude、OpenRouterなどに対応する柔軟なLLMプロバイダーシステム。Ollamaを使えば、自分のモデルをトークン消費ゼロでホストすることも可能です。
 - **メモリーシステム.** CraftBotとのやり取りから、RAG + エージェントファイルシステム + 蒸留によってローカルの知識ベースを構築。CraftBotは深夜に「夢を見て」、その日の出来事を統合します。
 - **能動的なエージェント.** あなたの好み、習慣、人生の目標を学習。そのうえで計画を立て、タスクを起動(もちろん承認付きで)し、あなたの人生をより良くする手助けをします。
-- **外部ツールとの連携.** Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegramと接続可能(今後さらに追加予定)。認証情報の埋め込みやOAuthにも対応しています。
+- **外部ツールとの連携.** Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegramなどのアプリと接続可能(今後さらに追加予定)。OAuthまたは自分のキーでの利用に対応しています。
 - **スキル & MCP.** 150以上のMCPと170以上のスキルが利用可能。新しいスキルやMCPもすぐに導入できます。完了したタスクからワンクリックでスキルを作成・改善することもできます。
-- **クロスプラットフォーム.** Windows、macOS、Linuxを完全サポート。プラットフォーム別のコードバリアントとDockerコンテナ化を備えています。
 - **ブラウザUIとCLIに対応.** あなたの使い方に合わせて選べます。日常使いには手軽なブラウザUIを、スクリプトやヘッドレス環境にはCLIをどうぞ。
-
----
-
-## ✨ 特徴
-
-- **Bring Your Own Key (BYOK)** — OpenAI、Google Gemini、Anthropic Claude、BytePlus、ローカルOllamaモデルをサポートする柔軟なLLMプロバイダーシステム。プロバイダー間の切り替えが簡単です。
-- **メモリシステム** — 一日を通して起きたイベントを深夜に整理・統合します。
-- **プロアクティブエージェント** — あなたの好み、習慣、人生の目標を学習し、計画を立て、タスクを開始して（もちろん承認付きで）あなたの生活をより良くします。
-- **Living UI** — CraftBotの中で動作するカスタムアプリを構築、インポート、または進化させます。エージェントはUIの状態を常に把握し、そのデータを直接読み取り、書き込み、操作できます。
-- **外部ツール統合** — 埋め込みクレデンシャルとOAuthサポートにより、Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegramに接続（今後さらに追加予定！）。
-- **MCP** — 外部ツールやサービスでエージェント機能を拡張するためのModel Context Protocol統合。
-- **スキル** — タスク計画、リサーチ、コードレビュー、Git操作などの組み込みスキルを含む拡張可能なスキルフレームワーク。
-- **クロスプラットフォーム** — プラットフォーム固有のコードバリアントとDockerコンテナ化によるWindows、macOS、Linuxの完全サポート。
-
-> [!IMPORTANT]
-> **GUIモードは非推奨になりました。** CraftBotはGUI（デスクトップ自動化）モードをサポートしなくなりました。代わりにBrowserまたはCLIモードをご利用ください。
-
-<div align="center">
-    <img src="assets/craftbot_readme_features.png" alt="CraftBot Banner" width="1280"/>
-	<img src="assets/craftbot_features_custom.png" alt="CraftBot Banner" width="1280"/>
-</div>
 
 ---
 
@@ -115,6 +95,10 @@ python craftbot.py uninstall  # 停止・自動起動の解除・パッケージ
 ## 🌱 Living UI
 
 **Living UIは、あなたのニーズに合わせて進化していくシステム/アプリ/ダッシュボードです。**
+
+<div align="center">
+    <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
+</div>
 
 - AIコパイロット付きのカンバンボードが欲しい?
 - 自分のワークフローにぴったり合うカスタムCRMは?

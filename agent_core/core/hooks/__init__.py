@@ -46,6 +46,9 @@ from agent_core.core.hooks.types import (
     ReportUsageHook,
     # Database logging hooks
     LogToDbHook,
+    # LLM call capture hooks (prompt profiler / eval)
+    LLMCallRecord,
+    RecordLLMCallHook,
 )
 
 __all__ = [
@@ -75,4 +78,7 @@ __all__ = [
     "ReportUsageHook",
     # Database logging hooks
     "LogToDbHook",
+    # LLM call capture hooks (prompt profiler / eval)
+    "LLMCallRecord",
+    "RecordLLMCallHook",
 ]

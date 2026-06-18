@@ -35,3 +35,25 @@ def count_tokens(text: str) -> int:
     if not text:
         return 0
     return len(_get_tokenizer().encode(text))
+
+
+def billable_tokens(response: dict) -> int:
+    """Tokens that should count toward the per-task ``token_count`` limit.
+
+    The conversation context is re-sent on every turn, so the provider reports
+    a large ``input_tokens`` each call — but the bulk of that is cache reads of
+    bytes we already paid for on previous turns. Charging the full input on
+    every turn drains the task token budget in a handful of turns even though
+    almost no *new* work is being done. We therefore bill only the uncached
+    portion: ``tokens_used - cached_tokens`` (clamped at 0).
+
+    This is for the *limit* counter only — display/attribution totals still
+    record true usage (including cache reads) via the usage-reporting hooks.
+
+    Args:
+        response: A processed response dict carrying ``tokens_used`` and,
+            optionally, ``cached_tokens`` (defaults to 0 when absent).
+    """
+    used = int(response.get("tokens_used", 0) or 0)
+    cached = int(response.get("cached_tokens", 0) or 0)
+    return max(0, used - cached)

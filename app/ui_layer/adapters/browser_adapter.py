@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -17,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
-from app.config import AGENT_WORKSPACE_ROOT
+from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
     # General settings
@@ -960,6 +961,9 @@ class BrowserAdapter(InterfaceAdapter):
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
 
+        # Staged bundle bytes keyed by short-lived token (inspect → import flow)
+        self._staged_bundles: Dict[str, bytes] = {}
+
         # Living UI manager
         template_path = (
             Path(__file__).parent.parent.parent / "data" / "living_ui_template"
@@ -969,7 +973,9 @@ class BrowserAdapter(InterfaceAdapter):
         )
         # Bind task_manager and trigger_queue for task creation
         agent = self._controller.agent
-        self._living_ui_manager.bind_task_manager(agent.task_manager, agent.triggers)
+        self._living_ui_manager.bind_task_manager(
+            agent.task_manager, agent.triggers, trigger_service=agent.trigger_service
+        )
 
         # Clean up orphan processes and folders from previous sessions
         self._living_ui_manager.cleanup_on_startup()
@@ -1144,6 +1150,19 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post(
             "/api/living-ui/import", self._living_ui_import_handler
         )
+
+        # Workspace and chat HTTP upload routes
+        self._app.router.add_post(
+            "/api/workspace/upload", self._workspace_upload_handler
+        )
+        self._app.router.add_post(
+            "/api/chat-attachments/upload", self._chat_attachment_upload_handler
+        )
+
+        # Agent profile bundle import/export routes
+        self._app.router.add_get("/api/profile/export", self._profile_export_handler)
+        self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
+        self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
         # Integration bridge routes (Living UI → external APIs)
         from app.living_ui.integration_bridge import IntegrationBridge
@@ -1821,6 +1840,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             source = data.get("source", "")
             name = data.get("name", "External App")
             asyncio.create_task(self._handle_living_ui_import(source, name))
+
+        # Playbook catalogue handlers
+        elif msg_type == "playbook_list":
+            await self._handle_playbook_list()
 
         # WhatsApp QR code flow handlers
         elif msg_type == "whatsapp_start_qr":
@@ -2920,6 +2943,274 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[LIVING_UI] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _workspace_upload_handler(self, request: "web.Request") -> "web.Response":
+        """HTTP handler: stream-upload a file directly into the workspace.
+
+        Accepts multipart/form-data with a single 'file' field.
+        The target path is passed as the 'path' query parameter.
+        """
+        from aiohttp import web
+
+        try:
+            file_path = request.rel_url.query.get("path", "").strip()
+            if not file_path:
+                return web.json_response(
+                    {"success": False, "error": "Missing 'path' query parameter"},
+                    status=400,
+                )
+
+            target = self._validate_path(file_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            reader = await request.multipart()
+            written = False
+            async for part in reader:
+                if part.name == "file":
+                    with open(target, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    written = True
+                    break
+
+            if not written:
+                return web.json_response(
+                    {"success": False, "error": "No file field in request"},
+                    status=400,
+                )
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast(
+                {
+                    "type": "file_upload",
+                    "data": {
+                        "path": file_path,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
+
+            return web.json_response(
+                {"success": True, "path": file_path, "fileInfo": file_info}
+            )
+        except ValueError as e:
+            return web.json_response({"success": False, "error": str(e)}, status=400)
+        except Exception as e:
+            logger.error(f"[WORKSPACE] Upload error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def _chat_attachment_upload_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """HTTP handler: stream-upload a chat attachment into workspace/download/.
+
+        Accepts multipart/form-data with a single 'file' field.
+        Pass 'name' and 'type' as query parameters.
+        """
+        import uuid
+        from aiohttp import web
+
+        try:
+            name = (
+                request.rel_url.query.get("name", "attachment").strip() or "attachment"
+            )
+            file_type = (
+                request.rel_url.query.get("type", "application/octet-stream").strip()
+                or "application/octet-stream"
+            )
+
+            download_dir = Path(AGENT_WORKSPACE_ROOT) / "download"
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+            unique_name = f"{uuid.uuid4().hex[:8]}_{name}"
+            file_path = download_dir / unique_name
+            relative_path = f"download/{unique_name}"
+
+            reader = await request.multipart()
+            size = 0
+            written = False
+            async for part in reader:
+                if part.name == "file":
+                    with open(file_path, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            size += len(chunk)
+                    written = True
+                    break
+
+            if not written:
+                return web.json_response(
+                    {"success": False, "error": "No file field in request"},
+                    status=400,
+                )
+
+            return web.json_response(
+                {
+                    "success": True,
+                    "serverPath": relative_path,
+                    "url": f"/api/workspace/{relative_path}",
+                    "name": name,
+                    "size": size,
+                    "type": file_type,
+                }
+            )
+        except Exception as e:
+            logger.error(f"[CHAT ATTACHMENT] Upload error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Agent profile bundle (.craftbot) — export / inspect / import
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _profile_export_handler(self, request: "web.Request") -> "web.Response":
+        """Build a .craftbot bundle of the current agent and return it."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import export_profile
+        import shutil
+
+        description = request.query.get("description", "")
+        try:
+            result = export_profile(description=description)
+        except Exception as exc:
+            logger.error(f"[PROFILE_BUNDLE] Export failed: {exc}", exc_info=True)
+            return web.json_response({"error": str(exc)}, status=500)
+
+        if not result.get("success"):
+            return web.json_response(
+                {"error": result.get("error", "Export failed")}, status=500
+            )
+
+        bundle_path = Path(result["path"])
+        filename = result["filename"]
+        try:
+            payload = bundle_path.read_bytes()
+        finally:
+            # Clean up the temp file + its parent dir immediately. Bundles are
+            # small enough (no node_modules) to hold in memory briefly.
+            shutil.rmtree(bundle_path.parent, ignore_errors=True)
+
+        return web.Response(
+            body=payload,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(payload)),
+            },
+        )
+
+    async def _stage_uploaded_bundle(self, request: "web.Request") -> Optional[str]:
+        """Read the multipart upload and save the bundle to a temp file."""
+        import tempfile
+
+        reader = await request.multipart()
+        bundle_path: Optional[str] = None
+        async for part in reader:
+            if part.name == "file":
+                tmp = tempfile.NamedTemporaryFile(
+                    suffix=".craftbot",
+                    prefix="craftbot_profile_in_",
+                    delete=False,
+                )
+                while True:
+                    chunk = await part.read_chunk()
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                tmp.close()
+                bundle_path = tmp.name
+        return bundle_path
+
+    async def _profile_inspect_handler(self, request: "web.Request") -> "web.Response":
+        """Read a bundle's manifest so the frontend can render a preview modal."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import inspect_bundle
+
+        bundle_path = None
+        try:
+            bundle_path = await self._stage_uploaded_bundle(request)
+            if not bundle_path:
+                return web.json_response(
+                    {"error": "No bundle file uploaded"}, status=400
+                )
+            result = inspect_bundle(bundle_path)
+            # Read bytes into memory and delete the temp file immediately so a
+            # cancelled import (user closes modal) never leaks a file to %TEMP%.
+            bundle_bytes = Path(bundle_path).read_bytes()
+            token = str(uuid.uuid4())
+            self._staged_bundles[token] = bundle_bytes
+            result["bundle_token"] = token
+            return web.json_response(result)
+        except Exception as exc:
+            logger.error(f"[PROFILE_BUNDLE] Inspect failed: {exc}", exc_info=True)
+            return web.json_response({"error": str(exc)}, status=500)
+        finally:
+            if bundle_path:
+                try:
+                    Path(bundle_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    async def _profile_import_handler(self, request: "web.Request") -> "web.Response":
+        """Apply a previously-inspected bundle to the agent."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import import_profile
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        token = payload.get("bundle_token") or ""
+        mode = payload.get("mode", "replace")
+        if not token:
+            return web.json_response({"error": "bundle_token is required"}, status=400)
+
+        bundle_bytes = self._staged_bundles.get(token)
+        if bundle_bytes is None:
+            return web.json_response(
+                {"error": "bundle_token not found or already used"}, status=400
+            )
+
+        import tempfile
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=".craftbot",
+                prefix="craftbot_profile_in_",
+                delete=False,
+            ) as tmp:
+                tmp.write(bundle_bytes)
+                tmp_path = tmp.name
+
+            # Pass the live LivingUIManager so imported projects land in its
+            # in-memory state. Without this, the manager's stale state will
+            # overwrite our file on the next status update / watchdog tick.
+            result = import_profile(
+                tmp_path,
+                mode=mode,
+                living_ui_manager=self._living_ui_manager,
+            )
+        except Exception as exc:
+            logger.error(f"[PROFILE_BUNDLE] Import failed: {exc}", exc_info=True)
+            return web.json_response({"error": str(exc)}, status=500)
+        finally:
+            self._staged_bundles.pop(token, None)
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        return web.json_response(result)
+
     async def _handle_living_ui_state_update(self, data: Dict[str, Any]) -> None:
         """Handle state update from a Living UI for agent awareness."""
         try:
@@ -3233,8 +3524,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 get_cached_token_count,
             )
             from app.state.agent_state import STATE
-            from app.trigger import Trigger
-            import time as _time
 
             agent = self._controller.agent
             task_manager = agent.task_manager
@@ -3414,20 +3703,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # _create_new_trigger does post-action.
             is_simple = getattr(task, "mode", "complex") == "simple"
             resume_priority = 5 if is_simple else 7
-            await agent.triggers.put(
-                Trigger(
-                    fire_at=_time.time(),
-                    priority=resume_priority,
-                    next_action_description=(
+            from app.triggers import TriggerSource, TriggerSpec, resume_dedup_key
+
+            await agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.RESUME,
+                    description=(
                         "Task was resumed by the user. Review the event stream "
                         "history. Do NOT call task_end immediately. If the task "
                         "was previously completed, you MUST ask the user for "
                         "their intent FIRST before taking any action."
                     ),
+                    priority=resume_priority,
                     session_id=task_id,
                     payload={"gui_mode": STATE.gui_mode},
-                ),
-                skip_merge=True,
+                    dedup_key=resume_dedup_key(task_id),
+                    skip_merge=True,
+                )
             )
 
             await self._broadcast(
@@ -4068,16 +4360,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
             # ---- Queue trigger so execution actually starts ---------
-            from app.trigger import Trigger
+            from app.triggers import TriggerSource, TriggerSpec
 
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=60,
-                next_action_description=f"{verb} skill '{target}' from completed task",
-                session_id=new_task_id,
-                payload={},
+            await agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.SKILL_WORKFLOW,
+                    description=f"{verb} skill '{target}' from completed task",
+                    priority=60,
+                    session_id=new_task_id,
+                )
             )
-            await agent.triggers.put(trigger)
 
             # Acknowledge in the chat immediately so the user sees the work
             # being picked up. The agent will follow up with a presentation
@@ -4914,17 +5206,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
                 if task_id:
                     # Queue trigger to start the task (same as _handle_memory_processing_trigger)
-                    import time
-                    from app.trigger import Trigger
+                    from app.triggers import TriggerSource, TriggerSpec
 
-                    trigger = Trigger(
-                        fire_at=time.time(),
-                        priority=60,
-                        next_action_description="Process unprocessed events into long-term memory",
-                        session_id=task_id,
-                        payload={},
+                    await agent.trigger_service.emit(
+                        TriggerSpec(
+                            source=TriggerSource.TASK_CONTINUATION,
+                            description="Process unprocessed events into long-term memory",
+                            priority=60,
+                            session_id=task_id,
+                        )
                     )
-                    await agent.triggers.put(trigger)
 
                 await self._broadcast(
                     {
@@ -6301,6 +6592,66 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
     # =====================
+    # Playbook Handlers
+    # =====================
+
+    async def _handle_playbook_list(self) -> None:
+        """Read the bundled playbook catalogue and broadcast it to the client.
+
+        Lookup order mirrors `get_default_picture_path` for read-only bundled
+        assets: APP_DATA_PATH first (source mode + writable per-user dir),
+        then `_MEIPASS/app/data/playbooks` so packaged builds resolve too.
+        """
+        candidates = [APP_DATA_PATH / "playbooks" / "catalogue.json"]
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(
+                Path(meipass) / "app" / "data" / "playbooks" / "catalogue.json"
+            )
+
+        catalogue_path: Optional[Path] = next(
+            (p for p in candidates if p.exists()), None
+        )
+
+        if catalogue_path is None:
+            await self._broadcast(
+                {
+                    "type": "playbook_list",
+                    "data": {
+                        "success": False,
+                        "error": "Playbook catalogue not found.",
+                        "playbooks": [],
+                    },
+                }
+            )
+            return
+
+        try:
+            with open(catalogue_path, "r", encoding="utf-8") as f:
+                catalogue = json.load(f)
+            await self._broadcast(
+                {
+                    "type": "playbook_list",
+                    "data": {
+                        "success": True,
+                        "playbooks": catalogue.get("playbooks", []),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[PLAYBOOK] Failed to read catalogue: {e}")
+            await self._broadcast(
+                {
+                    "type": "playbook_list",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "playbooks": [],
+                    },
+                }
+            )
+
+    # =====================
     # Marketplace Handlers
     # =====================
 
@@ -6503,21 +6854,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
         if task_id:
-            from app.trigger import Trigger
-            import time
+            from app.triggers import TriggerSource, TriggerSpec
 
             # Link the task to the placeholder so question-mirroring and todo
             # broadcasts (keyed by task id) target this tab.
             self._living_ui_manager.set_project_task(project_id, task_id)
 
-            trigger = Trigger(
-                fire_at=time.time(),
-                priority=50,
-                next_action_description=f"[Living UI] Import: {name}",
-                session_id=task_id,
-                payload={"type": "living_ui_import", "source": source},
+            await self._controller.agent.trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.LIVING_UI_IMPORT,
+                    description=f"[Living UI] Import: {name}",
+                    priority=50,
+                    session_id=task_id,
+                    payload={"type": "living_ui_import", "source": source},
+                )
             )
-            await self._controller.agent.triggers.put(trigger)
         else:
             # Couldn't create the task — don't leave a stuck "creating" tab.
             await self._broadcast(
@@ -7350,8 +7701,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     unique_name = f"{uuid.uuid4().hex[:8]}_{name}"
                     file_path = download_dir / unique_name
                     relative_path = f"download/{unique_name}"
+                    server_path = att.get("serverPath", "")
 
-                    # Save file to workspace
+                    # Save file to workspace (base64 inline) or reference a
+                    # file that was already uploaded via HTTP pre-upload.
                     if content_b64:
                         try:
                             file_content = base64.b64decode(content_b64)
@@ -7362,6 +7715,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 f"[BROWSER ADAPTER] Error saving attachment {name}: {e}"
                             )
                             continue
+                    elif server_path:
+                        # File was pre-uploaded via HTTP; it already lives in
+                        # workspace/download/ — use its existing path directly.
+                        pre_uploaded = Path(AGENT_WORKSPACE_ROOT) / server_path
+                        if not pre_uploaded.exists():
+                            print(
+                                f"[BROWSER ADAPTER] Pre-uploaded file missing: {server_path}"
+                            )
+                            continue
+                        relative_path = server_path
+                        file_path = pre_uploaded
+                        size = file_path.stat().st_size
+                    else:
+                        continue
 
                     # Create attachment object
                     attachment = Attachment(
@@ -8037,9 +8404,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             raise web.HTTPInternalServerError(reason=str(e))
 
     async def _workspace_file_handler(self, request: "web.Request") -> "web.Response":
-        """Serve files from the workspace directory."""
+        """Serve files from the workspace directory.
+
+        Pass ?download=1 to force Content-Disposition: attachment (triggers a
+        browser Save-As dialog).  Omitting the param keeps 'inline' so chat
+        attachment previews continue to work as before.
+
+        Uses web.FileResponse for true streaming — no full-file read into RAM —
+        which supports arbitrarily large files and HTTP Range requests.
+        """
         from aiohttp import web
-        import mimetypes
 
         try:
             file_path = request.match_info.get("path", "")
@@ -8047,7 +8421,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not file_path:
                 raise web.HTTPNotFound()
 
-            # Validate and get absolute path
             target = self._validate_path(file_path)
 
             if not target.exists():
@@ -8056,19 +8429,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if target.is_dir():
                 raise web.HTTPBadRequest(reason="Cannot serve directory")
 
-            # Determine content type
-            mime_type, _ = mimetypes.guess_type(target.name)
-            if mime_type is None:
-                mime_type = "application/octet-stream"
+            disposition = (
+                "attachment" if request.rel_url.query.get("download") else "inline"
+            )
 
-            # Read and serve file
-            content = target.read_bytes()
-
-            return web.Response(
-                body=content,
-                content_type=mime_type,
+            return web.FileResponse(
+                target,
                 headers={
-                    "Content-Disposition": f'inline; filename="{target.name}"',
+                    "Content-Disposition": f'{disposition}; filename="{target.name}"',
                     "Cache-Control": "no-cache",
                 },
             )

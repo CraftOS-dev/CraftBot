@@ -9,6 +9,7 @@ from agent_core import action
 
 @action(
     name="post_tweet",
+    irreversible=True,
     description="Post a tweet on Twitter/X.",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
@@ -39,6 +40,7 @@ async def post_tweet(input_data: dict) -> dict:
 
 @action(
     name="reply_to_tweet",
+    irreversible=True,
     description="Reply to a tweet on Twitter/X.",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
@@ -214,6 +216,7 @@ async def get_twitter_mentions(input_data: dict) -> dict:
 
 @action(
     name="post_quote_tweet",
+    irreversible=True,
     description="Post a quote tweet that wraps another tweet with your own commentary.",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
@@ -274,6 +277,7 @@ async def hide_tweet_reply(input_data: dict) -> dict:
 
 @action(
     name="post_tweet_with_media",
+    irreversible=True,
     description="Post a tweet that includes already-uploaded media (use upload_twitter_media first to get media_ids).",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
@@ -1001,6 +1005,7 @@ async def list_twitter_list_tweets(input_data: dict) -> dict:
 
 @action(
     name="send_twitter_dm",
+    irreversible=True,
     description="Send a one-on-one direct message on Twitter/X (creates the conversation if needed).",
     action_sets=["twitter_dms", "twitter"],
     input_schema={
@@ -1027,6 +1032,7 @@ async def send_twitter_dm(input_data: dict) -> dict:
 
 @action(
     name="send_twitter_dm_to_conversation",
+    irreversible=True,
     description="Send a DM into an existing conversation by ID.",
     action_sets=["twitter_dms"],
     input_schema={

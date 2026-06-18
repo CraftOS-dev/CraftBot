@@ -591,7 +591,7 @@ export function OnboardingPage() {
     if (isIntegrationsStep) {
       return (
         <div className={`${styles.formGroup} ${styles.integrationsPanel}`}>
-          <IntegrationsSettings />
+          <IntegrationsSettings hideHeader/>
         </div>
       )
     }
