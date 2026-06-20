@@ -603,8 +603,12 @@ class ContextEngine:
     ) -> Optional[str]:
         """Build a semantic query for memory retrieval.
 
-        Combines task instruction with recent conversation messages (both user
-        and agent) to provide better context for memory search.
+        Uses ONLY the latest user message. Agent messages are excluded — they
+        often restate or drift to adjacent topics and were observed dominating
+        the embedding (e.g. a proactive-tasks explanation poisoning an MCP
+        question). If no user message is available (background task, planner,
+        heartbeat), falls back to the task instruction, then to the explicit
+        query argument.
 
         Args:
             query: Optional explicit query string.
@@ -613,7 +617,10 @@ class ContextEngine:
         Returns:
             A query string suitable for semantic memory search, or None if no context.
         """
-        # Get task instruction as the base query
+        latest_user_message = self._get_latest_user_message(session_id)
+        if latest_user_message:
+            return latest_user_message
+
         session = get_session_or_none(session_id)
         if session and session.current_task:
             task_instruction = session.current_task.instruction
@@ -621,55 +628,36 @@ class ContextEngine:
             current_task = get_state().current_task
             task_instruction = current_task.instruction if current_task else None
 
-        if not task_instruction:
-            # Fall back to explicit query if no task
-            return query if query else None
-
-        # Get recent conversation messages for additional context
-        recent_context = self._get_recent_conversation_for_memory(session_id, limit=5)
-
-        if recent_context:
-            return f"{task_instruction}\n\nRecent conversation:\n{recent_context}"
-        else:
+        if task_instruction:
             return task_instruction
 
-    def _get_recent_conversation_for_memory(
-        self, session_id: Optional[str], limit: int = 5
-    ) -> str:
-        """Get recent conversation messages for memory query context.
+        return query if query else None
 
-        Args:
-            session_id: Optional session ID for session-specific event stream.
-            limit: Maximum number of messages to include.
+    def _get_latest_user_message(self, session_id: Optional[str]) -> str:
+        """Return the most recent user message text, or empty string if none.
 
-        Returns:
-            Formatted string of recent user and agent messages.
+        Walks the conversation-history buffer from newest to oldest and returns
+        the first event whose kind contains 'user message'. Agent messages are
+        skipped entirely.
         """
         try:
             event_stream_manager = self.state_manager.event_stream_manager
             if not event_stream_manager:
                 return ""
 
-            # Get messages from conversation history (includes both user and agent)
             recent_messages = event_stream_manager.get_recent_conversation_messages(
-                limit
+                limit=20
             )
             if not recent_messages:
                 return ""
 
-            # Format messages simply for semantic search
-            lines = []
-            for event in recent_messages:
-                # Simplify the kind label for the query
-                if "user message" in event.kind:
-                    lines.append(f"User: {event.message}")
-                elif "agent message" in event.kind:
-                    lines.append(f"Agent: {event.message}")
-
-            return "\n".join(lines)
+            for event in reversed(recent_messages):
+                if "user message" in event.kind and event.message:
+                    return event.message.strip()
+            return ""
 
         except Exception as e:
-            logger.warning(f"[MEMORY] Failed to get recent conversation: {e}")
+            logger.warning(f"[MEMORY] Failed to get latest user message: {e}")
             return ""
 
     def get_memory_context(

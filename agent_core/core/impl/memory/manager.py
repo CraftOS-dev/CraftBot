@@ -53,6 +53,26 @@ HYBRID_WEIGHTS = {
 # Days until recency contribution halves. exp(-30/30) ≈ 0.37.
 RECENCY_HALF_LIFE_DAYS = 30.0
 
+# ───────────────────────── Embedding Model ─────────────────────────
+# ChromaDB's default is sentence-transformers/all-MiniLM-L6-v2 (22M params,
+# 2021). Verbatim self-similarity scores ~0.65; topical matches sit at
+# ~0.50; noise floor is ~0.45. That ~0.05 dynamic range can't support
+# accurate retrieval no matter how the downstream scoring is tuned.
+#
+# BGE-small-en-v1.5 (33M params, 384-dim, same dimensionality as MiniLM
+# so we don't break anything else) typically scores ~0.92 on verbatim
+# matches, ~0.75 on topical, and drops below 0.50 for unrelated content.
+# That's the dynamic range hybrid scoring actually needs.
+#
+# Override via the MEMORY_EMBEDDING_MODEL env var if you want to try
+# bge-base-en-v1.5 (better, slower), e5-small-v2, or any other
+# sentence-transformers model. Set to "default" to use ChromaDB's
+# bundled ONNX MiniLM.
+import os as _os
+MEMORY_EMBEDDING_MODEL = _os.environ.get(
+    "MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"
+)
+
 
 # ───────────────────────────── Data Classes ─────────────────────────────
 
@@ -195,22 +215,33 @@ class MemoryManager:
         self.chunk_size_limit = chunk_size_limit
         self.chunk_overlap = chunk_overlap
 
-        # Initialize ChromaDB (uses built-in default embeddings).
+        # Initialize ChromaDB.
         # hnsw:space=cosine — cosine similarity gives well-scaled scores in
         # [0,1] for the hybrid retriever and behaves better than L2 on the
         # short factual snippets that dominate MEMORY.md.
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
-        self.collection = self.chroma_client.get_or_create_collection(
+
+        # Build the embedding function. Default ChromaDB uses MiniLM-L6-v2
+        # (weak — ~0.65 verbatim self-similarity). MEMORY_EMBEDDING_MODEL
+        # points to a stronger sentence-transformers model by default.
+        # Silent fallback to ChromaDB's bundled MiniLM if sentence-transformers
+        # isn't installed, so the system keeps working on minimal installs.
+        embedding_fn = self._build_embedding_function()
+
+        self.collection = self._open_collection(
             name=self.COLLECTION_NAME,
+            embedding_fn=embedding_fn,
             metadata={
                 "description": "Agent file system memory chunks (v2)",
                 "hnsw:space": "cosine",
+                "embedding_model": MEMORY_EMBEDDING_MODEL,
             },
         )
 
         # File index collection (tracks which files are indexed and their hashes)
-        self.file_index_collection = self.chroma_client.get_or_create_collection(
+        self.file_index_collection = self._open_collection(
             name=self.FILE_INDEX_COLLECTION,
+            embedding_fn=embedding_fn,
             metadata={"description": "File index for incremental updates (v2)"},
         )
 
@@ -224,8 +255,86 @@ class MemoryManager:
         self._bm25_dirty = True
 
         logger.info(
-            f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, ChromaDB: {chroma_path}"
+            f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, "
+            f"ChromaDB: {chroma_path}, embedding model: {MEMORY_EMBEDDING_MODEL}"
         )
+
+    # ───────────────────────────── Embedding ─────────────────────────────
+
+    def _open_collection(self, name: str, embedding_fn, metadata: Dict[str, Any]):
+        """Open a Chroma collection, auto-rebuilding on embedding mismatch.
+
+        ChromaDB persists the embedding-function name in the collection config
+        and refuses get_or_create with a different one. That happens when the
+        collection was first created in a session where sentence-transformers
+        wasn't loadable (falling back to default) and is reopened in a session
+        where it is. The Chroma index is a derived cache — the source of truth
+        is the markdown files — so dropping and rebuilding is safe; the next
+        update() call will repopulate from disk.
+        """
+        try:
+            return self.chroma_client.get_or_create_collection(
+                name=name,
+                embedding_function=embedding_fn,
+                metadata=metadata,
+            )
+        except ValueError as e:
+            msg = str(e).lower()
+            if "embedding function" in msg and ("conflict" in msg or "already exists" in msg):
+                logger.warning(
+                    f"[MEMORY] Embedding-function mismatch on '{name}' "
+                    f"(persisted vs. current model). Dropping and rebuilding; "
+                    f"the index will be re-populated from agent_file_system on "
+                    f"the next update()."
+                )
+                try:
+                    self.chroma_client.delete_collection(name)
+                except Exception as del_err:
+                    logger.error(
+                        f"[MEMORY] Failed to delete stale collection '{name}': {del_err}"
+                    )
+                    raise
+                return self.chroma_client.create_collection(
+                    name=name,
+                    embedding_function=embedding_fn,
+                    metadata=metadata,
+                )
+            raise
+
+    @staticmethod
+    def _build_embedding_function():
+        """Construct ChromaDB's embedding function.
+
+        Honours the MEMORY_EMBEDDING_MODEL constant. Falls back to
+        ChromaDB's bundled default (ONNX all-MiniLM-L6-v2) silently when
+        sentence-transformers is missing or the model can't load — so
+        the agent never fails to start because of an embedding-model
+        installation issue.
+        """
+        if MEMORY_EMBEDDING_MODEL == "default":
+            return None  # ChromaDB applies its bundled default
+        try:
+            from chromadb.utils.embedding_functions import (
+                SentenceTransformerEmbeddingFunction,
+            )
+            return SentenceTransformerEmbeddingFunction(
+                model_name=MEMORY_EMBEDDING_MODEL
+            )
+        except ImportError:
+            logger.warning(
+                "[MEMORY] sentence-transformers not installed — falling back "
+                "to ChromaDB's default MiniLM embeddings. Retrieval quality "
+                "will be poor. Install with: conda install -c conda-forge "
+                "sentence-transformers"
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                f"[MEMORY] Failed to load embedding model "
+                f"'{MEMORY_EMBEDDING_MODEL}' ({e}); falling back to ChromaDB "
+                f"default."
+            )
+            return None
 
     # ───────────────────────────── Public API ─────────────────────────────
 
@@ -276,7 +385,14 @@ class MemoryManager:
         if file_filter:
             where_filter = {"file_path": {"$in": file_filter}}
 
-        logger.info(f"[MEMORY QUERY] Query: {query}")
+        # Single-line query rendering so multi-line queries don't bleed into
+        # following log entries (used to make the log appear to mix queries
+        # with conversation history). Truncate long queries for log hygiene;
+        # full query is still passed to the retriever.
+        _q_one_line = " ".join(query.split())
+        if len(_q_one_line) > 300:
+            _q_one_line = _q_one_line[:297] + "..."
+        logger.info(f"[MEMORY QUERY] {_q_one_line}")
 
         # ── Channel 1: vector similarity ──
         vector_hits: Dict[str, Dict[str, Any]] = {}
@@ -386,10 +502,20 @@ class MemoryManager:
         pointers = pointers[:top_k]
 
         logger.info(
-            f"Retrieved {len(pointers)} memory pointers "
-            f"(vector={len(vector_hits)}, bm25={len(bm25_hits)}) "
-            f"for query: {query[:50]}..."
+            f"[MEMORY RESULT] {len(pointers)} pointer(s) returned "
+            f"(vector candidates={len(vector_hits)}, bm25 candidates={len(bm25_hits)}, "
+            f"min_relevance={min_relevance})"
         )
+        if not pointers:
+            logger.info("[MEMORY RESULT]   (no pointers above min_relevance)")
+        for i, p in enumerate(pointers, start=1):
+            summary_preview = " ".join((p.summary or "").split())
+            if len(summary_preview) > 120:
+                summary_preview = summary_preview[:117] + "..."
+            logger.info(
+                f"[MEMORY RESULT]   #{i} score={p.relevance_score:.3f} "
+                f"file={p.file_path} section={p.section_path} :: {summary_preview}"
+            )
         return pointers
 
     # ───────────────────────── Hybrid retrieval helpers ─────────────────────────
