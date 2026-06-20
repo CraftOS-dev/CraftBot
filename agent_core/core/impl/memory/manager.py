@@ -16,16 +16,42 @@ the full content directly. This keeps retrieval lightweight.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import chromadb
 
 from agent_core.utils.logger import logger
+from agent_core.core.impl.memory.bm25_index import BM25Index
+from agent_core.core.impl.memory.entity_extractor import extract_entities
+
+
+# Files that are flat lists of "[timestamp] [category] content" items.
+# These get per-item chunking so each fact has its own embedding, instead of
+# the whole list collapsing into a single section chunk under "## Memory".
+PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
+
+# Matches a memory item line. Tolerates both "/" and "-" date separators and
+# either "[YYYY-MM-DD HH:MM:SS]" (MEMORY.md) or "[YYYY/MM/DD HH:MM:SS]"
+# (EVENT_UNPROCESSED.md). Captures: timestamp, category, content.
+MEMORY_ITEM_LINE_RE = re.compile(
+    r"^\s*\[(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
+)
+
+# Hybrid-retrieval weights. Vector is primary signal, BM25 backstops proper
+# nouns and dates, recency breaks ties on equally-relevant memories.
+HYBRID_WEIGHTS = {
+    "vector": 0.55,
+    "bm25": 0.30,
+    "recency": 0.15,
+}
+# Days until recency contribution halves. exp(-30/30) ≈ 0.37.
+RECENCY_HALF_LIFE_DAYS = 30.0
 
 
 # ───────────────────────────── Data Classes ─────────────────────────────
@@ -140,8 +166,13 @@ class MemoryManager:
         manager.update()
     """
 
-    COLLECTION_NAME = "agent_memory"
-    FILE_INDEX_COLLECTION = "agent_memory_file_index"
+    # v2 collections use cosine distance and per-item chunking. The "_v2"
+    # suffix forces a clean rebuild on first run with the new code — old
+    # "agent_memory" collections are left intact but unused (so a downgrade
+    # is non-destructive). Drop the old collections manually if disk is
+    # tight; the manager never reads them.
+    COLLECTION_NAME = "agent_memory_v2"
+    FILE_INDEX_COLLECTION = "agent_memory_file_index_v2"
 
     def __init__(
         self,
@@ -164,22 +195,33 @@ class MemoryManager:
         self.chunk_size_limit = chunk_size_limit
         self.chunk_overlap = chunk_overlap
 
-        # Initialize ChromaDB (uses built-in default embeddings)
+        # Initialize ChromaDB (uses built-in default embeddings).
+        # hnsw:space=cosine — cosine similarity gives well-scaled scores in
+        # [0,1] for the hybrid retriever and behaves better than L2 on the
+        # short factual snippets that dominate MEMORY.md.
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.COLLECTION_NAME,
-            metadata={"description": "Agent file system memory chunks"},
+            metadata={
+                "description": "Agent file system memory chunks (v2)",
+                "hnsw:space": "cosine",
+            },
         )
 
         # File index collection (tracks which files are indexed and their hashes)
         self.file_index_collection = self.chroma_client.get_or_create_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates"},
+            metadata={"description": "File index for incremental updates (v2)"},
         )
 
         # In-memory cache of file indices
         self._file_index_cache: Dict[str, FileIndex] = {}
         self._load_file_index_cache()
+
+        # BM25 keyword index — mirrors ChromaDB's chunk set. Rebuilt lazily
+        # on first query and after each index mutation.
+        self._bm25 = BM25Index()
+        self._bm25_dirty = True
 
         logger.info(
             f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, ChromaDB: {chroma_path}"
@@ -191,30 +233,34 @@ class MemoryManager:
         self,
         query: str,
         top_k: int = 5,
-        min_relevance: float = 0.0,
+        min_relevance: float = 0.55,
         file_filter: Optional[List[str]] = None,
     ) -> List[MemoryPointer]:
         """
         Retrieve memory pointers relevant to the query.
 
-        This is the primary retrieval method. It returns lightweight pointers
-        that tell the agent where to find relevant information, not the full
-        content. The agent can then decide which chunks to read in full.
+        Uses a hybrid score: vector cosine similarity + BM25 keyword match
+        + recency boost. Candidate pool is the union of top-K from each
+        channel (Reciprocal-Rank-Fusion style); final ranking is the
+        weighted sum defined by ``HYBRID_WEIGHTS``.
 
         Args:
             query: The search query
             top_k: Maximum number of results to return
-            min_relevance: Minimum relevance score (0-1) to include
+            min_relevance: Minimum hybrid score (0-1) to include.
+                Default raised to 0.55 to match cosine-scaled scores; callers
+                that previously passed 0.0 still get sensible behaviour
+                because BM25 + recency lift relevant matches above the cut.
             file_filter: Optional list of file paths to search within
 
         Returns:
-            List of MemoryPointer objects, sorted by relevance (highest first)
+            List of MemoryPointer objects, sorted by relevance (highest first).
+            Result shape is unchanged from v1 — only the ranking improves.
         """
         if not query or not query.strip():
             logger.warning("Empty query provided to retrieve()")
             return []
 
-        # Check if collection has any documents
         collection_count = self.collection.count()
         if collection_count == 0:
             logger.info(
@@ -222,67 +268,185 @@ class MemoryManager:
             )
             return []
 
-        # Build where filter if file_filter provided
+        # Cast a wider net than top_k so the hybrid re-rank has signal to work
+        # with. ChromaDB and BM25 each return up to candidate_pool items.
+        candidate_pool = max(top_k * 4, 20)
+
         where_filter = None
         if file_filter:
             where_filter = {"file_path": {"$in": file_filter}}
 
-        # Query ChromaDB
         logger.info(f"[MEMORY QUERY] Query: {query}")
+
+        # ── Channel 1: vector similarity ──
+        vector_hits: Dict[str, Dict[str, Any]] = {}
         try:
             results = self.collection.query(
                 query_texts=[query],
-                n_results=min(top_k, collection_count),
+                n_results=min(candidate_pool, collection_count),
                 where=where_filter,
                 include=["metadatas", "distances", "documents"],
             )
+            ids = (results.get("ids") or [[]])[0]
+            metadatas = (results.get("metadatas") or [[]])[0]
+            distances = (results.get("distances") or [[]])[0]
+            for i, chunk_id in enumerate(ids):
+                meta = metadatas[i] if i < len(metadatas) else {}
+                distance = distances[i] if i < len(distances) else 1.0
+                vector_hits[chunk_id] = {
+                    "score": _cosine_distance_to_similarity(distance),
+                    "metadata": meta,
+                    "rank": i,
+                }
         except Exception as e:
             logger.error(f"Error querying ChromaDB: {e}")
+            # Continue — BM25 alone may still return useful results.
+
+        # ── Channel 2: BM25 keyword search ──
+        self._ensure_bm25_built()
+        bm25_hits: Dict[str, Dict[str, Any]] = {}
+        bm25_raw = self._bm25.search(query, top_k=candidate_pool)
+        if bm25_raw:
+            max_bm25 = max(score for _, score in bm25_raw) or 1.0
+            for rank, (chunk_id, score) in enumerate(bm25_raw):
+                bm25_hits[chunk_id] = {
+                    "score": score / max_bm25,  # min-max normalise to [0,1]
+                    "rank": rank,
+                }
+
+        # Union the candidate ids from both channels (RRF-style fusion).
+        candidate_ids = set(vector_hits) | set(bm25_hits)
+        if not candidate_ids:
             return []
 
-        # Parse results into MemoryPointers
+        # If file_filter was set, BM25 may have returned chunks outside the
+        # filter — drop them by reading metadata for the missing ones.
+        if file_filter:
+            need_meta = [cid for cid in candidate_ids if cid not in vector_hits]
+            if need_meta:
+                missing_meta = self._fetch_metadata(need_meta)
+                candidate_ids = {
+                    cid
+                    for cid in candidate_ids
+                    if (
+                        vector_hits.get(cid, {}).get("metadata", {}).get("file_path")
+                        or missing_meta.get(cid, {}).get("file_path", "")
+                    )
+                    in set(file_filter)
+                }
+
+        # Pull metadata for any BM25-only hits so we can build pointers + age.
+        missing_ids = [cid for cid in candidate_ids if cid not in vector_hits]
+        extra_meta = self._fetch_metadata(missing_ids) if missing_ids else {}
+
+        now = datetime.now(timezone.utc)
         pointers: List[MemoryPointer] = []
 
-        if not results or not results.get("ids") or not results["ids"][0]:
-            return pointers
-
-        ids = results["ids"][0]
-        metadatas = results.get("metadatas", [[]])[0]
-        distances = results.get("distances", [[]])[0]
-
-        for i, chunk_id in enumerate(ids):
-            meta = metadatas[i] if i < len(metadatas) else {}
-
-            # Convert distance to relevance score (ChromaDB uses L2 distance by default)
-            # Lower distance = more relevant, so we invert it
-            distance = distances[i] if i < len(distances) else 1.0
-            relevance = 1.0 / (1.0 + distance)  # Normalize to 0-1 range
-
-            if relevance < min_relevance:
+        w = HYBRID_WEIGHTS
+        for chunk_id in candidate_ids:
+            meta = (
+                vector_hits[chunk_id]["metadata"]
+                if chunk_id in vector_hits
+                else extra_meta.get(chunk_id, {})
+            )
+            if not meta:
                 continue
 
-            pointer = MemoryPointer(
-                chunk_id=chunk_id,
-                file_path=meta.get("file_path", ""),
-                section_path=meta.get("section_path", ""),
-                title=meta.get("title", ""),
-                summary=meta.get("summary", ""),
-                relevance_score=relevance,
-                metadata={
-                    k: v
-                    for k, v in meta.items()
-                    if k not in ("file_path", "section_path", "title", "summary")
-                },
-            )
-            pointers.append(pointer)
+            vector_score = vector_hits.get(chunk_id, {}).get("score", 0.0)
+            bm25_score = bm25_hits.get(chunk_id, {}).get("score", 0.0)
+            recency_score = _recency_score(meta.get("timestamp", ""), now)
 
-        # Sort by relevance (highest first)
+            final = (
+                w["vector"] * vector_score
+                + w["bm25"] * bm25_score
+                + w["recency"] * recency_score
+            )
+
+            if final < min_relevance:
+                continue
+
+            pointers.append(
+                MemoryPointer(
+                    chunk_id=chunk_id,
+                    file_path=meta.get("file_path", ""),
+                    section_path=meta.get("section_path", ""),
+                    title=meta.get("title", ""),
+                    summary=meta.get("summary", ""),
+                    relevance_score=final,
+                    metadata={
+                        k: v
+                        for k, v in meta.items()
+                        if k
+                        not in ("file_path", "section_path", "title", "summary")
+                    },
+                )
+            )
+
         pointers.sort(key=lambda p: p.relevance_score, reverse=True)
+        pointers = pointers[:top_k]
 
         logger.info(
-            f"Retrieved {len(pointers)} memory pointers for query: {query[:50]}..."
+            f"Retrieved {len(pointers)} memory pointers "
+            f"(vector={len(vector_hits)}, bm25={len(bm25_hits)}) "
+            f"for query: {query[:50]}..."
         )
         return pointers
+
+    # ───────────────────────── Hybrid retrieval helpers ─────────────────────────
+
+    def _ensure_bm25_built(self) -> None:
+        """Rebuild the BM25 index if it's been invalidated since last build."""
+        if not self._bm25_dirty:
+            return
+        try:
+            corpus = self._load_bm25_corpus()
+            self._bm25.rebuild(corpus)
+            self._bm25_dirty = False
+            logger.debug(f"[MEMORY] BM25 index rebuilt: {self._bm25.size} chunks")
+        except Exception as e:
+            logger.warning(f"[MEMORY] Failed to rebuild BM25 index: {e}")
+            # Leave the flag dirty so we retry on the next query.
+
+    def _load_bm25_corpus(self) -> Dict[str, str]:
+        """Pull every chunk's searchable text from ChromaDB.
+
+        We concatenate the document body, summary, and extracted_entities so
+        BM25 has the strongest possible keyword signal — especially proper
+        nouns that vector embeddings often miss.
+        """
+        try:
+            result = self.collection.get(
+                include=["documents", "metadatas"],
+            )
+        except Exception as e:
+            logger.warning(f"[MEMORY] BM25 corpus load failed: {e}")
+            return {}
+
+        ids = result.get("ids") or []
+        docs = result.get("documents") or []
+        metas = result.get("metadatas") or []
+
+        corpus: Dict[str, str] = {}
+        for i, chunk_id in enumerate(ids):
+            body = docs[i] if i < len(docs) else ""
+            meta = metas[i] if i < len(metas) else {}
+            summary = meta.get("summary", "")
+            entities = meta.get("extracted_entities", "")
+            corpus[chunk_id] = f"{body}\n{summary}\n{entities}"
+        return corpus
+
+    def _fetch_metadata(self, chunk_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Fetch metadata for a specific set of chunk ids."""
+        if not chunk_ids:
+            return {}
+        try:
+            result = self.collection.get(ids=chunk_ids, include=["metadatas"])
+            ids = result.get("ids") or []
+            metas = result.get("metadatas") or []
+            return {ids[i]: metas[i] for i in range(len(ids))}
+        except Exception as e:
+            logger.warning(f"[MEMORY] Metadata fetch failed: {e}")
+            return {}
 
     def retrieve_full_content(self, chunk_id: str) -> Optional[str]:
         """
@@ -445,12 +609,17 @@ class MemoryManager:
 
     def _chunk_markdown(self, content: str, file_path: str) -> List[MemoryChunk]:
         """
-        Split markdown content into semantic chunks based on headers.
+        Split markdown content into semantic chunks.
 
-        This uses a hierarchical approach:
-        1. Split by headers (##, ###, etc.)
-        2. Each section becomes a chunk with its header path
-        3. Large sections are further split with overlap
+        Dispatches based on file shape:
+        - Flat per-item logs (MEMORY.md, EVENT_UNPROCESSED.md) → one chunk
+          per "[ts] [cat] content" line via :meth:`_chunk_memory_log`.
+        - Everything else → header-based section chunking (original
+          behaviour, unchanged).
+
+        Per-item chunking is the Phase 1 fix for retrieval accuracy: in the
+        old section-based path, every memory item collapsed into a single
+        chunk under "## Memory" and the embedding represented the whole blob.
 
         Args:
             content: The markdown content to chunk
@@ -458,6 +627,78 @@ class MemoryManager:
 
         Returns:
             List of MemoryChunk objects
+        """
+        filename = Path(file_path).name
+        if filename in PER_ITEM_FILES:
+            return self._chunk_memory_log(content, file_path)
+        return self._chunk_by_sections(content, file_path)
+
+    def _chunk_memory_log(
+        self, content: str, file_path: str
+    ) -> List[MemoryChunk]:
+        """One chunk per ``[ts] [cat] content`` line.
+
+        Each line is short enough on its own (memory items are capped at
+        ~150 words by the memory-processor skill) that no further splitting
+        is needed. Lines that don't match the expected pattern — headers,
+        blank lines, the file's preamble — are skipped here; the file as a
+        whole is still in INDEX_TARGET_FILES so its preamble is captured
+        by the section chunker on other indexed files where appropriate.
+
+        Per-chunk metadata carries timestamp, category, extracted_entities
+        (list of capitalised tokens / quoted strings) and an indexed_at
+        stamp. ``age_days`` is NOT stored — it's computed at query time
+        from ``timestamp`` so a stale index doesn't lock in old recency.
+        """
+        chunks: List[MemoryChunk] = []
+        now = datetime.utcnow().isoformat()
+
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith(">"):
+                continue
+            match = MEMORY_ITEM_LINE_RE.match(line)
+            if not match:
+                continue
+
+            timestamp_str, category, item_text = match.groups()
+            timestamp_iso = _normalize_timestamp(timestamp_str)
+            category = category.lower()
+
+            # Body = the item content. Summary = first ~150 chars cleaned.
+            entities = extract_entities(item_text)
+            summary = self._create_summary(item_text)
+
+            chunks.append(
+                MemoryChunk(
+                    chunk_id=str(uuid.uuid4()),
+                    file_path=file_path,
+                    section_path=f"item:{category}",
+                    title=category,
+                    content=line,  # keep the full bracketed line for grep parity
+                    summary=summary,
+                    content_hash=self._compute_content_hash(line),
+                    file_modified_at="",
+                    indexed_at=now,
+                    metadata={
+                        "timestamp": timestamp_iso,
+                        "category": category,
+                        # ChromaDB metadata values must be primitives; serialise
+                        # the entity list as a comma-joined string. The BM25
+                        # corpus and retrieval consumers parse it back.
+                        "extracted_entities": ", ".join(entities),
+                        "item_kind": "memory_log",
+                    },
+                )
+            )
+
+        return chunks
+
+    def _chunk_by_sections(
+        self, content: str, file_path: str
+    ) -> List[MemoryChunk]:
+        """Original header-based chunker. Preserves existing behaviour for
+        non-list markdown (AGENT.md, USER.md, PROACTIVE.md, ...).
         """
         chunks: List[MemoryChunk] = []
 
@@ -752,6 +993,8 @@ class MemoryManager:
             logger.error(f"Error adding chunks to ChromaDB: {e}")
             return 0
 
+        self._bm25_dirty = True
+
         # Update file index cache
         file_index = FileIndex(
             file_path=rel_path,
@@ -787,6 +1030,7 @@ class MemoryManager:
 
         # Remove from cache
         del self._file_index_cache[file_path]
+        self._bm25_dirty = True
 
         logger.debug(f"Removed {len(file_index.chunk_ids)} chunks for {file_path}")
 
@@ -805,14 +1049,18 @@ class MemoryManager:
 
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.COLLECTION_NAME,
-            metadata={"description": "Agent file system memory chunks"},
+            metadata={
+                "description": "Agent file system memory chunks (v2)",
+                "hnsw:space": "cosine",
+            },
         )
         self.file_index_collection = self.chroma_client.get_or_create_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates"},
+            metadata={"description": "File index for incremental updates (v2)"},
         )
 
         self._file_index_cache.clear()
+        self._bm25_dirty = True
 
     # ───────────────────────────── File Index Persistence ─────────────────────────────
 
@@ -962,6 +1210,60 @@ def create_memory_processing_task(
         selected_skills=["memory-processor"],
         workflow_id="memory_processing",
     )
+
+
+# ───────────────────── Hybrid Retrieval Scoring Helpers ─────────────────────
+
+
+def _cosine_distance_to_similarity(distance: float) -> float:
+    """Map ChromaDB's cosine distance to a [0,1] similarity score.
+
+    ChromaDB returns ``1 - cosine_similarity`` when the collection is
+    configured with ``hnsw:space=cosine``. Clamp to handle floating-point
+    drift and the L2 fallback case (where distances can exceed 1).
+    """
+    if distance is None:
+        return 0.0
+    sim = 1.0 - float(distance)
+    if sim < 0.0:
+        return 0.0
+    if sim > 1.0:
+        return 1.0
+    return sim
+
+
+def _normalize_timestamp(ts: str) -> str:
+    """Coerce '/' or 'T'-separated timestamps to canonical 'YYYY-MM-DD HH:MM:SS'.
+
+    Returns an empty string when parsing fails — callers treat that as
+    "unknown age" and the recency channel contributes 0 for the chunk.
+    """
+    if not ts:
+        return ""
+    cleaned = ts.replace("/", "-").replace("T", " ")
+    try:
+        dt = datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+
+
+def _recency_score(timestamp_iso: str, now: datetime) -> float:
+    """``exp(-age_days / RECENCY_HALF_LIFE_DAYS)`` — newer = closer to 1.0.
+
+    Chunks without a parseable timestamp (e.g. AGENT.md sections) score 0
+    so they neither help nor hurt the hybrid rank.
+    """
+    if not timestamp_iso:
+        return 0.0
+    try:
+        item_dt = datetime.strptime(timestamp_iso, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return 0.0
+    if item_dt.tzinfo is None:
+        item_dt = item_dt.replace(tzinfo=timezone.utc)
+    age_days = max(0.0, (now - item_dt).total_seconds() / 86400.0)
+    return math.exp(-age_days / RECENCY_HALF_LIFE_DAYS)
 
 
 # ───────────────────────────── Testing / Demo ─────────────────────────────
