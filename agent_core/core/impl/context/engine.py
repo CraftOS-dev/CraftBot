@@ -603,35 +603,24 @@ class ContextEngine:
     ) -> Optional[str]:
         """Build a semantic query for memory retrieval.
 
-        Uses ONLY the latest user message. Agent messages are excluded — they
-        often restate or drift to adjacent topics and were observed dominating
-        the embedding (e.g. a proactive-tasks explanation poisoning an MCP
-        question). If no user message is available (background task, planner,
-        heartbeat), falls back to the task instruction, then to the explicit
-        query argument.
-
-        Args:
-            query: Optional explicit query string.
-            session_id: Optional session ID for session-specific state lookup.
-
-        Returns:
-            A query string suitable for semantic memory search, or None if no context.
+        Priority: latest user message → task instruction → explicit query.
+        Agent messages are deliberately excluded — they often restate or
+        drift to adjacent topics and were observed dominating the embedding
+        (a long proactive-tasks reply poisoned a follow-up MCP question).
         """
         latest_user_message = self._get_latest_user_message(session_id)
         if latest_user_message:
             return latest_user_message
 
         session = get_session_or_none(session_id)
-        if session and session.current_task:
-            task_instruction = session.current_task.instruction
-        else:
-            current_task = get_state().current_task
-            task_instruction = current_task.instruction if current_task else None
+        current_task = (
+            session.current_task if session and session.current_task
+            else get_state().current_task
+        )
+        if current_task and current_task.instruction:
+            return current_task.instruction
 
-        if task_instruction:
-            return task_instruction
-
-        return query if query else None
+        return query or None
 
     def _get_latest_user_message(self, session_id: Optional[str]) -> str:
         """Return the most recent user message text, or empty string if none.

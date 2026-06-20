@@ -16,11 +16,10 @@ the full content directly. This keeps retrieval lightweight.
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,15 +42,33 @@ MEMORY_ITEM_LINE_RE = re.compile(
     r"^\s*\[(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
 )
 
-# Hybrid-retrieval weights. Vector is primary signal, BM25 backstops proper
-# nouns and dates, recency breaks ties on equally-relevant memories.
+# Hybrid-retrieval weights. Vector is the primary signal, BM25 backstops
+# proper nouns and dates.
 HYBRID_WEIGHTS = {
-    "vector": 0.55,
-    "bm25": 0.30,
-    "recency": 0.15,
+    "vector": 0.65,
+    "bm25": 0.35,
 }
-# Days until recency contribution halves. exp(-30/30) ≈ 0.37.
-RECENCY_HALF_LIFE_DAYS = 30.0
+
+# Log-line preview limits. Keep multi-line queries and long summaries from
+# bleeding across log entries.
+_LOG_QUERY_MAX_CHARS = 300
+_LOG_SUMMARY_MAX_CHARS = 120
+
+
+def _log_preview(text: str, max_chars: int) -> str:
+    """Collapse whitespace and truncate text for safe logging."""
+    flat = " ".join((text or "").split())
+    if len(flat) <= max_chars:
+        return flat
+    return flat[: max_chars - 3] + "..."
+
+
+def _is_embedding_function_conflict(err: Exception) -> bool:
+    """Detect ChromaDB's "embedding function mismatch" ValueError by message."""
+    msg = str(err).lower()
+    return "embedding function" in msg and (
+        "conflict" in msg or "already exists" in msg
+    )
 
 # ───────────────────────── Embedding Model ─────────────────────────
 # ChromaDB's default is sentence-transformers/all-MiniLM-L6-v2 (22M params,
@@ -265,12 +282,11 @@ class MemoryManager:
         """Open a Chroma collection, auto-rebuilding on embedding mismatch.
 
         ChromaDB persists the embedding-function name in the collection config
-        and refuses get_or_create with a different one. That happens when the
-        collection was first created in a session where sentence-transformers
-        wasn't loadable (falling back to default) and is reopened in a session
-        where it is. The Chroma index is a derived cache — the source of truth
-        is the markdown files — so dropping and rebuilding is safe; the next
-        update() call will repopulate from disk.
+        and refuses get_or_create with a different one — happens when the
+        collection was first created without sentence-transformers loadable
+        and is reopened later with a real model. The index is a derived cache
+        (source of truth is the markdown files), so dropping and rebuilding
+        is safe; update() repopulates from disk on next call.
         """
         try:
             return self.chroma_client.get_or_create_collection(
@@ -279,27 +295,19 @@ class MemoryManager:
                 metadata=metadata,
             )
         except ValueError as e:
-            msg = str(e).lower()
-            if "embedding function" in msg and ("conflict" in msg or "already exists" in msg):
-                logger.warning(
-                    f"[MEMORY] Embedding-function mismatch on '{name}' "
-                    f"(persisted vs. current model). Dropping and rebuilding; "
-                    f"the index will be re-populated from agent_file_system on "
-                    f"the next update()."
-                )
-                try:
-                    self.chroma_client.delete_collection(name)
-                except Exception as del_err:
-                    logger.error(
-                        f"[MEMORY] Failed to delete stale collection '{name}': {del_err}"
-                    )
-                    raise
-                return self.chroma_client.create_collection(
-                    name=name,
-                    embedding_function=embedding_fn,
-                    metadata=metadata,
-                )
-            raise
+            if not _is_embedding_function_conflict(e):
+                raise
+
+        logger.warning(
+            f"[MEMORY] Embedding-function mismatch on '{name}' — dropping and "
+            f"rebuilding; index will repopulate from agent_file_system on next update()."
+        )
+        self.chroma_client.delete_collection(name)
+        return self.chroma_client.create_collection(
+            name=name,
+            embedding_function=embedding_fn,
+            metadata=metadata,
+        )
 
     @staticmethod
     def _build_embedding_function():
@@ -348,18 +356,17 @@ class MemoryManager:
         """
         Retrieve memory pointers relevant to the query.
 
-        Uses a hybrid score: vector cosine similarity + BM25 keyword match
-        + recency boost. Candidate pool is the union of top-K from each
-        channel (Reciprocal-Rank-Fusion style); final ranking is the
-        weighted sum defined by ``HYBRID_WEIGHTS``.
+        Uses a hybrid score: vector cosine similarity + BM25 keyword match.
+        Candidate pool is the union of top-K from each channel
+        (Reciprocal-Rank-Fusion style); final ranking is the weighted sum
+        defined by ``HYBRID_WEIGHTS``.
 
         Args:
             query: The search query
             top_k: Maximum number of results to return
             min_relevance: Minimum hybrid score (0-1) to include.
-                Default raised to 0.55 to match cosine-scaled scores; callers
-                that previously passed 0.0 still get sensible behaviour
-                because BM25 + recency lift relevant matches above the cut.
+                Default 0.55 matches cosine-scaled scores; BM25 lifts
+                keyword-strong matches above the cut.
             file_filter: Optional list of file paths to search within
 
         Returns:
@@ -385,14 +392,9 @@ class MemoryManager:
         if file_filter:
             where_filter = {"file_path": {"$in": file_filter}}
 
-        # Single-line query rendering so multi-line queries don't bleed into
-        # following log entries (used to make the log appear to mix queries
-        # with conversation history). Truncate long queries for log hygiene;
-        # full query is still passed to the retriever.
-        _q_one_line = " ".join(query.split())
-        if len(_q_one_line) > 300:
-            _q_one_line = _q_one_line[:297] + "..."
-        logger.info(f"[MEMORY QUERY] {_q_one_line}")
+        # Render single-line so multi-line queries don't bleed into the next
+        # log entry. Full query is still passed to the retriever.
+        logger.info(f"[MEMORY QUERY] {_log_preview(query, _LOG_QUERY_MAX_CHARS)}")
 
         # ── Channel 1: vector similarity ──
         vector_hits: Dict[str, Dict[str, Any]] = {}
@@ -455,7 +457,6 @@ class MemoryManager:
         missing_ids = [cid for cid in candidate_ids if cid not in vector_hits]
         extra_meta = self._fetch_metadata(missing_ids) if missing_ids else {}
 
-        now = datetime.now(timezone.utc)
         pointers: List[MemoryPointer] = []
 
         w = HYBRID_WEIGHTS
@@ -470,13 +471,8 @@ class MemoryManager:
 
             vector_score = vector_hits.get(chunk_id, {}).get("score", 0.0)
             bm25_score = bm25_hits.get(chunk_id, {}).get("score", 0.0)
-            recency_score = _recency_score(meta.get("timestamp", ""), now)
 
-            final = (
-                w["vector"] * vector_score
-                + w["bm25"] * bm25_score
-                + w["recency"] * recency_score
-            )
+            final = w["vector"] * vector_score + w["bm25"] * bm25_score
 
             if final < min_relevance:
                 continue
@@ -509,12 +505,10 @@ class MemoryManager:
         if not pointers:
             logger.info("[MEMORY RESULT]   (no pointers above min_relevance)")
         for i, p in enumerate(pointers, start=1):
-            summary_preview = " ".join((p.summary or "").split())
-            if len(summary_preview) > 120:
-                summary_preview = summary_preview[:117] + "..."
             logger.info(
                 f"[MEMORY RESULT]   #{i} score={p.relevance_score:.3f} "
-                f"file={p.file_path} section={p.section_path} :: {summary_preview}"
+                f"file={p.file_path} section={p.section_path} "
+                f":: {_log_preview(p.summary, _LOG_SUMMARY_MAX_CHARS)}"
             )
         return pointers
 
@@ -773,8 +767,7 @@ class MemoryManager:
 
         Per-chunk metadata carries timestamp, category, extracted_entities
         (list of capitalised tokens / quoted strings) and an indexed_at
-        stamp. ``age_days`` is NOT stored — it's computed at query time
-        from ``timestamp`` so a stale index doesn't lock in old recency.
+        stamp. Timestamp is stored for display / debugging only.
         """
         chunks: List[MemoryChunk] = []
         now = datetime.utcnow().isoformat()
@@ -1361,8 +1354,8 @@ def _cosine_distance_to_similarity(distance: float) -> float:
 def _normalize_timestamp(ts: str) -> str:
     """Coerce '/' or 'T'-separated timestamps to canonical 'YYYY-MM-DD HH:MM:SS'.
 
-    Returns an empty string when parsing fails — callers treat that as
-    "unknown age" and the recency channel contributes 0 for the chunk.
+    Returns an empty string when parsing fails — stored as metadata only;
+    not currently used in ranking.
     """
     if not ts:
         return ""
@@ -1372,24 +1365,6 @@ def _normalize_timestamp(ts: str) -> str:
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return ""
-
-
-def _recency_score(timestamp_iso: str, now: datetime) -> float:
-    """``exp(-age_days / RECENCY_HALF_LIFE_DAYS)`` — newer = closer to 1.0.
-
-    Chunks without a parseable timestamp (e.g. AGENT.md sections) score 0
-    so they neither help nor hurt the hybrid rank.
-    """
-    if not timestamp_iso:
-        return 0.0
-    try:
-        item_dt = datetime.strptime(timestamp_iso, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return 0.0
-    if item_dt.tzinfo is None:
-        item_dt = item_dt.replace(tzinfo=timezone.utc)
-    age_days = max(0.0, (now - item_dt).total_seconds() / 86400.0)
-    return math.exp(-age_days / RECENCY_HALF_LIFE_DAYS)
 
 
 # ───────────────────────────── Testing / Demo ─────────────────────────────
