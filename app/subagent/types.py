@@ -7,19 +7,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
+
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Subagent mode marker — anything that wants to detect sub-agent execution
+# (state hooks, telemetry, etc.) can compare ``sub.mode == SUBAGENT_MODE``.
+SUBAGENT_MODE = "subagent"
+
+# Terminal statuses. Anything else means the runner should keep looping.
+SUBAGENT_TERMINAL_STATUSES = {"completed", "failed", "timeout", "error"}
 
 
 # ============================================================================
 # SubAgent dataclass
 # ============================================================================
-
-# Subagent mode constant — kept here so anything else that wants to detect
-# sub-agent execution can import it without pulling in the manager/runner.
-SUBAGENT_MODE = "subagent"
-
-# Terminal statuses. Anything else means the runner should keep looping.
-SUBAGENT_TERMINAL_STATUSES = {"completed", "failed", "timeout", "error"}
 
 
 @dataclass
@@ -32,10 +37,10 @@ class SubAgent:
 
     Token usage is intentionally NOT tracked on this object — the LLM
     layer's existing ``task_attribution`` mechanism already rolls each
-    sub-agent's tokens up to the parent task, which is the right granularity
-    for billing. A separate per-sub-agent counter would be misleading
-    because it would double-count cached tokens and miss provider-specific
-    accounting.
+    sub-agent's tokens up to the parent task, which is the right
+    granularity for billing. A separate per-sub-agent counter would be
+    misleading because it would double-count cached tokens and miss
+    provider-specific accounting.
     """
 
     id: str
@@ -44,40 +49,65 @@ class SubAgent:
     query: str
     compiled_actions: List[str]
 
-    status: str = "running"  # running | completed | failed | timeout | error
+    # Lifecycle. Allowed statuses: running | completed | failed | timeout | error.
+    status: str = "running"
     result: Optional[str] = None
     iterations: int = 0
 
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     ended_at: Optional[str] = None
 
-    # Mode marker — always "subagent" so downstream code can detect it.
+    # Mode marker — always ``SUBAGENT_MODE`` so downstream code can detect it.
     mode: str = SUBAGENT_MODE
 
     def is_terminal(self) -> bool:
+        """True once the sub-agent has reached any terminal status."""
         return self.status in SUBAGENT_TERMINAL_STATUSES
+
+    def terminate(self, status: str, result: str) -> None:
+        """Set the terminal status, result, and ``ended_at`` atomically.
+
+        This is the only mutation path used by :class:`SubAgentManager` to
+        finalize a sub-agent. Keeping the three writes in one place lets a
+        future change (e.g. emitting a state-change event) hook them as a
+        single transition.
+        """
+        self.status = status
+        self.result = result
+        self.ended_at = datetime.utcnow().isoformat()
 
 
 # ============================================================================
 # Per-type registry
 # ============================================================================
-#
-# Each entry defines:
-#   system_prompt_key   — name in agent_core.core.prompts.PromptRegistry that
-#                         can override the default; default is taken from the
-#                         module-level constant in agent_core/core/prompts/subagent.py
-#   default_system_prompt — the fallback prompt string (referenced by key)
-#   actions             — FROZEN list of action names this type may use. The
-#                         runner refuses anything else.
-#   max_iterations      — hard cap on action turns
-#   max_wall_seconds    — hard cap on wall-clock execution time
-#
-# Adding a new type means adding an entry here, defining its prompt in
-# agent_core/core/prompts/subagent.py, and (optionally) ensuring every action
-# in its `actions` list already exists in the action library.
 
 
-SUBAGENT_TYPES: Dict[str, Dict] = {
+class SubAgentConfig(TypedDict):
+    """Frozen per-type configuration for a sub-agent.
+
+    Fields:
+        system_prompt_key: Name in :data:`agent_core.core.prompts.PromptRegistry`
+            that may override the default. The default value is the
+            module-level constant referenced by this key in
+            ``agent_core/core/prompts/subagent.py``.
+        actions: Frozen list of action names this type may invoke. The runner
+            refuses any action outside this set.
+        max_iterations: Hard cap on action turns before the runner ends the
+            sub-agent as ``failed``.
+        max_wall_seconds: Hard cap on wall-clock execution before the runner
+            ends the sub-agent as ``timeout``.
+    """
+
+    system_prompt_key: str
+    actions: List[str]
+    max_iterations: int
+    max_wall_seconds: int
+
+
+# Adding a new type means: add an entry here, define its prompt in
+# ``agent_core/core/prompts/subagent.py``, and make sure every action in its
+# ``actions`` list is registered in the action library.
+SUBAGENT_TYPES: Dict[str, SubAgentConfig] = {
     "research_agent": {
         "system_prompt_key": "RESEARCH_AGENT_SYSTEM_PROMPT",
         "actions": [
@@ -107,20 +137,22 @@ SUBAGENT_TYPES: Dict[str, Dict] = {
 }
 
 
-def get_subagent_config(agent_type: str) -> Dict:
-    """Look up a sub-agent type's config or raise."""
-    if agent_type not in SUBAGENT_TYPES:
+def get_subagent_config(agent_type: str) -> SubAgentConfig:
+    """Look up a sub-agent type's config or raise ``ValueError``."""
+    cfg = SUBAGENT_TYPES.get(agent_type)
+    if cfg is None:
         raise ValueError(
             f"Unknown sub-agent type: {agent_type!r}. "
             f"Known types: {sorted(SUBAGENT_TYPES.keys())}"
         )
-    return SUBAGENT_TYPES[agent_type]
+    return cfg
 
 
 __all__ = [
     "SUBAGENT_MODE",
     "SUBAGENT_TERMINAL_STATUSES",
     "SubAgent",
+    "SubAgentConfig",
     "SUBAGENT_TYPES",
     "get_subagent_config",
 ]

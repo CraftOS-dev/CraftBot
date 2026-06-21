@@ -30,7 +30,6 @@ What it deliberately does NOT do at any stage:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import Dict, Optional, TYPE_CHECKING
 
 from app.logger import logger
@@ -151,9 +150,7 @@ class SubAgentManager:
             )
             return
 
-        sub.status = status
-        sub.result = result
-        sub.ended_at = datetime.utcnow().isoformat()
+        sub.terminate(status=status, result=result)
 
         # Final breadcrumb on the child's stream (parent stream untouched).
         self.event_stream_manager.log(
@@ -186,28 +183,8 @@ class SubAgentManager:
             logger.debug(f"[SubAgentManager] release() on unknown sub-agent: {sub_id}")
             return
 
-        # Release the child's per-id event stream buffer.
-        try:
-            self.event_stream_manager.remove_stream(sub_id)
-        except Exception as e:
-            logger.warning(
-                f"[SubAgentManager] Failed to remove event stream for {sub_id}: {e}"
-            )
-
-        # Release any LLM session caches keyed on this sub-agent. The
-        # interface exposes ``end_all_session_caches`` (provider-agnostic);
-        # ``invalidate_all_session_caches`` exists as an alias on some
-        # builds. We prefer the documented name and fall back.
-        try:
-            if hasattr(self.llm_interface, "end_all_session_caches"):
-                self.llm_interface.end_all_session_caches(sub_id)
-            elif hasattr(self.llm_interface, "invalidate_all_session_caches"):
-                self.llm_interface.invalidate_all_session_caches(sub_id)
-        except Exception as e:
-            logger.warning(
-                f"[SubAgentManager] Failed to release session caches for {sub_id}: {e}"
-            )
-
+        self.event_stream_manager.remove_stream(sub_id)
+        self.llm_interface.end_all_session_caches(sub_id)
         logger.debug(
             f"[SubAgentManager] Released {sub_id} (stream + session caches)"
         )
@@ -219,10 +196,7 @@ class SubAgentManager:
     def reset(self) -> None:
         """Forget every tracked sub-agent. Test-only."""
         for sub_id in list(self.subagents.keys()):
-            try:
-                self.event_stream_manager.remove_stream(sub_id)
-            except Exception:
-                pass
+            self.event_stream_manager.remove_stream(sub_id)
         self.subagents.clear()
 
 

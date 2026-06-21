@@ -21,6 +21,7 @@ A sub-agent sees only:
 
 Prompts are split across three methods so the runner can drive session
 caching:
+
 - :meth:`make_system_prompt` — stable across all turns; serves as the
   session-cache "prefix".
 - :meth:`make_first_turn_user_prompt` — query + initial event log + nudge.
@@ -40,7 +41,6 @@ from agent_core.core.prompts import (
     VALIDATION_AGENT_SYSTEM_PROMPT,
     SUBAGENT_OUTPUT_FORMAT,
 )
-from app.logger import logger
 from app.subagent.types import SubAgent, get_subagent_config
 
 if TYPE_CHECKING:
@@ -48,9 +48,9 @@ if TYPE_CHECKING:
     from app.event_stream import EventStreamManager
 
 
-# Fallback prompts indexed by registry key. Keeps the prompt-registry
-# override path working: register("RESEARCH_AGENT_SYSTEM_PROMPT", "...") and
-# it'll be used instead of the default.
+# Default prompt text indexed by registry key. ``get_prompt(key, default)``
+# returns whichever ``PromptRegistry`` has registered for ``key``, falling
+# back to the value here when nothing is registered.
 _DEFAULT_PROMPTS = {
     "RESEARCH_AGENT_SYSTEM_PROMPT": RESEARCH_AGENT_SYSTEM_PROMPT,
     "VALIDATION_AGENT_SYSTEM_PROMPT": VALIDATION_AGENT_SYSTEM_PROMPT,
@@ -131,35 +131,14 @@ class SubAgentContextEngine:
         )
 
     # ------------------------------------------------------------------
-    # Backwards-compat — single (system, user) pair builder
-    # ------------------------------------------------------------------
-
-    def make_prompt(self, sub: SubAgent) -> tuple[str, str]:
-        """Return ``(system_prompt, first_turn_user_prompt)``.
-
-        Kept for callers that want one-shot prompt construction without
-        thinking about caching. Equivalent to calling
-        :meth:`make_system_prompt` + :meth:`make_first_turn_user_prompt`.
-        """
-        return self.make_system_prompt(sub), self.make_first_turn_user_prompt(sub)
-
-    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     def _snapshot_event_log(self, sub_id: str) -> str:
-        try:
-            return (
-                self.event_stream_manager.snapshot_by_id(
-                    sub_id, include_summary=True
-                )
-                or "(no events yet)"
-            )
-        except Exception as e:
-            logger.warning(
-                f"[SubAgentContextEngine] failed to snapshot stream for {sub_id}: {e}"
-            )
-            return "(event stream unavailable)"
+        return (
+            self.event_stream_manager.snapshot_by_id(sub_id, include_summary=True)
+            or "(no events yet)"
+        )
 
 
 __all__ = ["SubAgentContextEngine"]

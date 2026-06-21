@@ -101,8 +101,7 @@ def spawn_subagent(input_data: dict) -> dict:
     from app.subagent.runner import SubAgentRunner
     from app.subagent.types import SUBAGENT_TERMINAL_STATUSES
 
-    simulated_mode = input_data.get("simulated_mode", False)
-    if simulated_mode:
+    if input_data.get("simulated_mode"):
         return {
             "status": "completed",
             "result": "Simulated sub-agent result.",
@@ -113,16 +112,9 @@ def spawn_subagent(input_data: dict) -> dict:
 
     agent_type = (input_data.get("agent_type") or "").strip()
     query = (input_data.get("query") or "").strip()
-    # ActionManager injects _session_id; for spawn_subagent this is the
-    # PARENT task's id (recorded on the SubAgent for traceability).
-    parent_task_id = input_data.get("_session_id")
 
     if not agent_type:
-        return {
-            "status": "error",
-            "result": "",
-            "message": "agent_type is required.",
-        }
+        return {"status": "error", "result": "", "message": "agent_type is required."}
     if not query:
         return {
             "status": "error",
@@ -130,27 +122,27 @@ def spawn_subagent(input_data: dict) -> dict:
             "message": "query is required and must be self-contained.",
         }
 
+    # ActionManager injects _session_id; for spawn_subagent this is the
+    # PARENT task's id (recorded on the SubAgent for traceability).
+    parent_task_id = input_data.get("_session_id")
+
     mgr = InternalActionInterface.subagent_manager
     action_manager = InternalActionInterface.action_manager
     action_library = InternalActionInterface.action_library
     llm = InternalActionInterface.llm_interface
     event_stream_manager = InternalActionInterface.event_stream_manager
 
-    if mgr is None or action_manager is None or action_library is None or llm is None:
+    if (
+        mgr is None
+        or action_manager is None
+        or action_library is None
+        or llm is None
+        or event_stream_manager is None
+    ):
         return {
             "status": "error",
             "result": "",
-            "message": (
-                "Sub-agent runtime is not initialized "
-                "(missing manager / action_manager / action_library / llm). "
-                "Check AgentBase bootstrap."
-            ),
-        }
-    if event_stream_manager is None:
-        return {
-            "status": "error",
-            "result": "",
-            "message": "Sub-agent runtime is missing event_stream_manager.",
+            "message": "Sub-agent runtime is not initialized. Check AgentBase bootstrap.",
         }
 
     try:
@@ -160,11 +152,7 @@ def spawn_subagent(input_data: dict) -> dict:
             parent_task_id=parent_task_id,
         )
     except ValueError as e:
-        return {
-            "status": "error",
-            "result": "",
-            "message": str(e),
-        }
+        return {"status": "error", "result": "", "message": str(e)}
 
     runner = SubAgentRunner(
         subagent_manager=mgr,
@@ -174,31 +162,20 @@ def spawn_subagent(input_data: dict) -> dict:
         llm_interface=llm,
     )
 
-    # Runner's own ``finally`` block calls ``mgr.release(sub.id)`` so the
-    # child stream and any session caches are torn down even on failure.
-    # We deliberately do NOT log a fallback ``subagent_end`` event from this
-    # action body — by the time we reach it the child stream is already
-    # gone, and logging with task_id=sub.id would leak the event into the
-    # parent's main stream (the very contamination we're trying to avoid).
+    # The runner's ``finally`` block always calls ``mgr.release(sub.id)``,
+    # which drops the per-sub-agent event stream and session caches. By the
+    # time control returns here, those resources are gone — so on a crash
+    # path we MUST NOT call ``mgr.end()`` (its ``subagent_end`` log would
+    # have nowhere valid to go and would leak into the parent's main
+    # stream). Update ``sub`` in memory instead.
+    #
+    # The action body runs inside ``ActionExecutor``'s thread pool — there
+    # is no event loop in that thread, so ``asyncio.run`` is the correct
+    # entry point (nest_asyncio compatibility is irrelevant here).
     try:
-        try:
-            asyncio.run(runner.run_to_completion(sub))
-        except RuntimeError as e:
-            # asyncio.run fails if there's already a running loop — fall
-            # back to scheduling on the current loop. nest_asyncio is
-            # applied in agent_core.core.impl.action.manager, so this is
-            # safe.
-            err_msg = str(e).lower()
-            if "already running" in err_msg or "cannot be called" in err_msg:
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(runner.run_to_completion(sub))
-            else:
-                raise
+        asyncio.run(runner.run_to_completion(sub))
     except Exception as e:
         logger.exception(f"[spawn_subagent] runner crashed for {sub.id}: {e}")
-        # Update in-memory state silently. Stream is already released by
-        # the runner's finally block, so we must NOT call ``mgr.end()``
-        # (which would log subagent_end and leak the event to main).
         if sub.status not in SUBAGENT_TERMINAL_STATUSES:
             sub.status = "error"
             sub.result = f"(sub-agent runner crashed: {e})"
