@@ -32,6 +32,10 @@ if TYPE_CHECKING:
     from app.gui.gui_module import GUIModule
     from app.scheduler import SchedulerManager
     from app.proactive import ProactiveManager
+    from app.subagent.manager import SubAgentManager
+    from app.event_stream import EventStreamManager
+    from agent_core.core.impl.action.manager import ActionManager
+    from agent_core.core.impl.action.library import ActionLibrary
 
 
 class InternalActionInterface:
@@ -54,6 +58,12 @@ class InternalActionInterface:
     scheduler: Optional["SchedulerManager"] = None
     proactive_manager: Optional["ProactiveManager"] = None
     ui_adapter: Optional[Any] = None  # Reference to UI adapter (browser, CLI, etc.)
+    # Sub-agent runtime — set during AgentBase.__init__. Used by
+    # spawn_subagent / sub_task_end actions.
+    subagent_manager: Optional["SubAgentManager"] = None
+    action_manager: Optional["ActionManager"] = None
+    action_library: Optional["ActionLibrary"] = None
+    event_stream_manager: Optional["EventStreamManager"] = None
 
     @classmethod
     def initialize(
@@ -69,6 +79,10 @@ class InternalActionInterface:
         memory_manager: MemoryManager | None = None,
         scheduler: Optional["SchedulerManager"] = None,
         ui_adapter: Optional[Any] = None,
+        subagent_manager: Optional["SubAgentManager"] = None,
+        action_manager: Optional["ActionManager"] = None,
+        action_library: Optional["ActionLibrary"] = None,
+        event_stream_manager: Optional["EventStreamManager"] = None,
     ):
         """
         Register the shared interfaces that actions depend on.
@@ -88,6 +102,10 @@ class InternalActionInterface:
         cls.memory_manager = memory_manager
         cls.scheduler = scheduler
         cls.ui_adapter = ui_adapter
+        cls.subagent_manager = subagent_manager
+        cls.action_manager = action_manager
+        cls.action_library = action_library
+        cls.event_stream_manager = event_stream_manager
 
     @classmethod
     def set_ui_adapter(cls, ui_adapter: Any) -> None:

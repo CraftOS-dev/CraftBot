@@ -367,6 +367,16 @@ class AgentBase:
         )
         self.memory_file_watcher.start()
 
+        # Sub-agent runtime — owns the lifecycle of in-flight sub-agents.
+        # Kept separate from TaskManager so spawning a sub-agent does NOT
+        # trigger UI/chatserver/SessionStorage side effects.
+        from app.subagent import SubAgentManager
+
+        self.subagent_manager = SubAgentManager(
+            event_stream_manager=self.event_stream_manager,
+            llm_interface=self.llm,
+        )
+
         InternalActionInterface.initialize(
             self.llm,
             self.task_manager,
@@ -376,6 +386,10 @@ class AgentBase:
             video_gen_interface=self.video_gen,
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
+            subagent_manager=self.subagent_manager,
+            action_manager=self.action_manager,
+            action_library=self.action_library,
+            event_stream_manager=self.event_stream_manager,
         )
 
         # Initialize footage callback (will be set by CraftBot interface later)

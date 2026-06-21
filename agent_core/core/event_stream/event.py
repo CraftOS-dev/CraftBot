@@ -129,6 +129,9 @@ class Event:
             fall back to `action_name` when absent.
         action_id: Stable identifier paired across an action's start and
             end events so consumers can correlate them without parsing.
+            Set by ``ActionManager`` (which generates it as ``run_id``
+            internally) so multiple parallel calls of the same action
+            can still be matched start↔end.
         action_input: Structured input payload at action_start.
         action_output: Structured output payload at action_end.
         task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
