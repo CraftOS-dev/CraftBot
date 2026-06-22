@@ -7,37 +7,33 @@ from agent_core import action
 # ``app/subagent/definitions/<your_agent>.py``; this action file stays
 # untouched.
 #
-# These names are referenced only at @action decoration time (module
-# load), never inside the function body, so the "imports inside function
-# body" rule still applies to runtime helpers (see the function body
-# below).
+# IMPORTANT: this action file follows the CraftBot convention that
+# every top-level ``def`` is itself an ``@action``-decorated handler.
+# Do NOT add a sibling top-level helper function here. The internal
+# action executor (agent_core/core/impl/action/executor.py) exec()s the
+# stored action source and picks the FIRST function it finds — a sibling
+# helper would be picked instead of the real action. The description
+# below is therefore built as an inline expression, not via a helper def.
 from app.subagent import list_subagent_names, get_subagent_definition
-
-
-def _build_spawn_description() -> str:
-    """Render the action description from the registry.
-
-    One short intro line, then one bullet per registered sub-agent type
-    pulled from ``SubAgentDefinition.description``. Adding a sub-agent
-    type with a sensible one-liner extends this list automatically.
-    """
-    lines = [
-        "Spawn a sub-agent in an isolated context for ONE job; returns its "
-        "`result`. `query` must be self-contained (sub-agent sees no parent "
-        "context). Parallelizable: emit multiple calls in one decision to "
-        "fan out.",
-        "",
-        "Available agent_types:",
-    ]
-    for name in list_subagent_names():
-        defn = get_subagent_definition(name)
-        lines.append(f"- {name}: {defn.description}")
-    return "\n".join(lines)
 
 
 @action(
     name="spawn_subagent",
-    description=_build_spawn_description(),
+    description="\n".join(
+        [
+            "Spawn a sub-agent in an isolated context for ONE FOCUSED job; "
+            "returns its `result`. `query` must be self-contained (sub-agent "
+            "sees no parent context). PARALLELIZABLE: emit one spawn_subagent "
+            "call PER FOCUSED OBJECTIVE in the SAME decision batch. "
+            "A single sub-agent covering 2+ objectives returns shallow results.",
+            "",
+            "Available agent_types:",
+            *(
+                f"- {name}: {get_subagent_definition(name).description}"
+                for name in list_subagent_names()
+            ),
+        ]
+    ),
     default=True,
     mode="CLI",
     action_sets=["core"],
