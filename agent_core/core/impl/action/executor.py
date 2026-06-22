@@ -292,8 +292,10 @@ def _suppress_worker_stdio():
 
     Returns (saved_stdout_fd, saved_stderr_fd) for later restoration.
     """
-    sys.stdout.flush()
-    sys.stderr.flush()
+    if sys.stdout is not None:
+        sys.stdout.flush()
+    if sys.stderr is not None:
+        sys.stderr.flush()
     devnull_fd = os.open(os.devnull, os.O_WRONLY)
     saved_stdout = os.dup(1)
     saved_stderr = os.dup(2)
