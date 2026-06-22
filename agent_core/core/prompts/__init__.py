@@ -102,13 +102,9 @@ from agent_core.core.prompts.skill import (
     ACTION_SET_SELECTION_PROMPT,
 )
 
-# Sub-agent prompts
-from agent_core.core.prompts.subagent import (
-    SUBAGENT_OUTPUT_FORMAT,
-    RESEARCH_AGENT_SYSTEM_PROMPT,
-    VALIDATION_AGENT_SYSTEM_PROMPT,
-    SUBAGENT_USER_PROMPT_TEMPLATE,
-)
+# Sub-agent prompts now live alongside the sub-agent runtime, in
+# ``app.subagent.definitions`` (per-type system prompts) and
+# ``app.subagent.context_engine`` (shared output-format contract).
 
 __all__ = [
     # Registry
@@ -145,9 +141,4 @@ __all__ = [
     "SKILLS_AND_ACTION_SETS_SELECTION_PROMPT",
     "SKILL_SELECTION_PROMPT",
     "ACTION_SET_SELECTION_PROMPT",
-    # Sub-agent prompts
-    "SUBAGENT_OUTPUT_FORMAT",
-    "RESEARCH_AGENT_SYSTEM_PROMPT",
-    "VALIDATION_AGENT_SYSTEM_PROMPT",
-    "SUBAGENT_USER_PROMPT_TEMPLATE",
 ]

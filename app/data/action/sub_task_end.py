@@ -11,8 +11,9 @@ from agent_core import action
         "of self-references like 'I' or 'as requested'."
     ),
     # Empty action_sets means this action is NOT compiled into any normal
-    # task's action list. It is only reachable because SubAgentRunner injects
-    # it into the per-type frozen action list in SUBAGENT_TYPES.
+    # task's action list. It is only reachable because the sub-agent
+    # registry auto-injects it into every SubAgentDefinition's actions
+    # tuple (see ``app/subagent/registry.py``).
     action_sets=[],
     mode="CLI",
     parallelizable=False,

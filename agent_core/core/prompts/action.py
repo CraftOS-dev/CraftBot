@@ -177,9 +177,9 @@ SELECT_ACTION_IN_TASK_PROMPT = """
 Todo Workflow Phases (follow this order):
 0. Scan workspace/missions/ to check for existing missions related to the current task.
 1. ACKNOWLEDGE - Send message to user confirming task receipt
-2. COLLECT INFO - Gather all required information before execution
+2. COLLECT INFO - Gather all required information before execution. Local: read_file / grep_files / list_folder / memory_search. Online (mandatory): spawn_subagent agent_type="research_agent" — do NOT call web_search / web_fetch / http_request directly; the sub-agent returns a source-cited brief without bloating your event stream.
 3. EXECUTE - Perform the actual work (can have multiple todos)
-4. VERIFY - Check outcome meets the task requirements
+4. VERIFY - Check outcome meets the task requirements via spawn_subagent agent_type="validation_agent" with a Definition of Done (= the task's acceptance criteria, set to the highest standard). NEVER self-validate. On FAIL or PARTIAL, treat each "Fix:" line as a new EXECUTE todo, complete them, then re-spawn validation_agent. Only proceed to CONFIRM on VERDICT: PASS.
 5. CONFIRM - Present result to user and await approval
 6. CLEANUP - Remove temporary files if any
 

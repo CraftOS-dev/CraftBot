@@ -49,7 +49,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 from agent_core.core.impl.llm import LLMCallType
 from app.logger import logger
 from app.subagent.context_engine import SubAgentContextEngine
-from app.subagent.types import SubAgent, get_subagent_config
+from app.subagent.registry import get_subagent_definition
+from app.subagent.types import SubAgent
 
 if TYPE_CHECKING:
     from agent_core.core.impl.action.library import ActionLibrary
@@ -102,13 +103,14 @@ class SubAgentRunner:
         even on exception, so the per-sub-agent event stream and session
         caches don't leak.
         """
-        cfg = get_subagent_config(sub.agent_type)
-        max_iter = cfg["max_iterations"]
-        deadline = time.monotonic() + cfg["max_wall_seconds"]
+        defn = get_subagent_definition(sub.agent_type)
+        max_iter = defn.max_iterations
+        max_wall = defn.max_wall_seconds
+        deadline = time.monotonic() + max_wall
 
         logger.info(
             f"[SubAgentRunner] starting {sub.id} type={sub.agent_type} "
-            f"max_iter={max_iter} max_wall={cfg['max_wall_seconds']}s"
+            f"max_iter={max_iter} max_wall={max_wall}s"
         )
 
         # Register the session cache once for this sub-agent's whole
@@ -128,7 +130,7 @@ class SubAgentRunner:
                     self._terminate_at_iteration_cap(sub, max_iter)
                     break
                 if time.monotonic() > deadline:
-                    self._terminate_at_wall_clock(sub, cfg["max_wall_seconds"])
+                    self._terminate_at_wall_clock(sub, max_wall)
                     break
 
                 await self._run_one_step_safely(sub)

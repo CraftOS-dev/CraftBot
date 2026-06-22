@@ -33,7 +33,8 @@ import uuid
 from typing import Dict, Optional, TYPE_CHECKING
 
 from app.logger import logger
-from app.subagent.types import SubAgent, get_subagent_config
+from app.subagent.registry import get_subagent_definition
+from app.subagent.types import SubAgent
 
 if TYPE_CHECKING:
     from app.event_stream import EventStreamManager
@@ -66,7 +67,9 @@ class SubAgentManager:
         Register a new sub-agent and set up its isolated event stream.
 
         Args:
-            agent_type: One of the keys in :data:`SUBAGENT_TYPES`.
+            agent_type: Name of a sub-agent type registered in
+                :mod:`app.subagent.registry` (one of the files under
+                :mod:`app.subagent.definitions`).
             query: The full instruction for the sub-agent. Must be
                 self-contained — the sub-agent has no access to the
                 parent's context.
@@ -76,7 +79,7 @@ class SubAgentManager:
         Returns:
             The newly created :class:`SubAgent`.
         """
-        cfg = get_subagent_config(agent_type)
+        defn = get_subagent_definition(agent_type)
 
         sub_id = f"sub_{uuid.uuid4().hex[:8]}"
         sub = SubAgent(
@@ -84,7 +87,7 @@ class SubAgentManager:
             agent_type=agent_type,
             parent_task_id=parent_task_id,
             query=query,
-            compiled_actions=list(cfg["actions"]),
+            compiled_actions=defn.compiled_actions,
         )
         self.subagents[sub_id] = sub
 

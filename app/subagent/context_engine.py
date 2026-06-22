@@ -15,7 +15,8 @@ that intentionally OMITS:
 - LANGUAGE_INSTRUCTION
 
 A sub-agent sees only:
-- its type-specific system prompt (with the action list interpolated)
+- its type-specific system prompt (with the action list and the shared
+  output-format contract interpolated)
 - its query
 - its own per-sub-agent event log snapshot
 
@@ -35,27 +36,28 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agent_core.core.action_framework import format_actions_by_name
-from agent_core.core.prompts import (
-    get_prompt,
-    RESEARCH_AGENT_SYSTEM_PROMPT,
-    VALIDATION_AGENT_SYSTEM_PROMPT,
-    SUBAGENT_OUTPUT_FORMAT,
-)
-from app.subagent.types import SubAgent, get_subagent_config
+from app.subagent.registry import get_subagent_definition
+from app.subagent.types import SubAgent
 
 if TYPE_CHECKING:
     from agent_core.core.impl.action.library import ActionLibrary
     from app.event_stream import EventStreamManager
 
 
-# Default prompt text indexed by registry key. ``get_prompt(key, default)``
-# returns whichever ``PromptRegistry`` has registered for ``key``, falling
-# back to the value here when nothing is registered.
-_DEFAULT_PROMPTS = {
-    "RESEARCH_AGENT_SYSTEM_PROMPT": RESEARCH_AGENT_SYSTEM_PROMPT,
-    "VALIDATION_AGENT_SYSTEM_PROMPT": VALIDATION_AGENT_SYSTEM_PROMPT,
+# Shared output-format contract injected into every sub-agent's system
+# prompt via the ``{output_format}`` placeholder. This is the wire format
+# the runner expects back on every turn — keep it stable.
+SUBAGENT_OUTPUT_FORMAT = """\
+On every turn you MUST reply with ONLY a JSON object in this exact shape:
+
+{
+  "reasoning": "<one short sentence on why you chose this action>",
+  "action_name": "<one of the allowed action names below>",
+  "parameters": { <input schema for that action> }
 }
 
+No prose, no markdown fences, no extra keys. One action per turn.
+"""
 
 _DECIDE_NUDGE = "Decide your next action now. Reply with the JSON object only."
 
@@ -78,27 +80,22 @@ class SubAgentContextEngine:
     def make_system_prompt(self, sub: SubAgent) -> str:
         """Build the type-specific system prompt for ``sub``.
 
-        Stable across all turns of a given sub-agent. Suitable as the
-        ``system_prompt_for_new_session`` argument when calling
+        Pulls the template from the registered :class:`SubAgentDefinition`
+        and fills in:
+        - ``{action_list}`` — compact JSON description of the allowed actions
+        - ``{output_format}`` — shared :data:`SUBAGENT_OUTPUT_FORMAT` block
+
+        Stable across all turns of a given sub-agent; suitable as
+        ``system_prompt_for_new_session`` when calling
         ``LLMInterface.generate_response_with_session_async``.
         """
-        cfg = get_subagent_config(sub.agent_type)
-        key = cfg["system_prompt_key"]
-        template = get_prompt(key, default=_DEFAULT_PROMPTS.get(key, ""))
-        if not template:
-            raise RuntimeError(
-                f"No system prompt registered for sub-agent type "
-                f"{sub.agent_type!r} (registry key {key!r})."
-            )
-
-        # Compact action list, same format as ActionRouter._format_candidates.
+        defn = get_subagent_definition(sub.agent_type)
         action_list_str = format_actions_by_name(
             sub.compiled_actions,
             self.action_library,
             on_missing="[SubAgentContextEngine]",
         )
-
-        return template.format(
+        return defn.system_prompt.format(
             action_list=action_list_str,
             output_format=SUBAGENT_OUTPUT_FORMAT,
         )
@@ -141,4 +138,4 @@ class SubAgentContextEngine:
         )
 
 
-__all__ = ["SubAgentContextEngine"]
+__all__ = ["SubAgentContextEngine", "SUBAGENT_OUTPUT_FORMAT"]

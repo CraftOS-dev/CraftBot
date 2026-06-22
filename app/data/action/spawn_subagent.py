@@ -1,26 +1,43 @@
 from agent_core import action
 
+# Importing the sub-agent package triggers ``app.subagent.definitions`` to
+# load, which populates the registry. We use the populated registry below
+# to build the action's description and ``agent_type`` enum dynamically —
+# adding a new sub-agent type then only requires editing
+# ``app/subagent/definitions/<your_agent>.py``; this action file stays
+# untouched.
+#
+# These names are referenced only at @action decoration time (module
+# load), never inside the function body, so the "imports inside function
+# body" rule still applies to runtime helpers (see the function body
+# below).
+from app.subagent import list_subagent_names, get_subagent_definition
+
+
+def _build_spawn_description() -> str:
+    """Render the action description from the registry.
+
+    One short intro line, then one bullet per registered sub-agent type
+    pulled from ``SubAgentDefinition.description``. Adding a sub-agent
+    type with a sensible one-liner extends this list automatically.
+    """
+    lines = [
+        "Spawn a sub-agent in an isolated context for ONE job; returns its "
+        "`result`. `query` must be self-contained (sub-agent sees no parent "
+        "context). Parallelizable: emit multiple calls in one decision to "
+        "fan out.",
+        "",
+        "Available agent_types:",
+    ]
+    for name in list_subagent_names():
+        defn = get_subagent_definition(name)
+        lines.append(f"- {name}: {defn.description}")
+    return "\n".join(lines)
+
 
 @action(
     name="spawn_subagent",
-    description=(
-        "Spawn a focused sub-agent in an ISOLATED context to do ONE job, "
-        "then return its `result` to you. The sub-agent has its own event "
-        "stream, its own (short) system prompt, and a hard-coded small action "
-        "list — it cannot see your task's context. So `query` must be fully "
-        "self-contained.\n\n"
-        "Available agent_types:\n"
-        "- research_agent: online research. Returns a markdown answer with "
-        "  inline source links.\n"
-        "- validation_agent: validate an artifact, output, or claim against "
-        "  criteria. Returns a VERDICT (PASS/FAIL/PARTIAL) plus per-criterion "
-        "  evidence.\n\n"
-        "Use this to:\n"
-        "- Save tokens (fan-out heavy reads into the sub-agent's stream, not yours).\n"
-        "- Parallelize (this action is parallelizable; multiple sub-agents run "
-        "  concurrently).\n"
-        "- Keep your event stream focused (only the `result` comes back)."
-    ),
+    description=_build_spawn_description(),
     default=True,
     mode="CLI",
     action_sets=["core"],
@@ -29,31 +46,28 @@ from agent_core import action
     input_schema={
         "agent_type": {
             "type": "string",
-            "enum": ["research_agent", "validation_agent"],
-            "example": "research_agent",
+            # Enum built from the registry so new types are picked up
+            # automatically. The per-type description above tells the
+            # spawning agent how each one behaves.
+            "enum": list_subagent_names(),
             "description": (
-                "research_agent for online research. validation_agent for "
-                "checking an artifact against criteria."
+                "Which sub-agent type to spawn. See the per-type lines in "
+                "this action's description for what each one does."
             ),
         },
         "query": {
             "type": "string",
-            "example": (
-                "Find the current stable Python version, its release date, "
-                "and a link to the official changelog. Return as a markdown "
-                "bullet list with inline source links."
-            ),
             "description": (
-                "Fully self-contained instruction for the sub-agent. Include "
-                "ALL needed context: file paths, URLs, criteria, expected output "
-                "format. The sub-agent has zero context beyond this string."
+                "Fully self-contained instruction for the sub-agent. NO "
+                "context from your task carries over — include every file "
+                "path, URL, identifier, criterion, and output-shape "
+                "requirement the sub-agent needs."
             ),
         },
     },
     output_schema={
         "status": {
             "type": "string",
-            "example": "completed",
             "description": (
                 "Terminal status of the sub-agent: 'completed', 'failed', "
                 "'timeout', or 'error'."
@@ -61,13 +75,10 @@ from agent_core import action
         },
         "result": {
             "type": "string",
-            "example": (
-                "- Python 3.13.1, released 2024-12-03. "
-                "Source: [python.org](https://www.python.org/downloads/)."
-            ),
             "description": (
                 "The sub-agent's final output. This is the only field you "
-                "should act on — everything else is metadata."
+                "should act on — everything else is metadata. Shape depends "
+                "on agent_type (see this action's description)."
             ),
         },
         "child_task_id": {

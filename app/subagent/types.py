@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Sub-agent data types and per-type registry.
+Sub-agent runtime types.
+
+Per-type configuration (system prompt, allowed actions, runtime caps)
+lives in :mod:`app.subagent.definitions`, with one file per sub-agent
+type registered via :mod:`app.subagent.registry`. This module holds
+only the runtime objects that are agnostic to type.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, TypedDict
+from typing import List, Optional
 
 
 # ============================================================================
@@ -77,82 +82,8 @@ class SubAgent:
         self.ended_at = datetime.utcnow().isoformat()
 
 
-# ============================================================================
-# Per-type registry
-# ============================================================================
-
-
-class SubAgentConfig(TypedDict):
-    """Frozen per-type configuration for a sub-agent.
-
-    Fields:
-        system_prompt_key: Name in :data:`agent_core.core.prompts.PromptRegistry`
-            that may override the default. The default value is the
-            module-level constant referenced by this key in
-            ``agent_core/core/prompts/subagent.py``.
-        actions: Frozen list of action names this type may invoke. The runner
-            refuses any action outside this set.
-        max_iterations: Hard cap on action turns before the runner ends the
-            sub-agent as ``failed``.
-        max_wall_seconds: Hard cap on wall-clock execution before the runner
-            ends the sub-agent as ``timeout``.
-    """
-
-    system_prompt_key: str
-    actions: List[str]
-    max_iterations: int
-    max_wall_seconds: int
-
-
-# Adding a new type means: add an entry here, define its prompt in
-# ``agent_core/core/prompts/subagent.py``, and make sure every action in its
-# ``actions`` list is registered in the action library.
-SUBAGENT_TYPES: Dict[str, SubAgentConfig] = {
-    "research_agent": {
-        "system_prompt_key": "RESEARCH_AGENT_SYSTEM_PROMPT",
-        "actions": [
-            "web_search",
-            "web_fetch",
-            "http_request",
-            "convert_to_markdown",
-            "sub_task_end",
-        ],
-        "max_iterations": 20,
-        "max_wall_seconds": 300,
-    },
-    "validation_agent": {
-        "system_prompt_key": "VALIDATION_AGENT_SYSTEM_PROMPT",
-        "actions": [
-            "read_file",
-            "find_files",
-            "grep_files",
-            "list_folder",
-            "run_python",
-            "run_shell",
-            "sub_task_end",
-        ],
-        "max_iterations": 25,
-        "max_wall_seconds": 600,
-    },
-}
-
-
-def get_subagent_config(agent_type: str) -> SubAgentConfig:
-    """Look up a sub-agent type's config or raise ``ValueError``."""
-    cfg = SUBAGENT_TYPES.get(agent_type)
-    if cfg is None:
-        raise ValueError(
-            f"Unknown sub-agent type: {agent_type!r}. "
-            f"Known types: {sorted(SUBAGENT_TYPES.keys())}"
-        )
-    return cfg
-
-
 __all__ = [
     "SUBAGENT_MODE",
     "SUBAGENT_TERMINAL_STATUSES",
     "SubAgent",
-    "SubAgentConfig",
-    "SUBAGENT_TYPES",
-    "get_subagent_config",
 ]
