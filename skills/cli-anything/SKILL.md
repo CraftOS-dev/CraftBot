@@ -263,7 +263,7 @@ cli-hub install <cli-hub-name>
 ```
 (Two separate run_shell calls — do NOT chain with &&)
 
-If CLI-Hub fails → generate a minimal harness with `write_file` (a Click CLI wrapping the app's real scripting API), then run with `timeout: 60`:
+If CLI-Hub fails → generate a minimal harness with `run_shell` (write the Click CLI wrapping the app's real scripting API into a file via the host shell — e.g. PowerShell `Set-Content`; for anything beyond a few lines write the source into a script file rather than a huge inline command), then run with `timeout: 60`:
 ```
 pip install -e cli_anything/<appname> --quiet
 ```

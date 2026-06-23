@@ -148,7 +148,7 @@ and an absolute `project_path`. There are two cases:
 - Treat `project_path` as the base for **every** file operation. The relative paths in
   this skill (`backend/models.py`, `frontend/components/`, `LIVING_UI.md`, etc.) are
   relative to `project_path`.
-- When calling `write_file`, `read_file`, or running tests, use the **absolute path**:
+- When creating files (via `run_shell`), calling `read_file`, or running tests, use the **absolute path**:
   `{project_path}/backend/models.py`, `{project_path}/frontend/components/MainView.tsx`,
   `cd {project_path}/backend && python -m pytest tests/`.
 - **NEVER write to bare relative paths** like `backend/models.py` — they land in the

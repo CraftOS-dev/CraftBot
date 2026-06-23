@@ -488,7 +488,7 @@ There are four failure types. Identify which one you are in, then follow the mat
 
 **File / shell / Python action returns `status=error`**
 - Read the `message` field. It often points at the fix (file not found, permission, syntax error, missing dep).
-- If the message says missing dependency for `run_python` / `run_shell`, install it via `pip install`/`npm install` in a follow-up `run_shell` call (auto-installed in sandboxed mode for declared `requirements`, but ad-hoc imports require explicit install).
+- If the message says a missing dependency while running a script via `run_shell` (e.g. a Python `ModuleNotFoundError`), install it with `pip install`/`npm install` in a follow-up `run_shell` call.
 - If it says path not found, `find_files` or `list_folder` to locate before retry.
 
 **Web / fetch action returns error**
@@ -662,9 +662,8 @@ If the log shows                               then
 [LIMIT] ... 100% ... Waiting for user choice   task is paused. Do not issue actions
                                                until next trigger. See ## Errors above.
 
-ModuleNotFoundError in run_python output       the script needs a dependency. Install
-                                               via run_shell "pip install <pkg>" or
-                                               declare in action requirements.
+ModuleNotFoundError from a run_shell script    the script needs a dependency. Install
+                                               it via run_shell "pip install <pkg>" first.
 
 PermissionError / OSError on file write        the path is wrong, locked, or outside
                                                the allowed scope. Verify with
@@ -714,7 +713,7 @@ You're blocked when you don't know what to do next AND retrying won't help. The 
 - **Ignoring `"warning"` events** about action/token limits. The harness will pause your task soon — get ahead of it. At 80%, wrap up or send the partial result.
 - **Continuing to issue actions while limit-paused (100%).** They will not fire. The user is being shown a Continue/Abort dialog. Wait for the next trigger.
 - **Trying to retry after `LLMConsecutiveFailureError`.** The task is already cancelled by `_handle_react_error`. Do NOT recreate it. Tell the user the LLM configuration needs attention.
-- **Catching exceptions in `run_python` / `run_shell` and printing "ok".** The harness sees `status=success` if your script swallows the error. Always propagate non-zero exit codes / raise on failure.
+- **Catching exceptions in a `run_shell` script and printing "ok".** The harness sees `status=success` if your script swallows the error. Always propagate non-zero exit codes / raise on failure.
 - **Fabricating success messages on failure.** Forbidden. If you couldn't read the file or call the API, do not paraphrase what you "would have" produced.
 - **Asking open-ended "what should I do" questions.** Always one specific question with an implied default ("Use the bot token from settings.oauth.slack, or reuse the existing /slack login session?").
 - **Self-detected logical loops.** The consecutive-failure breaker only catches LLM-call failures. If you keep choosing slightly different params for the same action and getting the same business-logic error (e.g., "user not found" three times with three different IDs you guessed), that is a logical loop. Stop and ask the user.
@@ -746,18 +745,28 @@ Supported parameters: `glob`, `file_type`, `before_context` / `after_context`, `
 
 Full input schema: [app/data/action/grep_files.py](app/data/action/grep_files.py).
 
-### stream_read + stream_edit
-- Use as a pair when modifying an existing file.
-- `stream_read` returns the exact bytes.
+### stream_edit
+- Use when modifying an existing file (read it with `read_file` first).
 - `stream_edit` applies a precise diff.
-- Preferred over `write_file` for edits. Preserves unrelated content and avoids whole-file overwrites.
+- Preferred over a whole-file rewrite for edits. Preserves unrelated content and avoids clobbering the rest of the file.
 
-### write_file
-Use only when:
-- Creating a brand new file, OR
-- Doing a deliberate full rewrite of a small file.
+### Creating new files
+There is no dedicated write action. To create a new file (or do a deliberate
+full rewrite of a small one), write it with `run_shell` using the host shell —
+e.g. PowerShell `Set-Content` / `Add-Content` on Windows.
 
-Never use `write_file` to patch an existing large file. Use `stream_edit`.
+For large files (long documents, scripts, datasets), DO NOT try to emit the
+whole file in one step. Each action is a single model response bounded by the
+output-token limit, and a long inline command also exceeds the shell's
+command-line limit (cmd ~8 KB). Build the file incrementally instead:
+1. Create the file with the first chunk (`Set-Content`).
+2. Append the next section with `Add-Content` — one bounded chunk per step.
+3. Repeat until the content is complete.
+4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`), or for a PDF build the markdown then convert it with `create_pdf`.
+Keep each chunk small — roughly ~150 lines (a few KB) at most — so it fits
+comfortably within one response's output-token budget.
+
+Never rewrite an existing large file this way — use `stream_edit` to patch it.
 
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
@@ -1092,7 +1101,7 @@ This is non-optional. Generating documents without reading FORMAT.md produces in
 Document generation actions in the standard action set:
 ```
 create_pdf              build a PDF from markdown / text
-                        (preferred over rendering via run_python)
+                        (preferred over rendering a PDF yourself with a script)
 convert_to_markdown     normalize office formats before further processing
 read_pdf                read a PDF with page support
 ```
@@ -1283,7 +1292,7 @@ parallelizable   bool  default True. False = action runs alone in its turn (writ
 Key implications when reading an action:
 - `mode="CLI"` actions exist (e.g. `read_file`, `task_start`). They are loaded by default.
 - `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `task_update_todos`, `add_action_sets`, `remove_action_sets`.
-- `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. `run_python` is sandboxed; most other actions are internal.
+- `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
 - `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `task_start`, `send_message`, `ignore`. Prefer adding to an `action_sets` list over using `default=True`.
 
 ### Built-in action categories (orientation only — read source for current state)
@@ -1295,10 +1304,10 @@ core                     send_message, task_start, task_end, task_update_todos, 
                          list_available_integrations, connect_integration,
                          check_integration_status, disconnect_integration
 
-file_operations          read_file, grep_files, find_files, list_folder, stream_edit, write_file,
+file_operations          read_file, grep_files, find_files, list_folder, stream_edit,
                          read_pdf, convert_to_markdown, create_pdf
 
-shell                    run_shell, run_python
+shell                    run_shell
 
 web_research             web_fetch, web_search, http_request
 
@@ -1617,7 +1626,7 @@ You may also encounter MCP server entries that point at standalone JSON files; t
     [CONFIG_WATCHER] / [MCP] / [SETTINGS] errors
 ```
 
-Use `stream_edit`, never `write_file`, on configs. A whole-file rewrite risks losing unrelated keys the runtime relies on (e.g. `api_keys_configured` bookkeeping, your own `oauth` clients).
+Use `stream_edit`, never a whole-file rewrite, on configs. Rewriting the file risks losing unrelated keys the runtime relies on (e.g. `api_keys_configured` bookkeeping, your own `oauth` clients).
 
 If the file is malformed JSON after your edit, the reload fails and the previous in-memory config keeps running. Read the file back and fix the syntax. `[SETTINGS] JSONDecodeError` will appear in the log.
 
@@ -1997,7 +2006,7 @@ See `## Proactive`.
   disable it via config.
 - The watcher subscribes to parent DIRECTORIES, so creating a new file in app/config/
   is detected, but the file must be explicitly registered for any reload to fire.
-- Sandboxed actions (run_python with requirements) install their packages on first
+- Sandboxed actions (those declaring `requirements`) install their packages on first
   call, NOT on config save. The config has no effect on action sandboxes.
 
 ---
@@ -2382,7 +2391,7 @@ This skill walks through the scaffold (writes the SKILL.md, sets up the director
 **3. Author by hand.**
 ```
 1. mkdir skills/<name>
-2. write_file skills/<name>/SKILL.md
+2. run_shell to create skills/<name>/SKILL.md
    (use the format above; copy a similar existing skill as template)
 3. stream_edit app/config/skills_config.json to add to enabled_skills
 4. wait ~0.5s for hot-reload
@@ -3241,7 +3250,7 @@ Option 3: Manual trigger (if user requests)
 
 ### Hard rules
 
-- You MUST NOT `stream_edit` or `write_file` MEMORY.md. Only the memory processor writes there.
+- You MUST NOT `stream_edit` or otherwise write to MEMORY.md. Only the memory processor writes there.
 - You MUST NOT edit EVENT.md, EVENT_UNPROCESSED.md, CONVERSATION_HISTORY.md, or TASK_HISTORY.md.
 - You MAY edit USER.md (with user confirmation, see `## Self-Edit`).
 - You MAY edit AGENT.md (with caution, see `## Self-Edit`).
@@ -4089,7 +4098,7 @@ Agent:
 **Example 4: Repeated friction recognized over many tasks**
 ```
 You've noticed across 5+ tasks that whenever you generate a PDF, you keep
-forgetting to call create_pdf vs trying to render via run_python first.
+forgetting to call create_pdf vs trying to render the PDF with a script first.
 
 Agent (when starting an unrelated PDF task and noticing the pattern):
   1. RECOGNIZE: pattern of forgetting the right action.
@@ -4277,7 +4286,7 @@ If you can't pick one cleanly, the change isn't well-scoped yet. Ask the user be
 ```
 1. Read the section you want to change (and its neighbors) so your edit
    matches the surrounding tone and structure.
-2. stream_edit AGENT.md (NEVER write_file; you'd lose the rest of the file).
+2. stream_edit AGENT.md (NEVER do a whole-file rewrite; you'd lose the rest of the file).
 3. Bump the `version:` line in the front matter when the change is material.
 4. Sync to template: also stream_edit app/data/agent_file_system_template/AGENT.md
    so new installs get the upgrade. Both files must stay byte-identical.

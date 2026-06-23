@@ -37,7 +37,7 @@ The target skill exists. Your job is to edit it in place. The action trace is th
 
 Two artefacts, in order:
 
-1. **Targeted edits** to exactly one file: the path given by `Target file:` in your task instruction (an absolute path under the project's `skills/` directory). Pass that path verbatim to `stream_edit`. Do not use `create_file` / `write_file` — those overwrite. Do not write any other files. Do not change the directory layout. Do not delete bundled resources in `scripts/`, `references/`, or `assets/`.
+1. **Targeted edits** to exactly one file: the path given by `Target file:` in your task instruction (an absolute path under the project's `skills/` directory). Pass that path verbatim to `stream_edit`. Do not do a whole-file rewrite of it — that clobbers the rest of the file. Do not write any other files. Do not change the directory layout. Do not delete bundled resources in `scripts/`, `references/`, or `assets/`.
 2. **One presentation message** to the user via `send_message`, immediately after the edits and immediately before `task_end`. See *Presentation message* below for the format.
 
 Do not send any chat message other than the single presentation one — the handler has already posted the "Improving skill …" acknowledgement.
@@ -176,13 +176,13 @@ Rules:
 
 `read_file`, `stream_edit`, `send_message`, `task_update_todos`, `task_end`.
 
-`create_file` / `write_file` are forbidden in this workflow — see *Improvement constraints* above.
+A whole-file rewrite is forbidden in this workflow — see *Improvement constraints* above.
 
 ## Forbidden
 
 - More than one `send_message` call. The presentation message above is the only one.
-- `create_file`, `write_file` — those overwrite. Use `stream_edit`.
-- `web_search`, `run_shell`, `run_python` — outside `file_operations` + `core`.
+- A whole-file rewrite — that overwrites. Use `stream_edit`.
+- `web_search`, `run_shell` — outside `file_operations` + `core`.
 - Writing or modifying any file outside `skills/<target-skill>/SKILL.md`.
 - Renaming the skill directory or the `name` frontmatter field.
 - Deleting bundled resources in `scripts/`, `references/`, or `assets/`.

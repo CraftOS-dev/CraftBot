@@ -151,7 +151,7 @@ and any context gathered from the conversation]
 
 ## FORBIDDEN Actions
 
-Do NOT use: `run_shell`, `run_python`, `write_file`, `create_file`, `web_search`
+Do NOT use: `run_shell`, `create_file`, `web_search`
 
 ## Example Interaction
 

@@ -934,7 +934,7 @@ def create_memory_processing_task(
         The task ID of the created task
     """
     instruction = (
-        "SILENT BACKGROUND TASK - NEVER use send_message or run_python. "
+        "SILENT BACKGROUND TASK - NEVER use send_message or run_shell. "
         "Read agent_file_system/EVENT_UNPROCESSED.md. "
         "DISTILL (rewrite, don't copy) into agent_file_system/MEMORY.md. "
         "Format: [YYYY-MM-DD HH:MM:SS] [category] Subject predicate object. "
