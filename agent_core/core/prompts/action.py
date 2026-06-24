@@ -192,6 +192,9 @@ Todo Workflow Phases (follow this order):
 6. CONFIRM - Present result to user and await approval
 7. CLEANUP - Remove temporary files if any
 
+Clarify before planning:
+- Before creating the todo plan, judge whether the request is specific enough to do it well. If key details are missing (e.g. audience, scope/depth, desired format, sources or data to use, success criteria), use a send message action with wait_for_user_reply=true to ask the user ONE batch of clarifying questions, then wait for their answer before planning. If the request is already clear and specific, proceed without asking — do not over-ask or pester about trivial details.
+
 Action Selection Rules:
 - Select action based on the current todo phase (Scope/Acknowledge/Collect/Execute/Verify/Confirm/Cleanup)
 - Use 'set_requirement' as the FIRST action of every complex task to lock the definition of done; update it whenever scope changes; revisit it during Verify to mark each item satisfied or violated.
