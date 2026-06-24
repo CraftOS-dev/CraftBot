@@ -30,17 +30,6 @@ from agent_core.core.prompts import (
 from agent_core.core.state import get_state, get_session_or_none
 
 
-# Import memory mode check (deferred to avoid circular imports)
-def _is_memory_enabled() -> bool:
-    """Check if memory mode is enabled. Returns True if unknown."""
-    try:
-        from app.ui_layer.settings.memory_settings import is_memory_enabled
-
-        return is_memory_enabled()
-    except ImportError:
-        return True  # Default to enabled if settings module not available
-
-
 # Set up logger - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
 
@@ -597,117 +586,6 @@ class ContextEngine:
     def get_user_info(self) -> str:
         """Get current user info for user prompts (WCA-specific via hook)."""
         return self._get_user_info()
-
-    def _build_memory_query(
-        self, query: Optional[str], session_id: Optional[str]
-    ) -> Optional[str]:
-        """Build a semantic query for memory retrieval.
-
-        Priority: latest user message → task instruction → explicit query.
-        Agent messages are deliberately excluded — they often restate or
-        drift to adjacent topics and were observed dominating the embedding
-        (a long proactive-tasks reply poisoned a follow-up MCP question).
-        """
-        latest_user_message = self._get_latest_user_message(session_id)
-        if latest_user_message:
-            return latest_user_message
-
-        session = get_session_or_none(session_id)
-        current_task = (
-            session.current_task if session and session.current_task
-            else get_state().current_task
-        )
-        if current_task and current_task.instruction:
-            return current_task.instruction
-
-        return query or None
-
-    def _get_latest_user_message(self, session_id: Optional[str]) -> str:
-        """Return the most recent user message text, or empty string if none.
-
-        Walks the conversation-history buffer from newest to oldest and returns
-        the first event whose kind contains 'user message'. Agent messages are
-        skipped entirely.
-        """
-        try:
-            event_stream_manager = self.state_manager.event_stream_manager
-            if not event_stream_manager:
-                return ""
-
-            recent_messages = event_stream_manager.get_recent_conversation_messages(
-                limit=20
-            )
-            if not recent_messages:
-                return ""
-
-            for event in reversed(recent_messages):
-                if "user message" in event.kind and event.message:
-                    return event.message.strip()
-            return ""
-
-        except Exception as e:
-            logger.warning(f"[MEMORY] Failed to get latest user message: {e}")
-            return ""
-
-    def get_memory_context(
-        self,
-        query: Optional[str] = None,
-        top_k: int = 5,
-        session_id: Optional[str] = None,
-    ) -> str:
-        """Get relevant memories for inclusion in prompts.
-
-        Args:
-            query: Optional query string for memory retrieval. If not provided,
-                   uses current task instruction combined with recent conversation.
-            top_k: Number of top memories to retrieve.
-            session_id: Optional session ID for session-specific state lookup.
-        """
-        if not self._memory_manager:
-            return ""
-
-        # Check if memory is enabled in settings
-        if not _is_memory_enabled():
-            return ""
-
-        # Build semantic query from task instruction + recent conversation
-        # This provides better context than using the raw trigger description
-        memory_query = self._build_memory_query(query, session_id)
-        if not memory_query:
-            return ""
-
-        try:
-            pointers = self._memory_manager.retrieve(
-                memory_query, top_k=top_k, min_relevance=0.3
-            )
-
-            if not pointers:
-                return ""
-
-            lines = ["<relevant_memories>"]
-            lines.append(
-                "Historical context from previous interactions (verify against current event stream):"
-            )
-            lines.append("")
-
-            for ptr in pointers:
-                lines.append(
-                    f"- [{ptr.file_path}] {ptr.section_path}: {ptr.summary} "
-                    f"(relevance: {ptr.relevance_score:.2f})"
-                )
-
-            lines.append("")
-            lines.append(
-                "Note: Memories may be outdated. Trust current event stream over memories if they conflict."
-            )
-            lines.append("Use memory_search action to retrieve full content if needed.")
-            lines.append("</relevant_memories>")
-
-            return "\n".join(lines)
-
-        except Exception as e:
-            logger.warning(f"[MEMORY] Failed to retrieve memory context: {e}")
-            return ""
 
     # ──────────────────────── USER MESSAGE COMPONENTS ────────────────────────
 

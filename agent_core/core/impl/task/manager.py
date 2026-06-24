@@ -373,6 +373,14 @@ class TaskManager:
             task_id=task_id,
         )
 
+        # Inject memory event into the new task's stream. Uses the task
+        # instruction as the query — for user-spawned tasks this is usually
+        # the LLM's expansion of the user message; for proactive / scheduled
+        # tasks it's the trigger description. inject_memory_event no-ops if
+        # nothing passes min_relevance, so noise is filtered automatically.
+        from agent_core.core.impl.memory.injector import inject_memory_event
+        inject_memory_event(query=task_instruction, session_id=task_id)
+
         self._set_agent_property("current_task_id", task_id)
 
         # Call chatserver hook if provided (WCA)
