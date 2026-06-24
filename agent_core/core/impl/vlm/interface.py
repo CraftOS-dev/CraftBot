@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
+from agent_core.utils.token import billable_tokens
 from agent_core.core.hooks import (
     GetTokenCountHook,
     SetTokenCountHook,
@@ -289,7 +290,7 @@ class VLMInterface:
             tokens_used = response.get("tokens_used", 0)
             if tokens_used:
                 current_count = self._get_token_count()
-                self._set_token_count(current_count + tokens_used)
+                self._set_token_count(current_count + billable_tokens(response))
 
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
@@ -478,7 +479,7 @@ class VLMInterface:
         )
         tokens_used = result.get("tokens_used", 0)
         if tokens_used:
-            self._set_token_count(self._get_token_count() + tokens_used)
+            self._set_token_count(self._get_token_count() + billable_tokens(result))
         return re.sub(self._CODE_BLOCK_RE, "", result.get("content", "").strip())
 
     def _multi_frame_describe_fallback(

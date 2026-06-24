@@ -120,6 +120,17 @@ if all_tables:
 
 ### reportlab - Create PDFs
 
+> **Content first — these libraries only render; they do not write your content.**
+> For a content document (report, guide, long-form doc), write the actual,
+> specific, factually correct body text FIRST — from your own knowledge, and
+> research with `web_search`/`web_fetch` when accuracy matters or you are unsure.
+> Build the content incrementally in a workspace file (e.g. markdown, appended
+> section by section), then render/convert it — for markdown/text the `create_pdf`
+> action is preferred; use ReportLab below when you need precise layout control.
+> NEVER pad with placeholder, templated, repeated, or blank-line filler to hit a
+> page count, and NEVER write a generator script that fabricates body text — page
+> count must come from real content, not padding.
+
 #### Basic PDF Creation
 ```python
 from reportlab.lib.pagesizes import letter

@@ -1617,18 +1617,6 @@ class AgentBase:
             await self._send_limit_choice_message("action", current_task_id)
             await self._pause_task_for_limit_choice(current_task_id)
             return False
-        elif (action_count / max_actions) >= 0.8:
-            if self.event_stream_manager:
-                self.event_stream_manager.log(
-                    "warning",
-                    f"Action limit nearing: 80% of the maximum actions ({max_actions} actions) has been used. "
-                    "Consider wrapping up the task or informing the user that the task may be too complex. "
-                    "If necessary, mark the task as aborted to prevent premature termination.",
-                    display_message=None,
-                    task_id=current_task_id,
-                )
-                self.state_manager.bump_event_stream()
-                return True
 
         # Check token limits
         if (token_count / max_tokens) >= 1.0:
@@ -1643,20 +1631,8 @@ class AgentBase:
             await self._send_limit_choice_message("token", current_task_id)
             await self._pause_task_for_limit_choice(current_task_id)
             return False
-        elif (token_count / max_tokens) >= 0.8:
-            if self.event_stream_manager:
-                self.event_stream_manager.log(
-                    "warning",
-                    f"Token limit nearing: 80% of the maximum tokens ({max_tokens} tokens) has been used. "
-                    "Consider wrapping up the task or informing the user that the task may be too complex. "
-                    "If necessary, mark the task as aborted to prevent premature termination.",
-                    display_message=None,
-                    task_id=current_task_id,
-                )
-                self.state_manager.bump_event_stream()
-                return True
 
-        # No limits close or reached
+        # No limits reached
         return True
 
     async def _send_limit_choice_message(

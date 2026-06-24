@@ -299,7 +299,7 @@ class ContextEngine:
 
         # Current date/time goes in this dynamic tail (NOT the cached system
         # prefix) so the prompt prefix stays byte-stable for cache hits.
-        sections.append(self.current_datetime_block())
+        # sections.append(self.current_datetime_block())
 
         # Get conversation history (recent messages from BEFORE this task)
         # This provides context without injecting into the actual event stream

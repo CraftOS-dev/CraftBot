@@ -73,6 +73,22 @@
   font-size: var(--text-sm);
 }
 
+/* Thin separator between the active and ended task sections. */
+.sectionDivider {
+  height: 1px;
+  margin: var(--space-2) var(--space-3);
+  background: var(--border-primary);
+}
+
+/* Shown above the divider when the active section is empty but the ended
+   section has rows — keeps the two-section structure visible. */
+.emptyActiveSection {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
 /* Task Items */
 .taskGroup {
   margin-bottom: var(--space-1);

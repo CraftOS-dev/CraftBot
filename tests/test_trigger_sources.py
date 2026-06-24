@@ -63,9 +63,7 @@ class TestReactClassification:
 
     def test_source_based(self):
         assert self.is_memory(None, trig(source=TriggerSource.MEMORY))
-        assert self.is_proactive(
-            None, trig(source=TriggerSource.PROACTIVE_HEARTBEAT)
-        )
+        assert self.is_proactive(None, trig(source=TriggerSource.PROACTIVE_HEARTBEAT))
         assert self.is_proactive(None, trig(source=TriggerSource.PROACTIVE_PLANNER))
         assert self.is_restart(None, trig(source=TriggerSource.RESTART_NOTICE))
 

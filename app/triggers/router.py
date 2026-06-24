@@ -146,9 +146,7 @@ class SessionRouter:
 
         sections = []
         for i, task_id in enumerate(active_task_ids, 1):
-            task = (
-                self._task_manager.tasks.get(task_id) if self._task_manager else None
-            )
+            task = self._task_manager.tasks.get(task_id) if self._task_manager else None
             trigger = trigger_map.get(task_id)
 
             # Check waiting_for_reply from trigger OR from task state
