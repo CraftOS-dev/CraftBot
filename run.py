@@ -30,6 +30,8 @@ import webbrowser
 import atexit
 from typing import Tuple, Optional, Dict, Any, List
 
+from app.runtime_preflight import ensure_runtime_dependencies
+
 multiprocessing.freeze_support()
 
 # Configuration is loaded from settings.json via the agent startup
@@ -118,15 +120,6 @@ YML_FILE = os.path.join(BASE_DIR, "environment.yml")
 
 OMNIPARSER_ENV_NAME = "omni"
 OMNIPARSER_SERVER_URL = os.getenv("OMNIPARSER_BASE_URL", "http://localhost:7861")
-
-RUNTIME_IMPORT_CHECKS = {
-    "requests": "requests",
-    "aiohttp": "aiohttp",
-    "websockets": "websockets",
-    "pymongo": "pymongo",
-    "pyyaml": "yaml",
-}
-
 
 # ==========================================
 # TERMINAL COLORS  (orange/white brand palette)
@@ -1070,99 +1063,6 @@ def verify_env(env_name: str) -> bool:
         return False
 
 
-def _runtime_import_command(
-    use_conda: bool, env_name: Optional[str], import_name: str
-) -> Tuple[List[str], str]:
-    if use_conda and env_name:
-        return (
-            [
-                get_conda_command(),
-                "run",
-                "-n",
-                env_name,
-                "python",
-                "-c",
-                f"import {import_name}",
-            ],
-            f"conda environment '{env_name}'",
-        )
-    return ([sys.executable, "-c", f"import {import_name}"], sys.executable)
-
-
-def find_missing_runtime_dependencies(
-    *,
-    use_conda: bool,
-    env_name: Optional[str],
-    checks: Optional[Dict[str, str]] = None,
-) -> Tuple[List[str], str]:
-    """Return missing core imports for the Python runtime that will run the agent."""
-    if checks is None:
-        checks = RUNTIME_IMPORT_CHECKS
-    missing: List[str] = []
-    runtime_label = (
-        f"conda environment '{env_name}'" if use_conda and env_name else sys.executable
-    )
-
-    for package_name, import_name in checks.items():
-        cmd, runtime_label = _runtime_import_command(use_conda, env_name, import_name)
-        try:
-            result = subprocess.run(cmd, capture_output=True, timeout=20)
-        except Exception:
-            missing.append(package_name)
-            continue
-        if result.returncode != 0:
-            missing.append(package_name)
-
-    return missing, runtime_label or sys.executable
-
-
-def print_missing_runtime_dependencies(
-    *,
-    missing: List[str],
-    runtime_label: str,
-    use_conda: bool,
-    env_name: Optional[str],
-) -> None:
-    print("\nError: CraftBot Python dependencies are missing.")
-    print(f"Runtime checked: {runtime_label}")
-    print("\nMissing imports:")
-    for package_name in missing:
-        print(f"  - {package_name}")
-
-    print(
-        "\nThis usually means CraftBot is running with a different Python "
-        "than the one used during install."
-    )
-    print("\nFix:")
-    if use_conda and env_name:
-        print(f"  python install.py --conda")
-        print(f"  conda run -n {env_name} python run.py")
-    else:
-        print(f"  {sys.executable} install.py")
-        print(f"  {sys.executable} run.py")
-    print("\nIf you installed CraftBot with another Python, start it with that Python.")
-
-
-def ensure_runtime_dependencies(
-    *, use_conda: bool, env_name: Optional[str]
-) -> None:
-    if getattr(sys, "frozen", False):
-        return
-
-    missing, runtime_label = find_missing_runtime_dependencies(
-        use_conda=use_conda,
-        env_name=env_name,
-    )
-    if missing:
-        print_missing_runtime_dependencies(
-            missing=missing,
-            runtime_label=runtime_label,
-            use_conda=use_conda,
-            env_name=env_name,
-        )
-        sys.exit(1)
-
-
 # ==========================================
 # OMNIPARSER SERVER
 # ==========================================
@@ -1355,7 +1255,11 @@ if __name__ == "__main__":
             print("Run 'python install.py' or 'python install.py --conda' first.\n")
             sys.exit(1)
 
-    ensure_runtime_dependencies(use_conda=use_conda, env_name=env_name)
+    ensure_runtime_dependencies(
+        use_conda=use_conda,
+        env_name=env_name,
+        conda_command=get_conda_command() if use_conda else "conda",
+    )
 
     # Start OmniParser only if GUI mode and it was installed
     if gui_mode and gui_installed:
