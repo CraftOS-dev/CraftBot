@@ -301,6 +301,10 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     }, 0)
   }, [pendingPrefill, dispatch])
 
+  useEffect(() => {
+    if (replyTarget) inputRef.current?.focus()
+  }, [replyTarget])
+
   const handleChatReply = useCallback((
     sessionId: string | undefined,
     displayName: string,
@@ -312,7 +316,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       displayName,
       originalContent: fullContent,
     })
-    inputRef.current?.focus()
   }, [setReplyTarget])
 
   const toggleListening = useCallback(() => {
