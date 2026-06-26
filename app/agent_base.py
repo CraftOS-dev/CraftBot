@@ -2182,6 +2182,13 @@ class AgentBase:
             chat_content,
             display_message=chat_content,
         )
+
+        # Inject relevant memories right after the user message so the
+        # conversation-mode LLM sees them in the same stream. session_id=None
+        # routes the memory event to the same main stream as the user message.
+        from agent_core.core.impl.memory.injector import inject_memory_event
+        inject_memory_event(query=chat_content, session_id=None)
+
         self.state_manager._append_to_conversation_history("user", chat_content)
         self.state_manager.bump_event_stream()
 

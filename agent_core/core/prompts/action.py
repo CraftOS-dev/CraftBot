@@ -162,8 +162,6 @@ Here is your goal:
 Your job is to choose the best action from the action library and prepare the input parameters needed to run it immediately.
 </objective>
 
-{memory_context}
-
 ---
 
 {event_stream}
@@ -303,8 +301,6 @@ Here is your goal:
 Your job is to reason about the current state, then select the next action and provide the input parameters so it can be executed immediately.
 </objective>
 
-{memory_context}
-
 ---
 
 {event_stream}
@@ -374,8 +370,6 @@ Return ONLY a valid JSON object with this structure and no extra commentary:
 {task_state}
 
 {gui_action_space}
-
-{memory_context}
 
 ---
 
@@ -494,8 +488,6 @@ Reason briefly, then select the next action to complete this task efficiently.
 </objective>
 
 ---
-
-{memory_context}
 
 {event_stream}
 

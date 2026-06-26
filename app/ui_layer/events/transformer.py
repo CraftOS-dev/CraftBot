@@ -58,6 +58,7 @@ class EventTransformer:
         "memory",
         "observation",
         "reasoning_step",
+        "relevant_memories",
     }
 
     # Track active actions: (task_id, action_name) -> action_id

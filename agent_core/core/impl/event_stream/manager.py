@@ -60,6 +60,8 @@ SKIP_UNPROCESSED_EVENT_TYPES = {
     "error",
     # System events
     "waiting_for_user",
+    # Memory retrieval pointers — re-derivable on demand, not a distillable fact
+    "relevant_memories",
 }
 
 
