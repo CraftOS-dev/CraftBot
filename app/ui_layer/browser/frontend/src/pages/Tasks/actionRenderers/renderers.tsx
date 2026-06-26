@@ -55,26 +55,6 @@ const StreamEditRenderer: ActionRenderer = ({ inputObj, onOpenFile }) => {
   )
 }
 
-const WriteFileRenderer: ActionRenderer = ({ inputObj, onOpenFile }) => {
-  const filePath = strField(inputObj, 'file_path') ?? ''
-  const content = strField(inputObj, 'content') ?? ''
-
-  return (
-    <>
-      <Section label="File">
-        {filePath
-          ? <FilePathChip path={filePath} onOpen={onOpenFile} />
-          : <Pending label="Waiting for file…" />}
-      </Section>
-      <Section label="Content">
-        {content
-          ? <CodeBlock code={content} lang={filePath ? langFromPath(filePath) : undefined} />
-          : <Pending label="Waiting for content…" />}
-      </Section>
-    </>
-  )
-}
-
 const ReadFileRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile }) => {
   const filePath = strField(inputObj, 'file_path') ?? ''
   const content = strField(outputObj, 'content')
@@ -165,10 +145,14 @@ const ListFolderRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile })
   )
 }
 
-const CreatePdfRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile }) => {
-  const filePath = strField(inputObj, 'file_path') ?? ''
+// Shared renderer for the <source>_to_pdf action family (markdown/text/csv/images).
+const SourceToPdfRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile }) => {
+  const outPath = strField(outputObj, 'path') ?? strField(inputObj, 'output_path') ?? ''
   const content = strField(inputObj, 'content') ?? ''
-  const outPath = strField(outputObj, 'path') ?? filePath
+  const sourcePath = strField(inputObj, 'source_path') ?? ''
+  const url = strField(inputObj, 'url') ?? ''
+  const imagePaths = (arrField(inputObj, 'image_paths') ?? [])
+    .filter((p): p is string => typeof p === 'string')
 
   return (
     <>
@@ -180,7 +164,13 @@ const CreatePdfRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile }) 
       <Section label="Source">
         {content
           ? <Collapsible text={content} collapsedLines={8} />
-          : <Pending label="Waiting for source…" />}
+          : sourcePath
+            ? <FilePathChip path={sourcePath} onOpen={onOpenFile} />
+            : url
+              ? <Collapsible text={url} collapsedLines={2} />
+              : imagePaths.length
+                ? <Collapsible text={imagePaths.join('\n')} collapsedLines={8} />
+                : <Pending label="Waiting for source…" />}
       </Section>
     </>
   )
@@ -685,11 +675,20 @@ const TaskUpdateTodosRenderer: ActionRenderer = ({ inputObj }) => {
 export const SUPPORTED_ACTION_NAMES = [
   // file ops
   'stream_edit',
-  'write_file',
   'read_file',
   'find_files',
   'list_folder',
-  'create_pdf',
+  'markdown_to_pdf',
+  'text_to_pdf',
+  'csv_to_pdf',
+  'images_to_pdf',
+  'html_to_pdf',
+  'url_to_pdf',
+  'docx_to_pdf',
+  'odt_to_pdf',
+  'rtf_to_pdf',
+  'pptx_to_pdf',
+  'xlsx_to_pdf',
   'read_pdf',
   'convert_to_markdown',
   // code execution
@@ -732,11 +731,20 @@ export function isSupportedActionName(name: string): name is SupportedActionName
 const REGISTRY: Record<SupportedActionName, ActionRenderer> = {
   // file ops
   stream_edit: StreamEditRenderer,
-  write_file: WriteFileRenderer,
   read_file: ReadFileRenderer,
   find_files: FindFilesRenderer,
   list_folder: ListFolderRenderer,
-  create_pdf: CreatePdfRenderer,
+  markdown_to_pdf: SourceToPdfRenderer,
+  text_to_pdf: SourceToPdfRenderer,
+  csv_to_pdf: SourceToPdfRenderer,
+  images_to_pdf: SourceToPdfRenderer,
+  html_to_pdf: SourceToPdfRenderer,
+  url_to_pdf: SourceToPdfRenderer,
+  docx_to_pdf: SourceToPdfRenderer,
+  odt_to_pdf: SourceToPdfRenderer,
+  rtf_to_pdf: SourceToPdfRenderer,
+  pptx_to_pdf: SourceToPdfRenderer,
+  xlsx_to_pdf: SourceToPdfRenderer,
   read_pdf: ReadPdfRenderer,
   convert_to_markdown: ConvertToMarkdownRenderer,
   // code execution

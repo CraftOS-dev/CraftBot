@@ -171,9 +171,9 @@ Your job is to choose the best action from the action library and prepare the in
 SELECT_ACTION_IN_TASK_PROMPT = """
 <rules>
 Todo Workflow Phases (follow this order):
-1. Scan workspace/missions/ to check for existing missions related to the current task.
-2. ACKNOWLEDGE - Send message to user confirming task receipt
 0. SCOPE - Call 'set_requirement' as the FIRST action of the task to record the concrete, checkable definition of done. Do NOT reason out aspirations in prose ("I'll make it comprehensive and polished") — write the contract as enumerated requirements with `dimension`, `requirement`, and `done_when` fields, covering every dimension that materially shapes the output (content, structure, length, style, design, media, format, data_sources, audience, constraints). Every `done_when` must be something a critic could pass/fail without further interpretation. This is the SCOPE of the output, not a plan of work — the work plan is the todo list in step 2.
+1. Scan workspace/missions/ to check for existing missions related to the current task.
+2. ACKNOWLEDGE - Send message to user confirming task receipt, you can adjust this based on the requirements
 3. COLLECT INFO - Gather all required information before execution. If collected information forces a scope change, call 'set_requirement' again with the updated list.
 4. EXECUTE - Perform the actual work (can have multiple todos).
     - Work in small steps: write in section, NOT all-in-one-go. write the base, then append more content, NOT one-shot a long output.
@@ -241,7 +241,7 @@ Missions (multi-session / ongoing work):
 
 <parallel_actions>
 Batch up to 10 actions in one step ONLY when none depends on another's output (e.g. several read_file / web_search / memory_search, or task_update_todos + send_message together).
-A non-parallelizable action MUST be the ONLY action in its step — this includes any write/mutate (write_file, stream_edit, clipboard_write), wait, and add_action_sets / remove_action_sets.
+A non-parallelizable action MUST be the ONLY action in its step — this includes any write/mutate (stream_edit, clipboard_write, run_shell file writes), wait, and add_action_sets / remove_action_sets.
 Never emit two of the same single-instance action: combine multiple messages into ONE send, use ONE task_update_todos with the full list, and never pair task_end with anything.
 </parallel_actions>
 

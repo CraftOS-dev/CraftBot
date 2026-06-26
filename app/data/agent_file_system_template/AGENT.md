@@ -762,7 +762,7 @@ command-line limit (cmd ~8 KB). Build the file incrementally instead:
 1. Create the file with the first chunk (`Set-Content`).
 2. Append the next section with `Add-Content` — one bounded chunk per step.
 3. Repeat until the content is complete.
-4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`), or for a PDF build the markdown then convert it with `create_pdf`.
+4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`), or for a PDF build the markdown then convert it with `markdown_to_pdf` (pass `source_path` pointing at the markdown file; pass `style` to override FORMAT.md). Other source→PDF actions: `text_to_pdf`, `csv_to_pdf`, `images_to_pdf`, `html_to_pdf`, `url_to_pdf` (live web page), `docx_to_pdf`, `odt_to_pdf`, `rtf_to_pdf`, `pptx_to_pdf`, `xlsx_to_pdf`.
 Keep each chunk small — roughly ~150 lines (a few KB) at most — so it fits
 comfortably within one response's output-token budget.
 

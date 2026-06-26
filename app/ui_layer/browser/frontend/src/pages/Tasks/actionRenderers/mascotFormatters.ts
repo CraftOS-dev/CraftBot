@@ -118,18 +118,6 @@ const stream_edit: MascotActionFormatter = {
   },
 }
 
-const write_file: MascotActionFormatter = {
-  running: (i) => {
-    const fp = strField(i, 'file_path') ?? ''
-    return { status: 'running', label: 'Writing file', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
-  },
-  result: (i, _o, s) => {
-    const fp = strField(i, 'file_path') ?? ''
-    const verb = s === 'completed' ? 'Wrote file' : s === 'error' ? 'Write failed' : 'Write cancelled'
-    return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
-  },
-}
-
 const read_file: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'file_path') ?? ''
@@ -178,13 +166,14 @@ const list_folder: MascotActionFormatter = {
   },
 }
 
-const create_pdf: MascotActionFormatter = {
+// Shared formatter for the <source>_to_pdf action family (markdown/text/csv/images).
+const sourceToPdf: MascotActionFormatter = {
   running: (i) => {
-    const fp = strField(i, 'file_path') ?? ''
+    const fp = strField(i, 'output_path') ?? ''
     return { status: 'running', label: 'Creating PDF', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
   result: (i, o, s) => {
-    const fp = strField(o, 'path') ?? strField(i, 'file_path') ?? ''
+    const fp = strField(o, 'path') ?? strField(i, 'output_path') ?? ''
     const verb = s === 'completed' ? 'Created PDF' : s === 'error' ? 'PDF creation failed' : 'PDF creation cancelled'
     return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
@@ -490,11 +479,20 @@ const task_update_todos: MascotActionFormatter = {
 const FORMATTER_REGISTRY: Record<SupportedActionName, MascotActionFormatter> = {
   // file ops
   stream_edit,
-  write_file,
   read_file,
   find_files,
   list_folder,
-  create_pdf,
+  markdown_to_pdf: sourceToPdf,
+  text_to_pdf: sourceToPdf,
+  csv_to_pdf: sourceToPdf,
+  images_to_pdf: sourceToPdf,
+  html_to_pdf: sourceToPdf,
+  url_to_pdf: sourceToPdf,
+  docx_to_pdf: sourceToPdf,
+  odt_to_pdf: sourceToPdf,
+  rtf_to_pdf: sourceToPdf,
+  pptx_to_pdf: sourceToPdf,
+  xlsx_to_pdf: sourceToPdf,
   read_pdf,
   convert_to_markdown,
   // code execution

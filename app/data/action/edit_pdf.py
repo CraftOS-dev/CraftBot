@@ -12,11 +12,9 @@ from agent_core import action
         "replace_text (find + font-matched reinsert), add_text_near (fill after a label), "
         "watermark, rotate_page, fill_field (AcroForm). "
         "For tasks that require text reflow (rephrasing paragraphs, inserting new sections, "
-        "reformatting layout): use create_pdf to rebuild the document with changes applied — "
-        "the user receives the same output path with a clean result. "
-        "When editing a PDF created by create_pdf, match the accent colour to "
-        "FORMAT.md's highlight value (default #FF4F18) to align with the document style. "
-        "Use absolute paths only."
+        "reformatting layout): use markdown_to_pdf to rebuild the document with changes applied — "
+        "write to the SAME output_path and it reuses that PDF's saved style automatically, so the "
+        "look is preserved. Use absolute paths only."
     ),
     mode="CLI",
     action_sets=["document_processing"],
@@ -322,7 +320,7 @@ def edit_pdf_file(input_data: dict) -> dict:
     if not operations:
         return _json("error", "'operations' list is required and must not be empty.")
 
-    # Detect reflow operations — these require create_pdf routing
+    # Detect reflow operations — these require markdown_to_pdf rebuild routing
     _REFLOW_OPS = {
         "rephrase_text",
         "insert_section",
@@ -335,9 +333,10 @@ def edit_pdf_file(input_data: dict) -> dict:
         return _json(
             "error",
             f"Operation(s) {reflow_ops} require text reflow which PDF does not support. "
-            "Use create_pdf to rebuild the document with the desired changes applied. "
+            "Use markdown_to_pdf to rebuild the document with the desired changes applied. "
             "Read the original with read_pdf (text mode), apply changes to the text content, "
-            "then pass the updated content to create_pdf at the same output_path.",
+            "then pass the updated content to markdown_to_pdf at the same output_path "
+            "(it reuses the PDF's saved style, so the look is preserved).",
         )
 
     # ── Apply operations ──────────────────────────────────────────────────

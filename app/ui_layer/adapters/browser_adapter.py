@@ -4327,7 +4327,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # ---- Spawn the workflow task -----------------------------
             # Use absolute paths in the instruction so the agent can pass
-            # them verbatim to read_file / write_file / stream_edit. With
+            # them verbatim to read_file / stream_edit. With
             # relative paths (e.g. "skills/<name>/SKILL.md") the agent has
             # been observed mistakenly prepending the source-file's prefix
             # (`agent_file_system/`), landing the new SKILL.md inside the

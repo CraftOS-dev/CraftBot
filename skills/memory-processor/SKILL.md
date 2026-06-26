@@ -133,7 +133,7 @@ Only save the memory if it contains lasting value:
 
 ## FORBIDDEN Actions
 
-`send_message`, `ignore`, `run_shell`, `write_file`, `create_file`
+`send_message`, `ignore`, `run_shell`
 
 ## Example
 

@@ -181,7 +181,7 @@ A whole-file rewrite is forbidden in this workflow — see *Improvement constrai
 ## Forbidden
 
 - More than one `send_message` call. The presentation message above is the only one.
-- `create_file`, `write_file` — those overwrite. Use `stream_edit`.
+- Overwriting a whole file — use `stream_edit` for edits.
 - `web_search`, `run_shell` — outside `file_operations` + `core`.
 - Writing or modifying any file outside `skills/<target-skill>/SKILL.md`.
 - Renaming the skill directory or the `name` frontmatter field.
