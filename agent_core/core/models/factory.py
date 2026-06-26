@@ -5,12 +5,11 @@ API keys and base URLs should be passed directly - no environment variable readi
 """
 
 import logging
+from types import SimpleNamespace
+from typing import Any, Optional
 import urllib.request
+import urllib.error
 import json as _json
-
-from openai import OpenAI
-from anthropic import Anthropic
-from typing import Optional
 
 try:
     import boto3  # type: ignore[import]
@@ -51,6 +50,119 @@ _OR_MODEL_MAP: dict = {
 }
 
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def _to_namespace(value: Any) -> Any:
+    """Convert provider JSON into SDK-like objects with attribute access."""
+    if isinstance(value, dict):
+        return SimpleNamespace(**{k: _to_namespace(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return [_to_namespace(item) for item in value]
+    return value
+
+
+class _OpenAICompatibleChatCompletions:
+    def __init__(self, parent: "_OpenAICompatibleClient") -> None:
+        self._parent = parent
+
+    def create(self, **kwargs: Any) -> Any:
+        payload = dict(kwargs)
+        extra_body = payload.pop("extra_body", None)
+        if isinstance(extra_body, dict):
+            payload.update(extra_body)
+
+        req = urllib.request.Request(
+            self._parent.chat_completions_url,
+            data=_json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._parent.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._parent.timeout) as resp:
+                raw = _json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"OpenAI-compatible request failed with HTTP {exc.code}: "
+                f"{body[:500]}"
+            ) from exc
+
+        usage = raw.setdefault("usage", {})
+        if isinstance(usage, dict):
+            usage.setdefault("prompt_tokens", 0)
+            usage.setdefault("completion_tokens", 0)
+
+        return _to_namespace(raw)
+
+
+class _OpenAICompatibleClient:
+    """Small HTTP fallback for chat-completions compatible providers.
+
+    CraftBot prefers the official OpenAI SDK when it is installed. This fallback
+    keeps OpenAI-compatible LLM providers such as DeepSeek usable in lightweight
+    installs that do not have the SDK, while preserving the same response shape
+    the rest of the code reads (`choices[0].message.content`, `usage.*`).
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: Optional[str] = None,
+        timeout: float = 120.0,
+    ) -> None:
+        self.api_key = api_key
+        self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+        self.timeout = timeout
+        self.chat_completions_url = f"{self.base_url}/chat/completions"
+        self.chat = SimpleNamespace(
+            completions=_OpenAICompatibleChatCompletions(self)
+        )
+
+
+def _create_openai_client(
+    *,
+    provider: str,
+    interface: InterfaceType,
+    api_key: str,
+    base_url: Optional[str] = None,
+) -> Any:
+    """Create an OpenAI SDK client, or a chat-compatible HTTP fallback."""
+    try:
+        from openai import OpenAI
+
+        if base_url:
+            return OpenAI(api_key=api_key, base_url=base_url)
+        return OpenAI(api_key=api_key)
+    except ImportError as exc:
+        if interface in (InterfaceType.LLM, InterfaceType.VLM):
+            logger.warning(
+                "[FACTORY] openai package is not installed; using HTTP fallback "
+                "for OpenAI-compatible provider '%s'.",
+                provider,
+            )
+            return _OpenAICompatibleClient(api_key=api_key, base_url=base_url)
+        raise ImportError(
+            f"The openai package is required for {provider} {interface.value}. "
+            "Install it with the Python that launches CraftBot: "
+            "`python -m pip install 'openai>=2.0.0'`."
+        ) from exc
+
+
+def _create_anthropic_client(*, api_key: str) -> Any:
+    try:
+        from anthropic import Anthropic
+    except ImportError as exc:
+        raise ImportError(
+            "The anthropic package is required for the Anthropic provider. "
+            "Install it with the Python that launches CraftBot: "
+            "`python -m pip install 'anthropic>=0.97.0'`."
+        ) from exc
+    return Anthropic(api_key=api_key)
 
 
 def _to_openrouter_slug(provider: str, model: str) -> str:
@@ -120,7 +232,7 @@ class ModelFactory:
         Returns:
             Dictionary with provider context including client instances
         """
-        # OpenAI-compatible providers that use OpenAI client with a custom base_url
+        # OpenAI-compatible providers that use chat-completions with a custom base_url.
         _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter"}
 
         if provider not in PROVIDER_CONFIG:
@@ -175,7 +287,11 @@ class ModelFactory:
             return {
                 "provider": provider,
                 "model": model,
-                "client": OpenAI(api_key=api_key),
+                "client": _create_openai_client(
+                    provider=provider,
+                    interface=interface,
+                    api_key=api_key,
+                ),
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
@@ -215,7 +331,7 @@ class ModelFactory:
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
-                "anthropic_client": Anthropic(api_key=api_key),
+                "anthropic_client": _create_anthropic_client(api_key=api_key),
                 "bedrock_client": None,
                 "initialized": True,
             }
@@ -273,7 +389,12 @@ class ModelFactory:
                     return {
                         "provider": "openrouter",
                         "model": or_model,
-                        "client": OpenAI(api_key=or_key, base_url=_OPENROUTER_BASE_URL),
+                        "client": _create_openai_client(
+                            provider="openrouter",
+                            interface=interface,
+                            api_key=or_key,
+                            base_url=_OPENROUTER_BASE_URL,
+                        ),
                         "gemini_client": None,
                         "remote_url": None,
                         "byteplus": None,
@@ -290,7 +411,12 @@ class ModelFactory:
             return {
                 "provider": provider,
                 "model": model,
-                "client": OpenAI(api_key=api_key, base_url=resolved_base_url),
+                "client": _create_openai_client(
+                    provider=provider,
+                    interface=interface,
+                    api_key=api_key,
+                    base_url=resolved_base_url,
+                ),
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
