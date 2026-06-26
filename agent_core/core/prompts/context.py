@@ -90,7 +90,7 @@ Adaptive Execution:
 
 <file_handling>
 For detailed file handling instructions, read the "File Handling" section in AGENT.md using `read_file` or `grep_files`.
-Key actions: read_file (with offset/limit), grep_files (search patterns), stream_read + stream_edit (modifications).
+Key actions: read_file (with offset/limit), grep_files (search patterns), read_file + stream_edit (modifications).
 </file_handling>
 
 <self_improvement_protocol>

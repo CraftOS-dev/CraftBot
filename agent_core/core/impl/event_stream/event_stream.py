@@ -185,7 +185,7 @@ class EventStream:
             file_path = self.temp_dir / f"event_{suffix}_{ts}.txt"
             file_path.write_text(message, encoding="utf-8")
             keywords = ", ".join(self._extract_keywords(message)) or "n/a"
-            return f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'stream_read' to read the content line by line in file."
+            return f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'read_file' with offset/limit to read the content line by line in file."
         except Exception:
             logger.exception(
                 "[EventStream] Failed to externalize long event message "
