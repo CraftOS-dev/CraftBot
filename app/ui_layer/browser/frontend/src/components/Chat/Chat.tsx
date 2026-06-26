@@ -314,6 +314,11 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     inputRef.current?.focus()
   }, [enhancedPrompt, clearEnhancedPrompt])
 
+  // Reset enhancing spinner if the WebSocket disconnects mid-request
+  useEffect(() => {
+    if (!connected) setEnhancing(false)
+  }, [connected])
+
   const handleEnhancePrompt = useCallback(() => {
     if (!input.trim() || enhancing) return
     setEnhancing(true)
@@ -750,7 +755,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
         <IconButton icon={<Paperclip size={18} />} variant="ghost" tooltip="Attach file" onClick={handleAttachClick} />
         <IconButton
-          icon={enhancing ? <Loader2 size={18} className={styles.spinIcon} /> : <Sparkles size={18} />}
+          icon={enhancing ? <Loader2 size={18} className={styles.uploadingSpinner} /> : <Sparkles size={18} />}
           variant="ghost"
           tooltip={enhancing ? 'Enhancing...' : 'Enhance prompt'}
           onClick={handleEnhancePrompt}

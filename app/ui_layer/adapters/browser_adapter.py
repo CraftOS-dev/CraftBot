@@ -1077,9 +1077,13 @@ class BrowserAdapter(InterfaceAdapter):
                 log_response=False,
             )
             await ws.send_json({"type": "prompt_enhanced", "content": enhanced.strip()})
+            return
         except Exception as e:
             logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
+        try:
             await ws.send_json({"type": "prompt_enhanced", "content": content})
+        except Exception as send_err:
+            logger.warning(f"[BROWSER ADAPTER] enhance_prompt fallback send failed: {send_err}")
 
     def _handle_task_start(self, event: UIEvent) -> None:
         """Handle task start event with metrics tracking."""
