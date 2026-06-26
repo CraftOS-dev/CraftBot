@@ -757,7 +757,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         <IconButton
           icon={enhancing ? <Loader2 size={18} className={styles.uploadingSpinner} /> : <Sparkles size={18} />}
           variant="ghost"
-          tooltip={enhancing ? 'Enhancing...' : 'Enhance prompt'}
+          tooltip={enhancing ? 'Enhancing...' : 'AI Enhance'}
           onClick={handleEnhancePrompt}
           disabled={!input.trim() || enhancing}
         />
