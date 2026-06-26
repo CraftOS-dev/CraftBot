@@ -177,9 +177,9 @@ SELECT_ACTION_IN_TASK_PROMPT = """
 Todo Workflow Phases (follow this order):
 0. Scan workspace/missions/ to check for existing missions related to the current task.
 1. ACKNOWLEDGE - Send message to user confirming task receipt
-2. COLLECT INFO - Gather all required information before execution
+2. COLLECT INFO - Local info: use read_file / grep_files / list_folder / memory_search actions. Online info: use spawn_subagent action to spawn research_agent. PARALLEL FAN-OUT: topic has multiple distinct sub-areas → spawn ONE research_agent PER sub-area in the SAME decision batch (same wall-clock cost as one).
 3. EXECUTE - Perform the actual work (can have multiple todos)
-4. VERIFY - Check outcome meets the task requirements
+4. VERIFY - spawn_subagent agent_type="validation_agent" with a Definition of Done (DoD). NEVER self-validate. The DoD MUST be SPECIFIC and TESTABLE. The DoD MUST cover all six categories — one or more criteria each: (a) STRUCTURAL: required sections, sequence, depth requirements (set them HIGH so the artifact is a real deliverable, not a summary); (b) CONTENT ACCURACY: every claim verifiable against a cited source; (c) SOURCE CITATION: every claim has a resolvable inline citation; minimum distinct sources required; (d) STANDARDS COMPLIANCE: name the EXACT files (FORMAT.md, AGENT.md, STYLE_GUIDE.md) AND the EXACT clauses; (e) NO FABRICATION: no invented numbers / dates / events / products not in cited sources; (f) CONCRETE FORMAT PROPERTIES: list each property (table borders visible, no truncated words at page breaks, page numbers in footer only, etc.). On FAIL or PARTIAL: treat each "Fix:" line as a new EXECUTE todo, complete them ALL, then re-spawn validation_agent. PARTIAL IS NOT A PASS — re-execute and re-validate until VERDICT: PASS.
 5. CONFIRM - Present result to user and await approval
 6. CLEANUP - Remove temporary files if any
 
@@ -209,6 +209,7 @@ Critical Rules:
 - DO NOT execute the EXACT same action with same input repeatedly - you're stuck in a loop.
 - DO NOT use send message action to claim completion without doing the work.
 - DO NOT use 'task_end' without EXPLICIT user approval of the final result. A follow-up question or new request is NOT a confirmation.
+- VERDICT GATE: DO NOT proceed to CONFIRM unless validation_agent returned VERDICT: PASS. PARTIAL IS NOT PASS. FAIL IS NOT PASS. Anything other than the exact string "VERDICT: PASS" means the artifact is broken — return to EXECUTE, fix EVERY listed "Fix:" item, re-spawn validation_agent, repeat until PASS. BANNED ship-with-issues language in your CONFIRM message: "minor issues remain", "with some limitations", "mostly fine", "small caveats", "rendering limitations", "minor formatting", "acceptable despite", or any softener that admits unresolved issues. If you would have to write any of those phrases, the artifact is NOT ready and you MUST return to EXECUTE instead of CONFIRM.
 - Use 'task_update_todos' as FIRST step to create a plan for the task.
 - When all todos completed AND user sends an EXPLICIT approval (e.g. 'looks good', 'thanks', 'done'), use 'task_end' with status 'complete'.
 - When all todos completed BUT the user sends a NEW question or request, do NOT end the task. Add new todos for the follow-up and continue working.

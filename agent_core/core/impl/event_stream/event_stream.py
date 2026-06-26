@@ -142,7 +142,10 @@ class EventStream:
             display_message: Optional alternative string for UI display.
             action_name: Canonical action name, set on ACTION_START / ACTION_END.
             action_id: Stable identifier paired across an action's start and
-                end events.
+                end events. Lets the UI pair a unique ``action_start`` with
+                its matching ``action_end`` even when multiple parallel calls
+                of the same action fire within the same second. Set by
+                ``ActionManager`` (which generates it as ``run_id`` internally).
             action_input: Structured input dict for ACTION_START events.
             action_output: Structured output dict for ACTION_END events.
             task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
