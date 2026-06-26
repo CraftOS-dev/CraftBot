@@ -23,6 +23,7 @@ from typing import Optional
 
 from agent_core.core.registry.memory import get_memory_manager_or_none
 from agent_core.core.registry.event_stream import get_event_stream_manager_or_none
+from agent_core.core.event_stream.event import EventType
 from agent_core.utils.logger import logger
 
 
@@ -90,11 +91,13 @@ def inject_memory_event(query: str, session_id: Optional[str] = None) -> None:
             event_stream_manager.get_main_stream().log(
                 _MEMORY_EVENT_KIND,
                 message,
+                event_type=EventType.RELEVANT_MEMORIES,
             )
         else:
             event_stream_manager.log(
                 _MEMORY_EVENT_KIND,
                 message,
+                event_type=EventType.RELEVANT_MEMORIES,
                 task_id=session_id,
             )
     except Exception as e:

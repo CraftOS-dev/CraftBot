@@ -21,6 +21,7 @@ from app.logger import logger
 from pathlib import Path
 from app.config import AGENT_WORKSPACE_ROOT
 from app.gui.gui_module import GUI_MODE_ACTIONS
+from agent_core.core.event_stream.event import EventType
 from app.memory import MemoryManager
 import mss
 import mss.tools
@@ -1041,6 +1042,7 @@ class InternalActionInterface:
             kind="todos",
             message=todos_str,
             severity="INFO",
+            event_type=EventType.TODOS,
             task_id=task_id,
         )
         cls.state_manager.bump_event_stream()

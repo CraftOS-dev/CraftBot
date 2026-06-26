@@ -29,6 +29,7 @@ from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.state import StateManagerProtocol
 from agent_core.core.impl.action.executor import ActionExecutor
 from agent_core.core.impl.action.idempotency import IdempotencyGuard
+from agent_core.core.event_stream.event import EventType
 from agent_core.utils.logger import logger
 
 # ============================================================================
@@ -277,10 +278,13 @@ class ActionManager:
                         )
                     self._log_event_stream(
                         is_gui_task=is_gui_task,
-                        event_type="action_end",
+                        event_kind="action_end",
+                        event_type=EventType.ACTION_END,
                         event=skip_message,
                         display_message=f"{action.display_name} → skipped (idempotent)",
                         action_name=action.name,
+                        action_display_name=action.display_name,
+                        action_output=skip_outputs,
                         session_id=session_id,
                     )
                     return skip_outputs
@@ -322,10 +326,14 @@ class ActionManager:
         pretty_input = _to_pretty_json(input_data)
         self._log_event_stream(
             is_gui_task=is_gui_task,
-            event_type="action_start",
+            event_kind="action_start",
+            event_type=EventType.ACTION_START,
             event=f"Running action {action.name} with input: {pretty_input}.",
             display_message=f"Running {action.display_name}",
             action_name=action.name,
+            action_display_name=action.display_name,
+            action_id=run_id,
+            action_input=input_data,
             # Always pass session_id when present so the event_stream_manager can route
             # to the correct task stream OR fall back to main_stream for transient
             # sessions (e.g. third-party email notification). Previously this gated on
@@ -445,10 +453,14 @@ class ActionManager:
         pretty_output = _to_pretty_json(outputs)
         self._log_event_stream(
             is_gui_task=is_gui_task,
-            event_type="action_end",
+            event_kind="action_end",
+            event_type=EventType.ACTION_END,
             event=f"Action {action.name} completed with output: {pretty_output}.",
             display_message=f"{action.display_name} → {display_status}",
             action_name=action.name,
+            action_display_name=action.display_name,
+            action_id=run_id,
+            action_output=outputs,
             # Always pass session_id when present so the event_stream_manager can route
             # to the correct task stream OR fall back to main_stream for transient
             # sessions (e.g. third-party email notification). Previously this gated on
@@ -462,7 +474,8 @@ class ActionManager:
         if outputs and outputs.get("wait_for_user_reply", False):
             self._log_event_stream(
                 is_gui_task=is_gui_task,
-                event_type="waiting_for_user",
+                event_kind="waiting_for_user",
+                event_type=EventType.WAITING_FOR_USER,
                 event="Agent is waiting for user response.",
                 display_message=None,
                 action_name=action.name,
@@ -624,27 +637,38 @@ class ActionManager:
     def _log_event_stream(
         self,
         is_gui_task: bool,
-        event_type: str,
+        event_kind: str,
+        event_type: EventType,
         event: str,
         display_message: Optional[str],
         action_name: str,
         session_id: Optional[str] = None,
+        action_display_name: Optional[str] = None,
+        action_id: Optional[str] = None,
+        action_input: Optional[Dict] = None,
+        action_output: Optional[Dict] = None,
     ) -> None:
         """Log action events to the unified event stream.
 
         Args:
             is_gui_task: Whether this is a GUI task (affects event kind labeling)
-            event_type: Type of event (action_start, action_end, etc.)
+            event_kind: Free-text label used in the prompt-facing snapshot
+                (e.g., ``"action_start"`` / ``"GUI action start"``).
+            event_type: Closed-set category for UI routing.
             event: Full event message
             display_message: Short display message for UI
             action_name: Name of the action
             session_id: Task/session ID to ensure event goes to correct stream.
                        CRITICAL for concurrent task execution - without this,
                        events may go to the wrong task's stream.
+            action_id: Stable identifier paired across an action's
+                start and end events.
+            action_input: Structured input dict for action_start events.
+            action_output: Structured output dict for action_end events.
         """
         if not self.event_stream_manager:
             logger.warning(
-                f"No event stream manager to log to for event type: {event_type}"
+                f"No event stream manager to log to for event kind: {event_kind}"
             )
             return
 
@@ -653,15 +677,20 @@ class ActionManager:
                 "action_start": "GUI action start",
                 "action_end": "GUI action end",
             }
-            kind = gui_event_labels.get(event_type, f"GUI {event_type}")
+            kind = gui_event_labels.get(event_kind, f"GUI {event_kind}")
         else:
-            kind = event_type
+            kind = event_kind
 
         self.event_stream_manager.log(
             kind,
             event,
+            event_type=event_type,
             display_message=display_message,
             action_name=action_name,
+            action_display_name=action_display_name,
+            action_id=action_id,
+            action_input=action_input,
+            action_output=action_output,
             task_id=session_id,
         )
 

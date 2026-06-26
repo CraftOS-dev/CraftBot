@@ -20,7 +20,7 @@ import re
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
-from agent_core.core.event_stream.event import Event, EventRecord
+from agent_core.core.event_stream.event import Event, EventRecord, EventType
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.prompts import EVENT_STREAM_SUMMARIZATION_PROMPT
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -111,8 +111,15 @@ class EventStream:
         message: str,
         severity: str = "INFO",
         *,
+        event_type: Optional[EventType] = None,
         display_message: str | None = None,
         action_name: str | None = None,
+        action_display_name: str | None = None,
+        action_id: str | None = None,
+        action_input: Optional[dict] = None,
+        action_output: Optional[dict] = None,
+        task_status: Optional[str] = None,
+        platform: Optional[str] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -123,12 +130,24 @@ class EventStream:
         follow-up updates with prior logs.
 
         Args:
-            kind: Category describing the event family (e.g., ``"action_start"``).
+            kind: Human-readable label used in the prompt-facing snapshot
+                (e.g., ``"action_start"``, ``"agent message to platform: X"``).
+                Consumers route on `event_type`, not on this string.
             message: Full event message that may be externalized if too long.
             severity: Importance level; defaults to ``"INFO"`` if unrecognized.
+            event_type: Closed-set category for UI routing. Producers should
+                always pass this; calls without it are accepted only for the
+                small number of internal/legacy paths that don't surface in
+                the UI.
             display_message: Optional alternative string for UI display.
-            action_name: Action identifier used when generating externalized
-                file names and contextual hints.
+            action_name: Canonical action name, set on ACTION_START / ACTION_END.
+            action_id: Stable identifier paired across an action's start and
+                end events.
+            action_input: Structured input dict for ACTION_START events.
+            action_output: Structured output dict for ACTION_END events.
+            task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
+                TASK_END events.
+            platform: Originating/destination platform for chat messages.
 
         Returns:
             The zero-based index of the event within ``tail_events``.
@@ -138,7 +157,18 @@ class EventStream:
         msg = self._externalize_message(message.strip(), action_name=action_name)
         display = display_message.strip() if display_message is not None else None
         ev = Event(
-            message=msg, kind=kind.strip(), severity=severity, display_message=display
+            message=msg,
+            kind=kind.strip(),
+            severity=severity,
+            display_message=display,
+            event_type=event_type,
+            action_name=action_name,
+            action_display_name=action_display_name,
+            action_id=action_id,
+            action_input=action_input,
+            action_output=action_output,
+            task_status=task_status,
+            platform=platform,
         )
         rec = EventRecord(event=ev)
 

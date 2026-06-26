@@ -98,6 +98,7 @@ from app.triggers import (
 from app.prompt import ROUTE_TO_SESSION_PROMPT
 from app.state.types import ReasoningResult
 from agent_core.core.task import Task
+from agent_core.core.event_stream.event import EventType
 from app.task.task_manager import TaskManager
 from app.event_stream import EventStreamManager
 from app.gui.gui_module import GUIModule
@@ -1236,6 +1237,7 @@ class AgentBase:
                 "agent reasoning",
                 reasoning,
                 severity="DEBUG",
+                event_type=EventType.REASONING,
                 display_message=None,
                 task_id=session_id,
             )
@@ -1282,6 +1284,7 @@ class AgentBase:
                 "agent reasoning",
                 reasoning,
                 severity="DEBUG",
+                event_type=EventType.REASONING,
                 display_message=None,
                 task_id=session_id,
             )
@@ -1318,8 +1321,10 @@ class AgentBase:
                     self.event_stream_manager.log(
                         kind="action_error",
                         message=f"Action {action_name} failed: {error_msg}",
+                        event_type=EventType.ACTION_END,
                         display_message=f"{action_name} → failed",
                         action_name=action_name,
+                        action_output={"status": "error", "error": error_msg},
                     )
                 continue
 
@@ -1541,6 +1546,7 @@ class AgentBase:
             self.event_stream_manager.log(
                 "error",
                 f"[REACT] {type(error).__name__}: {user_message}",
+                event_type=EventType.ERROR,
                 display_message=user_message,
                 task_id=session_to_use,
             )
@@ -1610,6 +1616,7 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Action limit reached: 100% of the maximum actions ({max_actions} actions) has been used. Waiting for user decision.",
+                    event_type=EventType.SYSTEM,
                     display_message=None,
                     task_id=current_task_id,
                 )
@@ -1624,6 +1631,7 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Token limit reached: 100% of the maximum tokens ({max_tokens} tokens) has been used. Waiting for user decision.",
+                    event_type=EventType.SYSTEM,
                     display_message=None,
                     task_id=current_task_id,
                 )
@@ -1663,6 +1671,7 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "internal",
                     message,
+                    event_type=EventType.INTERNAL,
                     display_message=None,
                     task_id=session_id,
                 )
@@ -1791,6 +1800,7 @@ class AgentBase:
             self.event_stream_manager.log(
                 "system",
                 msg,
+                event_type=EventType.SYSTEM,
                 display_message=msg,
                 task_id=session_id,
             )
@@ -1829,6 +1839,7 @@ class AgentBase:
             self.event_stream_manager.log(
                 "system",
                 msg,
+                event_type=EventType.SYSTEM,
                 display_message=msg,
                 task_id=session_id,
             )
@@ -2056,7 +2067,9 @@ class AgentBase:
         self.event_stream_manager.get_main_stream().log(
             "agent message to platform: CraftBot Interface",
             notification,
+            event_type=EventType.AGENT_MESSAGE,
             display_message=notification,
+            platform="CraftBot Interface",
         )
         self.state_manager._append_to_conversation_history("agent", notification)
         self.state_manager.bump_event_stream()
@@ -2180,7 +2193,9 @@ class AgentBase:
         self.event_stream_manager.get_main_stream().log(
             event_label,
             chat_content,
+            event_type=EventType.USER_MESSAGE,
             display_message=chat_content,
+            platform=platform or None,
         )
 
         # Inject relevant memories right after the user message so the
@@ -3175,6 +3190,7 @@ class AgentBase:
                         "system",
                         "Task restored after agent restart. "
                         "Resuming from previous state.",
+                        event_type=EventType.SYSTEM,
                         task_id=task_id,
                     )
 
