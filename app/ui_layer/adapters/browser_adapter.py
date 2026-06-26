@@ -1062,6 +1062,25 @@ class BrowserAdapter(InterfaceAdapter):
             living_ui_id=living_ui_id,
         )
 
+    async def _handle_enhance_prompt(self, content: str, ws) -> None:
+        """Enhance a user's prompt using the LLM for clarity and precision."""
+        SYSTEM = (
+            "You are a prompt optimizer for CraftBot, an AI agent that manages files, tasks, "
+            "memory, and scheduling. Rewrite the user's message to be unambiguous, specific, and "
+            "actionable. Preserve the original intent exactly. Do not add new scope or features. "
+            "Return only the rewritten prompt — no explanation, no preamble."
+        )
+        try:
+            enhanced = await self._controller.agent.llm.generate_response_async(
+                system_prompt=SYSTEM,
+                user_prompt=content,
+                log_response=False,
+            )
+            await ws.send_json({"type": "prompt_enhanced", "content": enhanced.strip()})
+        except Exception as e:
+            logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
+            await ws.send_json({"type": "prompt_enhanced", "content": content})
+
     def _handle_task_start(self, event: UIEvent) -> None:
         """Handle task start event with metrics tracking."""
         # Call parent implementation
@@ -1436,6 +1455,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             command = data.get("command", "")
             if command:
                 await self.submit_message(command)
+
+        elif msg_type == "enhance_prompt":
+            content = data.get("content", "")
+            if content and ws:
+                asyncio.create_task(self._handle_enhance_prompt(content, ws))
 
         elif msg_type == "chat_history":
             before_timestamp = data.get("beforeTimestamp")
