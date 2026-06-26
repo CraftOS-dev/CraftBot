@@ -1,106 +1,99 @@
 # -*- coding: utf-8 -*-
-import json
 from pathlib import Path
 import subprocess
 import sys
 import textwrap
 
-from agent_core.core.models.factory import _OpenAICompatibleClient
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_openai_compatible_fallback_posts_chat_completion(monkeypatch):
-    seen = {}
-
-    class FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self):
-            return json.dumps(
-                {
-                    "choices": [{"message": {"content": "{\"ok\":true}"}}],
-                    "usage": {
-                        "prompt_tokens": 3,
-                        "completion_tokens": 2,
-                        "prompt_tokens_details": {"cached_tokens": 1},
-                    },
-                }
-            ).encode("utf-8")
-
-    def fake_urlopen(req, timeout):
-        seen["url"] = req.full_url
-        seen["timeout"] = timeout
-        seen["headers"] = dict(req.header_items())
-        seen["body"] = json.loads(req.data.decode("utf-8"))
-        return FakeResponse()
-
-    monkeypatch.setattr(
-        "agent_core.core.models.factory.urllib.request.urlopen",
-        fake_urlopen,
-    )
-
-    client = _OpenAICompatibleClient(
-        api_key="deepseek-key",
-        base_url="https://api.deepseek.com",
-        timeout=7,
-    )
-    response = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[{"role": "user", "content": "hi"}],
-        max_tokens=1,
-        extra_body={"prompt_cache_key": "route-1"},
-    )
-
-    assert seen["url"] == "https://api.deepseek.com/chat/completions"
-    assert seen["timeout"] == 7
-    assert seen["headers"]["Authorization"] == "Bearer deepseek-key"
-    assert seen["body"]["prompt_cache_key"] == "route-1"
-    assert response.choices[0].message.content == "{\"ok\":true}"
-    assert response.usage.prompt_tokens == 3
-    assert response.usage.prompt_tokens_details.cached_tokens == 1
-
-
-def test_deepseek_context_uses_fallback_when_openai_sdk_missing():
-    code = textwrap.dedent(
-        """
+def _run_with_blocked_sdks(code: str) -> subprocess.CompletedProcess:
+    script = textwrap.dedent(
+        f"""
         import importlib.abc
         import sys
 
-        class BlockOpenAI(importlib.abc.MetaPathFinder):
+        class BlockProviderSdks(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
-                if fullname == "openai" or fullname.startswith("openai."):
-                    raise ImportError("openai intentionally blocked")
+                if (
+                    fullname == "openai"
+                    or fullname.startswith("openai.")
+                    or fullname == "anthropic"
+                    or fullname.startswith("anthropic.")
+                ):
+                    raise ImportError(f"{{fullname}} intentionally blocked")
                 return None
 
         for name in list(sys.modules):
-            if name == "openai" or name.startswith("openai."):
+            if (
+                name == "openai"
+                or name.startswith("openai.")
+                or name == "anthropic"
+                or name.startswith("anthropic.")
+            ):
                 del sys.modules[name]
-        sys.meta_path.insert(0, BlockOpenAI())
+        sys.meta_path.insert(0, BlockProviderSdks())
 
+        {textwrap.indent(textwrap.dedent(code), "        ")}
+        """
+    )
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+    )
+
+
+def test_importing_model_factory_does_not_require_provider_sdks():
+    result = _run_with_blocked_sdks(
+        """
+        from agent_core.core.models.factory import ModelFactory
+        assert ModelFactory is not None
+        """
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_deferred_openai_compatible_provider_does_not_require_openai_sdk():
+    result = _run_with_blocked_sdks(
+        """
         from agent_core.core.models.factory import ModelFactory
         from agent_core.core.models.types import InterfaceType
 
         ctx = ModelFactory.create(
             provider="deepseek",
             interface=InterfaceType.LLM,
-            api_key="deepseek-key",
+            deferred=True,
         )
-        assert ctx["initialized"] is True
-        assert ctx["provider"] == "deepseek"
-        assert ctx["client"].__class__.__name__ == "_OpenAICompatibleClient"
+        assert ctx["initialized"] is False
+        assert ctx["client"] is None
         """
     )
 
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=PROJECT_ROOT,
-        text=True,
-        capture_output=True,
+    assert result.returncode == 0, result.stderr
+
+
+def test_openai_compatible_provider_reports_missing_openai_sdk():
+    result = _run_with_blocked_sdks(
+        """
+        from agent_core.core.models.factory import ModelFactory
+        from agent_core.core.models.types import InterfaceType
+
+        try:
+            ModelFactory.create(
+                provider="deepseek",
+                interface=InterfaceType.LLM,
+                api_key="deepseek-key",
+            )
+        except ImportError as exc:
+            message = str(exc)
+            assert "openai package is required" in message
+            assert "DeepSeek" in message
+        else:
+            raise AssertionError("expected missing OpenAI SDK to raise ImportError")
+        """
     )
 
     assert result.returncode == 0, result.stderr
