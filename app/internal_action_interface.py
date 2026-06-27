@@ -149,7 +149,7 @@ class InternalActionInterface:
             if MODEL_REGISTRY.get(provider, {}).get(InterfaceType.VLM) is None:
                 raise RuntimeError(
                     f"VLM is not available for provider '{provider}'. "
-                    "Switch vlm_provider in app/config/settings.json to one "
+                    "Switch VLM provider in setting to the one "
                     "that supports vision (e.g. anthropic, openai, gemini, byteplus)."
                 )
             raise RuntimeError(
