@@ -52,8 +52,9 @@ def test_macos_source_shortcut_starts_service(tmp_path, monkeypatch, capsys):
     shortcut = desktop / "CraftBot.command"
     content = shortcut.read_text()
     assert f"cd {base_dir}" in content
+    assert "curl -fsS http://localhost:7925" in content
+    assert "open http://localhost:7925" in content
     assert "exec /usr/local/bin/python3.10 craftbot.py start" in content
-    assert "open 'http://localhost:7925'" not in content
 
     output = capsys.readouterr().out
     assert "Desktop shortcut created" in output

@@ -807,7 +807,11 @@ def _create_desktop_shortcut_unix() -> None:
                 content = (
                     "#!/bin/sh\n"
                     f"cd {shlex.quote(BASE_DIR)} || exit 1\n"
-                    f"exec {shlex.quote(_python_exe())} craftbot.py start\n"
+                    f"if curl -fsS {shlex.quote(BROWSER_URL)} >/dev/null 2>&1; then\n"
+                    f"  open {shlex.quote(BROWSER_URL)}\n"
+                    "else\n"
+                    f"  exec {shlex.quote(_python_exe())} craftbot.py start\n"
+                    "fi\n"
                 )
             with open(shortcut_path, "w") as f:
                 f.write(content)
