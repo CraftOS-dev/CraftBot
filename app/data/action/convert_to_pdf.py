@@ -47,6 +47,8 @@ _STYLE_DESC = (
         "    `soffice` on PATH); native fidelity is preserved; `style` does NOT apply.\n\n"
         "Updating an existing PDF re-applies that PDF's saved style unless overrides are passed, "
         "so re-renders keep the look. Use absolute paths only. `output_path` must end with .pdf."
+        "Warning: this action convert file to PDF in a FIXED format and theme. Agent must not"
+        "use this action if they need to create PDF in custom format when requested."
     ),
     mode="CLI",
     action_sets=["document_processing"],
