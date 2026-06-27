@@ -63,6 +63,7 @@ if sys.stdout is None or sys.stderr is None:
         sys.stderr = _NullIO()
 
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -796,9 +797,18 @@ def _create_desktop_shortcut_unix() -> None:
         return
     try:
         if _PLATFORM == "darwin":
-            # macOS does not support XDG .desktop files — create a double-clickable .command script
+            # macOS does not support XDG .desktop files — create a double-clickable
+            # .command script. In source mode, start the service instead of only
+            # opening the URL so the shortcut works after CraftBot is stopped.
             shortcut_path = os.path.join(desktop, "CraftBot.command")
-            content = f"#!/bin/sh\nopen '{BROWSER_URL}'\n"
+            if IS_FROZEN:
+                content = f"#!/bin/sh\nopen {shlex.quote(BROWSER_URL)}\n"
+            else:
+                content = (
+                    "#!/bin/sh\n"
+                    f"cd {shlex.quote(BASE_DIR)} || exit 1\n"
+                    f"exec {shlex.quote(_python_exe())} craftbot.py start\n"
+                )
             with open(shortcut_path, "w") as f:
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
