@@ -59,6 +59,44 @@ def test_find_missing_runtime_dependencies_checks_conda_env(monkeypatch):
     assert "importlib.import_module(import_name)" in seen_commands[0][6]
 
 
+def test_find_missing_runtime_dependencies_marks_all_missing_on_probe_failure(
+    monkeypatch,
+):
+    def fake_run(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(cmd, 1, stdout="import failed\n")
+
+    monkeypatch.setattr(runtime_preflight.subprocess, "run", fake_run)
+
+    checks = {"requests": "requests", "aiohttp": "aiohttp"}
+    missing, runtime_label = runtime_preflight.find_missing_runtime_dependencies(
+        use_conda=False,
+        env_name=None,
+        checks=checks,
+    )
+
+    assert missing == ["requests", "aiohttp"]
+    assert runtime_label == sys.executable
+
+
+def test_find_missing_runtime_dependencies_marks_all_missing_without_sentinel(
+    monkeypatch,
+):
+    def fake_run(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(cmd, 0, stdout="third-party import noise\n")
+
+    monkeypatch.setattr(runtime_preflight.subprocess, "run", fake_run)
+
+    checks = {"requests": "requests", "aiohttp": "aiohttp"}
+    missing, runtime_label = runtime_preflight.find_missing_runtime_dependencies(
+        use_conda=False,
+        env_name=None,
+        checks=checks,
+    )
+
+    assert missing == ["requests", "aiohttp"]
+    assert runtime_label == sys.executable
+
+
 def test_print_missing_runtime_dependencies_includes_fix(monkeypatch, capsys):
     monkeypatch.setattr(sys, "executable", "/opt/homebrew/bin/python3")
 

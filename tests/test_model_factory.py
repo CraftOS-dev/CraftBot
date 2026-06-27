@@ -56,43 +56,55 @@ def test_importing_model_factory_does_not_require_provider_sdks():
     assert result.returncode == 0, result.stderr
 
 
-def test_deferred_openai_compatible_provider_does_not_require_openai_sdk():
+def test_deferred_openai_compatible_providers_do_not_require_openai_sdk():
     result = _run_with_blocked_sdks(
         """
         from agent_core.core.models.factory import ModelFactory
         from agent_core.core.models.types import InterfaceType
 
-        ctx = ModelFactory.create(
-            provider="deepseek",
-            interface=InterfaceType.LLM,
-            deferred=True,
-        )
-        assert ctx["initialized"] is False
-        assert ctx["client"] is None
+        for provider in ("deepseek", "grok", "moonshot", "minimax", "openrouter"):
+            ctx = ModelFactory.create(
+                provider=provider,
+                interface=InterfaceType.LLM,
+                deferred=True,
+            )
+            assert ctx["initialized"] is False
+            assert ctx["client"] is None
         """
     )
 
     assert result.returncode == 0, result.stderr
 
 
-def test_openai_compatible_provider_reports_missing_openai_sdk():
+def test_openai_compatible_providers_report_missing_openai_sdk():
     result = _run_with_blocked_sdks(
         """
         from agent_core.core.models.factory import ModelFactory
         from agent_core.core.models.types import InterfaceType
 
-        try:
-            ModelFactory.create(
-                provider="deepseek",
-                interface=InterfaceType.LLM,
-                api_key="deepseek-key",
-            )
-        except ImportError as exc:
-            message = str(exc)
-            assert "openai package is required" in message
-            assert "DeepSeek" in message
-        else:
-            raise AssertionError("expected missing OpenAI SDK to raise ImportError")
+        providers = {
+            "deepseek": "DeepSeek",
+            "grok": "Grok",
+            "moonshot": "Moonshot",
+            "minimax": "MiniMax",
+            "openrouter": "OpenRouter",
+        }
+
+        for provider, display in providers.items():
+            try:
+                ModelFactory.create(
+                    provider=provider,
+                    interface=InterfaceType.LLM,
+                    api_key=f"{provider}-key",
+                )
+            except ImportError as exc:
+                message = str(exc)
+                assert "openai package is required" in message
+                assert display in message
+            else:
+                raise AssertionError(
+                    f"expected missing OpenAI SDK to raise ImportError for {provider}"
+                )
         """
     )
 

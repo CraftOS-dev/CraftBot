@@ -454,8 +454,12 @@ def _open_browser_detached(url: str) -> None:
     subprocess.Popen([python, "-c", poll_script], **kwargs)
 
 
-def cmd_start(extra_args: List[str]) -> None:
-    """Start CraftBot as a detached background process."""
+def cmd_start(extra_args: List[str]) -> bool:
+    """Start CraftBot as a detached background process.
+
+    Returns True once the service survives the early startup check; False when
+    launch fails before CraftBot can be used.
+    """
     pid = _read_pid()
     if pid and _is_running(pid):
         cmd_stop()
@@ -474,7 +478,7 @@ def cmd_start(extra_args: List[str]) -> None:
         installed = installed_exe_path()
         if not installed:
             print("Error: no installed agent found — run install first.")
-            return
+            return False
         cmd = [installed] + run_args
     else:
         python = _python_exe()
@@ -510,7 +514,7 @@ def cmd_start(extra_args: List[str]) -> None:
     except FileNotFoundError as e:
         log_fh.close()
         print(f"  {RED}✗{RESET} {WHITE}Could not launch CraftBot — {e}{RESET}")
-        return
+        return False
 
     # Parent closes its copy — the child process (run.py) keeps the fd open
     log_fh.close()
@@ -532,7 +536,7 @@ def cmd_start(extra_args: List[str]) -> None:
         if log_tail:
             print(f"\n{DIM}Last log lines:{RESET}\n{log_tail}", end="")
         print(f"\nCheck logs: {sys.executable} craftbot.py logs")
-        return
+        return False
 
     print(
         f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STARTED{RESET}  {DIM}PID {proc.pid}{RESET}"
@@ -549,6 +553,7 @@ def cmd_start(extra_args: List[str]) -> None:
     if open_browser:
         print(f"  {DIM}░░{RESET} {ORANGE}{BROWSER_URL}{RESET}")
         _open_browser_detached(BROWSER_URL)
+    return True
 
 
 def cmd_stop() -> None:
@@ -644,10 +649,11 @@ def cmd_logs(n: int = 50) -> None:
         print(f"  {RED}✗{RESET} {WHITE}Error reading log: {e}{RESET}")
 
 
-def cmd_restart(extra_args: List[str]) -> None:
+def cmd_restart(extra_args: List[str]) -> bool:
+    """Restart CraftBot and return whether the new service started."""
     cmd_stop()
     time.sleep(1)
-    cmd_start(extra_args)
+    return cmd_start(extra_args)
 
 
 # ─── Desktop shortcut ─────────────────────────────────────────────────────────
@@ -1585,13 +1591,15 @@ def main() -> None:
     rest = args[1:]
 
     if command == "start":
-        cmd_start(rest)
+        if not cmd_start(rest):
+            sys.exit(1)
 
     elif command == "stop":
         cmd_stop()
 
     elif command == "restart":
-        cmd_restart(rest)
+        if not cmd_restart(rest):
+            sys.exit(1)
 
     elif command == "status":
         cmd_status()
