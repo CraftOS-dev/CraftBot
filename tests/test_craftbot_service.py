@@ -21,6 +21,19 @@ class _RunningProcess:
         raise subprocess.TimeoutExpired("craftbot", timeout)
 
 
+class _DelayedFailureProcess:
+    pid = 34567
+
+    def __init__(self):
+        self.calls = 0
+
+    def wait(self, timeout=None):
+        self.calls += 1
+        if self.calls == 1:
+            raise subprocess.TimeoutExpired("craftbot", timeout)
+        return 1
+
+
 def test_start_reports_immediate_child_failure(tmp_path, monkeypatch, capsys):
     pid_file = tmp_path / "craftbot.pid"
     log_file = tmp_path / "craftbot.log"
@@ -67,6 +80,8 @@ def test_start_reports_success_for_long_running_child(tmp_path, monkeypatch, cap
     )
 
     def fake_popen(*args, **kwargs):
+        kwargs["stdout"].write("  ▸  CRAFTBOT IS READY\n")
+        kwargs["stdout"].flush()
         return _RunningProcess()
 
     monkeypatch.setattr(craftbot.subprocess, "Popen", fake_popen)
@@ -77,6 +92,37 @@ def test_start_reports_success_for_long_running_child(tmp_path, monkeypatch, cap
     assert "CRAFTBOT STARTED" in output
     assert pid_file.read_text() == "23456"
     assert events == ["shortcut", ("browser", craftbot.BROWSER_URL)]
+
+
+def test_start_ignores_stale_ready_marker_when_child_exits(
+    tmp_path, monkeypatch, capsys
+):
+    pid_file = tmp_path / "craftbot.pid"
+    log_file = tmp_path / "craftbot.log"
+    log_file.write_text("old run\nCRAFTBOT IS READY\n", encoding="utf-8")
+    events = []
+
+    monkeypatch.setattr(craftbot, "PID_FILE", str(pid_file))
+    monkeypatch.setattr(craftbot, "LOG_FILE", str(log_file))
+    monkeypatch.setattr(craftbot, "RUN_SCRIPT", str(tmp_path / "run.py"))
+    monkeypatch.setattr(
+        craftbot, "_create_desktop_shortcut_unix", lambda: events.append("shortcut")
+    )
+    monkeypatch.setattr(
+        craftbot, "_open_browser_detached", lambda url: events.append(("browser", url))
+    )
+
+    def fake_popen(*args, **kwargs):
+        return _DelayedFailureProcess()
+
+    monkeypatch.setattr(craftbot.subprocess, "Popen", fake_popen)
+
+    assert craftbot.cmd_start([]) is False
+
+    output = capsys.readouterr().out
+    assert "CraftBot failed to start" in output
+    assert not pid_file.exists()
+    assert events == []
 
 
 def test_macos_source_shortcut_opens_or_starts_service(tmp_path, monkeypatch, capsys):
@@ -98,6 +144,7 @@ def test_macos_source_shortcut_opens_or_starts_service(tmp_path, monkeypatch, ca
     content = shortcut.read_text()
     assert f"cd {shlex.quote(str(base_dir))}" in content
     assert "curl -fsS http://localhost:7925" in content
+    assert "curl -fsS http://localhost:7926" in content
     assert "open http://localhost:7925" in content
     assert f"exec {shlex.quote(python_exe)} craftbot.py start" in content
 
@@ -153,3 +200,23 @@ def test_cli_restart_exits_nonzero_when_restart_fails(monkeypatch):
         craftbot.main()
 
     assert exc.value.code == 1
+
+
+def test_source_install_returns_false_when_service_start_fails(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(craftbot, "IS_FROZEN", False)
+    monkeypatch.setattr(craftbot, "BASE_DIR", str(tmp_path))
+    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
+    monkeypatch.setattr(craftbot, "_is_installed", lambda: True)
+    monkeypatch.setattr(craftbot, "cmd_start", lambda args: False)
+    monkeypatch.setattr(
+        craftbot,
+        "_close_console_window",
+        lambda: (_ for _ in ()).throw(AssertionError("should not close")),
+    )
+
+    assert craftbot.cmd_install([]) is False
+
+    output = capsys.readouterr().out
+    assert "CraftBot failed to start" in output

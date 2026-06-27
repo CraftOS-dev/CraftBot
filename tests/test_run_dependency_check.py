@@ -97,6 +97,42 @@ def test_find_missing_runtime_dependencies_marks_all_missing_without_sentinel(
     assert runtime_label == sys.executable
 
 
+def test_find_missing_runtime_dependencies_marks_all_missing_on_malformed_sentinel(
+    monkeypatch,
+):
+    def fake_run(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout="__CRAFTBOT_MISSING_RUNTIME_IMPORTS__not-json\n",
+        )
+
+    monkeypatch.setattr(runtime_preflight.subprocess, "run", fake_run)
+
+    checks = {"requests": "requests", "aiohttp": "aiohttp"}
+    missing, runtime_label = runtime_preflight.find_missing_runtime_dependencies(
+        use_conda=False,
+        env_name=None,
+        checks=checks,
+    )
+
+    assert missing == ["requests", "aiohttp"]
+    assert runtime_label == sys.executable
+
+
+def test_current_runtime_preflight_skips_when_launcher_already_checked(
+    monkeypatch,
+):
+    monkeypatch.setenv("CRAFTBOT_RUNTIME_PREFLIGHT_OK", "1")
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("preflight should not run twice")
+
+    monkeypatch.setattr(runtime_preflight.subprocess, "run", fail_run)
+
+    runtime_preflight.ensure_current_runtime_dependencies()
+
+
 def test_print_missing_runtime_dependencies_includes_fix(monkeypatch, capsys):
     monkeypatch.setattr(sys, "executable", "/opt/homebrew/bin/python3")
 

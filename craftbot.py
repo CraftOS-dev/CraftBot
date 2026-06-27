@@ -184,6 +184,7 @@ TASK_NAME = "CraftBot"  # Windows Task Scheduler task name
 SYSTEMD_SERVICE = "craftbot"  # Linux systemd service name
 LAUNCHD_LABEL = "com.craftbot.agent"  # macOS launchd label
 BROWSER_URL = "http://localhost:7925"
+BACKEND_URL = "http://localhost:7926"
 SHORTCUT_NAME = "CraftBot.lnk"
 # Bundled icons live in sys._MEIPASS in frozen mode (PyInstaller's runtime
 # extract dir) and alongside craftbot.py in source mode. _ensure_ico() copies
@@ -323,15 +324,30 @@ def _remove_pid() -> None:
         pass
 
 
-def _tail_log_lines(n: int = 30) -> str:
+def _tail_log_lines(n: int = 30, start_offset: int = 0) -> str:
     if not os.path.isfile(LOG_FILE):
         return ""
     try:
         with open(LOG_FILE, "r", errors="replace") as f:
+            if start_offset:
+                f.seek(start_offset)
             lines = f.readlines()
     except Exception:
         return ""
     return "".join(lines[-n:])
+
+
+def _wait_for_startup_exit(
+    proc, timeout: float = 8.0, ready_log_offset: int = 0
+) -> Optional[int]:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            return proc.wait(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            if "CRAFTBOT IS READY" in _tail_log_lines(80, ready_log_offset):
+                return None
+    return None
 
 
 def _is_running(pid: int) -> bool:
@@ -495,6 +511,7 @@ def cmd_start(extra_args: List[str]) -> bool:
     log_fh.write(f"Command: {' '.join(cmd)}\n")
     log_fh.write(f"{'=' * 60}\n")
     log_fh.flush()
+    ready_log_offset = log_fh.tell()
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -522,10 +539,7 @@ def cmd_start(extra_args: List[str]) -> bool:
 
     # Catch immediate startup failures before reporting success. This surfaces
     # wrong-Python dependency errors from run.py instead of leaving a stale PID.
-    try:
-        exit_code = proc.wait(timeout=8.0)
-    except subprocess.TimeoutExpired:
-        exit_code = None
+    exit_code = _wait_for_startup_exit(proc, ready_log_offset=ready_log_offset)
 
     if exit_code is not None:
         _remove_pid()
@@ -813,7 +827,8 @@ def _create_desktop_shortcut_unix() -> None:
                 content = (
                     "#!/bin/sh\n"
                     f"cd {shlex.quote(BASE_DIR)} || exit 1\n"
-                    f"if curl -fsS {shlex.quote(BROWSER_URL)} >/dev/null 2>&1; then\n"
+                    f"if curl -fsS {shlex.quote(BROWSER_URL)} >/dev/null 2>&1 "
+                    f"&& curl -fsS {shlex.quote(BACKEND_URL)} >/dev/null 2>&1; then\n"
                     f"  open {shlex.quote(BROWSER_URL)}\n"
                     "else\n"
                     f"  exec {shlex.quote(_python_exe())} craftbot.py start\n"
@@ -1255,10 +1270,11 @@ def _full_install_frozen(
     )(run_args)
 
     # 6. Start the service via the extracted agent EXE
-    cmd_start(extra_args)
+    if not cmd_start(extra_args):
+        raise RuntimeError("CraftBot installed but failed to start.")
 
 
-def cmd_install(extra_args: List[str]) -> None:
+def cmd_install(extra_args: List[str]) -> bool:
     """Install dependencies (source mode) or copy-and-register (frozen mode),
     then start the service."""
     if IS_FROZEN:
@@ -1269,7 +1285,7 @@ def cmd_install(extra_args: List[str]) -> None:
         target_dir = default_install_location()
         print(f"  {ORANGE}▸{RESET} {WHITE}Installing CraftBot to {target_dir}{RESET}")
         _full_install_frozen(target_dir, extra_args)
-        return
+        return True
 
     _warn_path_issues()
     # ── Step 1: Install dependencies via install.py ────────────────────────
@@ -1291,7 +1307,7 @@ def cmd_install(extra_args: List[str]) -> None:
             print(
                 f"  {DIM}Run 'python install.py' directly to see the full error.{RESET}"
             )
-            return
+            return False
 
         # Verify critical packages are actually importable with this interpreter.
         # install.py may exit 0 while packages ended up in a different site-packages.
@@ -1307,7 +1323,7 @@ def cmd_install(extra_args: List[str]) -> None:
             print(
                 f"  {DIM}Run 'python install.py' to reinstall with this Python.{RESET}"
             )
-            return
+            return False
         print()
     else:
         print(f"  {DIM}(install.py not found — skipping dependency install){RESET}\n")
@@ -1331,13 +1347,16 @@ def cmd_install(extra_args: List[str]) -> None:
 
     # ── Step 3: Start the service now ──────────────────────────────────────
     _retro_step(3, 3, "Starting CraftBot")
-    cmd_start(extra_args)
+    if not cmd_start(extra_args):
+        print(f"\n  {RED}✗{RESET} {WHITE}CraftBot failed to start.{RESET}")
+        return False
 
     print(f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS RUNNING IN THE BACKGROUND{RESET}")
     print(f"  {DIM}░░{RESET} {ORANGE}{BROWSER_URL}{RESET}")
     print("You can close this window now.")
     time.sleep(2)
     _close_console_window()
+    return True
 
 
 def _remove_desktop_shortcut() -> None:
@@ -1615,7 +1634,8 @@ def main() -> None:
         cmd_logs(n)
 
     elif command == "install":
-        cmd_install(rest)
+        if not cmd_install(rest):
+            sys.exit(1)
 
     elif command == "uninstall":
         cmd_uninstall()

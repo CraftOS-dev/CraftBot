@@ -30,7 +30,10 @@ import webbrowser
 import atexit
 from typing import Tuple, Optional, Dict, Any, List
 
-from app.runtime_preflight import ensure_runtime_dependencies
+from app.runtime_preflight import (
+    ensure_runtime_dependencies,
+    mark_runtime_dependencies_checked,
+)
 
 multiprocessing.freeze_support()
 
@@ -1260,6 +1263,7 @@ if __name__ == "__main__":
         env_name=env_name,
         conda_command=get_conda_command() if use_conda else "conda",
     )
+    mark_runtime_dependencies_checked()
 
     # Start OmniParser only if GUI mode and it was installed
     if gui_mode and gui_installed:

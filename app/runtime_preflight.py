@@ -2,11 +2,13 @@
 """Runtime dependency checks that can run before dependency-heavy imports."""
 
 import json
+import os
 import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
 
 
+_PREFLIGHT_OK_ENV = "CRAFTBOT_RUNTIME_PREFLIGHT_OK"
 _MISSING_SENTINEL = "__CRAFTBOT_MISSING_RUNTIME_IMPORTS__"
 
 RUNTIME_IMPORT_CHECKS = {
@@ -94,7 +96,10 @@ def find_missing_runtime_dependencies(
 
     for line in reversed(result.stdout.splitlines()):
         if line.startswith(_MISSING_SENTINEL):
-            return json.loads(line[len(_MISSING_SENTINEL) :]), runtime_label
+            try:
+                return json.loads(line[len(_MISSING_SENTINEL) :]), runtime_label
+            except json.JSONDecodeError:
+                return list(checks), runtime_label
     return list(checks), runtime_label
 
 
@@ -149,6 +154,12 @@ def ensure_runtime_dependencies(
         sys.exit(1)
 
 
+def mark_runtime_dependencies_checked() -> None:
+    os.environ[_PREFLIGHT_OK_ENV] = "1"
+
+
 def ensure_current_runtime_dependencies() -> None:
     """Check imports for direct app.main usage with the current interpreter."""
+    if os.environ.get(_PREFLIGHT_OK_ENV) == "1":
+        return
     ensure_runtime_dependencies(use_conda=False, env_name=None)
