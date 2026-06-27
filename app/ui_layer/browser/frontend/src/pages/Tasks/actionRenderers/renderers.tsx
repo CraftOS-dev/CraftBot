@@ -145,8 +145,8 @@ const ListFolderRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile })
   )
 }
 
-// Shared renderer for the <source>_to_pdf action family (markdown/text/csv/images).
-const SourceToPdfRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile }) => {
+// Renderer for convert_to_pdf — handles all source formats via one schema.
+const ConvertToPdfRenderer: ActionRenderer = ({ inputObj, outputObj, onOpenFile }) => {
   const outPath = strField(outputObj, 'path') ?? strField(inputObj, 'output_path') ?? ''
   const content = strField(inputObj, 'content') ?? ''
   const sourcePath = strField(inputObj, 'source_path') ?? ''
@@ -678,17 +678,8 @@ export const SUPPORTED_ACTION_NAMES = [
   'read_file',
   'find_files',
   'list_folder',
-  'markdown_to_pdf',
-  'text_to_pdf',
-  'csv_to_pdf',
-  'images_to_pdf',
-  'html_to_pdf',
-  'url_to_pdf',
-  'docx_to_pdf',
-  'odt_to_pdf',
-  'rtf_to_pdf',
-  'pptx_to_pdf',
-  'xlsx_to_pdf',
+  'convert_to_pdf',
+  'convert_from_pdf',
   'read_pdf',
   'convert_to_markdown',
   // code execution
@@ -734,17 +725,8 @@ const REGISTRY: Record<SupportedActionName, ActionRenderer> = {
   read_file: ReadFileRenderer,
   find_files: FindFilesRenderer,
   list_folder: ListFolderRenderer,
-  markdown_to_pdf: SourceToPdfRenderer,
-  text_to_pdf: SourceToPdfRenderer,
-  csv_to_pdf: SourceToPdfRenderer,
-  images_to_pdf: SourceToPdfRenderer,
-  html_to_pdf: SourceToPdfRenderer,
-  url_to_pdf: SourceToPdfRenderer,
-  docx_to_pdf: SourceToPdfRenderer,
-  odt_to_pdf: SourceToPdfRenderer,
-  rtf_to_pdf: SourceToPdfRenderer,
-  pptx_to_pdf: SourceToPdfRenderer,
-  xlsx_to_pdf: SourceToPdfRenderer,
+  convert_to_pdf: ConvertToPdfRenderer,
+  convert_from_pdf: ConvertToPdfRenderer,
   read_pdf: ReadPdfRenderer,
   convert_to_markdown: ConvertToMarkdownRenderer,
   // code execution

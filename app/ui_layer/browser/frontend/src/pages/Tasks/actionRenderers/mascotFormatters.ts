@@ -166,8 +166,8 @@ const list_folder: MascotActionFormatter = {
   },
 }
 
-// Shared formatter for the <source>_to_pdf action family (markdown/text/csv/images).
-const sourceToPdf: MascotActionFormatter = {
+// Formatter for convert_to_pdf — covers all source formats via one schema.
+const convertToPdf: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'output_path') ?? ''
     return { status: 'running', label: 'Creating PDF', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
@@ -482,17 +482,8 @@ const FORMATTER_REGISTRY: Record<SupportedActionName, MascotActionFormatter> = {
   read_file,
   find_files,
   list_folder,
-  markdown_to_pdf: sourceToPdf,
-  text_to_pdf: sourceToPdf,
-  csv_to_pdf: sourceToPdf,
-  images_to_pdf: sourceToPdf,
-  html_to_pdf: sourceToPdf,
-  url_to_pdf: sourceToPdf,
-  docx_to_pdf: sourceToPdf,
-  odt_to_pdf: sourceToPdf,
-  rtf_to_pdf: sourceToPdf,
-  pptx_to_pdf: sourceToPdf,
-  xlsx_to_pdf: sourceToPdf,
+  convert_to_pdf: convertToPdf,
+  convert_from_pdf: convertToPdf,
   read_pdf,
   convert_to_markdown,
   // code execution

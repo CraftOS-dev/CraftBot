@@ -122,16 +122,17 @@ if all_tables:
 
 To CHANGE an existing PDF while keeping its look, do NOT rebuild from `read_pdf`
 text — `read_pdf` returns TEXT ONLY, not the layout. Reconstruct it instead:
-`pdf_to_html` (layout-preserving HTML) → `stream_edit` the text you need to change
-→ `html_to_pdf` to re-render. Use `mode='xhtml'` for content rewrites that change
-text length, `'html'` for small in-place edits; `edit_pdf` for trivial annotations.
+`convert_from_pdf` (target an .html output for a layout-preserving HTML) →
+`stream_edit` the text you need to change → `convert_to_pdf` (html format) to
+re-render. Use `mode='xhtml'` for content rewrites that change text length,
+`'html'` for small in-place edits; `edit_pdf` for trivial annotations.
 
 Reconstruction is close but not pixel-perfect: present the result and verify with
 the user, and if a large restructure may have shifted the layout, say so. Never
 silently regenerate from scratch and claim the original format is preserved.
 
-If the user wants an editable Word version, use `pdf_to_docx` (PDF → .docx);
-`docx_to_pdf` renders a .docx back to PDF.
+If the user wants an editable Word version, use `convert_from_pdf` with a .docx
+output; `convert_to_pdf` (docx source) renders a .docx back to PDF.
 
 ### reportlab - Create PDFs
 
@@ -141,10 +142,11 @@ If the user wants an editable Word version, use `pdf_to_docx` (PDF → .docx);
 > research with `web_search`/`web_fetch` when accuracy matters or you are unsure.
 > Build the content incrementally in a workspace file (e.g. markdown, appended
 > section by section), then render/convert it — for markdown/text use the
-> `markdown_to_pdf` / `text_to_pdf` actions (pass `source_path` pointing at the
-> workspace file you built, so large documents aren't limited by the per-step
-> output budget; pass `style` to override FORMAT.md). Use ReportLab below only
-> when you need precise custom layout control.
+> `convert_to_pdf` action (pass `source_path` pointing at the workspace file
+> you built, so large documents aren't limited by the per-step output budget;
+> format is auto-detected from the extension, or pass `source_format`; pass
+> `style` to override FORMAT.md). Use ReportLab below only when you need precise
+> custom layout control.
 > NEVER pad with placeholder, templated, repeated, or blank-line filler to hit a
 > page count, and NEVER write a generator script that fabricates body text — page
 > count must come from real content, not padding.

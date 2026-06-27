@@ -213,6 +213,185 @@ def _fpdf_size(style: Dict[str, Any]):
     return orient, fmt
 
 
+def _ensure_list_separators(markdown_text: str) -> str:
+    """Insert a blank line before any list item that directly follows a
+    non-blank, non-list line. markdown2 needs the separator to recognize the
+    list; without it `- foo\\n- bar` glued to the preceding paragraph renders
+    as one inline paragraph with literal hyphens. Skips inside fenced code
+    blocks so list-like content there is untouched."""
+    lines = markdown_text.split("\n")
+    list_re = re.compile(r"^(\s{0,3})([-*+]|\d+\.)\s+\S")
+    fence_re = re.compile(r"^\s*```")
+    in_fence = False
+    out: List[str] = []
+    for line in lines:
+        if fence_re.match(line):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if not in_fence and list_re.match(line) and out:
+            prev = out[-1]
+            if prev.strip() and not list_re.match(prev):
+                out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
+def _expand_ordered_lists(html: str) -> str:
+    """Workaround fpdf2's <ol> marker-stacking bug: when an ordered list has
+    multiple items (or wrapped items), every marker renders at the first
+    item's y position. We replace each <ol>...<li>X</li>...</ol> with a
+    single <p> block whose items are separated by <br/>, so item-to-item
+    spacing is one line-height (tight) rather than full paragraph spacing."""
+    def expand(m):
+        body = m.group(1)
+        items = re.findall(r"<li[^>]*>(.*?)</li>", body, flags=re.IGNORECASE | re.DOTALL)
+        if not items:
+            return ""
+        lines = [
+            f"&nbsp;&nbsp;{idx}. {item.strip()}"
+            for idx, item in enumerate(items, 1)
+        ]
+        return "<p>" + "<br/>".join(lines) + "</p>"
+    return re.sub(r"<ol[^>]*>(.*?)</ol>", expand, html, flags=re.IGNORECASE | re.DOTALL)
+
+
+def _layout_images(html: str, max_width_mm: float, k: float) -> str:
+    """Constrain and center each <img>:
+      - if the image's natural size fits within max_width_mm: keep natural size
+      - if it exceeds max_width_mm: cap width to max_width_mm (preserve aspect)
+      - always wrap in <center>...</center> so the image is horizontally centered
+    fpdf2's <img width="X"> attribute is in POINTS (it does width / pdf.k → mm
+    internally), so the cap is converted via the supplied k (pt-per-mm).
+    Skips <img> tags that already declare a width — agent overrides win."""
+    max_w_pt = int(round(max_width_mm * k))
+    natural_max_px = int(round(max_width_mm * 72 / 25.4))  # fpdf2's natural-size assumption: 72dpi
+
+    def inject(m):
+        attrs = m.group(1) or ""
+        if re.search(r"\bwidth\s*=", attrs, re.IGNORECASE):
+            # Agent set explicit width — center, don't override.
+            return f"<center>{m.group(0)}</center>"
+        # Try to peek at the image's natural width to decide whether to cap.
+        src_m = re.search(r'\bsrc\s*=\s*["\'](.*?)["\']', attrs, re.IGNORECASE)
+        natural_fits = False
+        if src_m:
+            try:
+                from PIL import Image
+
+                with Image.open(src_m.group(1)) as img:
+                    if img.size[0] <= natural_max_px:
+                        natural_fits = True
+            except Exception:
+                pass  # missing/unreadable/remote → fall through to cap
+        if natural_fits:
+            return f"<center>{m.group(0)}</center>"
+        return f'<center><img{attrs} width="{max_w_pt}"></center>'
+
+    return re.sub(r"<img([^>]*)>", inject, html, flags=re.IGNORECASE)
+
+
+def _set_line_height_attr(html: str, tags: List[str], ratio: float) -> str:
+    """Inject `line-height="X"` onto every tag in `tags`. fpdf2's write_html
+    honors this attribute on <p>, <ul>, and <ol> (the only paths that read it
+    are the start-tag handlers for those three). Glyph size is untouched."""
+    for tag in tags:
+        pattern = rf"<{tag}([^>]*)>"
+        def inject(m, _tag=tag):
+            attrs = m.group(1) or ""
+            if re.search(r"\bline-height\s*=", attrs, re.IGNORECASE):
+                return m.group(0)
+            return f'<{_tag}{attrs} line-height="{ratio}">'
+        html = re.sub(pattern, inject, html, flags=re.IGNORECASE)
+    return html
+
+
+def _set_table_cellpadding(html: str, padding: float) -> str:
+    """Inject `cellpadding="X"` onto every <table>. fpdf2's write_html honors
+    the legacy HTML4 cellpadding attribute (in user units, mm) and adds
+    horizontal+vertical padding inside each cell. Tables otherwise render with
+    text flush against the cell borders."""
+    def inject(m):
+        attrs = m.group(1) or ""
+        if re.search(r"\bcellpadding\s*=", attrs, re.IGNORECASE):
+            return m.group(0)
+        return f'<table{attrs} cellpadding="{padding}">'
+    return re.sub(r"<table([^>]*)>", inject, html, flags=re.IGNORECASE)
+
+
+def _left_align_table_cells(html: str) -> str:
+    """fpdf2's write_html defaults <td> alignment to justify, which produces
+    awkward inter-word gaps inside narrow cells (e.g. 'Imperium    of    Man').
+    Force left-align on body cells; <th> headers keep their centered default."""
+    def add_align(m):
+        attrs = m.group(1) or ""
+        if re.search(r"\balign\s*=", attrs, re.IGNORECASE):
+            return m.group(0)
+        return f"<td{attrs} align=\"left\">"
+    return re.sub(r"<td([^>]*)>", add_align, html, flags=re.IGNORECASE)
+
+
+def _auto_width_tables(html: str) -> str:
+    """Set proportional column widths on tables based on max cell content
+    length. fpdf2's write_html otherwise distributes width equally regardless
+    of content, so a 4-char column ('1987') gets the same room as a 40-char
+    column. Each column is guaranteed a 12% floor so very short columns are
+    still readable; the rest is split proportionally to max content length.
+    fpdf2 reads column widths from the first row's <th>/<td> cells."""
+    def process(table: str) -> str:
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table, flags=re.IGNORECASE | re.DOTALL)
+        if not rows:
+            return table
+        max_lens: List[int] = []
+        for row in rows:
+            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, flags=re.IGNORECASE | re.DOTALL)
+            for i, cell in enumerate(cells):
+                text = re.sub(r"<[^>]+>", "", cell).strip()
+                w = len(text) or 1
+                if i >= len(max_lens):
+                    max_lens.append(w)
+                else:
+                    max_lens[i] = max(max_lens[i], w)
+        if len(max_lens) < 2:
+            return table
+        n = len(max_lens)
+        floor_pct = 12
+        remainder = max(0, 100 - floor_pct * n)
+        total = sum(max_lens) or 1
+        raw = [floor_pct + (remainder * w / total) for w in max_lens]
+        pcts = [int(round(r)) for r in raw]
+        pcts[-1] += 100 - sum(pcts)  # fix rounding so widths sum to 100%
+
+        first_row_match = re.search(r"<tr[^>]*>(.*?)</tr>", table, flags=re.IGNORECASE | re.DOTALL)
+        if not first_row_match:
+            return table
+        first_row = first_row_match.group(0)
+        col_idx = [0]
+        def inject(cm):
+            tag = cm.group(1)
+            attrs = cm.group(2) or ""
+            content = cm.group(3)
+            i = col_idx[0]
+            col_idx[0] += 1
+            if i < len(pcts) and "width=" not in attrs.lower():
+                attrs = f' width="{pcts[i]}%"' + attrs
+            return f"<{tag}{attrs}>{content}</{tag}>"
+        new_first_row = re.sub(
+            r"<(t[dh])([^>]*)>(.*?)</\1>",
+            inject,
+            first_row,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        return table.replace(first_row, new_first_row, 1)
+
+    return re.sub(
+        r"<table[^>]*>.*?</table>",
+        lambda m: process(m.group(0)),
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+
 def render_markdown(markdown_text: str, output_path: str, style: Dict[str, Any]) -> Dict[str, Any]:
     """Render markdown to a styled PDF at output_path using the resolved style."""
     import markdown2
@@ -225,9 +404,54 @@ def render_markdown(markdown_text: str, output_path: str, style: Dict[str, Any])
     orient, fmt = _fpdf_size(style)
     banner_on = bool(style.get("banner", True))
 
+    markdown_text = _ensure_list_separators(markdown_text)
     html = markdown2.markdown(
         markdown_text, extras=["fenced-code-blocks", "tables", "strike", "footnotes"]
     )
+    # Strip in-page anchor links (e.g. TOC `[Section](#section)`). fpdf2's
+    # write_html registers them as named-destination references, then errors at
+    # output() because we never call set_link(name=...) on the heading. External
+    # links (href="https://...") are unaffected.
+    html = re.sub(
+        r'<a\b[^>]*\bhref=["\']#[^"\']*["\'][^>]*>(.*?)</a>',
+        r"\1",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    # Strip <hr> — markdown headings already provide section breaks, and an
+    # <hr> rendered just above the next heading reads as visual noise. (Also
+    # avoids draw-color bleed if anything upstream forgets to reset it.)
+    html = re.sub(r"<hr\s*/?>", "", html, flags=re.IGNORECASE)
+    # Work around fpdf2's <ol> marker-stacking bug: markers all render at the
+    # first item's y position when items wrap or there are multiple items.
+    # Replace each <ol> with explicitly-numbered paragraphs.
+    html = _expand_ordered_lists(html)
+    # Distribute table column widths proportionally to max cell content (fpdf2
+    # otherwise gives every column the same width regardless of content).
+    html = _auto_width_tables(html)
+    # Force <td> body cells to left-align (fpdf2 defaults to justify which
+    # gives ugly inter-word gaps in narrow columns).
+    html = _left_align_table_cells(html)
+    # Small inner cell padding so table text isn't flush against the borders.
+    TABLE_CELL_PADDING = 1.5
+    html = _set_table_cellpadding(html, TABLE_CELL_PADDING)
+    # Inject line-height attribute on <p>/<ul>/<ol>. fpdf2's write_html honors
+    # this attribute on those three tags (start-tag handlers in html.py). Glyph
+    # size is unaffected — only the vertical advance per line scales. Tables
+    # use a separate knob (see HTML2FPDF.TABLE_LINE_HEIGHT override around the
+    # write_html call below). Edit LINE_HEIGHT_BODY to change line spacing for
+    # paragraphs and lists; edit TABLE_LINE_HEIGHT for table rows.
+    LINE_HEIGHT_BODY = 1.5
+    html = _set_line_height_attr(html, ["p", "ul", "ol"], LINE_HEIGHT_BODY)
+    # Lay out <img> tags: cap width to content area when oversized, center
+    # via <center> wrapper, keep natural size when it already fits. Page
+    # width depends on page_size + orientation; content area = page − 2·margin.
+    _page_w_mm = {"a3": 297, "a4": 210, "a5": 148, "letter": 215.9, "legal": 215.9}.get(fmt, 210)
+    _page_h_mm = {"a3": 420, "a4": 297, "a5": 210, "letter": 279.4, "legal": 355.6}.get(fmt, 297)
+    _outer = _page_w_mm if orient == "P" else _page_h_mm
+    _content_w_mm = _outer - 2 * margin_mm
+    _k_pt_per_mm = 72 / 25.4  # fpdf2's default unit factor (mm-based FPDF)
+    html = _layout_images(html, _content_w_mm, _k_pt_per_mm)
     html = _sanitize(html)
 
     doc_title = ""
@@ -253,14 +477,28 @@ def render_markdown(markdown_text: str, output_path: str, style: Dict[str, Any])
     if doc_title:
         y0 = 8
         base_h = max(round(float(style["header_height_in"]) * 25.4 * 2.5), 30)
-        hh = base_h + (10 if subtitle else 0)
+        # Auto-shrink the title font so long titles fit within the banner
+        # rather than getting clipped at the right edge.
+        title_pt = float(style["h1_pt"])
+        min_pt = 14.0
+        max_w = pw - 16
+        pdf.set_font("Helvetica", "B", title_pt)
+        while pdf.get_string_width(doc_title) > max_w and title_pt > min_pt:
+            title_pt -= 1
+            pdf.set_font("Helvetica", "B", title_pt)
+        title_wraps = pdf.get_string_width(doc_title) > max_w
+        # If still too wide at min_pt, grow the banner so multi_cell can wrap.
+        hh = base_h + (10 if subtitle else 0) + (14 if title_wraps else 0)
         grad = LinearGradient(lm, y0, lm + pw, y0, colors=t["hbg"])
         with pdf.use_pattern(grad):
             pdf.rect(lm, y0, pw, hh, style="F")
-        pdf.set_font("Helvetica", "B", style["h1_pt"])
         pdf.set_text_color(*t["htxt"])
-        pdf.set_xy(lm + 8, y0 + (hh - 12) / 2 - (5 if subtitle else 0))
-        pdf.cell(pw - 16, 12, doc_title[:72], align="L")
+        if title_wraps:
+            pdf.set_xy(lm + 8, y0 + 6)
+            pdf.multi_cell(pw - 16, title_pt * 0.46, doc_title, align="L")
+        else:
+            pdf.set_xy(lm + 8, y0 + (hh - 12) / 2 - (5 if subtitle else 0))
+            pdf.cell(pw - 16, 12, doc_title, align="L")
         if subtitle:
             pdf.set_font("Helvetica", "I", 9)
             pdf.set_text_color(*t["subtitle"])
@@ -270,20 +508,78 @@ def render_markdown(markdown_text: str, output_path: str, style: Dict[str, Any])
         pdf.set_line_width(0.8)
         pdf.line(lm, y0 + hh + 1, lm + pw, y0 + hh + 1)
         pdf.set_y(y0 + hh + 7)
+        # Reset draw color + line width so subsequent <hr>, list markers, and
+        # table borders don't inherit the banner-rule color/thickness.
+        pdf.set_draw_color(0, 0, 0)
+        pdf.set_line_width(0.2)
 
+    # Heading b_margin tuned smaller than fpdf2's natural ln(font_size) gap so
+    # headings sit closer to the body that follows.
+    #
+    # DO NOT add a TextStyle for <p> or <li>: setting font_size_pt for those
+    # tags in tag_styles makes fpdf2 inflate every body line's rendered size,
+    # producing visibly larger glyphs than the bare set_font call below.
+    # Paragraph and list rendering inherits the body font set just below.
     tag_styles = {
-        "h1": TextStyle(font_family="Helvetica", font_style="B", font_size_pt=style["h1_pt"], color=t["h2"], t_margin=10, b_margin=3),
-        "h2": TextStyle(font_family="Helvetica", font_style="B", font_size_pt=style["h2_pt"], color=t["h2"], t_margin=8, b_margin=2),
-        "h3": TextStyle(font_family="Helvetica", font_style="B", font_size_pt=style["h3_pt"], color=t["h3"], t_margin=6, b_margin=2),
-        "h4": TextStyle(font_family="Helvetica", font_style="BI", font_size_pt=style["body_pt"], color=t["h3"], t_margin=4, b_margin=1),
-        "h5": TextStyle(font_family="Helvetica", font_style="I", font_size_pt=style["small_pt"], color=t["h3"], t_margin=3, b_margin=1),
+        "h1": TextStyle(font_family="Helvetica", font_style="B", font_size_pt=style["h1_pt"], color=t["h2"], t_margin=10, b_margin=1),
+        "h2": TextStyle(font_family="Helvetica", font_style="B", font_size_pt=style["h2_pt"], color=t["h2"], t_margin=8, b_margin=1),
+        "h3": TextStyle(font_family="Helvetica", font_style="B", font_size_pt=style["h3_pt"], color=t["h3"], t_margin=6, b_margin=1),
+        "h4": TextStyle(font_family="Helvetica", font_style="BI", font_size_pt=style["body_pt"], color=t["h3"], t_margin=4, b_margin=0),
+        "h5": TextStyle(font_family="Helvetica", font_style="I", font_size_pt=style["small_pt"], color=t["h3"], t_margin=3, b_margin=0),
         "code": TextStyle(font_family="Courier", font_size_pt=style["code_pt"], color=t["cc"], fill_color=t["cbg"]),
         "pre": TextStyle(font_family="Courier", font_size_pt=style["code_pt"], color=t["cc"], fill_color=t["cbg"]),
         "a": FontFace(color=t["accent"]),
     }
     pdf.set_text_color(*t["body"])
     pdf.set_font("Helvetica", size=style["body_pt"])
-    pdf.write_html(html_body, font_family="Helvetica", tag_styles=tag_styles, table_line_separators=True, ul_bullet_char="*")
+
+    # Table row line height: tables don't honor a per-tag line-height attribute,
+    # but HTMLParser2FPDF reads the class constant TABLE_LINE_HEIGHT (default
+    # 1.3) when laying out each row. Override it for the render and restore so
+    # this doesn't leak into any other write_html caller. Bigger = taller rows.
+    TABLE_LINE_HEIGHT = 1.2
+    from fpdf.html import HTML2FPDF
+    from fpdf.enums import YPos
+    _orig_table_lh = HTML2FPDF.TABLE_LINE_HEIGHT
+    HTML2FPDF.TABLE_LINE_HEIGHT = TABLE_LINE_HEIGHT
+
+    # Bullet vertical alignment. fpdf2 draws every glyph at the cell's
+    # baseline = self.y + 0.5*h + 0.3*font_size (see fpdf.py _render_styled_text_line).
+    # Bullets use h = bullet_font (small), body lines use h = body_font *
+    # line_height (large). The bullet's baseline ends up higher than the body
+    # text's baseline, which makes the dot LOOK like it's hovering above the
+    # text's x-height when line-height is increased. Shift y down before the
+    # bullet render so the bullet baseline lines up with the body baseline,
+    # then restore y so the body text still renders at its natural position.
+    # Detected by new_y=YPos.TOP — only the bullet path uses that.
+    _orig_render = pdf._render_styled_text_line
+    BULLET_Y_SHIFT_RATIO = 0.18  # smaller = bullet lower, larger = bullet higher
+
+    def _aligned_bullet_render(text_line, h=None, new_y=YPos.TOP, **kwargs):
+        if new_y == YPos.TOP and h is not None:
+            original_y = pdf.y
+            pdf.y = original_y - h * BULLET_Y_SHIFT_RATIO
+            try:
+                return _orig_render(text_line, h=h, new_y=new_y, **kwargs)
+            finally:
+                pdf.y = original_y
+        return _orig_render(text_line, h=h, new_y=new_y, **kwargs)
+
+    pdf._render_styled_text_line = _aligned_bullet_render
+    try:
+        # ul_bullet_char="disc" → fpdf2's native filled-circle bullet glyph.
+        # li_prefix_color colors only the bullet; <li> text stays body color.
+        pdf.write_html(
+            html_body,
+            font_family="Helvetica",
+            tag_styles=tag_styles,
+            table_line_separators=True,
+            ul_bullet_char="disc",
+            li_prefix_color=tuple(t["accent"]),
+        )
+    finally:
+        HTML2FPDF.TABLE_LINE_HEIGHT = _orig_table_lh
+        pdf._render_styled_text_line = _orig_render
 
     _apply_page_furniture(pdf, style, t)
 

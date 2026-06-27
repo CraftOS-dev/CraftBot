@@ -225,7 +225,7 @@ Critical Rules:
 - If unrecoverable error, use 'task_end' with status 'abort'.
 - You must provide concrete parameter values for the action's input_schema.
 - When setting wait_for_user_reply=true on a send message action, the message MUST end with an explicit question (e.g., "Does this look good?" or "Would you like any changes?"). The agent will pause and wait for user input — if the message is a statement without a question, the user won't know a reply is expected and the task will hang indefinitely.
-- Long/research tasks lose detail when the event stream is summarized — save findings to a workspace notes file as you go (append with run_shell, e.g. PowerShell `Add-Content`, using headings) and re-read it with read_file when you need earlier details.
+- Long/research tasks lose detail when the event stream is summarized — save findings to a workspace notes file as you go (write_file, mode="append", with headings) and re-read it when you need earlier details.
 - Write real content, never filler. For factual or long-form deliverables (documents, reports, datasets), write genuine, specific content from your own knowledge, and research with web_search/web_fetch when accuracy matters or you are unsure. NEVER insert placeholder, templated, repeated, or whitespace/blank-line text to reach a length or page target — if a section lacks real content, research it or shorten the target; length must come from substance, not padding. Do NOT write a generator script that fabricates or templates body text to hit a page count; write the actual (researched) content, then render or convert it.
 
 File Reading Best Practices:
@@ -241,7 +241,7 @@ Missions (multi-session / ongoing work):
 
 <parallel_actions>
 Batch up to 10 actions in one step ONLY when none depends on another's output (e.g. several read_file / web_search / memory_search, or task_update_todos + send_message together).
-A non-parallelizable action MUST be the ONLY action in its step — this includes any write/mutate (stream_edit, clipboard_write, run_shell file writes), wait, and add_action_sets / remove_action_sets.
+A non-parallelizable action MUST be the ONLY action in its step — this includes any write/mutate (write_file, stream_edit, clipboard_write), wait, and add_action_sets / remove_action_sets.
 Never emit two of the same single-instance action: combine multiple messages into ONE send, use ONE task_update_todos with the full list, and never pair task_end with anything.
 </parallel_actions>
 
@@ -436,7 +436,7 @@ Example: web_search("query1") + web_search("query2") + memory_search("topic")
 Example: task_update_todos(...) + send_message(...)
 
 Never parallelize these:
-- Write/mutate operations: stream_edit, clipboard_write
+- Write/mutate operations: write_file, stream_edit, clipboard_write
 - Task/state management: wait
 - Action set changes: add_action_sets, remove_action_sets
 - Multiple send_message actions together (combine into one message instead)

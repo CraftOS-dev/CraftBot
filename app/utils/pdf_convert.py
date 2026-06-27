@@ -271,7 +271,7 @@ def convert_pdf_to_html(source_path: str, output_path: str, mode: str = "xhtml")
 
     The output HTML carries the original's fonts, sizes, colors, positions and
     images, so the agent can edit its text with stream_edit and re-render with
-    html_to_pdf while preserving the look — no editable source needed.
+    convert_to_pdf (html format) while preserving the look — no editable source needed.
     mode: 'xhtml' (flow-based, reflows on edits) or 'html' (absolute-positioned,
     near-identical but rigid).
     """
@@ -300,7 +300,7 @@ def convert_pdf_to_html(source_path: str, output_path: str, mode: str = "xhtml")
         return {"status": "error", "message": f"PDF→HTML extraction failed: {type(exc).__name__}: {exc}"}
 
     # Carry the source's page size into the HTML so re-rendering preserves geometry
-    # (html_to_pdf only overrides @page when the user explicitly passes page style).
+    # (convert_to_pdf html only overrides @page when the user explicitly passes page style).
     page_css = (
         f"<style>@page {{ size: {page_w:.0f}pt {page_h:.0f}pt; margin: 0; }}</style>"
         if page_w

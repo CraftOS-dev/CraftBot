@@ -13,7 +13,7 @@ Author a reusable skill from one completed task. The handler that spawned this t
 
 ## What you receive
 
-Your task instruction contains five lines (the two paths are **absolute** — pass them verbatim to `read_file` / `run_shell`, do NOT prepend or modify any prefix):
+Your task instruction contains five lines (the two paths are **absolute** — pass them verbatim to `read_file` / `write_file`, do NOT prepend or modify any prefix):
 
 ```
 Source file (read this — absolute path, use verbatim): <absolute path to SKILL_SOURCE_<id>.md>
@@ -38,7 +38,7 @@ The Task name and the action trace together are enough to reconstruct the workfl
 
 Two artefacts, in order:
 
-1. **One file** at the path given by `Target file:` in your task instruction (an absolute path under the project's `skills/` directory). There is no dedicated write action — create the file with `run_shell` using the host shell (e.g. PowerShell `Set-Content` on Windows). The directory does not exist yet; create it first in the same call (e.g. `New-Item -ItemType Directory -Force`). For SKILL.md content beyond a few lines, write the body into a temp file and move it into place, rather than passing a huge inline command.
+1. **One file** at the path given by `Target file:` in your task instruction (an absolute path under the project's `skills/` directory). Pass that path verbatim to `write_file` (or `create_file`). The directory does not exist yet; `write_file` creates the parent directory in the same call.
 2. **One presentation message** to the user via `send_message`, immediately after the file is written and immediately before `task_end`. See *Presentation message* below for the format.
 
 Do not write any other files. Do not send any chat message other than the single presentation one — the handler has already posted the "Creating skill …" acknowledgement.
@@ -190,7 +190,7 @@ Rules:
 
 ## Allowed Actions
 
-`read_file`, `run_shell` (to create the file), `stream_edit`, `send_message`, `task_update_todos`, `task_end`.
+`read_file`, `create_file` (or `write_file`), `stream_edit`, `send_message`, `task_update_todos`, `task_end`.
 
 `stream_edit` is only needed if you want to refine the file you just created — write it correctly the first time and you won't need it.
 
