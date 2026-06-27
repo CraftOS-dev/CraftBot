@@ -129,12 +129,38 @@ class InternalActionInterface:
         return {"llm_response": response}
 
     @classmethod
-    def describe_image(cls, image_path: str, prompt: Optional[str] = None) -> str:
-        """Produce a textual description for an image using the VLM."""
+    def _ensure_vlm_available(cls) -> None:
+        """Raise a clear error if the configured provider has no VLM model.
+
+        The agent's main LLM provider (e.g. deepseek) may not support vision.
+        Without this guard, calls fall through to VLMInterface methods that
+        either crash or return provider-specific gibberish. Raising here lets
+        the action wrappers catch it and inject the error into the event stream.
+        """
         if cls.vlm_interface is None:
             raise RuntimeError(
                 "InternalActionInterface not initialized with VLMInterface."
             )
+        if not cls.vlm_interface.is_initialized:
+            from agent_core.core.models.model_registry import MODEL_REGISTRY
+            from agent_core.core.models.types import InterfaceType
+
+            provider = cls.vlm_interface.provider or "unknown"
+            if MODEL_REGISTRY.get(provider, {}).get(InterfaceType.VLM) is None:
+                raise RuntimeError(
+                    f"VLM is not available for provider '{provider}'. "
+                    "Switch vlm_provider in app/config/settings.json to one "
+                    "that supports vision (e.g. anthropic, openai, gemini, byteplus)."
+                )
+            raise RuntimeError(
+                f"VLM for provider '{provider}' is not initialized. "
+                "Check that the API key is configured in app/config/settings.json."
+            )
+
+    @classmethod
+    def describe_image(cls, image_path: str, prompt: Optional[str] = None) -> str:
+        """Produce a textual description for an image using the VLM."""
+        cls._ensure_vlm_available()
         return cls.vlm_interface.describe_image(image_path, user_prompt=prompt)
 
     @classmethod
@@ -181,10 +207,7 @@ class InternalActionInterface:
         Run OCR on an image and persist the extracted text to workspace.
         Returns a concise status dict + saved file path to avoid UI flooding.
         """
-        if cls.vlm_interface is None:
-            raise RuntimeError(
-                "InternalActionInterface not initialized with VLMInterface."
-            )
+        cls._ensure_vlm_available()
 
         import os
         from datetime import datetime
@@ -220,10 +243,7 @@ class InternalActionInterface:
         Analyse a video by extracting keyframes and querying the VLM.
         Persists the summary to workspace to avoid UI/context flooding.
         """
-        if cls.vlm_interface is None:
-            raise RuntimeError(
-                "InternalActionInterface not initialized with VLMInterface."
-            )
+        cls._ensure_vlm_available()
 
         import os
         from datetime import datetime
@@ -283,10 +303,7 @@ class InternalActionInterface:
     @classmethod
     def describe_screen(cls) -> Dict[str, str]:
         """Capture the current virtual desktop and describe it with the VLM."""
-        if cls.vlm_interface is None:
-            raise RuntimeError(
-                "InternalActionInterface not initialised with VLMInterface."
-            )
+        cls._ensure_vlm_available()
 
         temp_dir = Path(AGENT_WORKSPACE_ROOT)
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
