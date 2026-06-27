@@ -10,7 +10,9 @@ from agent_core import action
         "mode='layout': returns per-word bounding boxes (BOTTOMLEFT origin) — use when "
         "edit_pdf or form-filling needs spatial coordinates. "
         "page_range limits which pages are read (e.g. '1', '1-3', '2,4'). "
-        "Digital PDFs use pdfplumber. Scanned/image PDFs fall back to Docling automatically."
+        "Digital PDFs use pdfplumber. Scanned/image PDFs fall back to Docling automatically. "
+        "NOTE: this returns text/coordinates only, NOT the visual layout — to EDIT a PDF while "
+        "preserving its look, use convert_from_pdf (html target) instead of rebuilding from this text."
     ),
     mode="CLI",
     action_sets=["document_processing"],

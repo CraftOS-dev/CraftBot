@@ -745,28 +745,33 @@ Supported parameters: `glob`, `file_type`, `before_context` / `after_context`, `
 
 Full input schema: [app/data/action/grep_files.py](app/data/action/grep_files.py).
 
-### stream_edit
-- Use when modifying an existing file (read it with `read_file` first).
+### stream_read + stream_edit
+- Use as a pair when modifying an existing file.
+- `stream_read` returns the exact bytes.
 - `stream_edit` applies a precise diff.
-- Preferred over a whole-file rewrite for edits. Preserves unrelated content and avoids clobbering the rest of the file.
+- Preferred over `write_file` for edits. Preserves unrelated content and avoids whole-file overwrites.
 
-### Creating new files
-There is no dedicated write action. To create a new file (or do a deliberate
-full rewrite of a small one), write it with `run_shell` using the host shell —
-e.g. PowerShell `Set-Content` / `Add-Content` on Windows.
+### write_file
+Use only when:
+- Creating a brand new file, OR
+- Doing a deliberate full rewrite of a small file.
+
+Never use `write_file` to patch an existing large file. Use `stream_edit`.
 
 For large files (long documents, scripts, datasets), DO NOT try to emit the
 whole file in one step. Each action is a single model response bounded by the
-output-token limit, and a long inline command also exceeds the shell's
-command-line limit (cmd ~8 KB). Build the file incrementally instead:
-1. Create the file with the first chunk (`Set-Content`).
-2. Append the next section with `Add-Content` — one bounded chunk per step.
+output-token limit. Build the file incrementally instead:
+1. Create the file with the first chunk (`write_file` in overwrite mode).
+2. Append the next section with `write_file` in append mode — one bounded chunk per step.
 3. Repeat until the content is complete.
-4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`), or for a PDF build the markdown then convert it with `create_pdf`.
+4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`),
+   or for a PDF build the markdown then convert it with `convert_to_pdf` (pass
+   `source_path` pointing at the markdown file; format is auto-detected from the
+   extension; pass `style` to override FORMAT.md). The same action handles every
+   source format (text, csv, xlsx, html, url, images, docx/odt/rtf/pptx). Use
+   `convert_from_pdf` for the reverse direction (PDF → .docx or .html).
 Keep each chunk small — roughly ~150 lines (a few KB) at most — so it fits
 comfortably within one response's output-token budget.
-
-Never rewrite an existing large file this way — use `stream_edit` to patch it.
 
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
@@ -1098,13 +1103,18 @@ This is non-optional. Generating documents without reading FORMAT.md produces in
 
 ### Action support
 
-Document generation actions in the standard action set:
+Document actions in the standard action set:
 ```
-create_pdf              build a PDF from markdown / text
-                        (preferred over rendering a PDF yourself with a script)
 convert_to_markdown     normalize office formats before further processing
 read_pdf                read a PDF with page support
+convert_to_pdf          render any source → PDF; source format auto-detected from input
+                        (markdown/text/csv/xlsx/html/url/images/docx/odt/rtf/pptx)
+convert_from_pdf        PDF → editable .docx (pdf2docx) or layout-preserving .html (PyMuPDF);
+                        the html target is the EDIT path: convert_from_pdf → stream_edit → convert_to_pdf
+edit_pdf                annotate / redact / replace / watermark an existing PDF
 ```
+
+For DOCX/PPTX/XLSX *generation*, there is no built-in action — use the per-format skills listed below.
 
 Skills that compose document workflows (sample):
 ```
@@ -1304,8 +1314,10 @@ core                     send_message, task_start, task_end, task_update_todos, 
                          list_available_integrations, connect_integration,
                          check_integration_status, disconnect_integration
 
-file_operations          read_file, grep_files, find_files, list_folder, stream_edit,
-                         read_pdf, convert_to_markdown, create_pdf
+file_operations          read_file, grep_files, find_files, list_folder, stream_edit, write_file,
+                         read_pdf, convert_to_markdown
+
+document_processing      convert_to_pdf, convert_from_pdf, edit_pdf, read_pdf, convert_to_markdown
 
 shell                    run_shell
 
@@ -1397,7 +1409,7 @@ Beyond the eight curated sets, these sets exist because actions declare them:
 ```
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
-content_creation      generate_image, create_pdf, ...
+content_creation      generate_image, ...
 living_ui             living_ui_http, living_ui_restart, ...
 
 per-integration sets (loaded only when the user has the integration connected):
@@ -1626,7 +1638,7 @@ You may also encounter MCP server entries that point at standalone JSON files; t
     [CONFIG_WATCHER] / [MCP] / [SETTINGS] errors
 ```
 
-Use `stream_edit`, never a whole-file rewrite, on configs. Rewriting the file risks losing unrelated keys the runtime relies on (e.g. `api_keys_configured` bookkeeping, your own `oauth` clients).
+Use `stream_edit`, never `write_file`, on configs. A whole-file rewrite risks losing unrelated keys the runtime relies on (e.g. `api_keys_configured` bookkeeping, your own `oauth` clients).
 
 If the file is malformed JSON after your edit, the reload fails and the previous in-memory config keeps running. Read the file back and fix the syntax. `[SETTINGS] JSONDecodeError` will appear in the log.
 
@@ -2391,7 +2403,7 @@ This skill walks through the scaffold (writes the SKILL.md, sets up the director
 **3. Author by hand.**
 ```
 1. mkdir skills/<name>
-2. run_shell to create skills/<name>/SKILL.md
+2. write_file skills/<name>/SKILL.md
    (use the format above; copy a similar existing skill as template)
 3. stream_edit app/config/skills_config.json to add to enabled_skills
 4. wait ~0.5s for hot-reload
@@ -3250,7 +3262,7 @@ Option 3: Manual trigger (if user requests)
 
 ### Hard rules
 
-- You MUST NOT `stream_edit` or otherwise write to MEMORY.md. Only the memory processor writes there.
+- You MUST NOT `stream_edit` or `write_file` MEMORY.md. Only the memory processor writes there.
 - You MUST NOT edit EVENT.md, EVENT_UNPROCESSED.md, CONVERSATION_HISTORY.md, or TASK_HISTORY.md.
 - You MAY edit USER.md (with user confirmation, see `## Self-Edit`).
 - You MAY edit AGENT.md (with caution, see `## Self-Edit`).
@@ -4097,16 +4109,17 @@ Agent:
 
 **Example 4: Repeated friction recognized over many tasks**
 ```
-You've noticed across 5+ tasks that whenever you generate a PDF, you keep
-forgetting to call create_pdf vs trying to render the PDF with a script first.
+You've noticed across 5+ tasks that whenever you convert an office document
+you keep reaching for read_pdf first instead of running convert_to_markdown,
+and only realising mid-task that the input was a .docx.
 
-Agent (when starting an unrelated PDF task and noticing the pattern):
-  1. RECOGNIZE: pattern of forgetting the right action.
+Agent (when starting an unrelated document task and noticing the pattern):
+  1. RECOGNIZE: pattern of picking the wrong reader action.
   2. CATEGORIZE: AGENT.md operational improvement (## Self-Edit).
      This is a NON-OBVIOUS convention worth recording.
   3. VALIDATE: yes, future-you would benefit.
   4. PROPOSE: not always required for AGENT.md polish — but if the user
-     has a pattern of complaining about PDFs, ask. Otherwise, log it.
+     has a pattern of complaining about it, ask. Otherwise, log it.
   5. EXECUTE: stream_edit AGENT.md ## Documents adding a clarifying note.
   6. VERIFY: re-read on next turn so the new instruction is in context.
   7. RECORD: bump version in front matter; sync to template.
@@ -4286,7 +4299,7 @@ If you can't pick one cleanly, the change isn't well-scoped yet. Ask the user be
 ```
 1. Read the section you want to change (and its neighbors) so your edit
    matches the surrounding tone and structure.
-2. stream_edit AGENT.md (NEVER do a whole-file rewrite; you'd lose the rest of the file).
+2. stream_edit AGENT.md (NEVER write_file; you'd lose the rest of the file).
 3. Bump the `version:` line in the front matter when the change is material.
 4. Sync to template: also stream_edit app/data/agent_file_system_template/AGENT.md
    so new installs get the upgrade. Both files must stay byte-identical.

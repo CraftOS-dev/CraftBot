@@ -1,4 +1,4 @@
-"""FORMAT.md → PDF style resolver for create_pdf and edit_pdf."""
+"""FORMAT.md → PDF style resolver for the <source>_to_pdf actions and edit_pdf."""
 
 from __future__ import annotations
 

@@ -1046,6 +1046,76 @@ class InternalActionInterface:
         cls.state_manager.bump_event_stream()
 
     @classmethod
+    def update_requirements(
+        cls, requirements: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Record the deliverable requirement list by emitting a [requirements]
+        event into the event stream.
+
+        Requirements are NOT persisted on the Task — the action is standalone.
+        The agent re-issues the full list on every update; the event stream
+        is the source of truth that the LLM reads back.
+
+        Args:
+            requirements: List of requirement dictionaries with keys
+                          dimension, requirement, done_when, and optional status.
+
+        Returns:
+            Status and the requirement list as passed in.
+        """
+        cls._emit_requirements_event(requirements)
+        return {"status": "ok", "requirements": requirements}
+
+    @classmethod
+    def _emit_requirements_event(
+        cls, requirements: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Emit a [requirements] event to the event stream.
+
+        Each requirement is rendered on three lines so the model can read
+        the dimension, the spec, and the check independently:
+            [SAT]/[VIO]/[ ] <dimension>: <requirement>
+                   done_when: <done_when>
+        """
+        if cls.state_manager is None:
+            return
+
+        lines = []
+        for r in requirements:
+            status = r.get("status", "pending")
+            dimension = r.get("dimension", "")
+            requirement = r.get("requirement", "")
+            done_when = r.get("done_when", "")
+
+            if status == "satisfied":
+                marker = "[SAT]"
+            elif status == "violated":
+                marker = "[VIO]"
+            else:
+                marker = "[ ]"
+
+            lines.append(f"  {marker} {dimension}: {requirement}")
+            if done_when:
+                lines.append(f"         done_when: {done_when}")
+
+        if lines:
+            req_str = "\n" + "\n".join(lines)
+        else:
+            req_str = "(no requirements set)"
+
+        task_id = cls._get_current_task_id()
+
+        cls.state_manager.event_stream_manager.log(
+            kind="requirements",
+            message=req_str,
+            severity="INFO",
+            task_id=task_id,
+        )
+        cls.state_manager.bump_event_stream()
+
+    @classmethod
     async def mark_task_completed(
         cls,
         message: Optional[str] = None,

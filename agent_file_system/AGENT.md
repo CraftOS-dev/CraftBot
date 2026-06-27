@@ -768,6 +768,16 @@ comfortably within one response's output-token budget.
 
 Never rewrite an existing large file this way — use `stream_edit` to patch it.
 
+For large files (long documents, scripts, datasets), DO NOT try to emit the
+whole file in one step. Each action is a single model response bounded by the
+output-token limit. Build the file incrementally instead:
+1. Create the file with the first chunk (`write_file` in overwrite mode).
+2. Append the next section with `write_file` in append mode — one bounded chunk per step.
+3. Repeat until the content is complete.
+4. Then run or finalize it — e.g. run a script with `run_shell` (`python build_doc.py`), or hand the file to whatever skill consumes it.
+Keep each chunk small — roughly ~150 lines (a few KB) at most — so it fits
+comfortably within one response's output-token budget.
+
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
 - `find_files`: recursive name pattern search across a tree.
@@ -1098,13 +1108,13 @@ This is non-optional. Generating documents without reading FORMAT.md produces in
 
 ### Action support
 
-Document generation actions in the standard action set:
+Document-reading actions in the standard action set:
 ```
-create_pdf              build a PDF from markdown / text
-                        (preferred over rendering a PDF yourself with a script)
 convert_to_markdown     normalize office formats before further processing
 read_pdf                read a PDF with page support
 ```
+
+For document *generation* (PDF, DOCX, PPTX, XLSX), there is no built-in action — use the per-format skills listed below, which drive the underlying libraries directly.
 
 Skills that compose document workflows (sample):
 ```
@@ -1304,8 +1314,8 @@ core                     send_message, task_start, task_end, task_update_todos, 
                          list_available_integrations, connect_integration,
                          check_integration_status, disconnect_integration
 
-file_operations          read_file, grep_files, find_files, list_folder, stream_edit,
-                         read_pdf, convert_to_markdown, create_pdf
+file_operations          read_file, grep_files, find_files, list_folder, stream_edit, write_file,
+                         read_pdf, convert_to_markdown
 
 shell                    run_shell
 
@@ -1397,7 +1407,7 @@ Beyond the eight curated sets, these sets exist because actions declare them:
 ```
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
-content_creation      generate_image, create_pdf, ...
+content_creation      generate_image, ...
 living_ui             living_ui_http, living_ui_restart, ...
 
 per-integration sets (loaded only when the user has the integration connected):
@@ -4097,16 +4107,17 @@ Agent:
 
 **Example 4: Repeated friction recognized over many tasks**
 ```
-You've noticed across 5+ tasks that whenever you generate a PDF, you keep
-forgetting to call create_pdf vs trying to render the PDF with a script first.
+You've noticed across 5+ tasks that whenever you convert an office document
+you keep reaching for read_pdf first instead of running convert_to_markdown,
+and only realising mid-task that the input was a .docx.
 
-Agent (when starting an unrelated PDF task and noticing the pattern):
-  1. RECOGNIZE: pattern of forgetting the right action.
+Agent (when starting an unrelated document task and noticing the pattern):
+  1. RECOGNIZE: pattern of picking the wrong reader action.
   2. CATEGORIZE: AGENT.md operational improvement (## Self-Edit).
      This is a NON-OBVIOUS convention worth recording.
   3. VALIDATE: yes, future-you would benefit.
   4. PROPOSE: not always required for AGENT.md polish — but if the user
-     has a pattern of complaining about PDFs, ask. Otherwise, log it.
+     has a pattern of complaining about it, ask. Otherwise, log it.
   5. EXECUTE: stream_edit AGENT.md ## Documents adding a clarifying note.
   6. VERIFY: re-read on next turn so the new instruction is in context.
   7. RECORD: bump version in front matter; sync to template.
