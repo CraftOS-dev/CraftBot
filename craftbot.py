@@ -322,6 +322,17 @@ def _remove_pid() -> None:
         pass
 
 
+def _tail_log_lines(n: int = 30) -> str:
+    if not os.path.isfile(LOG_FILE):
+        return ""
+    try:
+        with open(LOG_FILE, "r", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return ""
+    return "".join(lines[-n:])
+
+
 def _is_running(pid: int) -> bool:
     """Return True if a process with the given PID is currently alive."""
     if _PLATFORM == "win32":
@@ -503,6 +514,25 @@ def cmd_start(extra_args: List[str]) -> None:
     # Parent closes its copy — the child process (run.py) keeps the fd open
     log_fh.close()
     _write_pid(proc.pid)
+
+    # Catch immediate startup failures before reporting success. This surfaces
+    # wrong-Python dependency errors from run.py instead of leaving a stale PID.
+    try:
+        exit_code = proc.wait(timeout=8.0)
+    except subprocess.TimeoutExpired:
+        exit_code = None
+
+    if exit_code is not None:
+        _remove_pid()
+        print(
+            f"  {RED}✗{RESET} {WHITE}CraftBot failed to start{RESET}  {DIM}exit {exit_code}{RESET}"
+        )
+        log_tail = _tail_log_lines()
+        if log_tail:
+            print(f"\n{DIM}Last log lines:{RESET}\n{log_tail}", end="")
+        print(f"\nCheck logs: {sys.executable} craftbot.py logs")
+        return
+
     print(
         f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STARTED{RESET}  {DIM}PID {proc.pid}{RESET}"
     )
