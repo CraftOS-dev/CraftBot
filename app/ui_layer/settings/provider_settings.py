@@ -21,6 +21,8 @@ PROVIDER_TO_SETTINGS_KEY = {
     "minimax": "minimax",
     "moonshot": "moonshot",
     "grok": "grok",
+    "glm": "glm",
+    "fugu": "fugu",
     "openrouter": "openrouter",
     # Bedrock has no single API key — credentials live under "aws_credentials"
     # in settings.json (handled separately from the api_keys map). The entry

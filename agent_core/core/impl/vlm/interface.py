@@ -272,7 +272,7 @@ class VLMInterface:
                 raise RuntimeError(
                     "DeepSeek does not support vision/VLM. Use a different provider for image description."
                 )
-            elif self.provider in ("openai", "minimax", "moonshot", "grok"):
+            elif self.provider in ("openai", "minimax", "moonshot", "grok", "glm"):
                 response = self._openai_describe_bytes(
                     image_bytes, system_prompt, user_prompt, json_mode=json_mode
                 )

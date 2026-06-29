@@ -72,6 +72,18 @@ PROVIDER_INFO = {
         "settings_key": "grok",
         "requires_api_key": True,
     },
+    "glm": {
+        "name": "Z.ai (GLM)",
+        "api_key_env": "ZAI_API_KEY",
+        "settings_key": "glm",
+        "requires_api_key": True,
+    },
+    "fugu": {
+        "name": "Sakana (Fugu)",
+        "api_key_env": "SAKANA_API_KEY",
+        "settings_key": "fugu",
+        "requires_api_key": True,
+    },
     "openrouter": {
         "name": "OpenRouter",
         "api_key_env": "OPENROUTER_API_KEY",

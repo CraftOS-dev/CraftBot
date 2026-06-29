@@ -35,6 +35,8 @@ DEFAULT_SETTINGS = {
         "minimax": "",
         "deepseek": "",
         "moonshot": "",
+        "glm": "",
+        "fugu": "",
     },
     "endpoints": {
         "remote_model_url": "",

@@ -504,6 +504,8 @@ class LLMInterface:
                 "moonshot",
                 "grok",
                 "openrouter",
+                "glm",
+                "fugu",
             ):
                 response = self._generate_openai(system_prompt, user_prompt)
             elif self.provider == "remote":
@@ -678,7 +680,7 @@ class LLMInterface:
             (self.provider == "byteplus" and self._byteplus_cache_manager)
             or (self.provider == "gemini" and self._gemini_cache_manager)
             or (
-                self.provider in ("openai", "deepseek", "grok", "openrouter")
+                self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
                 and self.client
             )  # OpenAI/DeepSeek/Grok/OpenRouter use automatic caching with prompt_cache_key (and cache_control for Anthropic-routed OpenRouter models)
             or (
@@ -805,7 +807,7 @@ class LLMInterface:
             if self.provider == "gemini" and self._gemini_cache_manager:
                 return True
             if (
-                self.provider in ("openai", "deepseek", "grok", "openrouter")
+                self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
                 and self.client
             ):
                 return True
@@ -928,7 +930,7 @@ class LLMInterface:
             return cleaned
 
         # Handle OpenAI/DeepSeek/Grok/OpenRouter with call_type-based cache routing
-        if self.provider in ("openai", "deepseek", "grok", "openrouter"):
+        if self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu"):
             # Get stored system prompt or use provided one
             session_key = f"{task_id}:{call_type}"
             stored_system_prompt = self._session_system_prompts.get(session_key)
