@@ -30,6 +30,11 @@ import webbrowser
 import atexit
 from typing import Tuple, Optional, Dict, Any, List
 
+from app.runtime_preflight import (
+    ensure_runtime_dependencies,
+    mark_runtime_dependencies_checked,
+)
+
 multiprocessing.freeze_support()
 
 # Configuration is loaded from settings.json via the agent startup
@@ -118,7 +123,6 @@ YML_FILE = os.path.join(BASE_DIR, "environment.yml")
 
 OMNIPARSER_ENV_NAME = "omni"
 OMNIPARSER_SERVER_URL = os.getenv("OMNIPARSER_BASE_URL", "http://localhost:7861")
-
 
 # ==========================================
 # TERMINAL COLORS  (orange/white brand palette)
@@ -1253,6 +1257,13 @@ if __name__ == "__main__":
             print(f"\nEnvironment '{env_name}' not ready.")
             print("Run 'python install.py' or 'python install.py --conda' first.\n")
             sys.exit(1)
+
+    ensure_runtime_dependencies(
+        use_conda=use_conda,
+        env_name=env_name,
+        conda_command=get_conda_command() if use_conda else "conda",
+    )
+    mark_runtime_dependencies_checked()
 
     # Start OmniParser only if GUI mode and it was installed
     if gui_mode and gui_installed:
