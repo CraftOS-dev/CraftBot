@@ -179,13 +179,20 @@ def spawn_subagent(input_data: dict) -> dict:
     # The action body runs inside ``ActionExecutor``'s thread pool — there
     # is no event loop in that thread, so ``asyncio.run`` is the correct
     # entry point (nest_asyncio compatibility is irrelevant here).
-    try:
-        asyncio.run(runner.run_to_completion(sub))
-    except Exception as e:
-        logger.exception(f"[spawn_subagent] runner crashed for {sub.id}: {e}")
-        if sub.status not in SUBAGENT_TERMINAL_STATUSES:
-            sub.status = "error"
-            sub.result = f"(sub-agent runner crashed: {e})"
+    # Tag every log line emitted while this sub-agent runs with its identity.
+    # contextualize sets a contextvar that asyncio.run copies into the new
+    # loop, so the runner, ActionManager, LLM interface and action code all
+    # log under "sub:<type>:<id>" — making it trivial to grep one agent's trace.
+    short_id = sub.id[4:] if sub.id.startswith("sub_") else sub.id
+    agent_tag = f"sub:{sub.agent_type}:{short_id}"
+    with logger.contextualize(agent=agent_tag):
+        try:
+            asyncio.run(runner.run_to_completion(sub))
+        except Exception as e:
+            logger.exception(f"[spawn_subagent] runner crashed for {sub.id}: {e}")
+            if sub.status not in SUBAGENT_TERMINAL_STATUSES:
+                sub.status = "error"
+                sub.result = f"(sub-agent runner crashed: {e})"
 
     return {
         "status": sub.status,

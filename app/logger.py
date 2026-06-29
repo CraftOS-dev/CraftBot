@@ -32,19 +32,25 @@ def define_log_level(print_level="ERROR", logfile_level="DEBUG", name: str = Non
     # Remove all sinks
     _logger.remove()
 
-    # Console output
-    # _logger.add(
-    #     sys.stderr,
-    #     level=print_level,
-    #     backtrace=True,
-    #     diagnose=True,
-    #     enqueue=True,
-    # )
+    # Default the `agent` context field so every line carries an attribution
+    # tag. The main agent's lines show "main"; the sub-agent runner wraps its
+    # run in ``logger.contextualize(agent="sub:<type>:<id>")`` so EVERY line it
+    # emits — including downstream ActionManager / LLM / action-code logs —
+    # is tagged with the sub-agent that produced it. Grep by this field to
+    # isolate one agent's trace from the interleaved single file.
+    _logger.configure(extra={"agent": "main"})
+
+    # Format with the agent attribution field after the level.
+    log_format = (
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+        "{extra[agent]: <22} | {name}:{function}:{line} - {message}"
+    )
 
     # File output
     _logger.add(
         log_path,
         level=_print_level,
+        format=log_format,
         backtrace=True,
         diagnose=True,
         enqueue=True,
