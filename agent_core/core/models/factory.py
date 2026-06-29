@@ -5,12 +5,9 @@ API keys and base URLs should be passed directly - no environment variable readi
 """
 
 import logging
+from typing import Optional
 import urllib.request
 import json as _json
-
-from openai import OpenAI
-from anthropic import Anthropic
-from typing import Optional
 
 try:
     import boto3  # type: ignore[import]
@@ -51,6 +48,55 @@ _OR_MODEL_MAP: dict = {
 }
 
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+_PROVIDER_DISPLAY = {
+    "openai": "OpenAI",
+    "deepseek": "DeepSeek",
+    "grok": "Grok",
+    "moonshot": "Moonshot",
+    "minimax": "MiniMax",
+    "openrouter": "OpenRouter",
+}
+
+
+def _create_openai_client(
+    *,
+    provider: str,
+    api_key: str,
+    base_url: Optional[str] = None,
+    default_headers: Optional[dict] = None,
+):
+    """Create an OpenAI SDK client for OpenAI-compatible providers."""
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        display = _PROVIDER_DISPLAY.get(provider, provider)
+        raise ImportError(
+            f"The openai package is required for {display} because CraftBot "
+            "uses the OpenAI-compatible SDK client for this provider. "
+            "Install it with the Python that launches CraftBot: "
+            "`python -m pip install 'openai>=2.0.0'`."
+        ) from exc
+
+    kwargs = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    if default_headers:
+        kwargs["default_headers"] = default_headers
+    return OpenAI(**kwargs)
+
+
+def _create_anthropic_client(*, api_key: str):
+    try:
+        from anthropic import Anthropic
+    except ImportError as exc:
+        raise ImportError(
+            "The anthropic package is required for the Anthropic provider. "
+            "Install it with the Python that launches CraftBot: "
+            "`python -m pip install 'anthropic>=0.97.0'`."
+        ) from exc
+    return Anthropic(api_key=api_key)
 
 
 def _to_openrouter_slug(provider: str, model: str) -> str:
@@ -222,7 +268,8 @@ class ModelFactory:
                         f"Settings to silence this warning."
                     )
 
-                sdk_client = OpenAI(
+                sdk_client = _create_openai_client(
+                    provider=provider,
                     api_key=access_token,
                     base_url=sub_base_url,
                     default_headers=extra_headers,
@@ -248,7 +295,10 @@ class ModelFactory:
             return {
                 "provider": provider,
                 "model": model,
-                "client": OpenAI(api_key=api_key),
+                "client": _create_openai_client(
+                    provider=provider,
+                    api_key=api_key,
+                ),
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
@@ -288,7 +338,7 @@ class ModelFactory:
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
-                "anthropic_client": Anthropic(api_key=api_key),
+                "anthropic_client": _create_anthropic_client(api_key=api_key),
                 "bedrock_client": None,
                 "initialized": True,
             }
@@ -341,7 +391,8 @@ class ModelFactory:
                 return {
                     "provider": provider,
                     "model": model,
-                    "client": OpenAI(
+                    "client": _create_openai_client(
+                        provider=provider,
                         api_key=access_token,
                         base_url=sub_base_url or resolved_base_url,
                         default_headers=extra_headers,
@@ -370,7 +421,11 @@ class ModelFactory:
                     return {
                         "provider": "openrouter",
                         "model": or_model,
-                        "client": OpenAI(api_key=or_key, base_url=_OPENROUTER_BASE_URL),
+                        "client": _create_openai_client(
+                            provider="openrouter",
+                            api_key=or_key,
+                            base_url=_OPENROUTER_BASE_URL,
+                        ),
                         "gemini_client": None,
                         "remote_url": None,
                         "byteplus": None,
@@ -387,7 +442,11 @@ class ModelFactory:
             return {
                 "provider": provider,
                 "model": model,
-                "client": OpenAI(api_key=api_key, base_url=resolved_base_url),
+                "client": _create_openai_client(
+                    provider=provider,
+                    api_key=api_key,
+                    base_url=resolved_base_url,
+                ),
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
