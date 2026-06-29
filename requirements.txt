@@ -52,3 +52,4 @@ pypdfium2
 pdfminer.six
 pymupdf
 pypdf
+rank_bm25

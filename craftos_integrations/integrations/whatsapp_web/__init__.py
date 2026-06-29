@@ -725,7 +725,7 @@ class WhatsAppWebClient(BasePlatformClient):
         if event_type == "qr":
             # Need a fresh QR scan — credentials are stale, tear down.
             bridge.set_event_callback(None)
-            await bridge.stop()
+            await bridge.abandon()
             self._message_callback = None
             return
 

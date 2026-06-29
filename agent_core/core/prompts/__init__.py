@@ -102,6 +102,10 @@ from agent_core.core.prompts.skill import (
     ACTION_SET_SELECTION_PROMPT,
 )
 
+# Sub-agent prompts now live alongside the sub-agent runtime, in
+# ``app.subagent.definitions`` (per-type system prompts) and
+# ``app.subagent.context_engine`` (shared output-format contract).
+
 __all__ = [
     # Registry
     "PromptRegistry",

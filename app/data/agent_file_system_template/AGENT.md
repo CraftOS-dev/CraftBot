@@ -745,9 +745,9 @@ Supported parameters: `glob`, `file_type`, `before_context` / `after_context`, `
 
 Full input schema: [app/data/action/grep_files.py](app/data/action/grep_files.py).
 
-### stream_read + stream_edit
+### read_file + stream_edit
 - Use as a pair when modifying an existing file.
-- `stream_read` returns the exact bytes.
+- `read_file` returns the exact content with line numbers.
 - `stream_edit` applies a precise diff.
 - Preferred over `write_file` for edits. Preserves unrelated content and avoids whole-file overwrites.
 

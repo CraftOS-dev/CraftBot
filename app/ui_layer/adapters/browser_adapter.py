@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
+from agent_core.core.event_stream.event import EventType
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -3668,6 +3669,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             agent.event_stream_manager.log(
                 "system",
                 llm_message,
+                event_type=EventType.SYSTEM,
                 display_message=f"Task '{task.name}' resumed by user.",
                 task_id=task_id,
             )

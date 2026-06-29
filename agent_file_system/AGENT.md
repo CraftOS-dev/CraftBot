@@ -745,8 +745,9 @@ Supported parameters: `glob`, `file_type`, `before_context` / `after_context`, `
 
 Full input schema: [app/data/action/grep_files.py](app/data/action/grep_files.py).
 
-### stream_edit
-- Use when modifying an existing file (read it with `read_file` first).
+### read_file + stream_edit
+- Use as a pair when modifying an existing file.
+- `read_file` returns the exact content with line numbers.
 - `stream_edit` applies a precise diff.
 - Preferred over a whole-file rewrite for edits. Preserves unrelated content and avoids clobbering the rest of the file.
 
