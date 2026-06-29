@@ -63,7 +63,6 @@ if sys.stdout is None or sys.stderr is None:
         sys.stderr = _NullIO()
 
 import os
-import shlex
 import shutil
 import signal
 import subprocess
@@ -184,7 +183,6 @@ TASK_NAME = "CraftBot"  # Windows Task Scheduler task name
 SYSTEMD_SERVICE = "craftbot"  # Linux systemd service name
 LAUNCHD_LABEL = "com.craftbot.agent"  # macOS launchd label
 BROWSER_URL = "http://localhost:7925"
-BACKEND_URL = "http://localhost:7926"
 SHORTCUT_NAME = "CraftBot.lnk"
 # Bundled icons live in sys._MEIPASS in frozen mode (PyInstaller's runtime
 # extract dir) and alongside craftbot.py in source mode. _ensure_ico() copies
@@ -324,32 +322,6 @@ def _remove_pid() -> None:
         pass
 
 
-def _tail_log_lines(n: int = 30, start_offset: int = 0) -> str:
-    if not os.path.isfile(LOG_FILE):
-        return ""
-    try:
-        with open(LOG_FILE, "r", errors="replace") as f:
-            if start_offset:
-                f.seek(start_offset)
-            lines = f.readlines()
-    except Exception:
-        return ""
-    return "".join(lines[-n:])
-
-
-def _wait_for_startup_exit(
-    proc, timeout: float = 8.0, ready_log_offset: int = 0
-) -> Optional[int]:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            return proc.wait(timeout=0.1)
-        except subprocess.TimeoutExpired:
-            if "CRAFTBOT IS READY" in _tail_log_lines(80, ready_log_offset):
-                return None
-    return None
-
-
 def _is_running(pid: int) -> bool:
     """Return True if a process with the given PID is currently alive."""
     if _PLATFORM == "win32":
@@ -470,12 +442,8 @@ def _open_browser_detached(url: str) -> None:
     subprocess.Popen([python, "-c", poll_script], **kwargs)
 
 
-def cmd_start(extra_args: List[str]) -> bool:
-    """Start CraftBot as a detached background process.
-
-    Returns True once the service survives the early startup check; False when
-    launch fails before CraftBot can be used.
-    """
+def cmd_start(extra_args: List[str]) -> None:
+    """Start CraftBot as a detached background process."""
     pid = _read_pid()
     if pid and _is_running(pid):
         cmd_stop()
@@ -494,7 +462,7 @@ def cmd_start(extra_args: List[str]) -> bool:
         installed = installed_exe_path()
         if not installed:
             print("Error: no installed agent found — run install first.")
-            return False
+            return
         cmd = [installed] + run_args
     else:
         python = _python_exe()
@@ -511,7 +479,6 @@ def cmd_start(extra_args: List[str]) -> bool:
     log_fh.write(f"Command: {' '.join(cmd)}\n")
     log_fh.write(f"{'=' * 60}\n")
     log_fh.flush()
-    ready_log_offset = log_fh.tell()
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -531,27 +498,11 @@ def cmd_start(extra_args: List[str]) -> bool:
     except FileNotFoundError as e:
         log_fh.close()
         print(f"  {RED}✗{RESET} {WHITE}Could not launch CraftBot — {e}{RESET}")
-        return False
+        return
 
     # Parent closes its copy — the child process (run.py) keeps the fd open
     log_fh.close()
     _write_pid(proc.pid)
-
-    # Catch immediate startup failures before reporting success. This surfaces
-    # wrong-Python dependency errors from run.py instead of leaving a stale PID.
-    exit_code = _wait_for_startup_exit(proc, ready_log_offset=ready_log_offset)
-
-    if exit_code is not None:
-        _remove_pid()
-        print(
-            f"  {RED}✗{RESET} {WHITE}CraftBot failed to start{RESET}  {DIM}exit {exit_code}{RESET}"
-        )
-        log_tail = _tail_log_lines()
-        if log_tail:
-            print(f"\n{DIM}Last log lines:{RESET}\n{log_tail}", end="")
-        print(f"\nCheck logs: {sys.executable} craftbot.py logs")
-        return False
-
     print(
         f"  {GREEN}▸{RESET} {WHITE}CRAFTBOT STARTED{RESET}  {DIM}PID {proc.pid}{RESET}"
     )
@@ -567,7 +518,6 @@ def cmd_start(extra_args: List[str]) -> bool:
     if open_browser:
         print(f"  {DIM}░░{RESET} {ORANGE}{BROWSER_URL}{RESET}")
         _open_browser_detached(BROWSER_URL)
-    return True
 
 
 def cmd_stop() -> None:
@@ -663,11 +613,10 @@ def cmd_logs(n: int = 50) -> None:
         print(f"  {RED}✗{RESET} {WHITE}Error reading log: {e}{RESET}")
 
 
-def cmd_restart(extra_args: List[str]) -> bool:
-    """Restart CraftBot and return whether the new service started."""
+def cmd_restart(extra_args: List[str]) -> None:
     cmd_stop()
     time.sleep(1)
-    return cmd_start(extra_args)
+    cmd_start(extra_args)
 
 
 # ─── Desktop shortcut ─────────────────────────────────────────────────────────
@@ -817,23 +766,9 @@ def _create_desktop_shortcut_unix() -> None:
         return
     try:
         if _PLATFORM == "darwin":
-            # macOS does not support XDG .desktop files — create a double-clickable
-            # .command script. In source mode, start the service instead of only
-            # opening the URL so the shortcut works after CraftBot is stopped.
+            # macOS does not support XDG .desktop files — create a double-clickable .command script
             shortcut_path = os.path.join(desktop, "CraftBot.command")
-            if IS_FROZEN:
-                content = f"#!/bin/sh\nopen {shlex.quote(BROWSER_URL)}\n"
-            else:
-                content = (
-                    "#!/bin/sh\n"
-                    f"cd {shlex.quote(BASE_DIR)} || exit 1\n"
-                    f"if curl -fsS {shlex.quote(BROWSER_URL)} >/dev/null 2>&1 "
-                    f"&& curl -fsS {shlex.quote(BACKEND_URL)} >/dev/null 2>&1; then\n"
-                    f"  open {shlex.quote(BROWSER_URL)}\n"
-                    "else\n"
-                    f"  exec {shlex.quote(_python_exe())} craftbot.py start\n"
-                    "fi\n"
-                )
+            content = f"#!/bin/sh\nopen '{BROWSER_URL}'\n"
             with open(shortcut_path, "w") as f:
                 f.write(content)
             os.chmod(shortcut_path, 0o755)
@@ -1270,11 +1205,10 @@ def _full_install_frozen(
     )(run_args)
 
     # 6. Start the service via the extracted agent EXE
-    if not cmd_start(extra_args):
-        raise RuntimeError("CraftBot installed but failed to start.")
+    cmd_start(extra_args)
 
 
-def cmd_install(extra_args: List[str]) -> bool:
+def cmd_install(extra_args: List[str]) -> None:
     """Install dependencies (source mode) or copy-and-register (frozen mode),
     then start the service."""
     if IS_FROZEN:
@@ -1285,7 +1219,7 @@ def cmd_install(extra_args: List[str]) -> bool:
         target_dir = default_install_location()
         print(f"  {ORANGE}▸{RESET} {WHITE}Installing CraftBot to {target_dir}{RESET}")
         _full_install_frozen(target_dir, extra_args)
-        return True
+        return
 
     _warn_path_issues()
     # ── Step 1: Install dependencies via install.py ────────────────────────
@@ -1307,7 +1241,7 @@ def cmd_install(extra_args: List[str]) -> bool:
             print(
                 f"  {DIM}Run 'python install.py' directly to see the full error.{RESET}"
             )
-            return False
+            return
 
         # Verify critical packages are actually importable with this interpreter.
         # install.py may exit 0 while packages ended up in a different site-packages.
@@ -1323,7 +1257,7 @@ def cmd_install(extra_args: List[str]) -> bool:
             print(
                 f"  {DIM}Run 'python install.py' to reinstall with this Python.{RESET}"
             )
-            return False
+            return
         print()
     else:
         print(f"  {DIM}(install.py not found — skipping dependency install){RESET}\n")
@@ -1347,16 +1281,13 @@ def cmd_install(extra_args: List[str]) -> bool:
 
     # ── Step 3: Start the service now ──────────────────────────────────────
     _retro_step(3, 3, "Starting CraftBot")
-    if not cmd_start(extra_args):
-        print(f"\n  {RED}✗{RESET} {WHITE}CraftBot failed to start.{RESET}")
-        return False
+    cmd_start(extra_args)
 
     print(f"\n  {GREEN}▸{RESET} {WHITE}CRAFTBOT IS RUNNING IN THE BACKGROUND{RESET}")
     print(f"  {DIM}░░{RESET} {ORANGE}{BROWSER_URL}{RESET}")
     print("You can close this window now.")
     time.sleep(2)
     _close_console_window()
-    return True
 
 
 def _remove_desktop_shortcut() -> None:
@@ -1610,15 +1541,13 @@ def main() -> None:
     rest = args[1:]
 
     if command == "start":
-        if not cmd_start(rest):
-            sys.exit(1)
+        cmd_start(rest)
 
     elif command == "stop":
         cmd_stop()
 
     elif command == "restart":
-        if not cmd_restart(rest):
-            sys.exit(1)
+        cmd_restart(rest)
 
     elif command == "status":
         cmd_status()
@@ -1634,8 +1563,7 @@ def main() -> None:
         cmd_logs(n)
 
     elif command == "install":
-        if not cmd_install(rest):
-            sys.exit(1)
+        cmd_install(rest)
 
     elif command == "uninstall":
         cmd_uninstall()

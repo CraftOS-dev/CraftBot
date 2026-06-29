@@ -5,9 +5,12 @@ API keys and base URLs should be passed directly - no environment variable readi
 """
 
 import logging
-from typing import Optional
 import urllib.request
 import json as _json
+
+from openai import OpenAI
+from anthropic import Anthropic
+from typing import Optional
 
 try:
     import boto3  # type: ignore[import]
@@ -48,51 +51,6 @@ _OR_MODEL_MAP: dict = {
 }
 
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-
-_PROVIDER_DISPLAY = {
-    "openai": "OpenAI",
-    "deepseek": "DeepSeek",
-    "grok": "Grok",
-    "moonshot": "Moonshot",
-    "minimax": "MiniMax",
-    "openrouter": "OpenRouter",
-}
-
-
-def _create_openai_client(
-    *,
-    provider: str,
-    api_key: str,
-    base_url: Optional[str] = None,
-):
-    """Create an OpenAI SDK client for OpenAI-compatible providers."""
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        display = _PROVIDER_DISPLAY.get(provider, provider)
-        raise ImportError(
-            f"The openai package is required for {display} because CraftBot "
-            "uses the OpenAI-compatible SDK client for this provider. "
-            "Install it with the Python that launches CraftBot: "
-            "`python -m pip install 'openai>=2.0.0'`."
-        ) from exc
-
-    if base_url:
-        return OpenAI(api_key=api_key, base_url=base_url)
-    return OpenAI(api_key=api_key)
-
-
-def _create_anthropic_client(*, api_key: str):
-    try:
-        from anthropic import Anthropic
-    except ImportError as exc:
-        raise ImportError(
-            "The anthropic package is required for the Anthropic provider. "
-            "Install it with the Python that launches CraftBot: "
-            "`python -m pip install 'anthropic>=0.97.0'`."
-        ) from exc
-    return Anthropic(api_key=api_key)
 
 
 def _to_openrouter_slug(provider: str, model: str) -> str:
@@ -162,7 +120,7 @@ class ModelFactory:
         Returns:
             Dictionary with provider context including client instances
         """
-        # OpenAI-compatible providers that use chat-completions with a custom base_url.
+        # OpenAI-compatible providers that use OpenAI client with a custom base_url
         _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter"}
 
         if provider not in PROVIDER_CONFIG:
@@ -217,10 +175,7 @@ class ModelFactory:
             return {
                 "provider": provider,
                 "model": model,
-                "client": _create_openai_client(
-                    provider=provider,
-                    api_key=api_key,
-                ),
+                "client": OpenAI(api_key=api_key),
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
@@ -260,7 +215,7 @@ class ModelFactory:
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
-                "anthropic_client": _create_anthropic_client(api_key=api_key),
+                "anthropic_client": Anthropic(api_key=api_key),
                 "bedrock_client": None,
                 "initialized": True,
             }
@@ -318,11 +273,7 @@ class ModelFactory:
                     return {
                         "provider": "openrouter",
                         "model": or_model,
-                        "client": _create_openai_client(
-                            provider="openrouter",
-                            api_key=or_key,
-                            base_url=_OPENROUTER_BASE_URL,
-                        ),
+                        "client": OpenAI(api_key=or_key, base_url=_OPENROUTER_BASE_URL),
                         "gemini_client": None,
                         "remote_url": None,
                         "byteplus": None,
@@ -339,11 +290,7 @@ class ModelFactory:
             return {
                 "provider": provider,
                 "model": model,
-                "client": _create_openai_client(
-                    provider=provider,
-                    api_key=api_key,
-                    base_url=resolved_base_url,
-                ),
+                "client": OpenAI(api_key=api_key, base_url=resolved_base_url),
                 "gemini_client": None,
                 "remote_url": None,
                 "byteplus": None,
