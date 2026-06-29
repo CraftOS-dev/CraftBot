@@ -140,10 +140,45 @@ export function readCurrentTranslateX(el: HTMLElement): number {
 // Geometry helpers
 // ─────────────────────────────────────────────────────────────────────
 
+/** Body silhouette scale per stage. Shared by CraftBotMascot (applies
+ *  the scale to the body group) and useMascotBehavior (uses it to keep
+ *  the dangle rotation pivot on the visible body). Stage 5 = 1.0 (mature
+ *  / native), earlier stages shrink. */
+export const STAGE_BODY_SCALE: Record<number, number> = {
+  1: 75 / 160,
+  2: 95 / 160,
+  3: 115 / 160,
+  4: 140 / 160,
+  5: 1,
+}
+
+/** Body silhouette's feet anchor — the pivot point the body scales
+ *  AROUND when bodyScale < 1. Constants kept here so any code that
+ *  needs to follow the body's scaled position (dangle pivot, eye anchor,
+ *  etc.) uses the same numbers. */
+export const BODY_FEET_X = 83
+export const BODY_FEET_Y = 188
+
 /** Maximum amount the mascot's center can drift left/right of the stage
- *  midpoint before its edge crosses the stage's content area. */
-export function computeMaxAmplitude(stageContentWidth: number, effectiveSize: number): number {
-  return Math.max(0, (stageContentWidth - effectiveSize) / 2)
+ *  midpoint before its edge crosses the stage's content area.
+ *
+ *  Returned in LOCAL pixels (the wander element's coordinate system).
+ *  The mascot's parent (.mascotLayer) is CSS-scaled by `zoom`, so every
+ *  local pixel renders as `zoom` screen pixels. To pin the visual
+ *  amplitude to the screen-space stage bounds we must DIVIDE by zoom:
+ *    visual_amp = stage_half - visual_mascot_half
+ *                = stage_half - (mascotSize * zoom) / 2
+ *    local_amp  = visual_amp / zoom
+ *                = (stageContentWidth - mascotSize * zoom) / (2 * zoom)
+ *                = (stageContentWidth / zoom - mascotSize) / 2
+ *  At zoom = 1 this collapses to the old formula. */
+export function computeMaxAmplitude(
+  stageContentWidth: number,
+  effectiveSize: number,
+  zoom: number = 1,
+): number {
+  const safeZoom = zoom > 0 ? zoom : 1
+  return Math.max(0, (stageContentWidth / safeZoom - effectiveSize) / 2)
 }
 
 /** Pick a uniform-random rest delay in [POST_HOP_REST_MIN_MS, POST_HOP_REST_MAX_MS]. */
@@ -261,6 +296,50 @@ export function pickIdleCycleDelay(): number {
   return IDLE_CYCLE_MIN_MS + Math.random() * (IDLE_CYCLE_MAX_MS - IDLE_CYCLE_MIN_MS)
 }
 
+/** Duration constants for new phases. */
+export const EATING_DURATION_MS = 1500
+export const FALLING_DURATION_MS = 380
+export const STAGE_UP_DURATION_MS = 1200
+export const PETTED_DURATION_MS = 600
+
+/** Mood-variant idle thresholds. Lets the renderer pick a sad/happy
+ *  resting variant without the engine itself caring about mood values. */
+export const MOOD_SAD_THRESHOLD = 30
+export const MOOD_HAPPY_THRESHOLD = 70
+export const HUNGER_HUNGRY_THRESHOLD = 80
+
+export type IdleVariant = 'normal' | 'sad' | 'happy' | 'hungry'
+
+export function pickIdleVariant(mood: number, hunger: number): IdleVariant {
+  if (hunger >= HUNGER_HUNGRY_THRESHOLD) return 'hungry'
+  if (mood <= MOOD_SAD_THRESHOLD) return 'sad'
+  if (mood >= MOOD_HAPPY_THRESHOLD) return 'happy'
+  return 'normal'
+}
+
+/** Build keyframes for the post-drag fall + land-squash. Starts from the
+ *  release Y (negative = above ground) and lands at 0 with a heavy squash. */
+export function buildFallKeyframes(fromY: number): Keyframe[] {
+  return [
+    { transform: `translate(0px, ${fromY}px) scale(1, 1)`, offset: 0 },
+    { transform: `translate(0px, ${fromY * 0.3}px) scale(0.97, 1.05)`, offset: 0.55 },
+    { transform: 'translate(0px, 6px) scale(1.20, 0.80)', offset: 0.75 },
+    { transform: 'translate(0px, 2px) scale(1.05, 0.95)', offset: 0.90 },
+    { transform: 'translate(0px, 0px) scale(1, 1)', offset: 1 },
+  ]
+}
+
+/** Keyframes for the brief grow burst on stage-up. */
+export function buildStageUpKeyframes(): Keyframe[] {
+  return [
+    { transform: 'translate(0px, 0) scale(1, 1)', offset: 0 },
+    { transform: 'translate(0px, -6px) scale(1.18, 1.18)', offset: 0.35 },
+    { transform: 'translate(0px, -2px) scale(0.92, 0.92)', offset: 0.6 },
+    { transform: 'translate(0px, 0) scale(1.08, 1.08)', offset: 0.85 },
+    { transform: 'translate(0px, 0) scale(1, 1)', offset: 1 },
+  ]
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // State machine
 // ─────────────────────────────────────────────────────────────────────
@@ -277,8 +356,24 @@ export function pickIdleCycleDelay(): number {
  *    reaction (happy on click / task success; frustrated on task abort).
  *  - `waitingJump`: agent is waiting for a user reply — body is pinned
  *    at the stage center and loops vertical jumps in place.
+ *  - `dragged`: user is dragging the mascot with the pointer. React side
+ *    writes the live transform directly; wander/idle timers pause.
+ *  - `falling`: dropped after a drag — physics-style fall to ground.
+ *  - `eating`: chomp animation playing while a battery is consumed.
+ *  - `stageUp`: brief celebratory grow + sparkle when stage increases.
+ *  - `petted`: brief closed-eye blush burst when the user pets/strokes.
  */
-export type Phase = 'inactive' | 'resting' | 'hopping' | 'reacting' | 'waitingJump'
+export type Phase =
+  | 'inactive'
+  | 'resting'
+  | 'hopping'
+  | 'reacting'
+  | 'waitingJump'
+  | 'dragged'
+  | 'falling'
+  | 'eating'
+  | 'stageUp'
+  | 'petted'
 
 /** Which reaction visual to render while phase === 'reacting'.
  *  - `happy`: > < eyes + yellow ray burst (click + task success).
@@ -338,6 +433,24 @@ export type EngineEvent =
   /** External signal that the agent has entered (active=true) or exited
    *  (active=false) the waiting-for-user-reply state. */
   | { type: 'SET_WAITING', active: boolean }
+  /** Pet panel drag start — pointer captured the mascot at the given visual X. */
+  | { type: 'DRAG_START', currentVisualX: number }
+  /** Drag released — fall to ground from the current Y offset. */
+  | { type: 'DRAG_RELEASE', dropX: number, dropY: number }
+  /** The falling animation finished. */
+  | { type: 'FALL_DONE' }
+  /** Begin eating a battery. */
+  | { type: 'EAT_START' }
+  /** Eating animation finished. */
+  | { type: 'EAT_DONE' }
+  /** Stage-up animation should play. */
+  | { type: 'STAGE_UP' }
+  /** Stage-up animation finished. */
+  | { type: 'STAGE_UP_DONE' }
+  /** Pet/stroke triggered (rapid click overload). */
+  | { type: 'PET_STROKE' }
+  /** Petted animation finished. */
+  | { type: 'PETTED_DONE' }
 
 export function transition(state: EngineState, event: EngineEvent): EngineState {
   switch (event.type) {
@@ -349,6 +462,22 @@ export function transition(state: EngineState, event: EngineEvent): EngineState 
           ? { ...state, phase: 'resting' }
           : state
       }
+      // STICKINESS RULE — user-owned phases (drag/fall) and visual-
+      // reward phases (stageUp) can't be yanked away by external sync
+      // events. They'd start a settle WAAPI animation that overrides
+      // the drag's per-move inline-transform writes, leaving the
+      // mascot frozen on the spot while lastDx keeps tracking the
+      // cursor — and on release the falling-snap teleports to dropX.
+      // The React-side SET_ACTIVE effect re-fires on phase change, so
+      // the inactive intent is reasserted as soon as the drag ends.
+      if (
+        state.phase === 'dragged'
+        || state.phase === 'falling'
+        || state.phase === 'stageUp'
+      ) return state
+      // Idempotent no-op when already inactive — avoids a useless
+      // re-render now that this case fires on every phase change.
+      if (state.phase === 'inactive') return state
       // Become inactive — cancel any current activity and reset position.
       // The React side animates the body back to center.
       return { ...state, phase: 'inactive', position: 0, hopTarget: 0 }
@@ -400,10 +529,17 @@ export function transition(state: EngineState, event: EngineEvent): EngineState 
 
     case 'EXTERNAL_REACT': {
       // Already reacting? Ignore — don't stack/override an in-flight
-      // reaction. Otherwise pin at the current rest position (no hop
-      // interruption snap because external reactions usually arrive
-      // outside of motion) and play the requested kind.
-      if (state.phase === 'reacting') return state
+      // reaction. Also enforce the STICKINESS RULE (see SET_ACTIVE):
+      // user-owned and reward phases can't be yanked away. External
+      // reactions are one-shot per nonce tick, so a dropped one means
+      // the user misses the visual for that task — acceptable since
+      // they're actively dragging or in a stage-up celebration.
+      if (
+        state.phase === 'reacting'
+        || state.phase === 'dragged'
+        || state.phase === 'falling'
+        || state.phase === 'stageUp'
+      ) return state
       return {
         ...state,
         phase: 'reacting',
@@ -428,15 +564,106 @@ export function transition(state: EngineState, event: EngineEvent): EngineState 
         // Enter waiting jump from anywhere except 'reacting' (don't
         // interrupt an in-flight reaction — REACTION_DONE will land us
         // back in 'resting' and the React-side re-sync effect will
-        // promote into waitingJump on the next render). Snap position
-        // to 0 because the jump animation runs in-place at the stage
-        // center.
-        if (state.phase === 'reacting') return state
-        return { ...state, phase: 'waitingJump', position: 0, hopTarget: 0 }
+        // promote into waitingJump on the next render). Also enforce
+        // the STICKINESS RULE (see SET_ACTIVE): if the user is mid-
+        // drag or the FSM is in a reward phase, defer; the React-side
+        // SET_WAITING effect already has state.phase in its deps so
+        // it'll re-fire once the user releases.
+        if (
+          state.phase === 'reacting'
+          || state.phase === 'dragged'
+          || state.phase === 'falling'
+          || state.phase === 'stageUp'
+        ) return state
+        // Keep position/hopTarget unchanged — the mascot jumps in
+        // place at WHEREVER it currently is. (Previously we snapped
+        // both to 0 to recenter; user wants the existing position
+        // preserved through the wait.)
+        return { ...state, phase: 'waitingJump' }
       }
       // Leaving waiting — drop back into the normal idle loop. The
       // wander/track cycle picks up wherever idleMode left off.
       if (state.phase !== 'waitingJump') return state
+      return { ...state, phase: 'resting' }
+    }
+
+    case 'DRAG_START': {
+      // Drag overrides everything except a stage-up celebration (let it
+      // finish for the visual reward).
+      if (state.phase === 'stageUp') return state
+      return {
+        ...state,
+        phase: 'dragged',
+        position: event.currentVisualX,
+        hopTarget: event.currentVisualX,
+      }
+    }
+
+    case 'DRAG_RELEASE': {
+      if (state.phase !== 'dragged') return state
+      return {
+        ...state,
+        phase: 'falling',
+        position: event.dropX,
+        hopTarget: event.dropX,
+      }
+    }
+
+    case 'FALL_DONE': {
+      if (state.phase !== 'falling') return state
+      return { ...state, phase: 'resting' }
+    }
+
+    case 'EAT_START': {
+      // Only allowed from idle phases — don't interrupt drag, fall, or stage-up.
+      if (state.phase === 'dragged' || state.phase === 'falling' || state.phase === 'stageUp') {
+        return state
+      }
+      return { ...state, phase: 'eating' }
+    }
+
+    case 'EAT_DONE': {
+      if (state.phase !== 'eating') return state
+      // Reward the feed with a happy reaction — same visual as a click
+      // (yellow ray burst + > < eyes) so feeding feels satisfying. The
+      // existing reaction effect schedules REACTION_DONE which lands
+      // back in 'resting' at the same position.
+      return {
+        ...state,
+        phase: 'reacting',
+        reactionKind: 'happy',
+        hopTarget: state.position,
+      }
+    }
+
+    case 'STAGE_UP': {
+      // Stage-up plays from anywhere except mid-drag (the user is touching the pet).
+      if (state.phase === 'dragged' || state.phase === 'falling') return state
+      return { ...state, phase: 'stageUp', position: 0, hopTarget: 0 }
+    }
+
+    case 'STAGE_UP_DONE': {
+      if (state.phase !== 'stageUp') return state
+      return { ...state, phase: 'resting' }
+    }
+
+    case 'PET_STROKE': {
+      // 'reacting' is in the guard so the click's happy reaction (yellow
+      // ray burst) isn't yanked away by the WS-driven pet_petted event
+      // that fires a moment later in response to the same click.
+      if (
+        state.phase === 'reacting'
+        || state.phase === 'dragged'
+        || state.phase === 'falling'
+        || state.phase === 'stageUp'
+      ) {
+        return state
+      }
+      return { ...state, phase: 'petted' }
+    }
+
+    case 'PETTED_DONE': {
+      if (state.phase !== 'petted') return state
       return { ...state, phase: 'resting' }
     }
   }

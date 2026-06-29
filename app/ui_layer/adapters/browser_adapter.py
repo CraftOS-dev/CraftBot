@@ -669,6 +669,16 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 f"[TOKEN_UI] broadcast task_token_update id={item_id} "
                 f"in={input_tokens} out={output_tokens} cache={cache_tokens}"
             )
+
+            # Feed the pet's economy. Cumulative-per-item totals — pet_store
+            # derives the delta from its own per-task baseline.
+            try:
+                from app.ui_layer.mascot import get_pet_store
+                await get_pet_store().on_task_token_total(
+                    item_id, input_tokens, output_tokens, cache_tokens,
+                )
+            except Exception:
+                pass
         else:
             logger.warning(
                 f"[TOKEN_UI] update_item_tokens: no ActionItem in panel for id={item_id} "
@@ -1002,6 +1012,22 @@ class BrowserAdapter(InterfaceAdapter):
         # the agent's task breakdown streams to the browser automatically.
         agent.task_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
 
+        # Wire up the pet store: broadcast callback + tick loop. Wrapping the
+        # broadcaster lets pet_store stay framework-agnostic — it just calls
+        # ``broadcast(type, data)`` and the adapter handles the envelope.
+        try:
+            from app.ui_layer.mascot import get_pet_store
+
+            pet_store = get_pet_store()
+
+            async def _pet_broadcast(msg_type: str, data: Dict[str, Any]) -> None:
+                await self._broadcast({"type": msg_type, "data": data})
+
+            pet_store.set_broadcast(_pet_broadcast)
+            pet_store.start()
+        except Exception:
+            pass
+
     @property
     def theme_adapter(self) -> ThemeAdapter:
         return self._theme_adapter
@@ -1085,6 +1111,20 @@ class BrowserAdapter(InterfaceAdapter):
         status = event.data.get("status", "completed")
         if task_id:
             self._metrics_collector.record_task_end(task_id, task_name, status)
+
+        # Pet mood adjustments (success bump / abort penalty) + drop the
+        # per-task token baseline so the next task starts fresh.
+        try:
+            from app.ui_layer.mascot import get_pet_store
+            pet_store = get_pet_store()
+            if task_id:
+                pet_store.clear_task_baseline(task_id)
+            if status == "completed":
+                asyncio.create_task(pet_store.on_task_success())
+            elif status in ("error", "cancelled"):
+                asyncio.create_task(pet_store.on_task_abort())
+        except Exception:
+            pass
 
     def _handle_reasoning(self, event: UIEvent) -> None:
         """Handle reasoning event - display in Tasks page only."""
@@ -1935,6 +1975,33 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             project_id = data.get("projectId", "")
             await self._handle_living_ui_sharing_info(project_id)
 
+        # Pet/mascot handlers
+        elif msg_type == "pet_feed":
+            await self._handle_pet_feed()
+
+        elif msg_type == "pet_buy_battery":
+            await self._handle_pet_buy_battery()
+
+        elif msg_type == "pet_pet":
+            await self._handle_pet_pet()
+
+        elif msg_type == "pet_set_position":
+            await self._handle_pet_set_position(
+                data.get("x", 0.0), data.get("y", 0.0),
+            )
+
+        elif msg_type == "pet_set_location":
+            await self._handle_pet_set_location(data.get("location", ""))
+
+        elif msg_type == "pet_set_outfit":
+            await self._handle_pet_set_outfit(data.get("outfit", {}))
+
+        elif msg_type == "pet_unlock":
+            await self._handle_pet_unlock(data.get("itemId", ""))
+
+        elif msg_type == "pet_request_state":
+            await self._handle_pet_request_state()
+
         # Update operations
         elif msg_type == "check_update":
             await self._handle_check_update()
@@ -1992,6 +2059,46 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {"message": f"Update failed: {e}"},
                 }
             )
+
+    # ── Pet/mascot handlers ──────────────────────────────────────────
+    async def _handle_pet_feed(self) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        await get_pet_store().feed()
+
+    async def _handle_pet_buy_battery(self) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        await get_pet_store().buy_battery()
+
+    async def _handle_pet_pet(self) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        await get_pet_store().pet()
+
+    async def _handle_pet_set_position(self, x: float, y: float) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        try:
+            await get_pet_store().set_position(float(x), float(y))
+        except (TypeError, ValueError):
+            pass
+
+    async def _handle_pet_set_location(self, location_id: str) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        await get_pet_store().set_location(str(location_id))
+
+    async def _handle_pet_set_outfit(self, outfit: Dict[str, Any]) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        if isinstance(outfit, dict):
+            await get_pet_store().set_outfit(outfit)
+
+    async def _handle_pet_unlock(self, item_id: str) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        await get_pet_store().unlock(str(item_id))
+
+    async def _handle_pet_request_state(self) -> None:
+        from app.ui_layer.mascot import get_pet_store
+        await self._broadcast({
+            "type": "pet_state_update",
+            "data": get_pet_store().snapshot(),
+        })
 
     async def _handle_dashboard_metrics_filter(self, period: str) -> None:
         """Handle filtered metrics request for specific time period."""
@@ -8320,7 +8427,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             ],
             "status": self._status_bar.get_status(),
             "dashboardMetrics": metrics.to_dict(),
+            "pet": self._pet_snapshot(),
         }
+
+    def _pet_snapshot(self) -> Dict[str, Any]:
+        try:
+            from app.ui_layer.mascot import get_pet_store
+            return get_pet_store().snapshot()
+        except Exception:
+            return {}
 
     async def _spa_handler(self, request: "web.Request") -> "web.Response":
         """Serve index.html for SPA routing."""

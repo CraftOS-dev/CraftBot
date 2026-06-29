@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { CraftBotMascot } from './CraftBotMascot'
 import { MascotBackground } from './MascotBackground'
 import { SpeechBubble } from './SpeechBubble'
@@ -8,20 +8,54 @@ import { useStageMeasure } from './useStageMeasure'
 import { useMascotBehavior } from './useMascotBehavior'
 import { useCursorEyeTracking } from './useCursorEyeTracking'
 import { useWheelZoom } from './useWheelZoom'
-import { computeMaxAmplitude } from './mascotEngine'
+import { computeMaxAmplitude, STAGE_BODY_SCALE } from './mascotEngine'
 import styles from './Mascot.module.css'
 
-interface Props {
-  /** Optional pixel size for the mascot SVG. Defaults to 120. */
-  mascotSize?: number
+interface LocationSpec {
+  day_image: string
+  night_image: string
+  image_grass_y?: string
+  ground_line_y?: string
 }
 
-// Zoom configuration for the stage's scroll-to-zoom interaction.
-//   - max=1 caps zoom-in at the design baseline (user can only scroll
-//     to shrink, not enlarge past the intended scene scale).
-//   - initial < max so the scene starts slightly pulled-back, giving
-//     the mascot some breathing room against the background on first
-//     paint. The user can still wheel up to max=1 for the baseline view.
+export interface MascotPetProps {
+  /** Pet stage 1..5 — drives body scale. Stage 5 = mature (no shrink). */
+  stage?: number
+  /** Pet mood 0..100 — drives idle variant (sad/normal/happy). */
+  mood?: number
+  /** Pet hunger 0..100 — drives hungry idle variant + sigh overlay. */
+  hunger?: number
+  /** Resolved body fill color (CSS color string). */
+  bodyColor?: string
+  /** Resolved accent color (applied to eyes + antenna). */
+  accentColor?: string
+  /** Antenna variant id. */
+  antennaVariant?: string | null
+  /** Accessory id. */
+  accessory?: string | null
+  /** Background location spec. */
+  location?: LocationSpec | null
+  /** Monotonic nonce: bump from outside to trigger the stage-up celebration. */
+  stageUpNonce?: number
+  /** Monotonic nonce: bump from outside to trigger the eating animation. */
+  fedNonce?: number
+  /** Monotonic nonce: bump from outside to trigger the petted blush burst. */
+  pettedNonce?: number
+  /** Persist callback when the user releases a drag. */
+  onDragRelease?: (x: number, y: number) => void
+  /** Click callback — fires when the user taps the mascot. Pet panel
+   *  wires this to petStroke so clicking = petting. */
+  onClick?: () => void
+}
+
+interface Props extends MascotPetProps {
+  /** Optional pixel size for the mascot SVG. Defaults to 80. */
+  mascotSize?: number
+  /** 'chat' = no HUD/feed/pickers, drag enabled.
+   *  'panel' = larger stage; consumer wraps HUD/pickers around it. */
+  variant?: 'chat' | 'panel'
+}
+
 const STAGE_ZOOM = {
   min: 0.40,
   max: 1,
@@ -29,7 +63,23 @@ const STAGE_ZOOM = {
   initial: 0.8,
 } as const
 
-export function MascotDisplay({ mascotSize = 80 }: Props) {
+export function MascotDisplay({
+  mascotSize = 80,
+  variant = 'chat',
+  stage = 5,
+  mood = 50,
+  hunger = 0,
+  bodyColor,
+  accentColor,
+  antennaVariant = 'antenna_1',
+  accessory = null,
+  location = null,
+  stageUpNonce = 0,
+  fedNonce = 0,
+  pettedNonce = 0,
+  onDragRelease,
+  onClick,
+}: Props) {
   const {
     state,
     completedCount,
@@ -40,27 +90,33 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
   const { bubble } = useMascotNarration({ mascotState: state })
 
   // Sleeping states (idle = 30-min idle, stopped/error = external).
-  // Only 'idle' is recoverable by clicking; the others stay sleeping.
   const isSleeping = state === 'idle' || state === 'stopped' || state === 'error'
   const canBeWoken = state === 'idle'
 
-  // ── Stage measurement → wander amplitude ───────────────────────────
   const stageRef = useRef<HTMLDivElement>(null)
   const stageContentWidth = useStageMeasure(stageRef)
-  const maxAmplitude = computeMaxAmplitude(stageContentWidth, mascotSize)
 
-  // ── Stage scroll-to-zoom ───────────────────────────────────────────
-  // useWheelZoom binds the wheel listener (non-passive) and clamps the
-  // returned zoom value to STAGE_ZOOM's bounds. Multiplicative stepping
-  // and bound enforcement live inside the hook.
   const zoom = useWheelZoom(stageRef, STAGE_ZOOM)
+  // Amplitude depends on zoom — at low zoom the mascot has more visible
+  // stage to wander/drag across in LOCAL pixels (since each local pixel
+  // covers fewer screen pixels). See computeMaxAmplitude in mascotEngine.
+  const maxAmplitude = computeMaxAmplitude(stageContentWidth, mascotSize, zoom)
 
-  // ── Behavior FSM ───────────────────────────────────────────────────
-  // The mascot is free to wander any time the agent isn't sleeping;
-  // clicks are always allowed (sleeping mascots accept clicks so the
-  // user can wake them). `isWaiting` flips the FSM into the in-place
-  // jump phase whenever the agent reports it's waiting on a user reply.
-  const { wanderRef, facing, reaction, bubbleSide, isEyeTracking, handleClick } = useMascotBehavior({
+  const {
+    wanderRef,
+    facing,
+    reaction,
+    bubbleSide,
+    isEyeTracking,
+    handleClick,
+    handlePointerDown,
+    dangleRef,
+    idleVariant,
+    isEating,
+    isStageUp,
+    isPetted,
+    isDragging,
+  } = useMascotBehavior({
     isActive: !isSleeping,
     isClickable: true,
     isAsleep: canBeWoken,
@@ -69,34 +125,118 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
     successTaskCount,
     abortedTaskCount,
     isWaiting: state === 'waiting',
+    mood,
+    hunger,
+    draggable: true,
+    onDragRelease,
+    stageUpNonce,
+    fedNonce,
+    pettedNonce,
+    zoom,
+    // Pass bodyScale so the dangle rotation pivot can track the body's
+    // scaled position at every stage instead of being pinned to a
+    // mascotSize-relative %.
+    bodyScale: STAGE_BODY_SCALE[stage] ?? 1,
+    onClick,
   })
 
-  // ── Cursor eye tracking ────────────────────────────────────────────
-  // The hook writes the eye group's transform attribute directly (no
-  // React state churn). It activates only during the 'track' idle
-  // mode the FSM cycles into periodically — the rest of the time the
-  // eyes do their normal blink/closed animations.
   const eyeGroupRef = useRef<SVGGElement>(null)
   useCursorEyeTracking(wanderRef, eyeGroupRef, {
     enabled: isEyeTracking,
     facing,
   })
 
+  const isPanel = variant === 'panel'
+
+  // ── Scene pan ────────────────────────────────────────────────────
+  // Dragging an empty stage area horizontally pans the scene so the
+  // user can peek at the left/right edges of the background image.
+  // The same offset is applied to both the background AND the mascot
+  // layer (via the --scene-pan-x CSS variable) so they move together
+  // in lockstep — no more "mascot stays put while scene slides under
+  // it" glitch. Only active in the 'panel' variant.
+  const [sceneOffsetX, setSceneOffsetX] = useState(0)
+  // Image aspect = naturalWidth / naturalHeight, learned from the bg
+  // <img> onLoad callback. 16:9 fallback for the first paint.
+  const [imageAspect, setImageAspect] = useState(16 / 9)
+  const sceneDragRef = useRef<{
+    startPointerX: number
+    startOffsetX: number
+    pointerId: number
+  } | null>(null)
+
+  /** Max |pan| in CSS px before the image edge would clear the stage.
+   *  The bg image is centered, sized at bg-zoom × stage-height tall and
+   *  aspect-wide, then user-zoomed. Whichever side overflows the stage
+   *  is the budget we can pan into — split evenly across both sides
+   *  because the image starts centered. Returns 0 when the image is
+   *  narrower than the stage (nothing to reveal). */
+  const computeMaxPan = useCallback((): number => {
+    const stage = stageRef.current
+    if (!stage) return 0
+    // bg-zoom default lives in Mascot.module.css (--bg-zoom: 4). Kept
+    // in sync here so the clamp math matches the rendered image size.
+    const BG_ZOOM = 4
+    const stageH = stage.clientHeight
+    const stageW = stage.clientWidth
+    const visibleImageWidth = stageH * BG_ZOOM * imageAspect * zoom
+    return Math.max(0, (visibleImageWidth - stageW) / 2)
+  }, [imageAspect, zoom])
+
+  // Re-clamp when zoom or image aspect changes — zoom-out shrinks the
+  // pan budget, and the current offset may now fall outside it.
+  useEffect(() => {
+    const max = computeMaxPan()
+    setSceneOffsetX((prev) => Math.max(-max, Math.min(max, prev)))
+  }, [computeMaxPan])
+
+  const handleStagePointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isPanel) return
+      // Mascot owns its own drag — ignore presses that landed on it.
+      if (wanderRef.current?.contains(e.target as Node)) return
+      sceneDragRef.current = {
+        startPointerX: e.clientX,
+        startOffsetX: sceneOffsetX,
+        pointerId: e.pointerId,
+      }
+      const onMove = (ev: PointerEvent) => {
+        const d = sceneDragRef.current
+        if (!d || ev.pointerId !== d.pointerId) return
+        const dx = ev.clientX - d.startPointerX
+        const max = computeMaxPan()
+        const raw = d.startOffsetX + dx
+        setSceneOffsetX(Math.max(-max, Math.min(max, raw)))
+      }
+      const onUp = (ev: PointerEvent) => {
+        const d = sceneDragRef.current
+        if (!d || ev.pointerId !== d.pointerId) return
+        sceneDragRef.current = null
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onUp)
+    },
+    [isPanel, sceneOffsetX, wanderRef, computeMaxPan],
+  )
+
+  const stageStyle: CSSProperties = {
+    '--mascot-zoom': zoom,
+    '--scene-pan-x': `${sceneOffsetX}px`,
+  } as CSSProperties
+
   return (
-    <div className={styles.display}>
+    <div className={`${styles.display} ${isPanel ? styles.displayPanel : ''}`}>
       <div
         ref={stageRef}
-        className={styles.stage}
-        // --mascot-zoom is the user's wheel-zoom value. Read by the
-        // mascot's .zoomLayer to scale the character. The background
-        // intentionally does NOT scale (see Mascot.module.css), so it
-        // ignores this variable.
-        style={{ '--mascot-zoom': zoom } as CSSProperties}
+        className={`${styles.stage} ${isPanel ? styles.stagePanel : ''}`}
+        style={stageStyle}
+        onPointerDown={handleStagePointerDown}
       >
-        {/* Decorative scene behind the mascot. z-index:0 (mascotLayer
-            is z-index:2) + pointer-events:none so it doesn't interfere
-            with clicks or the wheel-to-zoom handler on the stage. */}
-        <MascotBackground />
+        <MascotBackground location={location} onAspectChange={setImageAspect} />
         <div
           className={`${styles.mascotLayer} ${styles.mascotCenter}`}
           style={{ width: mascotSize, height: mascotSize }}
@@ -105,6 +245,7 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
             ref={wanderRef}
             className={styles.wander}
             onClick={handleClick}
+            onPointerDown={handlePointerDown}
             role="button"
             tabIndex={0}
             aria-label="Pet the mascot"
@@ -115,22 +256,33 @@ export function MascotDisplay({ mascotSize = 80 }: Props) {
               }
             }}
           >
-            {/* Zoom wrapper inside .wander so the scale's pivot is the
-                mascot's current visual center — wander's hop translateX
-                has already shifted the wrapper to the mascot's live
-                position, and scaling that wrapper keeps the mascot in
-                place rather than drifting toward stage center.
-                The scale itself is applied via CSS reading the shared
-                --mascot-zoom variable on .stage. */}
             <div className={styles.zoomLayer}>
-              <CraftBotMascot
-                state={state}
-                size={mascotSize}
-                completedCount={completedCount}
-                facing={facing}
-                reaction={reaction}
-                eyeGroupRef={eyeGroupRef}
-              />
+              <div ref={dangleRef} className={styles.dangleWrapper}>
+                <CraftBotMascot
+                  state={state}
+                  size={mascotSize}
+                  completedCount={completedCount}
+                  facing={facing}
+                  reaction={reaction}
+                  eyeGroupRef={eyeGroupRef}
+                  stage={stage}
+                  bodyColor={bodyColor}
+                  accentColor={accentColor}
+                  antennaVariant={antennaVariant}
+                  accessory={accessory}
+                  idleVariant={idleVariant}
+                  stageUpOverlay={isStageUp}
+                  eatingOverlay={isEating}
+                  pettedOverlay={isPetted}
+                  hungryOverlay={hunger >= 80 && !isEating && !isStageUp}
+                  draggedOverlay={isDragging}
+                />
+              </div>
+              {isStageUp && (
+                <div className={styles.stageUpLabel}>
+                  Level up!
+                </div>
+              )}
               <SpeechBubble content={bubble} side={bubbleSide} />
             </div>
           </div>

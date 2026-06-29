@@ -18,6 +18,7 @@ import generalSettingsReducer from './slices/generalSettingsSlice'
 import modelSettingsReducer from './slices/modelSettingsSlice'
 import integrationsSettingsReducer from './slices/integrationsSettingsSlice'
 import chatInputReducer from './slices/chatInputSlice'
+import petReducer from './slices/petSlice'
 import { socketMiddleware } from './socket/socketMiddleware'
 
 export const store = configureStore({
@@ -41,6 +42,7 @@ export const store = configureStore({
     modelSettings: modelSettingsReducer,
     integrationsSettings: integrationsSettingsReducer,
     chatInput: chatInputReducer,
+    pet: petReducer,
   },
   middleware: (getDefault) => getDefault().concat(socketMiddleware),
 })

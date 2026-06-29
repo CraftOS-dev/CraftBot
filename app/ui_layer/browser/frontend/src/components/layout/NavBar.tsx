@@ -8,7 +8,8 @@ import {
   Settings,
   Sparkles,
   Box,
-  Loader2
+  Loader2,
+  Heart
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
@@ -27,6 +28,7 @@ const leftNavItems: NavItem[] = [
   { id: 'tasks', label: 'Tasks', icon: <ListTodo size={16} />, path: '/tasks' },
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard' },
   { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace' },
+  { id: 'pet', label: 'Pet', icon: <Heart size={16} />, path: '/pet' },
 ]
 
 const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' }

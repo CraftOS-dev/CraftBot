@@ -56,6 +56,13 @@ class UIEventType(Enum):
     ONBOARDING_STEP_CHANGED = auto()
     ONBOARDING_COMPLETED = auto()
 
+    # Pet/mascot events
+    PET_STATE_UPDATE = auto()
+    PET_STAGE_UP = auto()
+    PET_FED = auto()
+    PET_PETTED = auto()
+    PET_UNLOCK = auto()
+
 
 @dataclass
 class UIEvent:

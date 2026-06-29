@@ -9,6 +9,7 @@ import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { LivingUIPage } from './pages/LivingUI'
+import { PetPage } from './pages/Pet'
 import { useWebSocket } from './contexts/WebSocketContext'
 
 function App() {
@@ -63,6 +64,7 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/pet" element={<PetPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/living-ui/:projectId" element={<LivingUIPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -220,6 +220,15 @@ interface WebSocketContextType extends WebSocketState {
   stopLivingUI: (projectId: string) => void
   deleteLivingUI: (projectId: string) => void
   setActiveLivingUI: (projectId: string | null) => void
+  // Pet methods
+  petFeed: () => void
+  petBuyBattery: () => void
+  petStroke: () => void
+  petSetPosition: (x: number, y: number) => void
+  petSetLocation: (location: string) => void
+  petSetOutfit: (outfit: Partial<{ body_color: string; accent_color: string; antenna: string; accessory: string | null }>) => void
+  petUnlock: (itemId: string) => void
+  petRequestState: () => void
 }
 
 // Initialize lastSeenMessageId from localStorage
@@ -667,6 +676,33 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     dispatch(livingUiSetActiveId(projectId))
   }, [dispatch])
 
+  // Pet methods. All emit fire-and-forget WS messages; the backend
+  // responds with `pet_state_update` which the petSlice handles.
+  const petFeed = useCallback(() => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_feed' }))
+  }, [])
+  const petBuyBattery = useCallback(() => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_buy_battery' }))
+  }, [])
+  const petStroke = useCallback(() => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_pet' }))
+  }, [])
+  const petSetPosition = useCallback((x: number, y: number) => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_set_position', x, y }))
+  }, [])
+  const petSetLocation = useCallback((location: string) => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_set_location', location }))
+  }, [])
+  const petSetOutfit = useCallback((outfit: Partial<{ body_color: string; accent_color: string; antenna: string; accessory: string | null }>) => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_set_outfit', outfit }))
+  }, [])
+  const petUnlock = useCallback((itemId: string) => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_unlock', itemId }))
+  }, [])
+  const petRequestState = useCallback(() => {
+    if (client.isConnected) client.sendString(JSON.stringify({ type: 'pet_request_state' }))
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -738,6 +774,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         stopLivingUI,
         deleteLivingUI,
         setActiveLivingUI,
+        // Pet methods
+        petFeed,
+        petBuyBattery,
+        petStroke,
+        petSetPosition,
+        petSetLocation,
+        petSetOutfit,
+        petUnlock,
+        petRequestState,
       }}
     >
       {children}

@@ -5,7 +5,7 @@ import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
 import { MascotDisplay } from '@mascot'
 import { getActivePlaceholder } from '../../utils/taskPlaceholder'
-import { useTaskListAutoScroll, useTaskListFLIP } from '../../hooks'
+import { useTaskListAutoScroll, useTaskListFLIP, usePetMascotProps } from '../../hooks'
 import type { ActionItem } from '../../types'
 import styles from './ChatPage.module.css'
 
@@ -29,6 +29,8 @@ export function ChatPage() {
     hasMoreActions,
     loadingOlderActions,
   } = useWebSocket()
+
+  const petMascotProps = usePetMascotProps()
 
   // Tasks whose latest UX gate is an unanswered option prompt — the user
   // must click an option, so suppress the reply affordance for these.
@@ -142,7 +144,7 @@ export function ChatPage() {
           Scroll + pagination behavior is shared via useTaskListAutoScroll
           so the two stay in sync. */}
       <div className={styles.actionPanel} style={{ width: panelWidth, flexShrink: 0 }}>
-        <MascotDisplay />
+        <MascotDisplay variant="chat" {...petMascotProps} />
         <div className={styles.panelHeader}>
           <h3>Tasks & Actions</h3>
         </div>

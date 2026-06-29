@@ -1,0 +1,679 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Pet page — full-bleed mascot stage with a minimal HUD overlay.
+   Style: flat 2D solid colors, NO gradients anywhere. Colors come from
+   the app-wide theme variables (variables.css) so the modal/HUD match
+   the rest of the browser interface.
+   ───────────────────────────────────────────────────────────────────── */
+
+.page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── HUD: top-left stat icons, top-right action buttons ────────────── */
+
+.hudTopLeft {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+}
+
+.statRow {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-radius: 999px;
+  border: 1px solid var(--border-primary);
+}
+
+.hudTopRight {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 10px;
+  z-index: 5;
+}
+
+.hudButton {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl, 12px);
+  cursor: pointer;
+  transition: transform 120ms ease, background 200ms ease, border-color 200ms ease;
+}
+
+.hudButton:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-secondary);
+  transform: translateY(-1px);
+}
+
+.hudButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Bare variant — no chrome around the icon. Used by the Feed/Battery
+   button so the chunky battery sprite reads as a free-floating object
+   rather than sitting inside a square. Hover keeps the lift but drops
+   the background fill. */
+.hudButtonBare {
+  background: transparent;
+  border-color: transparent;
+}
+
+.hudButtonBare:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+}
+
+.hudBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Modal shell — matches the rest of the app's modal palette.
+   ───────────────────────────────────────────────────────────────────── */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+  animation: fadeIn 160ms ease-out;
+}
+
+/* Fixed-size modal — every modal in the pet panel uses the same
+   dimensions so they read as a single consistent surface. The body
+   scrolls inside .modalBody; the outer shell never resizes with content. */
+.modal {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg, 8px);
+  padding: 28px 28px 24px;
+  width: 880px;
+  height: 600px;
+  max-width: 92vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: popIn 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modalBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Small right padding so the scrollbar doesn't sit flush against
+     grid cells; matched by negative margin so the scrollbar lives in
+     the modal's normal padding gutter rather than carving content. */
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.modalClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: background 150ms ease;
+  z-index: 1;
+}
+
+.modalClose:hover {
+  background: var(--bg-primary);
+}
+
+.modalTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 40px 16px 0;
+  letter-spacing: 0.02em;
+}
+
+.section {
+  margin-bottom: 22px;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionHeader {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.emptyState {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* Wallet bar shown inside the shop modal. */
+.walletBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md, 6px);
+  margin-bottom: 18px;
+}
+
+/* Floating "−X" chip that flies up from the CLICKED button each time
+   a token spend lands (unlock or battery buy). Position:fixed so the
+   left/top values written inline are viewport coords matching the
+   click point. translate(-50%, -50%) on the static transform centers
+   the chip on that point; the keyframes layer their own translate
+   on top (moving the chip upward as it animates). */
+.spendEffectFloat {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid #FFD32A;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFE066;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  animation: spendEffectFloat 900ms ease-out forwards;
+}
+
+@keyframes spendEffectFloat {
+  0%   { opacity: 0;   transform: translate(-50%, -50%)  scale(0.7); }
+  18%  { opacity: 1;   transform: translate(-50%, -90%)  scale(1);   }
+  100% { opacity: 0;   transform: translate(-50%, -200%) scale(1);   }
+}
+
+.walletBarLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.walletBarValue {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Wallet info icon — small "i" beside the wallet value with a CSS-only
+   hover tooltip that explains how the token economy works. */
+.walletInfoWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  cursor: help;
+  transition: color 150ms ease;
+}
+
+.walletInfoWrap:hover,
+.walletInfoWrap:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* Tooltip — appears below-and-left of the icon so it doesn't overflow
+   the right edge of the modal. Hidden by opacity + pointer-events so
+   layout never shifts and accidental hovers don't grab the cursor. */
+.walletInfoTooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: -4px;
+  width: 300px;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md, 6px);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-primary);
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+  transform: translateY(-2px);
+  z-index: 10;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  white-space: normal;
+}
+
+.walletInfoWrap:hover .walletInfoTooltip,
+.walletInfoWrap:focus-visible .walletInfoTooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.walletInfoTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.walletInfoList {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.walletInfoList li {
+  margin-bottom: 4px;
+}
+
+.walletInfoList li:last-child {
+  margin-bottom: 0;
+}
+
+/* Battery purchase row — large icon on the left, label + cost on the right,
+   buy button on the far right. Lives at the top of the shop modal. */
+.batteryRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md, 6px);
+}
+
+.batteryRowIcon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.batteryRowInfo {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.batteryRowTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.batteryRowMeta {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.batteryRowBuy {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md, 6px);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 150ms ease, transform 120ms ease;
+  font-variant-numeric: tabular-nums;
+}
+
+.batteryRowBuy:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.batteryRowBuy:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Item grid (used by Shop + Customize)
+   ───────────────────────────────────────────────────────────────────── */
+
+.itemGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 84px);
+  gap: 14px;
+}
+
+.itemWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 84px;
+}
+
+.itemCell {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-lg, 8px);
+  cursor: pointer;
+  transition: transform 130ms ease, border-color 200ms ease;
+  padding: 0;
+  overflow: hidden;
+}
+
+.itemCell:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--border-secondary);
+}
+
+.itemCellSelected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary) inset;
+}
+
+.itemCellLocked {
+  cursor: not-allowed;
+}
+
+.itemPreview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.itemLockOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.itemCost {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  font-size: 10px;
+  color: #ffd97a;
+  font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 2px 5px;
+  border-radius: 4px;
+  pointer-events: none;
+  font-weight: 600;
+}
+
+.itemLabel {
+  font-size: 11px;
+  color: var(--text-primary);
+  text-align: center;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.itemLabelLocked {
+  color: var(--text-muted);
+}
+
+/* Always-visible price tag below each shop item — coin icon + amount
+   so the player can see the cost regardless of whether the item is
+   stage-locked or not (the lock overlay sits on the cell separately). */
+.itemPriceTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Customize — split layout: live mascot preview + options column
+   ───────────────────────────────────────────────────────────────────── */
+
+.customizeLayout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.customizeMascot {
+  flex: 0 0 260px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg, 8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  position: sticky;
+  top: 0;
+}
+
+.customizeOptions {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Swatch grid (colors). */
+.swatchGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 44px);
+  gap: 10px;
+}
+
+.swatchCell {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid var(--border-primary);
+  cursor: pointer;
+  transition: transform 130ms ease, border-color 200ms ease;
+  padding: 0;
+}
+
+.swatchCell:hover {
+  transform: scale(1.08);
+}
+
+.swatchSelected {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+/* Custom-color swatch — final cell in the body/accent grid. The base
+   background is a rainbow conic gradient that reads as "pick a color";
+   when a custom color has been chosen, the button's inline style
+   overrides the gradient with the picked color so the swatch reflects
+   the active value (same convention as the catalog swatches). */
+.swatchCustom {
+  position: relative;
+  background: conic-gradient(
+    from 0deg,
+    #FF4F19, #FFB400, #28C76F, #3A8DFF, #9C5AFF, #FF4FA8, #FF4F19
+  );
+}
+
+.swatchCustomLabel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  line-height: 1;
+}
+
+/* The native <input type="color"> is kept in the DOM (so .click() opens
+   the picker) but visually collapsed — the parent button owns the look. */
+.swatchCustomInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+  padding: 0;
+}
+
+/* No-accessory tile content — simple dash, not a slashed circle. */
+.noneIndicator {
+  font-size: 24px;
+  font-weight: 300;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Location grid + cell
+   ───────────────────────────────────────────────────────────────────── */
+
+.locationGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 140px);
+  gap: 14px;
+}
+
+.locationWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 140px;
+}
+
+.locationCell {
+  position: relative;
+  width: 140px;
+  height: 90px;
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-lg, 8px);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  transition: transform 130ms ease, border-color 200ms ease;
+  background: var(--bg-tertiary);
+}
+
+.locationCell:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--border-secondary);
+}
+
+.locationCellSelected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary) inset;
+}
+
+.locationCellLocked {
+  cursor: not-allowed;
+}
+
+.locationPreview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── Animations ────────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1);    }
+}

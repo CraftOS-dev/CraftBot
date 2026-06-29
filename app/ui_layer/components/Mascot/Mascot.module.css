@@ -170,6 +170,198 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────
+   Pet-system additions: stage scale, mood-variant idle, eating chomp,
+   drag-state body squish, stage-up sparkle, petted blush burst.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* Stage scale is applied to the .float wrapper (between .wrapper and the
+   SVG) so it composes cleanly with the existing breathe / wiggle / WAAPI
+   transforms that target the SVG or the wander wrapper. */
+.stageScale {
+  transform-origin: 50% 95%;
+  transition: transform 320ms ease-out;
+  transform: scale(var(--mascot-stage-scale, 1));
+}
+
+/* Mood-driven idle variants. Override the breathe rhythm without
+   replacing it — slower for sad/hungry, faster + bouncier for happy. */
+.restingSad   { animation-duration: 6.5s; }
+.restingHappy { animation-duration: 2.6s; }
+.restingHungry {
+  animation-duration: 5s;
+  filter: saturate(0.85);
+}
+
+/* Slumped head / drooped antenna when mood is low. Subtle, applied to the
+   inner SVG so the breathing keyframes still animate. */
+.moodSlump {
+  transform: translateY(2px) rotate(-3deg);
+  transform-origin: 50% 95%;
+  transition: transform 600ms ease;
+}
+
+/* Drag state — slight body squish so the pet feels heavier mid-air,
+   plus a "carried" tilt that follows pointer direction. The pet wrapper
+   itself is positioned via JS during drag; this class only sizes/tilts. */
+.dragged {
+  cursor: grabbing !important;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.25));
+}
+
+/* Wrapper around the mascot SVG that useMascotBehavior writes a
+   `rotate(...)` transform onto during drag (pendulum dangle physics).
+   Display: inline-flex so the wrapper hugs the mascot box without
+   adding any block-level layout effects. transform-origin is set by JS
+   when the drag begins so the rotation pivot is near the top of the
+   visible body (where the cursor "grabs"). */
+.dangleWrapper {
+  display: inline-flex;
+  will-change: transform;
+}
+
+/* While being dragged the SVG breathes a little faster (excitement). */
+.draggedBreathe {
+  animation: mascotBreathe 1.8s ease-in-out infinite;
+}
+
+/* Falling — the body keeps its scale from the squash, just the wander
+   div is translateY-animated via WAAPI. No CSS needed for the animation
+   itself, but disable the breathe so it doesn't fight the fall transform. */
+.falling {
+  animation: none !important;
+}
+
+/* Eating — mouth-chomp pulse on the body. Since the mascot has no mouth
+   element, we simulate eating with a body bob + slight head tilt. */
+.eating {
+  animation: mascotEating 300ms ease-in-out 5;
+}
+
+@keyframes mascotEating {
+  0%, 100% { transform: scale(1, 1); }
+  40%      { transform: scale(1.05, 0.92) translateY(2px); }
+  70%      { transform: scale(0.96, 1.05) translateY(-1px); }
+}
+
+/* Battery shown when the mascot eats. The wrapper is centered on the
+   mascot so the keyframes can drive a "drop-in from above → settle in
+   front of the face → poff away" sequence. The mascot's own
+   `mascotEating` squish (see .eating below) runs in parallel during
+   the settle phase so the bite reads as the mascot chomping it. */
+.eatingBattery {
+  /* --eating-side: +1 when the mascot faces right, -1 when facing
+     left. Drives the horizontal offset below so the battery lands IN
+     FRONT of the mascot (toward where it's looking) instead of dead-
+     center on the body. */
+  --eating-side: 1;
+  position: absolute;
+  /* 18% off mascot center in the facing direction, and pulled down to
+     78% of wrapper height so the battery lands NEAR THE FLOOR rather
+     than at body center. The keyframes translate-Y the battery up
+     from this anchor for the drop-in. */
+  left: calc(50% + 18% * var(--eating-side));
+  top: 78%;
+  pointer-events: none;
+  /* Above the mascot SVG so the battery clearly sits IN FRONT of the
+     body during the chomp. */
+  z-index: 4;
+  animation: mascotBatteryConsume 1500ms ease-out forwards;
+  transform-origin: center center;
+  will-change: transform, opacity, filter;
+}
+
+@keyframes mascotBatteryConsume {
+  /* Drop in from above the mascot's head, slightly tilted. */
+  0% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - 110px)) scale(0.75) rotate(-10deg);
+    filter: none;
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06) rotate(0deg);
+  }
+  /* Tiny bounce on landing. */
+  26% {
+    transform: translate(-50%, calc(-50% - 6px)) scale(0.96);
+  }
+  34% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  /* Sit while the mascot does its mascotEating squish. */
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    filter: none;
+  }
+  /* Poff away — quick scale-up + blur + fade, like a puff of dust. */
+  88% {
+    opacity: 0.75;
+    transform: translate(-50%, calc(-50% - 4px)) scale(1.3);
+    filter: blur(1.5px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - 16px)) scale(1.9);
+    filter: blur(6px);
+  }
+}
+
+/* Stage-up sparkle burst — yellow rays + scale grow, similar to happyRays
+   but bigger and longer. */
+.stageUpSparkle {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  animation: mascotStageUpSparkle 1200ms ease-out forwards;
+}
+
+@keyframes mascotStageUpSparkle {
+  0%   { opacity: 0; transform: scale(0.4); }
+  15%  { opacity: 1; transform: scale(1); }
+  50%  { opacity: 1; transform: scale(1.3); }
+  100% { opacity: 0; transform: scale(1.8); }
+}
+
+.stageUpLabel {
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #FFD54F, #FF9800);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 6;
+  animation: mascotStageUpLabel 1200ms ease-out forwards;
+}
+
+@keyframes mascotStageUpLabel {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  20%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+}
+
+/* Petted — closed-eye blush flash. We re-use .blushPulse for the blush
+   itself; this class just speeds the blush keyframes for the burst. */
+.pettedBlush {
+  animation: mascotBlushPulse 300ms ease-in-out 2;
+}
+
+/* Hungry sweatdrop variant — same drop visual as the frustrated reaction
+   but loops slowly while hunger is high. */
+.hungrySigh {
+  animation: mascotSweatDrop 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
    Display panel (MascotDisplay.tsx)
    ───────────────────────────────────────────────────────────────────── */
 
@@ -179,6 +371,20 @@
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-primary);
   flex-shrink: 0;
+}
+
+/* Panel variant — used by the pet page where the MascotDisplay should
+   fill the entire panel. Overrides the chat-variant constraints
+   (flex-shrink, fixed border, intrinsic-height stage). */
+.displayPanel {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-bottom: none;
+}
+
+.stagePanel {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* The stage no longer hosts an action card — the speech bubble lives
@@ -278,9 +484,18 @@
      across zoom: a feature at scene-offset B goes to s·B; the
      mascot at wander-offset d goes to s·d; relative position
      (d − B) stays constant in scene coordinates. */
-  transform: translateX(-50%) scale(var(--mascot-zoom, 1));
+  /* --scene-pan-x: horizontal pan offset in CSS px, written by
+     MascotDisplay when the user drags an empty stage area. Added to
+     the centering translate so the scene scrolls under the mascot.
+     The SAME variable is also added to .mascotLayer's translateX
+     below, so the mascot and background move together in lockstep —
+     dragging the scene drags the mascot with it. */
+  transform: translateX(calc(-50% + var(--scene-pan-x, 0px))) scale(var(--mascot-zoom, 1));
   transform-origin: 50% var(--bg-image-grass-y);
-  transition: opacity 400ms ease, transform 120ms ease-out;
+  /* No transform transition — would lag the drag behind the cursor.
+     Zoom changes are small per-step so they don't need smoothing
+     either. Opacity transition stays for theme crossfade. */
+  transition: opacity 400ms ease;
 }
 
 /* Default (dark theme — the project's base palette) shows night. */
@@ -314,9 +529,18 @@
          same horizontal pivot as the background image's scale.)
        Y = 95% (the mascot's body-bottom in mascotLayer local — feet
          stay at the same screen Y as the user zooms). */
-  transform: translateX(-50%) translateY(-50%) scale(var(--mascot-zoom, 1));
-  transform-origin: 50% 95%;
-  transition: transform 120ms ease-out;
+  /* --scene-pan-x: same variable the background reads, applied here
+     too so the mascot follows the scene pan. Without this, dragging
+     the scene would leave the mascot floating in place — see CSS
+     change next to .bgDay above. */
+  transform: translateX(calc(-50% + var(--scene-pan-x, 0px))) translateY(-50%) scale(var(--mascot-zoom, 1));
+  /* 50% 94% matches the SVG's body-feet at viewBox y=188/200. The old
+     95% was 1% below the feet, which made the mascot's bottom drift
+     a few px during zoom because the actual feet point wasn't the
+     scale pivot. Aligning the pivot eliminates that drift. */
+  transform-origin: 50% 94%;
+  /* No transform transition — keeps drag-pan tracking the cursor and
+     stays consistent with the background's no-transition rule above. */
   z-index: 2;
   display: flex;
   align-items: center;
@@ -335,8 +559,37 @@
 .wander {
   position: relative;
   transform-origin: 50% 95%;
-  cursor: pointer;
-  pointer-events: auto;
+  /* pointer-events: none so the wander's full mascotSize × mascotSize
+     bounding box doesn't act as a giant invisible click target. The
+     painted SVG content below (the body silhouette, antenna, eyes, etc.)
+     catches events via pointer-events: visiblePainted, and React's
+     synthetic events bubble those clicks back up to onClick/onPointerDown
+     attached on this element. Result: hit area = visible mascot at any
+     stage, no mascotSize-derived size-prop tracking needed. */
+  pointer-events: none;
+}
+
+/* SVG root rendered by CraftBotMascot. The root itself is transparent
+   to events (so empty viewBox space doesn't catch); painted children
+   below re-enable visiblePainted to act as the real hit area. */
+.mascotSvg {
+  pointer-events: none;
+}
+
+/* Every painted SVG element inside the mascot — body silhouette, antenna
+   stem & bulb, eyes, accessory shapes, reaction overlays — acts as a
+   click target on its painted pixels only. cursor: grab tells the user
+   the pet is draggable; useMascotBehavior swaps body cursor to grabbing
+   for the duration of an active drag. */
+.mascotSvg path,
+.mascotSvg line,
+.mascotSvg polyline,
+.mascotSvg rect,
+.mascotSvg ellipse,
+.mascotSvg circle,
+.mascotSvg text {
+  pointer-events: visiblePainted;
+  cursor: grab;
 }
 
 /* .zoomLayer is now a passive wrapper — kept for the JSX structure
@@ -415,6 +668,37 @@
      eat the bottom padding when the clamped body fills the height. */
   z-index: 4;
   animation: speechBubbleIn 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Panel-variant override — the pet panel renders the mascot inside a
+   .mascotLayer whose transform: scale(var(--mascot-zoom)) makes the
+   whole subtree (including the bubble) shrink at low user-zoom. At
+   the min zoom of 0.4 a 14px font reads as 5.6px, which is what made
+   the bubble unreadable. Two fixes here:
+     1. Bump the bubble's natural CSS dimensions for the larger panel.
+     2. Use the modern `scale:` property with 1/zoom to COUNTER-scale
+        the inherited parent zoom. CSS `scale:` composes with the
+        `transform:` set by the entrance animation, so the pop-in
+        still plays correctly while the final resting size is
+        zoom-invariant.
+   Only applies inside .stagePanel; chat-panel bubble is untouched. */
+.stagePanel .speechBubble {
+  min-width: 260px;
+  max-width: 520px;
+  padding: 14px 18px;
+  font-size: 18px;
+  line-height: 1.5;
+  border-radius: 14px;
+  /* Compose with .mascotLayer's scale(var(--mascot-zoom)) so the net
+     visible scale is 1 regardless of user wheel-zoom. */
+  scale: calc(1 / var(--mascot-zoom, 1));
+}
+.stagePanel .speechBubbleLabel {
+  font-size: 14px;
+}
+.stagePanel .speechBubbleBody {
+  /* More room before the line-clamp ellipsis kicks in. */
+  -webkit-line-clamp: 10;
 }
 
 /* Side variants. Driven by useMascotBehavior's bubbleSide output so the
