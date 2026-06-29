@@ -30,7 +30,11 @@ from agent_core.utils.token import count_tokens
 import threading
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
-MAX_EVENT_INLINE_CHARS = 200000
+# Messages longer than this are externalized to a temp file and replaced with a
+# pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
+# an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
+# agent retrieves the full content with grep_files / read_file when it needs it.
+MAX_EVENT_INLINE_CHARS = 8000
 # Always preserve at least this many most-recent events in tail_events when summarizing.
 # Guards against a single oversized event (e.g. a large read_pdf result) being purged in the
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
@@ -43,6 +47,12 @@ MIN_KEEP_RECENT_EVENTS = 2
 # scope/definition-of-done and lives ONLY in the event stream, so losing it to a
 # summary would drop the agent's success criteria. Add other kinds here to pin them.
 PROTECTED_SUMMARY_KINDS = frozenset({"requirements"})
+
+# How often to push a fresh `datetime` marker into the stream (minute-precision
+# wall-clock). Kept coarse on purpose: each new marker changes the cached prompt
+# prefix, so we refresh at most every 30 min (plus once right after every
+# summarization, which already invalidates the cache) rather than per minute.
+DATETIME_REFRESH_SECONDS = 30 * 60
 
 
 def get_cached_token_count(rec: "EventRecord") -> int:
@@ -105,10 +115,43 @@ class EventStream:
 
         self._lock = threading.RLock()
         self._total_tokens: int = 0
+        # Wall-clock of the last `datetime` marker pushed into the stream (None
+        # until the first event). Drives the periodic refresh in _maybe_push_datetime.
+        self._last_datetime_ts: Optional[datetime] = None
 
         # Session cache tracking: maps call_type -> event_index of last synced event
         # Used to track which events have been sent to each session cache
         self._session_sync_points: dict[str, int] = {}
+
+    # ───────────────────────────── datetime tag ──────────────────────────
+    def _append_datetime_event(self) -> None:
+        """Append a current date/time marker (minute precision) to the tail. Uses
+        UTC to match the per-event timestamps in compact_line — otherwise the line
+        shows two disagreeing times (UTC event-ts vs local marker). Cheap, and
+        deliberately NOT in PROTECTED_SUMMARY_KINDS — if it gets summarized away a
+        fresh one is pushed right after each summarization. Caller holds the lock."""
+        now = datetime.now(timezone.utc)
+        ev = Event(
+            message=now.strftime("%Y-%m-%d %H:%M UTC"),
+            kind="datetime",
+            severity="INFO",
+            event_type=EventType.INTERNAL,
+        )
+        rec = EventRecord(event=ev)
+        self.tail_events.append(rec)
+        self._total_tokens += get_cached_token_count(rec)
+        self._last_datetime_ts = now
+
+    def _maybe_push_datetime(self) -> None:
+        """Push a fresh datetime marker on the first event and then at most once
+        every DATETIME_REFRESH_SECONDS, so the stream always carries a recent
+        wall-clock without churning the prompt cache every minute."""
+        last = self._last_datetime_ts
+        if (
+            last is None
+            or (datetime.now(timezone.utc) - last).total_seconds() >= DATETIME_REFRESH_SECONDS
+        ):
+            self._append_datetime_event()
 
     # ────────────────────────────── logging ──────────────────────────────
 
@@ -183,6 +226,10 @@ class EventStream:
         rec = EventRecord(event=ev)
 
         with self._lock:
+            # Pin a recent wall-clock marker ahead of this event (first event, or
+            # every 30 min). Skips datetime markers themselves to avoid recursion.
+            if kind != "datetime":
+                self._maybe_push_datetime()
             self.tail_events.append(rec)
             self._total_tokens += get_cached_token_count(rec)
             # Summarization runs inside the lock - blocks other log() calls
@@ -370,6 +417,8 @@ class EventStream:
             self._total_tokens -= removed_tokens
             # Keep protected events verbatim at the front of the surviving tail.
             self.tail_events = protected + self.tail_events[cutoff:]
+            # Summarization breaks the prompt cache anyway, so re-stamp the time.
+            self._append_datetime_event()
 
             # Reset all session sync points - event indices are now invalid
             self._session_sync_points.clear()
@@ -389,6 +438,7 @@ class EventStream:
             self._total_tokens -= removed_tokens
             # Keep protected events verbatim even on the no-LLM prune fallback.
             self.tail_events = protected + self.tail_events[cutoff:]
+            self._append_datetime_event()
             self._session_sync_points.clear()
 
     # ───────────────────── utilities ─────────────────────
