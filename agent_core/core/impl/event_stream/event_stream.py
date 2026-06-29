@@ -37,6 +37,13 @@ MAX_EVENT_INLINE_CHARS = 200000
 # leaving the action displayed as "running" forever.
 MIN_KEEP_RECENT_EVENTS = 2
 
+# Event kinds that summarization must NEVER collapse — they are kept verbatim in
+# tail_events forever, so the contract they carry survives any number of
+# summarization passes. `requirements` (from set_requirement) defines the task's
+# scope/definition-of-done and lives ONLY in the event stream, so losing it to a
+# summary would drop the agent's success criteria. Add other kinds here to pin them.
+PROTECTED_SUMMARY_KINDS = frozenset({"requirements"})
+
 
 def get_cached_token_count(rec: "EventRecord") -> int:
     """Get token count for an EventRecord, using cached value if available.
@@ -303,12 +310,18 @@ class EventStream:
             # Nothing old enough to summarize
             return
 
-        chunk = list(self.tail_events[:cutoff])
-        first_ts = chunk[0].ts if chunk else None
-        last_ts = chunk[-1].ts if chunk else None
-        window = ""
-        if first_ts and last_ts:
-            window = f"{first_ts.isoformat()} to {last_ts.isoformat()}"
+        # Pull protected events (e.g. requirements) out of the region being
+        # summarized — they stay verbatim in the tail and are never collapsed.
+        region = list(self.tail_events[:cutoff])
+        protected = [r for r in region if r.event.kind in PROTECTED_SUMMARY_KINDS]
+        chunk = [r for r in region if r.event.kind not in PROTECTED_SUMMARY_KINDS]
+        if not chunk:
+            # Everything old enough to summarize is protected — nothing to collapse.
+            return
+
+        first_ts = chunk[0].ts
+        last_ts = chunk[-1].ts
+        window = f"{first_ts.isoformat()} to {last_ts.isoformat()}"
 
         compact_lines = "\n".join(r.compact_line() for r in chunk)
         previous_summary = self.head_summary or "(none)"
@@ -355,7 +368,8 @@ class EventStream:
             # Calculate tokens being removed from the snapshotted chunk
             removed_tokens = sum(get_cached_token_count(r) for r in chunk)
             self._total_tokens -= removed_tokens
-            self.tail_events = self.tail_events[cutoff:]
+            # Keep protected events verbatim at the front of the surviving tail.
+            self.tail_events = protected + self.tail_events[cutoff:]
 
             # Reset all session sync points - event indices are now invalid
             self._session_sync_points.clear()
@@ -373,7 +387,8 @@ class EventStream:
             # log() call would immediately re-trigger summarization and flood the logs.
             removed_tokens = sum(get_cached_token_count(r) for r in chunk)
             self._total_tokens -= removed_tokens
-            self.tail_events = self.tail_events[cutoff:]
+            # Keep protected events verbatim even on the no-LLM prune fallback.
+            self.tail_events = protected + self.tail_events[cutoff:]
             self._session_sync_points.clear()
 
     # ───────────────────── utilities ─────────────────────

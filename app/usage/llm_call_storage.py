@@ -68,7 +68,9 @@ class LLMCallRow:
 class LLMCallStorage:
     """SQLite-backed store of full LLM calls."""
 
-    def __init__(self, db_path: Optional[str] = None, max_rows: int = DEFAULT_MAX_ROWS):
+    def __init__(
+        self, db_path: Optional[str] = None, max_rows: int = DEFAULT_MAX_ROWS
+    ):
         if db_path is None:
             from app.config import APP_DATA_PATH
 
@@ -109,7 +111,9 @@ class LLMCallStorage:
             """)
             # Migrate older DBs that predate a column.
             existing = {r[1] for r in cursor.execute("PRAGMA table_info(llm_calls)")}
-            for col, decl in (("cache_creation_tokens", "INTEGER NOT NULL DEFAULT 0"),):
+            for col, decl in (
+                ("cache_creation_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ):
                 if col not in existing:
                     cursor.execute(f"ALTER TABLE llm_calls ADD COLUMN {col} {decl}")
             for col in ("timestamp", "prompt_name", "call_type", "task_id", "model"):
@@ -176,7 +180,9 @@ class LLMCallStorage:
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM llm_calls ORDER BY id DESC LIMIT ?", (limit,))
+            cursor.execute(
+                "SELECT * FROM llm_calls ORDER BY id DESC LIMIT ?", (limit,)
+            )
             return [dict(r) for r in cursor.fetchall()]
 
     def count(self) -> int:

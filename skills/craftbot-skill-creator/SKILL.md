@@ -197,7 +197,7 @@ Rules:
 ## Forbidden
 
 - More than one `send_message` call. The presentation message above is the only one — anything else is noise.
-- `web_search`, `run_shell`, `run_python` — outside `file_operations` + `core`.
+- `web_search`, `run_shell` — outside `file_operations` + `core`.
 - Writing or modifying any file outside `skills/<skill-name>/`.
 - Overwriting an existing skill. (The handler refuses to spawn this workflow if the directory already exists; if you somehow find one there, end the task immediately rather than overwriting.)
 
