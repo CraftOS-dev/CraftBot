@@ -46,7 +46,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
-from agent_core.core.impl.llm import LLMCallType
+from agent_core.core.impl.llm import LLMCallType, LLMConsecutiveFailureError
 from app.logger import logger
 from app.subagent.context_engine import SubAgentContextEngine
 from app.subagent.registry import get_subagent_definition
@@ -201,6 +201,31 @@ class SubAgentRunner:
         """
         try:
             await self._run_one_step(sub)
+        except LLMConsecutiveFailureError as e:
+            # Fatal LLM failure (out-of-credits, auth, repeated provider
+            # errors). Retrying can't help, so end the sub-agent now with the
+            # real cause instead of spinning until the iteration cap. Ending
+            # makes ``sub.is_terminal()`` true, so the run loop exits cleanly.
+            cause = (
+                e.last_error_info.message
+                if e.last_error_info is not None
+                else str(e)
+            )
+            logger.error(
+                f"[SubAgentRunner] {sub.id} aborting after consecutive LLM "
+                f"failures: {cause}"
+            )
+            self.event_stream_manager.log(
+                kind="subagent_error",
+                message=f"LLM unavailable: {cause}",
+                severity="ERROR",
+                task_id=sub.id,
+            )
+            self.subagent_manager.end(
+                sub.id,
+                status="failed",
+                result=f"(sub-agent aborted — LLM unavailable: {cause})",
+            )
         except Exception as e:
             logger.exception(
                 f"[SubAgentRunner] {sub.id} step {sub.iterations} crashed: {e}"
@@ -351,6 +376,12 @@ class SubAgentRunner:
                 raw = await self._invoke_llm(
                     sub, current_user_prompt, system_prompt
                 )
+            except LLMConsecutiveFailureError:
+                # Fatal: the LLM is in a broken state (e.g. out-of-credits,
+                # auth). Retrying within this turn can't help — let it
+                # propagate so the runner ends the sub-agent with the real
+                # cause instead of looping the parse retries.
+                raise
             except Exception as e:
                 logger.exception(
                     f"[SubAgentRunner] {sub.id} LLM call failed on attempt {attempt}: {e}"

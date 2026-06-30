@@ -836,6 +836,53 @@ class LLMInterface:
         get_cache_metrics().reset()
         logger.info("[CACHE] Cache metrics reset")
 
+    def _finalize_session_response(
+        self, response: Dict[str, Any], log_response: bool
+    ) -> str:
+        """Shared tail for the session-cache provider branches.
+
+        Mirrors the failure handling in `_generate_response_sync`: an empty
+        response is treated as a failure, the consecutive-failure counter is
+        tracked, and the classified cause is surfaced (raising
+        `LLMConsecutiveFailureError` once the threshold is hit so the agent
+        aborts instead of retrying forever). On success the counter resets and
+        the cleaned content is returned.
+        """
+        content = (response.get("content") or "").strip()
+        if not content:
+            error_info = response.get("error_info_obj")
+            error_msg = response.get("error", "")
+            if error_info is not None:
+                error_detail = error_info.message
+            elif error_msg:
+                error_detail = f"LLM provider returned error: {error_msg}"
+            else:
+                error_detail = (
+                    f"LLM returned empty response. "
+                    f"Provider: {self.provider}, Model: {self.model}. "
+                    f"This may indicate an API error or service unavailability."
+                )
+            logger.error(f"[LLM ERROR] {error_detail}")
+            self._consecutive_failures += 1
+            logger.warning(
+                f"[LLM CONSECUTIVE FAILURE] Count: "
+                f"{self._consecutive_failures}/{self._max_consecutive_failures}"
+            )
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                raise LLMConsecutiveFailureError(
+                    self._consecutive_failures, last_error_info=error_info
+                )
+            raise RuntimeError(error_detail)
+
+        # Success - reset consecutive failure counter
+        self._consecutive_failures = 0
+        cleaned = re.sub(self._CODE_BLOCK_RE, "", content)
+        current_count = self._get_token_count()
+        self._set_token_count(current_count + billable_tokens(response))
+        if log_response:
+            logger.info(f"[LLM RECV] {cleaned}")
+        return cleaned
+
     def _generate_response_with_session_sync(
         self,
         task_id: str,
@@ -866,6 +913,17 @@ class LLMInterface:
         """
         if user_prompt is None:
             raise ValueError("`user_prompt` cannot be None.")
+
+        # Same consecutive-failure backstop as `_generate_response_sync`. The
+        # session path previously had none, so a persistent provider error
+        # (e.g. out-of-credits) retried forever instead of aborting.
+        if self._consecutive_failures >= self._max_consecutive_failures:
+            logger.critical(
+                f"[LLM ABORT] Consecutive failure threshold reached "
+                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+                f"Aborting to prevent infinite retries."
+            )
+            raise LLMConsecutiveFailureError(self._consecutive_failures)
 
         if log_response:
             logger.info(
@@ -918,14 +976,7 @@ class LLMInterface:
                     {"role": "model", "parts": [{"text": assistant_content}]}
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle OpenAI/DeepSeek/Grok/OpenRouter with call_type-based cache routing
         if self.provider in ("openai", "deepseek", "grok", "openrouter"):
@@ -992,14 +1043,7 @@ class LLMInterface:
                     effective_system_prompt, user_prompt, call_type=call_type
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle Anthropic with multi-turn KV caching
         if self.provider == "anthropic" and self._anthropic_client:
@@ -1081,14 +1125,7 @@ class LLMInterface:
                 history.append({"role": "user", "content": user_prompt})
                 history.append({"role": "assistant", "content": assistant_content})
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle Bedrock with multi-turn cachePoint caching.
         # Mirrors the Anthropic-direct pattern: accumulate the user/assistant
@@ -1176,14 +1213,7 @@ class LLMInterface:
                     f"has_error={response_has_error})"
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # If not BytePlus (and not Gemini/OpenAI/Anthropic/Bedrock which are handled above), fall back to standard
         if self.provider != "byteplus" or not self._byteplus_cache_manager:
@@ -1237,13 +1267,7 @@ class LLMInterface:
                 effective_system_prompt, user_prompt, log_response=False
             )
 
-        cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
-
-        current_count = self._get_token_count()
-        self._set_token_count(current_count + billable_tokens(response))
-        if log_response:
-            logger.info(f"[LLM RECV] {cleaned}")
-        return cleaned
+        return self._finalize_session_response(response, log_response)
 
     def _process_session_response(
         self,
@@ -2391,6 +2415,12 @@ class LLMInterface:
         token_count_input = token_count_output = 0
         total_tokens = 0
         cached_tokens = 0
+        # Initialized here (not just inside the try) so the post-`except`
+        # _call_log_to_db below can reference them even when the API call
+        # throws before they're assigned (e.g. out-of-credits). Otherwise the
+        # real provider error is masked by an UnboundLocalError.
+        cache_creation = 0
+        cache_read = 0
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
