@@ -95,6 +95,12 @@
   --border-secondary: rgba(255, 255, 255, 0.15);
   --border-hover: rgba(255, 255, 255, 0.25);
 
+  /* Sidebar surface — keep dedicated so theme overrides can tune it
+   * independently of --bg-secondary, and so fade gradients have an
+   * exact transparent companion. */
+  --sidebar-bg: #202020;
+  --sidebar-bg-transparent: rgba(32, 32, 32, 0);
+
   /* ─────────────────────────────────────────────────────────────────────
    * Typography
    * ───────────────────────────────────────────────────────────────────── */
@@ -208,4 +214,7 @@
   --shadow-sm: 0 1px 2px rgba(15, 15, 15, 0.06);
   --shadow-md: 0 4px 12px rgba(15, 15, 15, 0.10);
   --shadow-lg: 0 16px 32px rgba(15, 15, 15, 0.14);
+
+  --sidebar-bg: #FEFEFD;
+  --sidebar-bg-transparent: rgba(254, 254, 253, 0);
 }

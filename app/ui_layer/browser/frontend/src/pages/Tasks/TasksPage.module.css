@@ -299,6 +299,23 @@
   cursor: not-allowed;
 }
 
+.deleteButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.deleteButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .detailContent {
   flex: 1;
   overflow-y: auto;
@@ -909,4 +926,21 @@
 .taskReplyBtn:hover {
   color: var(--text-primary);
   background: var(--color-primary-light);
+}
+
+/* Task delete button - shown on hover for terminal (ended) task rows */
+.taskDeleteBtn {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.taskItem:hover .taskDeleteBtn {
+  opacity: 1;
+}
+
+.taskDeleteBtn:hover {
+  color: var(--color-error);
+  background: var(--color-error-light);
 }

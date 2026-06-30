@@ -745,6 +745,53 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             }
         )
 
+    async def delete_terminal_task(self, task_id: str) -> List[str]:
+        """
+        Remove a single ended task (completed/error/cancelled) and its child
+        actions. Running/waiting tasks are refused so the user cannot
+        accidentally drop a live task by clicking the wrong icon.
+
+        Returns:
+            List of removed item IDs (task + child actions). Empty if the
+            task wasn't found or wasn't in a terminal state.
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
+
+        # Locate the task in memory and verify it's terminal
+        task_item = next(
+            (i for i in self._items if i.id == task_id and i.item_type == "task"),
+            None,
+        )
+        if not task_item or task_item.status not in terminal_statuses:
+            return []
+
+        removed_ids = [
+            item.id
+            for item in self._items
+            if item.id == task_id or item.parent_id == task_id
+        ]
+        self._items = [
+            item
+            for item in self._items
+            if item.id != task_id and item.parent_id != task_id
+        ]
+
+        if self._storage:
+            try:
+                self._storage.delete_task_with_actions(task_id)
+            except Exception:
+                pass
+
+        for item_id in removed_ids:
+            await self._adapter._broadcast(
+                {
+                    "type": "action_remove",
+                    "data": {"id": item_id},
+                }
+            )
+
+        return removed_ids
+
     async def clear_terminal_tasks(self) -> int:
         """
         Remove tasks whose status is completed/error/cancelled, along with
@@ -1525,6 +1572,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             task_id = data.get("taskId", "")
             message = data.get("message", "") or ""
             await self._handle_task_resume(task_id, message)
+
+        elif msg_type == "task_delete":
+            task_id = data.get("taskId", "")
+            await self._handle_task_delete(task_id)
 
         elif msg_type == "option_click":
             value = data.get("value", "")
@@ -3788,6 +3839,72 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_complete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_delete(self, task_id: str) -> None:
+        """Delete an ended task and its child actions from the panel and
+        from persistence so it can't be resumed or resurrected on restart.
+        Only completed/error/cancelled tasks are eligible — running tasks
+        must be cancelled or completed first.
+        """
+        try:
+            if not task_id:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Missing taskId",
+                        },
+                    }
+                )
+                return
+
+            removed_ids = await self._action_panel.delete_terminal_task(task_id)
+            if not removed_ids:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found or still active",
+                        },
+                    }
+                )
+                return
+
+            # Drop session_storage rows so a restart can't resurrect the
+            # event stream; mirrors clear_task_persistence used by /clear-tasks.
+            try:
+                self._controller.agent.clear_task_persistence([task_id])
+            except Exception as e:
+                logger.warning(
+                    f"[task_delete] Failed to clear task persistence for {task_id}: {e}"
+                )
+
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                        "removed": len(removed_ids),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[task_delete] Failed to delete {task_id}: {e}")
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,

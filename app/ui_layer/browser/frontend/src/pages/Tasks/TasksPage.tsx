@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, CheckCircle, ArrowLeft, Reply, Plus, Loader2, RotateCw } from 'lucide-react'
+import { ChevronRight, XCircle, CheckCircle, ArrowLeft, Reply, Plus, Loader2, RotateCw, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
@@ -546,7 +546,7 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions, messages, cancelTask, cancellingTaskId, completeTask, completingTaskId, resumeTask, resumingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
+  const { actions, messages, cancelTask, cancellingTaskId, completeTask, completingTaskId, resumeTask, resumingTaskId, deleteTask, deletingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
   const internalWorkflowIds = useMemo(() => new Set(skillMeta.internalWorkflowIds), [skillMeta.internalWorkflowIds])
   const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
   const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
@@ -857,6 +857,26 @@ export function TasksPage() {
                           icon={<Reply size={12} />}
                         />
                       )}
+                      {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') && (
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          className={styles.taskDeleteBtn}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteTask(task.id)
+                          }}
+                          disabled={deletingTaskId === task.id}
+                          title="Delete Task"
+                          icon={
+                            deletingTaskId === task.id ? (
+                              <Loader2 size={12} className={styles.spinning} />
+                            ) : (
+                              <Trash2 size={12} />
+                            )
+                          }
+                        />
+                      )}
                       <Badge variant="default">
                         {actionCount} actions
                       </Badge>
@@ -1003,6 +1023,23 @@ export function TasksPage() {
                         Create Skill
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={
+                        deletingTaskId === selectedTask.id ? (
+                          <Loader2 size={14} className={styles.spinning} />
+                        ) : (
+                          <Trash2 size={14} />
+                        )
+                      }
+                      loading={deletingTaskId === selectedTask.id}
+                      disabled={deletingTaskId === selectedTask.id}
+                      onClick={() => deleteTask(selectedTask.id)}
+                      className={styles.deleteButton}
+                    >
+                      {deletingTaskId === selectedTask.id ? 'Deleting…' : 'Delete Task'}
+                    </Button>
                   </>
                 ) : null}
               </div>
