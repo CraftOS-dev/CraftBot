@@ -27,7 +27,7 @@ import {
 } from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, useMascotVisibility } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -77,6 +77,7 @@ export function GeneralSettings() {
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
+  const [mascotVisible, setMascotVisible] = useMascotVisibility()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
   const [theme, setTheme] = useState(getInitialTheme)
@@ -762,6 +763,21 @@ export function GeneralSettings() {
             <option value="light">Light</option>
             <option value="system">System</option>
           </select>
+        </div>
+
+        <div className={styles.toggleGroup}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.toggleLabel}>Show mascot in chat panel</span>
+            <span className={styles.toggleDesc}>
+              Display the animated mascot above the Tasks &amp; Actions sidebar.
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            className={styles.toggle}
+            checked={mascotVisible}
+            onChange={(e) => setMascotVisible(e.target.checked)}
+          />
         </div>
       </div>
 

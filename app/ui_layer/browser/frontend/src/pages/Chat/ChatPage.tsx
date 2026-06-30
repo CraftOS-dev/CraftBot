@@ -5,7 +5,7 @@ import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
 import { MascotDisplay } from '@mascot'
 import { getActivePlaceholder } from '../../utils/taskPlaceholder'
-import { useTaskListAutoScroll, useTaskListFLIP } from '../../hooks'
+import { useTaskListAutoScroll, useTaskListFLIP, useMascotVisibility } from '../../hooks'
 import type { ActionItem } from '../../types'
 import styles from './ChatPage.module.css'
 
@@ -124,6 +124,8 @@ export function ChatPage() {
   // outer <div> via `flipRef(task.id)`.
   const flipRef = useTaskListFLIP()
 
+  const [mascotVisible] = useMascotVisibility()
+
   return (
     <div className={`${styles.chatPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
       {/* Chat Component */}
@@ -144,7 +146,7 @@ export function ChatPage() {
           Scroll + pagination behavior is shared via useTaskListAutoScroll
           so the two stay in sync. */}
       <div className={styles.actionPanel} style={{ width: panelWidth, flexShrink: 0 }}>
-        <MascotDisplay />
+        {mascotVisible && <MascotDisplay />}
         <div className={styles.panelHeader}>
           <h3>Tasks & Actions</h3>
         </div>
