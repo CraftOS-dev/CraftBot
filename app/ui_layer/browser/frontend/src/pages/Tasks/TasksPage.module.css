@@ -12,12 +12,16 @@
   user-select: none;
 }
 
-/* Task List - Left Side (resizable) */
+/* Task List - Right Side (resizable). JSX order is [taskList, resizeHandle,
+   detailPanel] but flex `order` puts detailPanel on the left, resizeHandle in
+   the middle, and taskList on the right — mirroring ChatPage's Tasks &
+   Actions sidebar. Mobile uses position:absolute below so `order` is inert. */
 .taskList {
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
   overflow: hidden;
+  order: 3;
 }
 
 /* Resize Handle */
@@ -27,6 +31,7 @@
   background: var(--border-primary);
   cursor: col-resize;
   flex-shrink: 0;
+  order: 2;
 }
 
 .resizeHandle::after {
@@ -213,11 +218,12 @@
   font-size: var(--text-xs);
 }
 
-/* Detail Panel - Right Side */
+/* Detail Panel - Left Side */
 .detailPanel {
   flex: 1;
   display: flex;
   flex-direction: column;
+  order: 1;
   overflow: hidden;
 }
 
@@ -833,6 +839,11 @@
   /* Smaller header text on mobile */
   .detailTitle h2 {
     font-size: var(--text-base);
+    /* Break long task names normally instead of word-per-line when the row
+       gets squeezed by the action buttons — the parent stacks vertically
+       below so h2 gets the full row width anyway, but keep this as a
+       safety net for narrow screens. */
+    word-break: break-word;
   }
 
   /* Smaller padding on mobile */
@@ -840,8 +851,24 @@
     padding: var(--space-3);
   }
 
+  /* Stack the header vertically on mobile: title row on top (with back
+     button + status + name occupying the full width so the name doesn't
+     get squeezed into a narrow column of single words), action buttons
+     wrap onto their own row below. */
   .detailHeader {
     padding: var(--space-3);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .detailTitle {
+    min-width: 0;
+  }
+
+  .detailTitle h2 {
+    flex: 1;
+    min-width: 0;
   }
 
   /* Make detail list more compact */

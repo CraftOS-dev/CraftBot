@@ -560,7 +560,16 @@ export function TasksPage() {
   const [scrollTargetId, setScrollTargetId] = useState<string | null>(null)
   const [expandedDetailIds, setExpandedDetailIds] = useState<Set<string>>(new Set())
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= 768
+  )
   const skillCreator = useSkillCreator()
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   // Resizable panel state
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
@@ -660,8 +669,12 @@ export function TasksPage() {
   // Actions/reasoning → show their parent task, scroll to the clicked item.
   const handleSelectFromList = useCallback((item: ActionItem) => {
     if (item.itemType === 'task') {
-      if (selectedTaskId === item.id) {
-        // Toggle off when clicking the already-selected task
+      // Desktop: tapping the already-selected task collapses its inline
+      // actions. On mobile, list & detail are separate views, so a second
+      // tap after returning from detail should re-open detail — not toggle
+      // off, which would leave the user stranded on the empty state with
+      // no way back to the list.
+      if (selectedTaskId === item.id && !isMobile) {
         setSelectedTaskId(null)
         setScrollTargetId(null)
       } else {
@@ -673,7 +686,7 @@ export function TasksPage() {
       setScrollTargetId(item.id)
     }
     setMobileShowDetail(true)
-  }, [selectedTaskId])
+  }, [selectedTaskId, isMobile])
 
   const toggleDetailExpansion = useCallback((id: string) => {
     setExpandedDetailIds(prev => {
@@ -772,8 +785,8 @@ export function TasksPage() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return
       const containerRect = containerRef.current.getBoundingClientRect()
-      // Calculate width from left edge (since panel is on the left)
-      const newWidth = e.clientX - containerRect.left
+      // Calculate width from right edge (since panel is on the right)
+      const newWidth = containerRect.right - e.clientX
       // Clamp to min/max limits
       const clampedWidth = Math.min(Math.max(newWidth, MIN_PANEL_WIDTH), MAX_PANEL_WIDTH)
       setPanelWidth(clampedWidth)
@@ -798,12 +811,14 @@ export function TasksPage() {
 
   return (
     <div className={`${styles.tasksPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
-      {/* Task List - Left Side (resizable)
+      {/* Task List - Right Side (resizable)
           Row rendering is its own implementation (drives a detail panel with
           scroll-target nav, action-count badges, action + reasoning
           children — ChatPage's sidebar is a stripped-down live view).
           Scroll + pagination behavior is shared via useTaskListAutoScroll
-          so the two stay in sync. */}
+          so the two stay in sync.
+          Visually positioned on the right via CSS `order` in the module — JSX
+          order is preserved to keep the file readable. */}
       <div className={`${styles.taskList} ${mobileShowDetail ? styles.mobileHidden : ''}`} style={{ width: panelWidth, flexShrink: 0 }}>
         <div className={styles.listHeader}>
           <h3>All Tasks</h3>
@@ -951,7 +966,7 @@ export function TasksPage() {
       {/* Resize Handle */}
       <div className={styles.resizeHandle} onMouseDown={handleMouseDown} />
 
-      {/* Detail Panel - Right Side */}
+      {/* Detail Panel - Left Side */}
       <div className={`${styles.detailPanel} ${mobileShowDetail ? styles.mobileVisible : ''}`}>
         {selectedTask ? (
           <>
@@ -1097,6 +1112,16 @@ export function TasksPage() {
           </>
         ) : (
           <div className={styles.emptyDetail}>
+            {isMobile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ArrowLeft size={14} />}
+                onClick={handleMobileBack}
+              >
+                Back to All Tasks
+              </Button>
+            )}
             <p>Select a task to view its progress</p>
           </div>
         )}
