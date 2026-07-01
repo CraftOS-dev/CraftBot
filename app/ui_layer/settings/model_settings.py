@@ -29,6 +29,16 @@ PROVIDER_INFO = {
         "api_key_env": "OPENAI_API_KEY",
         "settings_key": "openai",
         "requires_api_key": True,
+        "supports_subscription_oauth": True,
+        "subscription_label": "Sign in with ChatGPT",
+        # Codex-accepted models for ChatGPT subscription auth.
+        "subscription_models": [
+            "gpt-5.4",
+            "gpt-5.5",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex-spark",
+        ],
+        "subscription_default_model": "gpt-5.4",
     },
     "anthropic": {
         "name": "Anthropic",
@@ -71,6 +81,11 @@ PROVIDER_INFO = {
         "api_key_env": "XAI_API_KEY",
         "settings_key": "grok",
         "requires_api_key": True,
+        # Subscription OAuth (SuperGrok / X Premium+). xAI publicly endorsed
+        # this path in May 2026. 
+        "supports_subscription_oauth": True,
+        "subscription_label": "Sign in with Grok",
+        "subscription_models": ["grok-4-0709", "grok-3"],
     },
     "openrouter": {
         "name": "OpenRouter",
@@ -194,6 +209,11 @@ def get_available_providers() -> Dict[str, Any]:
                     "has_video_gen": video_gen_model is not None,
                     "supports_catalog": info.get("supports_catalog", False),
                     "is_bedrock": info.get("is_bedrock", False),
+                    "supports_subscription_oauth": info.get(
+                        "supports_subscription_oauth", False
+                    ),
+                    "subscription_label": info.get("subscription_label"),
+                    "subscription_models": info.get("subscription_models", []),
                 }
             )
 
@@ -283,6 +303,22 @@ def get_model_settings() -> Dict[str, Any]:
                     "masked_key": "(not required)",
                 }
 
+        # Subscription OAuth status. Imported lazily so the module load order
+        # doesn't pull craftos_integrations until the user actually opens the
+        # settings page — keeps cold-start cheap.
+        subscription_status: Dict[str, Any] = {}
+        try:
+            from craftos_integrations.integrations.llm_oauth.tokens import status as _oauth_status
+
+            for provider_id, info in PROVIDER_INFO.items():
+                if not info.get("supports_subscription_oauth"):
+                    continue
+                subscription_status[provider_id] = _oauth_status(provider_id)
+        except Exception:
+            # OAuth module missing or broken — leave the map empty so the UI
+            # falls back to API-key-only mode rather than 500ing the settings call.
+            pass
+
         # Get base URLs for providers that support them (settings.json only)
         base_urls = {}
         if endpoints_settings.get("byteplus_base_url"):
@@ -337,6 +373,7 @@ def get_model_settings() -> Dict[str, Any]:
             "api_keys": api_keys,
             "base_urls": base_urls,
             "aws_credentials": aws_creds_status,
+            "subscription_oauth": subscription_status,
         }
     except Exception as e:
         return {
@@ -656,6 +693,21 @@ def validate_can_save(
         if vlm_provider:
             providers_to_check.add(vlm_provider)
 
+        # A connected subscription OAuth fulfills the credential requirement —
+        # the factory will use the OAuth bearer instead of an API key.
+        # Imported lazily so a broken integrations package doesn't 500 the
+        # whole settings page; just falls back to api-key-only validation.
+        connected_subscriptions: set[str] = set()
+        try:
+            from craftos_integrations.integrations.llm_oauth.tokens import has_credential
+
+            for prov in providers_to_check:
+                info = PROVIDER_INFO.get(prov, {})
+                if info.get("supports_subscription_oauth") and has_credential(prov):
+                    connected_subscriptions.add(prov)
+        except Exception:
+            pass
+
         for provider in providers_to_check:
             info = PROVIDER_INFO.get(provider, {})
 
@@ -670,8 +722,8 @@ def validate_can_save(
                     existing = api_keys_settings.get(settings_key)
                     has_key = bool(existing)
 
-                if not has_key:
-                    errors.append(f"API key required for {info['name']}")
+                if not has_key and provider not in connected_subscriptions:
+                    errors.append(f"API key or subscription connection required for {info['name']}")
 
         return {
             "success": len(errors) == 0,

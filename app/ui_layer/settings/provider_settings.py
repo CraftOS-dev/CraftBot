@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from app.logger import logger
 from app.models.provider_config import PROVIDER_CONFIG
@@ -163,3 +164,115 @@ def get_api_key_for_provider(provider: str) -> str:
     settings = _load_settings()
     settings_key = PROVIDER_TO_SETTINGS_KEY.get(provider, provider)
     return settings.get("api_keys", {}).get(settings_key, "")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Subscription OAuth (ChatGPT Plus/Pro/Team, SuperGrok). UI sits in the
+# model-settings panel next to the API-key field. Anthropic is intentionally
+# excluded — Pro/Max OAuth in third-party tools was forbidden by Anthropic
+# in Feb 2026, so we keep that path API-key-only.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _persist_auth_mode(provider: str, mode: str) -> None:
+    """Write the UI-hint ``auth_mode`` for ``provider`` to settings.json.
+
+    The factory checks OAuth credential presence directly, so this value
+    is informational only — used by the settings UI to pick which toggle
+    to highlight. A save failure does not break inference.
+    """
+    try:
+        settings = _load_settings()
+        settings.setdefault("auth_mode", {})[provider] = mode
+        _save_settings(settings)
+        from app.config import reload_settings
+        reload_settings()
+    except Exception as e:
+        logger.warning(f"[SETTINGS] failed to persist auth_mode for {provider}: {e}")
+
+
+async def connect_subscription_async(provider: str) -> Tuple[bool, str]:
+    """Launch the subscription OAuth flow for ``provider`` (openai / grok).
+
+    Opens the browser, waits for the loopback callback, persists the
+    credential under ``.credentials/<provider>_oauth.json``. Async because
+    the OAuth flow awaits a loopback HTTP callback — wrapping it in a fresh
+    event loop from inside the browser adapter's running loop would
+    deadlock; the sync wrapper below is only for CLI / script callers.
+    """
+    try:
+        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+    except Exception as e:
+        return False, f"Subscription OAuth backend unavailable: {e}"
+    try:
+        success, message = await _oauth_tokens.connect(provider)
+    except Exception as e:
+        logger.error(f"[SETTINGS] subscription connect for {provider} crashed: {e}")
+        return False, f"Connect failed: {e}"
+    if success:
+        _persist_auth_mode(provider, "subscription")
+    return success, message
+
+
+def disconnect_subscription(provider: str) -> Tuple[bool, str]:
+    """Remove the subscription credential and flip auth_mode back to api_key.
+
+    Synchronous — disconnect is just a file delete, no OAuth dance required.
+    """
+    try:
+        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+    except Exception as e:
+        return False, f"Subscription OAuth backend unavailable: {e}"
+    success, message = _oauth_tokens.disconnect(provider)
+    _persist_auth_mode(provider, "api_key")
+    return success, message
+
+
+def connect_subscription(provider: str) -> Tuple[bool, str]:
+    """Sync wrapper around ``connect_subscription_async`` — for CLI/script
+    callers that aren't running inside an event loop. **Do not call from an
+    async context.** Async callers should await ``connect_subscription_async``
+    directly to avoid the "loop already running" RuntimeError.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(connect_subscription_async(provider))
+    finally:
+        loop.close()
+
+
+def get_subscription_status(provider: str) -> Dict[str, Any]:
+    """UI-facing status: connected? which account? plan? expiry?"""
+    try:
+        from craftos_integrations.integrations.llm_oauth.tokens import status
+    except Exception:
+        return {"supported": False, "connected": False}
+    return status(provider)
+
+
+async def prepare_subscription_async(provider: str) -> Tuple[bool, Dict[str, Any]]:
+    """Paste-back flow: open browser, return auth URL + attempt_id.
+
+    Used when the provider shows a "copy this code" page instead of
+    redirecting to our loopback callback (happens with xAI's
+    hermes-agent client family in some browser contexts).
+    """
+    try:
+        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+    except Exception as e:
+        return False, {"error": f"Subscription OAuth backend unavailable: {e}"}
+    return await _oauth_tokens.prepare_connect(provider)
+
+
+def complete_subscription(
+    provider: str, code: str, attempt_id: Optional[str] = None
+) -> Tuple[bool, str]:
+    """Finalize a paste-back attempt by exchanging the pasted code for tokens."""
+    try:
+        from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens
+    except Exception as e:
+        return False, f"Subscription OAuth backend unavailable: {e}"
+    success, message = _oauth_tokens.complete_connect(provider, code, attempt_id)
+    if success:
+        _persist_auth_mode(provider, "subscription")
+    return success, message

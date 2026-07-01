@@ -14,10 +14,6 @@
     "item_word_limit": 150
   },
   "model": {
-    "llm_provider": "anthropic",
-    "vlm_provider": "anthropic",
-    "llm_model": "claude-sonnet-4-5-20250929",
-    "vlm_model": "claude-sonnet-4-5-20250929",
     "slow_mode": true,
     "slow_mode_tpm_limit": 25000
   },
@@ -81,5 +77,9 @@
     "byteplus": true,
     "openrouter": false
   },
-  "aws_credentials": {}
+  "aws_credentials": {},
+  "auth_mode": {
+    "grok": "subscription",
+    "openai": "subscription"
+  }
 }
