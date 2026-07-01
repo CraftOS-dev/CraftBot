@@ -2596,16 +2596,36 @@ class AgentBase:
     # State Management
     # =====================================
 
-    async def reset_agent_state(self) -> str:
+    # Components a selective reset can target. Order matters only for the
+    # human-readable summary; each block is independent.
+    RESET_COMPONENTS = (
+        "conversation",
+        "tasks",
+        "memory",
+        "workspace",
+        "triggers",
+        "livingui",
+    )
+
+    async def reset_agent_state(self, components: "Optional[Iterable[str]]" = None) -> str:
         """
         Reset runtime state so the agent behaves like a fresh instance.
 
-        Clears triggers, resets task and state managers, purges event
-        streams, and reinitializes the agent file system from templates.
+        When ``components`` is None this performs the full reset (clears
+        triggers, resets task and state managers, purges event streams, and
+        reinitializes the agent file system from templates) — unchanged.
+
+        When ``components`` is provided, only the named parts are reset. Valid
+        names are in :attr:`RESET_COMPONENTS`. This backs the settings
+        "Reset Agent" checklist so users can pick what to wipe (e.g. keep their
+        LivingUI apps and workspace files while clearing conversation/memory).
 
         Returns:
             Confirmation message summarizing the reset.
         """
+        if components is not None:
+            return await self._reset_selected_components(components)
+
         # 1. Clear runtime state
         await self.triggers.clear()
         # Wipe the durable trigger rows too — otherwise the next boot's
@@ -2650,6 +2670,121 @@ class AgentBase:
             logger.warning(f"[RESET] Failed to clear session storage: {e}")
 
         return "Agent state reset. Agent file system reinitialized."
+
+    async def _reset_selected_components(self, components: "Iterable[str]") -> str:
+        """Reset only the named components. See :attr:`RESET_COMPONENTS`.
+
+        Each block is best-effort and isolated so one failure doesn't abort the
+        rest. Unknown component names are ignored (logged).
+        """
+        selected = {str(c).strip().lower() for c in components if str(c).strip()}
+        unknown = selected - set(self.RESET_COMPONENTS)
+        if unknown:
+            logger.warning(f"[RESET] Ignoring unknown reset components: {sorted(unknown)}")
+        selected &= set(self.RESET_COMPONENTS)
+        if not selected:
+            return "Nothing selected to reset."
+
+        done: list[str] = []
+
+        # Conversation: chat, actions, usage events, and persisted conversation.
+        if "conversation" in selected:
+            try:
+                from app.usage import (
+                    get_chat_storage,
+                    get_action_storage,
+                    get_usage_storage,
+                )
+
+                get_chat_storage().clear_messages()
+                get_action_storage().clear_items()
+                get_usage_storage().clear_events()
+                await self.clear_conversation_persistence()
+                done.append("conversation")
+            except Exception as e:
+                logger.warning(f"[RESET] conversation reset failed: {e}")
+
+        # Tasks: in-memory managers + persisted task events.
+        if "tasks" in selected:
+            try:
+                from app.usage import get_task_storage
+
+                self.task_manager.reset()
+                self.state_manager.reset()
+                get_task_storage().clear_tasks()
+                done.append("tasks")
+            except Exception as e:
+                logger.warning(f"[RESET] tasks reset failed: {e}")
+
+        # Memory: restore markdown files from templates + rebuild the index.
+        if "memory" in selected:
+            try:
+                watcher = getattr(self, "memory_file_watcher", None)
+                if watcher and watcher.is_running:
+                    watcher.stop()
+                await asyncio.to_thread(self._reset_memory_files_sync)
+                if hasattr(self, "memory_manager"):
+                    self.memory_manager.clear()
+                    self.memory_manager.update()
+                if watcher:
+                    watcher.start()
+                done.append("memory")
+            except Exception as e:
+                logger.warning(f"[RESET] memory reset failed: {e}")
+
+        # Workspace: wipe the workspace directory contents.
+        if "workspace" in selected:
+            try:
+                await asyncio.to_thread(self._reset_workspace_sync)
+                done.append("workspace")
+            except Exception as e:
+                logger.warning(f"[RESET] workspace reset failed: {e}")
+
+        # Triggers & scheduled work: runtime triggers, durable rows, activity log.
+        if "triggers" in selected:
+            try:
+                await self.triggers.clear()
+                try:
+                    self.trigger_store.clear_all()
+                except Exception as e:
+                    logger.warning(f"[RESET] Failed to clear trigger store: {e}")
+                try:
+                    self.activity_log.clear_all()
+                except Exception as e:
+                    logger.warning(f"[RESET] Failed to clear activity log: {e}")
+                done.append("triggers")
+            except Exception as e:
+                logger.warning(f"[RESET] triggers reset failed: {e}")
+
+        # LivingUI: delete every registered project (dirs, ports, registry).
+        if "livingui" in selected:
+            try:
+                count = await self._delete_all_living_ui_projects()
+                done.append(f"livingui ({count} app(s))")
+            except Exception as e:
+                logger.warning(f"[RESET] livingui reset failed: {e}")
+
+        if not done:
+            return "Reset failed for the selected items — see logs."
+        return "Reset complete: " + ", ".join(done) + "."
+
+    async def _delete_all_living_ui_projects(self) -> int:
+        """Delete all registered Living UI projects. Returns the count deleted."""
+        try:
+            from app.living_ui import get_living_ui_manager
+        except Exception:
+            return 0
+        mgr = get_living_ui_manager()
+        if not mgr:
+            return 0
+        deleted = 0
+        for project_id in [p.id for p in mgr.list_projects()]:
+            try:
+                if await mgr.delete_project(project_id):
+                    deleted += 1
+            except Exception as e:
+                logger.warning(f"[RESET] Failed to delete LivingUI project {project_id}: {e}")
+        return deleted
 
     async def _clear_usage_data(self) -> None:
         """
@@ -2753,7 +2888,18 @@ class AgentBase:
         """
         Synchronous helper for file system reset operations.
         Called via asyncio.to_thread() to avoid blocking the event loop.
+
+        Full reset = markdown files (memory) + workspace contents. The two
+        halves are split into dedicated helpers so a selective reset can run
+        either one on its own.
         """
+        self._reset_memory_files_sync()
+        self._reset_workspace_sync()
+        logger.info("[RESET] Agent file system reinitialized from templates")
+
+    def _reset_memory_files_sync(self) -> None:
+        """Restore the agent's markdown files (AGENT/MEMORY/PROACTIVE/etc.)
+        from templates. Does NOT touch the workspace."""
         template_path = AGENT_FILE_SYSTEM_TEMPLATE_PATH
         target_path = AGENT_FILE_SYSTEM_PATH
 
@@ -2769,33 +2915,41 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] Failed to remove {md_file}: {e}")
 
-        # Clear workspace directory contents
-        workspace_path = target_path / "workspace"
-        if workspace_path.exists():
-            for item in workspace_path.iterdir():
-                try:
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
-                except Exception as e:
-                    logger.warning(
-                        f"[RESET] Failed to remove workspace item {item}: {e}"
-                    )
-        else:
-            workspace_path.mkdir(parents=True, exist_ok=True)
-
         # Copy fresh templates
         for template_file in template_path.glob("*.md"):
             dest = target_path / template_file.name
             shutil.copy2(template_file, dest)
             logger.debug(f"[RESET] Copied template {template_file.name}")
 
-        # Ensure workspace directory exists
+    # Workspace entries owned by other subsystems that a "workspace files"
+    # reset must NOT delete. LivingUI stores its registry
+    # (``living_ui_projects.json``) and app directories (``living_ui/``) under
+    # the workspace root; blindly wiping them out from under the running
+    # manager corrupts LivingUI (orphaned processes, stale in-memory registry,
+    # broken apps). LivingUI apps are removed only via the dedicated "livingui"
+    # reset component, which tears them down properly through the manager.
+    _WORKSPACE_PRESERVE = frozenset({"living_ui", "living_ui_projects.json"})
+
+    def _reset_workspace_sync(self) -> None:
+        """Clear agent-created workspace files. Does NOT touch the markdown
+        files (handled separately) or other subsystems' storage under the
+        workspace (see :attr:`_WORKSPACE_PRESERVE`)."""
+        workspace_path = AGENT_FILE_SYSTEM_PATH / "workspace"
         if not workspace_path.exists():
             workspace_path.mkdir(parents=True, exist_ok=True)
-
-        logger.info("[RESET] Agent file system reinitialized from templates")
+            return
+        for item in workspace_path.iterdir():
+            if item.name in self._WORKSPACE_PRESERVE:
+                continue
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            except Exception as e:
+                logger.warning(
+                    f"[RESET] Failed to remove workspace item {item}: {e}"
+                )
 
     _soft_onboarding_triggered: bool = False
 

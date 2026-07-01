@@ -20,6 +20,7 @@ import {
   Button,
   Badge,
   ConfirmModal,
+  ResetModal,
   ImportProfileModal,
   type ImportMode,
   type ProfileBundleManifest,
@@ -84,6 +85,7 @@ export function GeneralSettings() {
   const [initialTheme, setInitialTheme] = useState(getInitialTheme)
   const [isResetting, setIsResetting] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [showResetModal, setShowResetModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
@@ -456,15 +458,14 @@ export function GeneralSettings() {
   }
 
   const handleReset = () => {
-    confirm({
-      title: 'Reset Agent',
-      message: 'Are you sure you want to reset the agent? This will clear all current tasks, conversation history, and restore the agent file system to its default state.',
-      confirmText: 'Reset',
-      variant: 'danger',
-    }, () => {
-      setIsResetting(true)
-      send('reset')
-    })
+    setShowResetModal(true)
+  }
+
+  const handleResetConfirm = (components: string[]) => {
+    setShowResetModal(false)
+    if (components.length === 0) return
+    setIsResetting(true)
+    send('reset', { components })
   }
 
   const handleClearConversation = () => {
@@ -1247,6 +1248,13 @@ export function GeneralSettings() {
 
       {/* Confirm Modal */}
       <ConfirmModal {...confirmModalProps} />
+
+      {/* Reset Agent checklist */}
+      <ResetModal
+        isOpen={showResetModal}
+        onConfirm={handleResetConfirm}
+        onCancel={() => setShowResetModal(false)}
+      />
 
       {/* Import Profile Modal */}
       <ImportProfileModal

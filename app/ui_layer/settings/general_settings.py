@@ -303,25 +303,29 @@ def restore_agent_file(filename: str) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────
 
 
-async def reset_agent_state(controller) -> Dict[str, Any]:
+async def reset_agent_state(controller, components=None) -> Dict[str, Any]:
     """Reset the agent state.
 
-    This is equivalent to the /reset command.
+    With ``components=None`` this is a full reset (equivalent to /reset). When
+    ``components`` is a list of component names (see
+    ``AgentBase.RESET_COMPONENTS``), only those parts are reset — this backs the
+    settings "Reset Agent" checklist.
 
     Args:
         controller: The UIController instance
+        components: Optional list of component names to reset selectively.
 
     Returns:
-        Dict with 'success' and optional 'error' fields
+        Dict with 'success' and optional 'error'/'message' fields
     """
     try:
         # Reset UI state
         controller.state_store.reset()
 
-        # Reset agent state
-        await controller.agent.reset_agent_state()
+        # Reset agent state (full or selective)
+        message = await controller.agent.reset_agent_state(components=components)
 
-        return {"success": True, "message": "Agent state has been reset."}
+        return {"success": True, "message": message or "Agent state has been reset."}
     except Exception as e:
         return {"success": False, "error": f"Failed to reset agent state: {str(e)}"}
 

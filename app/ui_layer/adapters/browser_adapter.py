@@ -1611,7 +1611,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_agent_profile_picture_remove()
 
         elif msg_type == "reset":
-            await self._handle_reset()
+            await self._handle_reset(data)
 
         elif msg_type == "clear_conversation":
             await self._handle_clear_conversation()
@@ -4119,14 +4119,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_reset(self) -> None:
-        """Reset agent state (equivalent to /reset command)."""
-        result = await reset_agent_state(self._controller)
+    async def _handle_reset(self, data: dict | None = None) -> None:
+        """Reset agent state.
+
+        If ``data`` carries a ``components`` list (from the settings checklist),
+        only those parts are reset. With no components it's a full reset
+        (equivalent to /reset).
+        """
+        components = None
+        if isinstance(data, dict):
+            raw = data.get("components")
+            if isinstance(raw, list):
+                components = [str(c) for c in raw]
+
+        result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Clear chat messages and actions in UI
-            await self._chat.clear()
-            await self._action_panel.clear()
+            # Only clear the UI panels whose data was actually reset. A full
+            # reset (components is None) clears both.
+            if components is None or "conversation" in components:
+                await self._chat.clear()
+            if components is None or "tasks" in components:
+                await self._action_panel.clear()
+
+            # If LivingUI apps were deleted, push refreshed (now-empty) lists so
+            # the frontend reflects the deletion. Both the main LivingUI page
+            # (living_ui_list) and the Settings > LivingUI page
+            # (living_ui_settings_get) cache their own project lists and won't
+            # refetch on their own, so we must push to both.
+            if components is not None and "livingui" in components:
+                await self._handle_living_ui_list()
+                await self._handle_living_ui_settings_get()
 
             await self._broadcast(
                 {
