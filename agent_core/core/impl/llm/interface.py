@@ -211,6 +211,13 @@ class LLMInterface:
         self._bedrock_session_messages: Dict[str, List[dict]] = {}
         self._openrouter_anthropic_session_messages: Dict[str, List[dict]] = {}
         self._gemini_session_messages: Dict[str, List[dict]] = {}
+        # openai / deepseek / grok / non-Claude openrouter: stateless
+        # chat-completions APIs with no server-side session. We accumulate a
+        # growing [user, assistant, ...] history here and resend it each turn
+        # so the model retains earlier context (the delta-only approach dropped
+        # everything but the newest turn); the stable growing prefix also feeds
+        # prompt_cache_key prefix caching.
+        self._openai_compat_session_messages: Dict[str, List[dict]] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -316,6 +323,7 @@ class LLMInterface:
                 self._bedrock_session_messages = {}
                 self._openrouter_anthropic_session_messages = {}
                 self._gemini_session_messages = {}
+                self._openai_compat_session_messages = {}
             else:
                 self._byteplus_cache_manager = None
                 self._session_system_prompts = {}
@@ -323,6 +331,7 @@ class LLMInterface:
                 self._bedrock_session_messages = {}
                 self._openrouter_anthropic_session_messages = {}
                 self._gemini_session_messages = {}
+                self._openai_compat_session_messages = {}
 
             # Reinitialize Gemini cache manager
             if self._gemini_client:
@@ -732,6 +741,7 @@ class LLMInterface:
         self._bedrock_session_messages.pop(session_key, None)
         self._openrouter_anthropic_session_messages.pop(session_key, None)
         self._gemini_session_messages.pop(session_key, None)
+        self._openai_compat_session_messages.pop(session_key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -768,6 +778,7 @@ class LLMInterface:
             self._bedrock_session_messages,
             self._openrouter_anthropic_session_messages,
             self._gemini_session_messages,
+            self._openai_compat_session_messages,
         ):
             stale = [k for k in buffer if k.startswith(f"{task_id}:")]
             for key in stale:
@@ -780,6 +791,32 @@ class LLMInterface:
             # Invalidate all explicit caches for this task's prompts
             for system_prompt, call_type in prompts_and_types:
                 self._gemini_cache_manager.invalidate_cache(system_prompt, call_type)
+
+    def _trim_openai_compat_history(self, history: List[dict]) -> None:
+        """Bound an accumulated openai-compat session history IN PLACE.
+
+        Stateless resends grow every turn, so cap the history to keep
+        ``[system + history + new turn + response]`` inside the model's context
+        window. This is a safety backstop — the agent's summarization-driven
+        session reset (which clears the whole buffer via ``end_session_cache``)
+        normally fires first.
+
+        Trimming preserves the FIRST user/assistant pair — the grounding turn
+        carrying the original query / Definition of Done — and drops the oldest
+        MIDDLE pairs, so we never re-introduce the amnesia this fix exists to
+        prevent. Uses a chars≈4*tokens heuristic.
+        """
+        # ~240k chars ≈ ~60k tokens: comfortably inside grok-3's 131k window
+        # after the system prompt, the newest turn, and the response.
+        max_history_chars = 240_000
+
+        def _size() -> int:
+            return sum(len(m.get("content", "") or "") for m in history)
+
+        # Keep index 0/1 (grounding) and the most recent pair; trim from the
+        # oldest middle pair inward.
+        while len(history) > 4 and _size() > max_history_chars:
+            del history[2:4]
 
     def has_session_cache(self, task_id: str, call_type: str) -> bool:
         """Check if a session/explicit cache is available for the given task and call type.
@@ -1035,13 +1072,53 @@ class LLMInterface:
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
             else:
-                # Standard single-turn path. OpenAI/DeepSeek/Grok rely on the
-                # upstream's automatic prefix caching with prompt_cache_key —
-                # they match identical system prefixes across calls without
-                # needing message accumulation client-side.
-                response = self._generate_openai(
-                    effective_system_prompt, user_prompt, call_type=call_type
+                # openai / deepseek / grok / non-Claude openrouter.
+                #
+                # These are STATELESS chat-completions APIs — there is no
+                # server-side session. The old path sent only [system, delta]
+                # each turn and relied on "automatic prefix caching" to carry
+                # context, but prefix caching is a COST optimization, not
+                # memory: it never re-supplies tokens you don't send. So after
+                # the first turn the model saw only the newest delta and lost
+                # the original query and all earlier events (this is what made
+                # validation sub-agents fail with "No Definition of Done").
+                #
+                # Fix: accumulate a growing [user, assistant, ...] history and
+                # resend [system, u1, a1, ..., new_user] every turn. Correctness
+                # aside, the stable growing prefix is exactly what prompt_cache_key
+                # rewards, so most of the resend is served from cache once warm.
+                if session_key not in self._openai_compat_session_messages:
+                    self._openai_compat_session_messages[session_key] = []
+                history = self._openai_compat_session_messages[session_key]
+                self._trim_openai_compat_history(history)
+
+                oa_messages: List[Dict[str, Any]] = [
+                    {"role": "system", "content": effective_system_prompt}
+                ]
+                for msg in history:
+                    oa_messages.append(
+                        {"role": msg["role"], "content": msg["content"]}
+                    )
+                oa_messages.append({"role": "user", "content": user_prompt})
+
+                logger.debug(
+                    f"[OPENAI-COMPAT SESSION] {session_key} ({self.provider}): "
+                    f"{len(history)} history msgs, sending {len(oa_messages)} total"
                 )
+
+                response = self._generate_openai(
+                    effective_system_prompt,
+                    user_prompt,
+                    call_type=call_type,
+                    messages_override=oa_messages,
+                )
+
+                assistant_content = response.get("content", "")
+                if assistant_content and not response.get("error"):
+                    history.append({"role": "user", "content": user_prompt})
+                    history.append(
+                        {"role": "assistant", "content": assistant_content}
+                    )
 
             return self._finalize_session_response(response, log_response)
 
@@ -1707,9 +1784,12 @@ class LLMInterface:
             request_kwargs["response_format"] = {"type": "json_object"}
 
             # Build provider-specific cache hints in extra_body.
-            # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter): improves prefix-cache routing
-            #   stickiness across alternating call types. Grok ignores it; we skip there
-            #   to avoid noise.
+            # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter/Grok): improves
+            #   prefix-cache routing stickiness across alternating call types.
+            #   Grok DOES honor it — verified empirically: without a key a
+            #   repeated identical prefix intermittently missed (routing bounced
+            #   to a cold node); with prompt_cache_key the same prefix stayed a
+            #   consistent hit. The old code skipped grok on a stale assumption.
             # - cache_control (OpenRouter routing to Anthropic Claude only): Anthropic
             #   prompt caching is opt-in. OpenRouter accepts a top-level cache_control
             #   field and applies it to the last cacheable block automatically. For
@@ -1722,7 +1802,7 @@ class LLMInterface:
                 system_prompt and len(system_prompt) >= config.min_cache_tokens
             )
 
-            if self.provider != "grok" and call_type and long_enough:
+            if call_type and long_enough:
                 prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
                 cache_key = f"{call_type}_{prompt_hash}"
                 extra_body["prompt_cache_key"] = cache_key
@@ -1758,21 +1838,20 @@ class LLMInterface:
             token_count_input = response.usage.prompt_tokens
             token_count_output = response.usage.completion_tokens
 
-            # Extract cached tokens — field name differs by provider:
-            # - OpenAI:  response.usage.prompt_tokens_details.cached_tokens
-            # - Grok (xAI): response.usage.prompt_cache_hit_tokens
-            if self.provider == "grok":
-                cached_tokens = (
-                    getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
-                )
-            else:
-                prompt_tokens_details = getattr(
-                    response.usage, "prompt_tokens_details", None
-                )
-                if prompt_tokens_details:
-                    cached_tokens = (
-                        getattr(prompt_tokens_details, "cached_tokens", 0) or 0
-                    )
+            # Extract cached tokens. Empirically ALL the OpenAI-compatible
+            # upstreams we use — including grok (xAI) — report cached tokens
+            # under usage.prompt_tokens_details.cached_tokens. Grok does NOT
+            # return the top-level prompt_cache_hit_tokens field (verified: it
+            # is always absent), so the old grok-specific read reported 0 even
+            # on real cache hits. Read the nested field first, then fall back
+            # to the legacy top-level field for any provider that still uses it.
+            prompt_tokens_details = getattr(
+                response.usage, "prompt_tokens_details", None
+            )
+            if prompt_tokens_details:
+                cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
+            if not cached_tokens:
+                cached_tokens = getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
 
             # Record cache metrics
             provider_label = self.provider  # "openai", "grok", "deepseek", etc.
