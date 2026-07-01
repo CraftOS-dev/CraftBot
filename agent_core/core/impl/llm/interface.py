@@ -190,6 +190,17 @@ class LLMInterface:
         self._anthropic_client = ctx["anthropic_client"]
         self._bedrock_client = ctx.get("bedrock_client")
         self._initialized = ctx.get("initialized", False)
+        # auth_mode is "subscription" when an OAuth bearer is in use, else
+        # unset (treat as "api_key"). The factory wraps the ``client`` in a
+        # ChatGPTSubscriptionClient when auth_mode=="subscription" for
+        # OpenAI, which translates chat.completions calls to the Responses
+        # API on the fly — no behavioral difference at the call sites.
+        self._auth_mode: str = ctx.get("auth_mode", "api_key")
+        if self.provider == "openai" and self._auth_mode == "subscription":
+            logger.info(
+                "[LLM] OpenAI ChatGPT subscription mode active — routing via"
+                " chatgpt.com/backend-api/codex Responses API."
+            )
 
         # Initialize BytePlus-specific attributes
         self._byteplus_cache_manager: Optional[BytePlusCacheManager] = None
@@ -211,6 +222,20 @@ class LLMInterface:
         self._bedrock_session_messages: Dict[str, List[dict]] = {}
         self._openrouter_anthropic_session_messages: Dict[str, List[dict]] = {}
         self._gemini_session_messages: Dict[str, List[dict]] = {}
+        # OpenAI ChatGPT subscription mode: Codex requires ``store=false``
+        # (no server-side session state), so a call-per-call session that
+        # sends only "NEW EVENTS SINCE LAST TURN" deltas breaks two ways:
+        # (1) the model has no memory of the original query, causing
+        #     sub-agents to spin without ending; (2) prefix caching never
+        #     accumulates because Turn N's input isn't a prefix of Turn N+1's.
+        # We accumulate the same [system, user1, assistant1, user2, ...]
+        # history that Anthropic/Bedrock/OpenRouter-Claude/Gemini use and
+        # re-send it every turn — Codex's prefix cache picks up the stable
+        # prefix, and the model sees the whole conversation each call.
+        # Only populated when ``auth_mode == "subscription"``; API-key
+        # OpenAI keeps the existing single-turn path (api.openai.com still
+        # caches fine on identical system prefixes across turns).
+        self._openai_subscription_session_messages: Dict[str, List[dict]] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -300,6 +325,7 @@ class LLMInterface:
             self._anthropic_client = ctx["anthropic_client"]
             self._bedrock_client = ctx.get("bedrock_client")
             self._initialized = ctx.get("initialized", False)
+            self._auth_mode = ctx.get("auth_mode", "api_key")
 
             if ctx["byteplus"]:
                 self.api_key = ctx["byteplus"]["api_key"]
@@ -316,6 +342,7 @@ class LLMInterface:
                 self._bedrock_session_messages = {}
                 self._openrouter_anthropic_session_messages = {}
                 self._gemini_session_messages = {}
+                self._openai_subscription_session_messages = {}
             else:
                 self._byteplus_cache_manager = None
                 self._session_system_prompts = {}
@@ -323,6 +350,7 @@ class LLMInterface:
                 self._bedrock_session_messages = {}
                 self._openrouter_anthropic_session_messages = {}
                 self._gemini_session_messages = {}
+                self._openai_subscription_session_messages = {}
 
             # Reinitialize Gemini cache manager
             if self._gemini_client:
@@ -732,6 +760,7 @@ class LLMInterface:
         self._bedrock_session_messages.pop(session_key, None)
         self._openrouter_anthropic_session_messages.pop(session_key, None)
         self._gemini_session_messages.pop(session_key, None)
+        self._openai_subscription_session_messages.pop(session_key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -762,12 +791,14 @@ class LLMInterface:
                     prompts_and_types.append((system_prompt, call_type))
 
         # Clean up multi-turn message histories across all providers that
-        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini).
+        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini,
+        # openai-subscription).
         for buffer in (
             self._anthropic_session_messages,
             self._bedrock_session_messages,
             self._openrouter_anthropic_session_messages,
             self._gemini_session_messages,
+            self._openai_subscription_session_messages,
         ):
             stale = [k for k in buffer if k.startswith(f"{task_id}:")]
             for key in stale:
@@ -952,6 +983,19 @@ class LLMInterface:
                 or "claude" in model_lower_router
             )
 
+            # OpenAI subscription (Codex) mode also needs multi-turn
+            # accumulation because ``store=false`` gives us no server-side
+            # session state. Without accumulation, "NEW EVENTS SINCE LAST
+            # TURN"-style delta prompts leave the model unable to see the
+            # original query — sub-agents in particular spin until wall-
+            # clock timeout instead of ending — and prefix caching never
+            # accumulates because turn N's input isn't a prefix of turn
+            # N+1's. Sending full history each turn fixes both.
+            is_openai_subscription = (
+                self.provider == "openai"
+                and getattr(self, "_auth_mode", "api_key") == "subscription"
+            )
+
             if is_openrouter_claude:
                 if session_key not in self._openrouter_anthropic_session_messages:
                     self._openrouter_anthropic_session_messages[session_key] = []
@@ -983,11 +1027,40 @@ class LLMInterface:
                 if assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
+            elif is_openai_subscription:
+                if session_key not in self._openai_subscription_session_messages:
+                    self._openai_subscription_session_messages[session_key] = []
+                history = self._openai_subscription_session_messages[session_key]
+
+                sub_messages: List[Dict[str, Any]] = [
+                    {"role": "system", "content": effective_system_prompt}
+                ]
+                for msg in history:
+                    sub_messages.append({"role": msg["role"], "content": msg["content"]})
+                sub_messages.append({"role": "user", "content": user_prompt})
+
+                logger.debug(
+                    f"[OPENAI-SUB SESSION] {session_key}: "
+                    f"{len(history)} history msgs, sending {len(sub_messages)} total"
+                )
+
+                response = self._generate_openai(
+                    effective_system_prompt,
+                    user_prompt,
+                    call_type=call_type,
+                    messages_override=sub_messages,
+                )
+
+                assistant_content = response.get("content", "")
+                if assistant_content and not response.get("error"):
+                    history.append({"role": "user", "content": user_prompt})
+                    history.append({"role": "assistant", "content": assistant_content})
             else:
-                # Standard single-turn path. OpenAI/DeepSeek/Grok rely on the
-                # upstream's automatic prefix caching with prompt_cache_key —
-                # they match identical system prefixes across calls without
-                # needing message accumulation client-side.
+                # Standard single-turn path. OpenAI/DeepSeek/Grok (with
+                # API keys) rely on the upstream's automatic prefix
+                # caching with prompt_cache_key — they match identical
+                # system prefixes across calls without needing message
+                # accumulation client-side.
                 response = self._generate_openai(
                     effective_system_prompt, user_prompt, call_type=call_type
                 )
@@ -1727,6 +1800,11 @@ class LLMInterface:
             if extra_body:
                 request_kwargs["extra_body"] = extra_body
 
+            # In ChatGPT subscription mode the ``self.client`` is a
+            # ChatGPTSubscriptionClient that re-routes chat.completions
+            # calls through the Responses API (the only surface the
+            # chatgpt.com/backend-api/codex backend exposes). Call-site
+            # stays unchanged.
             response = self.client.chat.completions.create(**request_kwargs)
             if not response.choices:
                 raise ValueError(f"Provider returned no choices (model={self.model!r})")

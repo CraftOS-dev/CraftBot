@@ -59,6 +59,12 @@ from app.ui_layer.settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
+    complete_subscription,
+    connect_subscription_async,
+    disconnect_subscription,
+    get_subscription_status,
+    prepare_subscription_async,
     # MCP settings
     list_mcp_servers,
     add_mcp_server_from_json,
@@ -1739,6 +1745,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "slow_mode_set":
             await self._handle_slow_mode_set(data)
+
+        # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
+        elif msg_type == "model_subscription_connect":
+            await self._handle_model_subscription_connect(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_disconnect":
+            await self._handle_model_subscription_disconnect(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_status":
+            await self._handle_model_subscription_status(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_prepare":
+            await self._handle_model_subscription_prepare(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_complete":
+            await self._handle_model_subscription_complete(
+                data.get("provider", ""),
+                data.get("code", ""),
+                data.get("attemptId"),
+            )
 
         # MCP settings operations
         elif msg_type == "mcp_list":
@@ -5454,9 +5480,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Step 2: Test connection before saving — only when credentials are changing.
             # Mirror the frontend logic: skip the test when only model/provider name
             # changes so that saving works even if the service (e.g. Ollama) is offline.
+            # Also skip when the user has a connected subscription for this provider:
+            # the OAuth token has its own auth flow, and the connection-test path uses
+            # a stored API key shape that wouldn't apply.
             aws_credentials_in = data.get("awsCredentials")
             credentials_changing = bool(api_key or base_url or aws_credentials_in)
-            if new_provider and credentials_changing:
+            has_active_subscription = False
+            if new_provider:
+                try:
+                    from craftos_integrations.integrations.llm_oauth.tokens import has_credential as _sub_has
+
+                    has_active_subscription = _sub_has(new_provider)
+                except Exception:
+                    pass
+            if new_provider and credentials_changing and not has_active_subscription:
                 # Determine the API key to test with
                 test_api_key = api_key
                 if not test_api_key and provider_for_key != new_provider:
@@ -5773,6 +5810,162 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "slow_mode_set",
                     "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Subscription OAuth Handlers (ChatGPT Plus/Pro, SuperGrok)
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_model_subscription_connect(self, provider: str) -> None:
+        """Launch the OAuth flow for the given provider — opens the user's
+        browser, waits for the loopback callback, saves the credential.
+
+        We call ``connect_subscription_async`` directly rather than the sync
+        wrapper because we're already inside the adapter's event loop —
+        spinning a new loop with ``run_until_complete`` from inside a running
+        loop raises ``RuntimeError``. Long-running because the user has to
+        complete the browser sign-in; the frontend should show a spinner.
+        """
+        try:
+            success, message = await connect_subscription_async(provider)
+            status_payload = get_subscription_status(provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_connect",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": status_payload,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription connect failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_connect",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_disconnect(self, provider: str) -> None:
+        """Remove stored OAuth credentials for the given provider."""
+        try:
+            success, message = disconnect_subscription(provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_disconnect",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": get_subscription_status(provider),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription disconnect failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_disconnect",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_status(self, provider: str) -> None:
+        """Return current connection status for a given provider."""
+        try:
+            status_payload = get_subscription_status(provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_status",
+                    "data": {
+                        "success": True,
+                        "provider": provider,
+                        "status": status_payload,
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "model_subscription_status",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_prepare(self, provider: str) -> None:
+        """Open the OAuth browser for paste-back flow. Returns auth URL +
+        attempt_id without waiting for loopback — the user will paste the
+        code shown on the provider's page into a textbox to finalize."""
+        try:
+            success, info = await prepare_subscription_async(provider)
+            payload = {
+                "success": success,
+                "provider": provider,
+            }
+            if success:
+                payload["auth_url"] = info.get("auth_url", "")
+                payload["attempt_id"] = info.get("attempt_id", "")
+            else:
+                payload["error"] = info.get("error", "Unknown error")
+            await self._broadcast(
+                {"type": "model_subscription_prepare", "data": payload}
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription prepare failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_prepare",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_complete(
+        self, provider: str, code: str, attempt_id: Optional[str]
+    ) -> None:
+        """Finalize the paste-back flow: exchange the user-pasted code for tokens."""
+        try:
+            success, message = complete_subscription(provider, code, attempt_id)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_complete",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": get_subscription_status(provider),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription complete failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_complete",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
                 }
             )
 
