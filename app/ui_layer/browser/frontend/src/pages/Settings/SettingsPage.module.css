@@ -86,10 +86,16 @@
   padding: var(--space-6);
 }
 
-/* Settings Section */
+/* Settings Section. `padding-bottom` sits on the overflowing element so it
+   actually shows up at the scroll bottom — `.content` is flex-stretched to
+   the viewport height, so this section's natural height spills PAST
+   `.content`'s own padding, meaning padding on `.content` gets covered by
+   the overflow. Padding here is part of the overflow itself, so it's what
+   the user sees when they scroll to the end. */
 .settingsSection {
   max-width: 600px;
   margin: 0 auto;
+  padding-bottom: var(--space-10);
 }
 
 .sectionHeader {
