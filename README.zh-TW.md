@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="400"/>
 </div>
 
@@ -43,18 +39,23 @@
   <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ 核心特色
 
 除了能夠建立並運行自有的 SaaS 工具,CraftBot 還具備 Agent 框架的全部核心能力,可以作為通用 AI Agent 陪你處理任務、工具、記憶與日常工作流程。
 
+- **Agent 設定檔** 40+ Agent 設定檔(CEO Agent、財務 Agent、行銷負責人 Agent、DevOps 工程師、影片製作人 Agent 等共 37 種)隨時準備為你工作。從 **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** 找到想要的角色,一鍵匯入。
+- **Playbook 目錄** 不知道如何用 AI Agent 自動化?CraftBot 內建 120 個 Playbook(涵蓋 19 個分類)隨時可用。從頂部列開啟 Playbook 選擇器,挑一個 Playbook,它就會開始替你執行任務。
 - **Living UI.** 在 CraftBot 內建立、匯入或演進自訂應用程式。Agent 隨時掌握 UI 的狀態,並能直接讀取、寫入並操作其中的資料。
 - **多工與工作階段路由.** 還在手動輸入 `/new` 指令嗎?CraftBot 能自己判斷何時該開啟新會話、何時要繼續舊任務,讓對話與上下文保持一致。
 - **自架與 BYOK.** 彈性的 LLM 供應商系統,支援 OpenAI、Google Gemini、Anthropic Claude、OpenRouter 等。也可以用 Ollama 自架模型,完全不耗 Token。
 - **記憶系統.** 透過 RAG + Agent 檔案系統 + 蒸餾,從你與 CraftBot 的互動中建立本地知識庫。CraftBot 會在午夜「做夢」,整合一整天發生的事件。
 - **主動型 Agent.** 學習你的偏好、習慣與人生目標,然後主動規劃並發起任務(當然會徵求你的同意),協助你在生活中變得更好。
-- **外部工具整合.** 內建憑證與 OAuth 支援,可連接 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord 與 Telegram(更多正在路上)。
+- **外部工具整合.** 連接你的應用,例如 Google Workspace、Slack、Notion、Zoom、LinkedIn、Discord、Telegram 等(更多正在路上),支援 OAuth 或使用你自己的金鑰。
 - **Skills 與 MCP.** 已備好 150+ MCP 與 170+ Skills,支援快速安裝新的 Skills 與 MCP,也能從已完成的任務一鍵建立或改進 Skills。
-- **跨平台.** 完整支援 Windows、macOS 與 Linux,提供平台專屬的程式碼分支以及 Docker 容器化方案。
 - **瀏覽器介面與 CLI 支援.** 選擇最適合你的方式使用 CraftBot:日常使用走簡潔的瀏覽器 UI,腳本與無介面環境則走 CLI。
 
 ---

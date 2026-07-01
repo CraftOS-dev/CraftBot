@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from agent_core.core.impl.llm.cache import get_cache_config, get_cache_metrics
+from agent_core.utils.token import billable_tokens
 from agent_core.core.hooks import (
     GetTokenCountHook,
     SetTokenCountHook,
@@ -84,6 +85,23 @@ class VLMInterface:
         # Defer import to avoid circular dependency
         from app.models.factory import ModelFactory
         from app.models.types import InterfaceType
+        from agent_core.core.models.model_registry import MODEL_REGISTRY
+
+        # Providers like DeepSeek have VLM=None in the registry. Initializing
+        # them would raise inside ModelFactory and crash the backend at startup.
+        # Set up an uninitialized state instead — VLM actions then surface a
+        # clean "VLM not available" error to the event stream.
+        registry_model = model or MODEL_REGISTRY.get(provider, {}).get(
+            InterfaceType.VLM
+        )
+        if registry_model is None:
+            self.model = None
+            self.client = None
+            self.remote_url = None
+            self._anthropic_client = None
+            self._bedrock_client = None
+            self._initialized = False
+            return
 
         ctx = ModelFactory.create(
             provider=provider,
@@ -289,7 +307,7 @@ class VLMInterface:
             tokens_used = response.get("tokens_used", 0)
             if tokens_used:
                 current_count = self._get_token_count()
-                self._set_token_count(current_count + tokens_used)
+                self._set_token_count(current_count + billable_tokens(response))
 
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
@@ -478,7 +496,7 @@ class VLMInterface:
         )
         tokens_used = result.get("tokens_used", 0)
         if tokens_used:
-            self._set_token_count(self._get_token_count() + tokens_used)
+            self._set_token_count(self._get_token_count() + billable_tokens(result))
         return re.sub(self._CODE_BLOCK_RE, "", result.get("content", "").strip())
 
     def _multi_frame_describe_fallback(

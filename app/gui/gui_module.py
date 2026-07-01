@@ -7,6 +7,7 @@ import hashlib
 from gradio_client import Client, file
 from typing import Dict, Optional, List, Tuple, Any
 from agent_core import Action
+from agent_core.core.event_stream.event import EventType
 from app.state.agent_state import STATE
 from app.state.types import ReasoningResult
 from agent_core import TodoItem
@@ -160,6 +161,7 @@ class GUIModule:
                 "agent reasoning",
                 reasoning,
                 severity="DEBUG",
+                event_type=EventType.REASONING,
                 task_id=session_id,
             )
 
@@ -225,6 +227,7 @@ class GUIModule:
                 "loop_detection_warning",
                 warning,
                 severity="WARNING",
+                event_type=EventType.SYSTEM,
                 task_id=session_id,
             )
             logger.warning(f"[GUI LOOP DETECTION] {warning}")
@@ -593,6 +596,7 @@ class GUIModule:
             response = await self.llm.generate_response_async(
                 system_prompt=system_prompt,
                 user_prompt=prompt,
+                prompt_name="GUI_REASONING",
             )
 
             try:

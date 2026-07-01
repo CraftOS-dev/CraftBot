@@ -53,10 +53,10 @@ STRIPE_API_VERSION = "2024-12-18.acacia"
 @dataclass
 class StripeCredential:
     api_key: str = ""
-    account_id: str = ""       # acct_... from /v1/account
-    business_name: str = ""    # display label for /stripe status
-    livemode: bool = False     # True if api_key.startswith("sk_live_" | "rk_live_")
-    key_kind: str = "secret"   # "secret" | "restricted"
+    account_id: str = ""  # acct_... from /v1/account
+    business_name: str = ""  # display label for /stripe status
+    livemode: bool = False  # True if api_key.startswith("sk_live_" | "rk_live_")
+    key_kind: str = "secret"  # "secret" | "restricted"
 
 
 @dataclass
@@ -440,9 +440,7 @@ class StripeClient(BasePlatformClient):
         if expand:
             merged_expand.extend(expand)
         _form_expand(flat, merged_expand)
-        ikey = self._maybe_idempotency_key(
-            mutation=mutation, explicit=idempotency_key
-        )
+        ikey = self._maybe_idempotency_key(mutation=mutation, explicit=idempotency_key)
         return await arequest(
             "POST",
             f"{base}{path}",
@@ -461,9 +459,7 @@ class StripeClient(BasePlatformClient):
         connect_account: Optional[str] = None,
         base: str = STRIPE_API,
     ) -> Result:
-        ikey = self._maybe_idempotency_key(
-            mutation=True, explicit=idempotency_key
-        )
+        ikey = self._maybe_idempotency_key(mutation=True, explicit=idempotency_key)
         return await arequest(
             "DELETE",
             f"{base}{path}",
@@ -793,9 +789,7 @@ class StripeClient(BasePlatformClient):
         params: Dict[str, Any] = {"query": query, "limit": min(max(limit, 1), 100)}
         if page:
             params["page"] = page
-        return await self._get(
-            "/payment_intents/search", params=params, expand=expand
-        )
+        return await self._get("/payment_intents/search", params=params, expand=expand)
 
     # ===============================================================
     # Charges (legacy direct-charge API — still useful for read paths)
@@ -922,9 +916,7 @@ class StripeClient(BasePlatformClient):
     async def get_payment_method(
         self, payment_method_id: str, *, expand: Optional[List[str]] = None
     ) -> Result:
-        return await self._get(
-            f"/payment_methods/{payment_method_id}", expand=expand
-        )
+        return await self._get(f"/payment_methods/{payment_method_id}", expand=expand)
 
     async def attach_payment_method(
         self,
@@ -1539,9 +1531,7 @@ class StripeClient(BasePlatformClient):
         # DELETE /v1/subscriptions/:id — but Stripe accepts a body. httpx DELETE
         # with data= works; route through _post to keep idempotency handling.
         flat = _flatten_params(payload)
-        ikey = self._maybe_idempotency_key(
-            mutation=True, explicit=idempotency_key
-        )
+        ikey = self._maybe_idempotency_key(mutation=True, explicit=idempotency_key)
         return await arequest(
             "DELETE",
             f"{STRIPE_API}/subscriptions/{subscription_id}",
@@ -1749,16 +1739,12 @@ class StripeClient(BasePlatformClient):
             ending_before=ending_before,
             extra=extra,
         )
-        return await self._get(
-            "/checkout/sessions", params=params, expand=expand
-        )
+        return await self._get("/checkout/sessions", params=params, expand=expand)
 
     async def get_checkout_session(
         self, session_id: str, *, expand: Optional[List[str]] = None
     ) -> Result:
-        return await self._get(
-            f"/checkout/sessions/{session_id}", expand=expand
-        )
+        return await self._get(f"/checkout/sessions/{session_id}", expand=expand)
 
     async def create_checkout_session(
         self,
@@ -2161,9 +2147,7 @@ class StripeClient(BasePlatformClient):
             ending_before=ending_before,
             extra=extra,
         )
-        return await self._get(
-            "/balance_transactions", params=params, expand=expand
-        )
+        return await self._get("/balance_transactions", params=params, expand=expand)
 
     async def get_balance_transaction(
         self, balance_transaction_id: str, *, expand: Optional[List[str]] = None
@@ -2366,16 +2350,12 @@ class StripeClient(BasePlatformClient):
             starting_after=starting_after,
             ending_before=ending_before,
         )
-        return await self._get(
-            "/webhook_endpoints", params=params, expand=expand
-        )
+        return await self._get("/webhook_endpoints", params=params, expand=expand)
 
     async def get_webhook_endpoint(
         self, endpoint_id: str, *, expand: Optional[List[str]] = None
     ) -> Result:
-        return await self._get(
-            f"/webhook_endpoints/{endpoint_id}", expand=expand
-        )
+        return await self._get(f"/webhook_endpoints/{endpoint_id}", expand=expand)
 
     async def create_webhook_endpoint(
         self,

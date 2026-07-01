@@ -59,9 +59,7 @@ class TestGuardLifecycle:
         assert d2.stored_output["message_id"] == "msg-42"
         assert log.get(d1.idem_key)["provider_ref"] == "msg-42"
 
-    def test_crash_window_surfaces_uncertainty_once_then_allows_retry(
-        self, tmp_path
-    ):
+    def test_crash_window_surfaces_uncertainty_once_then_allows_retry(self, tmp_path):
         log, guard = make_guard(tmp_path)
         d1 = guard.begin("send_gmail", INPUTS, "task1")
         # crash between the send and complete(): row stays INTENT

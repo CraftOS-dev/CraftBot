@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
+from agent_core.core.event_stream.event import EventType
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -744,6 +745,53 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             }
         )
 
+    async def delete_terminal_task(self, task_id: str) -> List[str]:
+        """
+        Remove a single ended task (completed/error/cancelled) and its child
+        actions. Running/waiting tasks are refused so the user cannot
+        accidentally drop a live task by clicking the wrong icon.
+
+        Returns:
+            List of removed item IDs (task + child actions). Empty if the
+            task wasn't found or wasn't in a terminal state.
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
+
+        # Locate the task in memory and verify it's terminal
+        task_item = next(
+            (i for i in self._items if i.id == task_id and i.item_type == "task"),
+            None,
+        )
+        if not task_item or task_item.status not in terminal_statuses:
+            return []
+
+        removed_ids = [
+            item.id
+            for item in self._items
+            if item.id == task_id or item.parent_id == task_id
+        ]
+        self._items = [
+            item
+            for item in self._items
+            if item.id != task_id and item.parent_id != task_id
+        ]
+
+        if self._storage:
+            try:
+                self._storage.delete_task_with_actions(task_id)
+            except Exception:
+                pass
+
+        for item_id in removed_ids:
+            await self._adapter._broadcast(
+                {
+                    "type": "action_remove",
+                    "data": {"id": item_id},
+                }
+            )
+
+        return removed_ids
+
     async def clear_terminal_tasks(self) -> int:
         """
         Remove tasks whose status is completed/error/cancelled, along with
@@ -1151,16 +1199,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "/api/living-ui/import", self._living_ui_import_handler
         )
 
+        # Workspace and chat HTTP upload routes
+        self._app.router.add_post(
+            "/api/workspace/upload", self._workspace_upload_handler
+        )
+        self._app.router.add_post(
+            "/api/chat-attachments/upload", self._chat_attachment_upload_handler
+        )
+
         # Agent profile bundle import/export routes
-        self._app.router.add_get(
-            "/api/profile/export", self._profile_export_handler
-        )
-        self._app.router.add_post(
-            "/api/profile/inspect", self._profile_inspect_handler
-        )
-        self._app.router.add_post(
-            "/api/profile/import", self._profile_import_handler
-        )
+        self._app.router.add_get("/api/profile/export", self._profile_export_handler)
+        self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
+        self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
         # Integration bridge routes (Living UI → external APIs)
         from app.living_ui.integration_bridge import IntegrationBridge
@@ -1522,6 +1572,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             task_id = data.get("taskId", "")
             message = data.get("message", "") or ""
             await self._handle_task_resume(task_id, message)
+
+        elif msg_type == "task_delete":
+            task_id = data.get("taskId", "")
+            await self._handle_task_delete(task_id)
 
         elif msg_type == "option_click":
             value = data.get("value", "")
@@ -2941,6 +2995,128 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             logger.error(f"[LIVING_UI] Upload staging error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _workspace_upload_handler(self, request: "web.Request") -> "web.Response":
+        """HTTP handler: stream-upload a file directly into the workspace.
+
+        Accepts multipart/form-data with a single 'file' field.
+        The target path is passed as the 'path' query parameter.
+        """
+        from aiohttp import web
+
+        try:
+            file_path = request.rel_url.query.get("path", "").strip()
+            if not file_path:
+                return web.json_response(
+                    {"success": False, "error": "Missing 'path' query parameter"},
+                    status=400,
+                )
+
+            target = self._validate_path(file_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            reader = await request.multipart()
+            written = False
+            async for part in reader:
+                if part.name == "file":
+                    with open(target, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    written = True
+                    break
+
+            if not written:
+                return web.json_response(
+                    {"success": False, "error": "No file field in request"},
+                    status=400,
+                )
+
+            file_info = self._get_file_info(target)
+
+            await self._broadcast(
+                {
+                    "type": "file_upload",
+                    "data": {
+                        "path": file_path,
+                        "fileInfo": file_info,
+                        "success": True,
+                    },
+                }
+            )
+
+            return web.json_response(
+                {"success": True, "path": file_path, "fileInfo": file_info}
+            )
+        except ValueError as e:
+            return web.json_response({"success": False, "error": str(e)}, status=400)
+        except Exception as e:
+            logger.error(f"[WORKSPACE] Upload error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def _chat_attachment_upload_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """HTTP handler: stream-upload a chat attachment into workspace/download/.
+
+        Accepts multipart/form-data with a single 'file' field.
+        Pass 'name' and 'type' as query parameters.
+        """
+        import uuid
+        from aiohttp import web
+
+        try:
+            name = (
+                request.rel_url.query.get("name", "attachment").strip() or "attachment"
+            )
+            file_type = (
+                request.rel_url.query.get("type", "application/octet-stream").strip()
+                or "application/octet-stream"
+            )
+
+            download_dir = Path(AGENT_WORKSPACE_ROOT) / "download"
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+            unique_name = f"{uuid.uuid4().hex[:8]}_{name}"
+            file_path = download_dir / unique_name
+            relative_path = f"download/{unique_name}"
+
+            reader = await request.multipart()
+            size = 0
+            written = False
+            async for part in reader:
+                if part.name == "file":
+                    with open(file_path, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            size += len(chunk)
+                    written = True
+                    break
+
+            if not written:
+                return web.json_response(
+                    {"success": False, "error": "No file field in request"},
+                    status=400,
+                )
+
+            return web.json_response(
+                {
+                    "success": True,
+                    "serverPath": relative_path,
+                    "url": f"/api/workspace/{relative_path}",
+                    "name": name,
+                    "size": size,
+                    "type": file_type,
+                }
+            )
+        except Exception as e:
+            logger.error(f"[CHAT ATTACHMENT] Upload error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
     # ─────────────────────────────────────────────────────────────────────
     # Agent profile bundle (.craftbot) — export / inspect / import
     # ─────────────────────────────────────────────────────────────────────
@@ -3041,16 +3217,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             payload = await request.json()
         except Exception:
-            return web.json_response(
-                {"error": "Invalid JSON body"}, status=400
-            )
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
 
         token = payload.get("bundle_token") or ""
         mode = payload.get("mode", "replace")
         if not token:
-            return web.json_response(
-                {"error": "bundle_token is required"}, status=400
-            )
+            return web.json_response({"error": "bundle_token is required"}, status=400)
 
         bundle_bytes = self._staged_bundles.get(token)
         if bundle_bytes is None:
@@ -3059,6 +3231,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
 
         import tempfile
+
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -3403,8 +3576,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 get_cached_token_count,
             )
             from app.state.agent_state import STATE
-            from app.trigger import Trigger
-            import time as _time
 
             agent = self._controller.agent
             task_manager = agent.task_manager
@@ -3549,6 +3720,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             agent.event_stream_manager.log(
                 "system",
                 llm_message,
+                event_type=EventType.SYSTEM,
                 display_message=f"Task '{task.name}' resumed by user.",
                 task_id=task_id,
             )
@@ -3667,6 +3839,72 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_complete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_delete(self, task_id: str) -> None:
+        """Delete an ended task and its child actions from the panel and
+        from persistence so it can't be resumed or resurrected on restart.
+        Only completed/error/cancelled tasks are eligible — running tasks
+        must be cancelled or completed first.
+        """
+        try:
+            if not task_id:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Missing taskId",
+                        },
+                    }
+                )
+                return
+
+            removed_ids = await self._action_panel.delete_terminal_task(task_id)
+            if not removed_ids:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found or still active",
+                        },
+                    }
+                )
+                return
+
+            # Drop session_storage rows so a restart can't resurrect the
+            # event stream; mirrors clear_task_persistence used by /clear-tasks.
+            try:
+                self._controller.agent.clear_task_persistence([task_id])
+            except Exception as e:
+                logger.warning(
+                    f"[task_delete] Failed to clear task persistence for {task_id}: {e}"
+                )
+
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                        "removed": len(removed_ids),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[task_delete] Failed to delete {task_id}: {e}")
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,
@@ -4208,7 +4446,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # ---- Spawn the workflow task -----------------------------
             # Use absolute paths in the instruction so the agent can pass
-            # them verbatim to read_file / write_file / stream_edit. With
+            # them verbatim to read_file / stream_edit. With
             # relative paths (e.g. "skills/<name>/SKILL.md") the agent has
             # been observed mistakenly prepending the source-file's prefix
             # (`agent_file_system/`), landing the new SKILL.md inside the
@@ -7582,8 +7820,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     unique_name = f"{uuid.uuid4().hex[:8]}_{name}"
                     file_path = download_dir / unique_name
                     relative_path = f"download/{unique_name}"
+                    server_path = att.get("serverPath", "")
 
-                    # Save file to workspace
+                    # Save file to workspace (base64 inline) or reference a
+                    # file that was already uploaded via HTTP pre-upload.
                     if content_b64:
                         try:
                             file_content = base64.b64decode(content_b64)
@@ -7594,6 +7834,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 f"[BROWSER ADAPTER] Error saving attachment {name}: {e}"
                             )
                             continue
+                    elif server_path:
+                        # File was pre-uploaded via HTTP; it already lives in
+                        # workspace/download/ — use its existing path directly.
+                        pre_uploaded = Path(AGENT_WORKSPACE_ROOT) / server_path
+                        if not pre_uploaded.exists():
+                            print(
+                                f"[BROWSER ADAPTER] Pre-uploaded file missing: {server_path}"
+                            )
+                            continue
+                        relative_path = server_path
+                        file_path = pre_uploaded
+                        size = file_path.stat().st_size
+                    else:
+                        continue
 
                     # Create attachment object
                     attachment = Attachment(
@@ -8269,9 +8523,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             raise web.HTTPInternalServerError(reason=str(e))
 
     async def _workspace_file_handler(self, request: "web.Request") -> "web.Response":
-        """Serve files from the workspace directory."""
+        """Serve files from the workspace directory.
+
+        Pass ?download=1 to force Content-Disposition: attachment (triggers a
+        browser Save-As dialog).  Omitting the param keeps 'inline' so chat
+        attachment previews continue to work as before.
+
+        Uses web.FileResponse for true streaming — no full-file read into RAM —
+        which supports arbitrarily large files and HTTP Range requests.
+        """
         from aiohttp import web
-        import mimetypes
 
         try:
             file_path = request.match_info.get("path", "")
@@ -8279,7 +8540,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if not file_path:
                 raise web.HTTPNotFound()
 
-            # Validate and get absolute path
             target = self._validate_path(file_path)
 
             if not target.exists():
@@ -8288,19 +8548,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if target.is_dir():
                 raise web.HTTPBadRequest(reason="Cannot serve directory")
 
-            # Determine content type
-            mime_type, _ = mimetypes.guess_type(target.name)
-            if mime_type is None:
-                mime_type = "application/octet-stream"
+            disposition = (
+                "attachment" if request.rel_url.query.get("download") else "inline"
+            )
 
-            # Read and serve file
-            content = target.read_bytes()
-
-            return web.Response(
-                body=content,
-                content_type=mime_type,
+            return web.FileResponse(
+                target,
                 headers={
-                    "Content-Disposition": f'inline; filename="{target.name}"',
+                    "Content-Disposition": f'{disposition}; filename="{target.name}"',
                     "Cache-Control": "no-cache",
                 },
             )

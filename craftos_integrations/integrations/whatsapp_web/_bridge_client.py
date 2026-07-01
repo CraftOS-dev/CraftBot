@@ -238,6 +238,14 @@ class WhatsAppBridge:
     async def stop(self) -> None:
         await self._teardown(cmd="shutdown")
 
+    async def abandon(self) -> None:
+        # Tight-timeout teardown for the boot-time "stale auth, got a QR
+        # instead of ready" path. We've already decided to throw the session
+        # away, so there's nothing to flush — waiting the full shutdown
+        # timeout (~20s) just delays agent startup. Mirrors logout()'s
+        # rationale; see _teardown for the timeout knobs.
+        await self._teardown(cmd="shutdown", send_timeout=2.0, wait_timeout=3.0)
+
     async def logout(self) -> None:
         """Full disconnect — fire-and-forget, with a tight timeout.
 

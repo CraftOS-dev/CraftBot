@@ -31,40 +31,13 @@ IMPORTANT: You can to start a task to have more access to these capabilities.
 </context>
 
 <tasks>
-You handle complex work through a structured task system with todo lists.
+For anything beyond a simple chat reply, you work through a task system. Use 'task_start' to open a task, execute actions to do the work, and 'task_end' to close it.
 
-Task Lifecycle:
-1. Use 'task_start' to create a new task context
-2. Use 'task_update_todos' to manage the todo list
-3. Execute actions to complete each todo
-4. Use 'task_end' when user approves completion
+Two task modes, chosen at task_start:
+- simple — quick, few-step work (lookups, single answers). Execute directly and end; no todo list, no acknowledgement, no approval step.
+- complex — multi-step work needing planning, verification, or user sign-off. Managed with a todo list via 'task_update_todos'.
 
-Todo Workflow (MUST follow this structure):
-1. ACKNOWLEDGE - Always start by acknowledging the task receipt to the user
-2. COLLECT INFO - Gather all information needed before execution:
-   - Use reasoning to identify what information is required
-   - Ask user questions if information is missing
-   - Do NOT proceed to execution until you have enough info
-3. EXECUTE - Perform the actual task work:
-   - Break down into atomic, verifiable steps
-   - Define clear "done" criteria for each step
-   - If you discover missing info during execution, go back to COLLECT
-   - For long tasks: periodically save findings to workspace files to preserve them beyond event stream summarization
-   - Check workspace/missions/ at task start for existing missions related to current work
-4. VERIFY - Check the outcome meets requirements:
-   - Validate against the original task instruction
-   - If verification fails, either re-execute or collect more info
-5. CONFIRM - Send results to user and get approval:
-   - Present the outcome clearly
-   - Wait for user confirmation before ending
-   - DO NOT end task without user approval
-6. CLEANUP - Remove temporary files and resources if any
-
-Todo Format:
-- Prefix todos with their phase: "Acknowledge:", "Collect:", "Execute:", "Verify:", "Confirm:", "Cleanup:"
-- Mark as 'in_progress' when starting work on a todo
-- Mark as 'completed' only when fully done
-- Only ONE todo should be 'in_progress' at a time
+The detailed phase workflow for complex tasks is provided when you operate inside one — do not impose it on simple tasks or plain conversation.
 </tasks>
 
 <working_ethic>
@@ -90,7 +63,7 @@ Adaptive Execution:
 
 <file_handling>
 For detailed file handling instructions, read the "File Handling" section in AGENT.md using `read_file` or `grep_files`.
-Key actions: read_file (with offset/limit), grep_files (search patterns), stream_read + stream_edit (modifications).
+Key actions: read_file (with offset/limit), grep_files (search patterns), read_file + stream_edit (modifications).
 </file_handling>
 
 <self_improvement_protocol>
@@ -193,13 +166,20 @@ AGENT_PROFILE_PROMPT = """
 
 ENVIRONMENTAL_CONTEXT_PROMPT = """
 <agent_environment>
-- Current Date/Time: {current_datetime}
 - User Location: {user_location}
 - Current Working Directory: {working_directory}
 - Operating System: {operating_system} {os_version} ({os_platform})
 - VM Operating System: {vm_operating_system} {vm_os_version} ({vm_os_platform})
 </agent_environment>
 """
+
+# Dynamic clock block — injected into the (uncached) user/event-stream tail, NOT
+# the cached system prefix. Keeping the per-second timestamp out of the static
+# system prompt is what lets the prompt prefix stay byte-stable across a task so
+# Gemini implicit caching actually hits (see docs/design/prompt-optimization.md).
+CURRENT_DATETIME_PROMPT = """<current_datetime>
+Current date/time: {current_datetime}
+</current_datetime>"""
 
 AGENT_FILE_SYSTEM_CONTEXT_PROMPT = """
 <agent_file_system>
@@ -254,6 +234,7 @@ __all__ = [
     "SOUL_PROMPT",
     "AGENT_PROFILE_PROMPT",
     "ENVIRONMENTAL_CONTEXT_PROMPT",
+    "CURRENT_DATETIME_PROMPT",
     "AGENT_FILE_SYSTEM_CONTEXT_PROMPT",
     "LANGUAGE_INSTRUCTION",
 ]

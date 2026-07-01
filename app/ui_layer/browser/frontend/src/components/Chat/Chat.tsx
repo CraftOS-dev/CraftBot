@@ -17,7 +17,10 @@ interface PendingAttachment {
   name: string
   type: string
   size: number
-  content: string  // base64
+  content: string           // base64 for small files; '' when serverPath is set
+  serverPath?: string       // set after HTTP pre-upload for large files
+  url?: string              // server URL returned with serverPath (for preview)
+  uploadStatus?: 'uploading' | 'ready' | 'error'
 }
 
 interface ChatProps {
@@ -47,7 +50,8 @@ const MIC_LANGUAGES = [
 
 // Attachment limits
 const MAX_ATTACHMENT_COUNT = 10
-const MAX_TOTAL_SIZE_BYTES = 70 * 1024 * 1024  // 70MB
+const MAX_TOTAL_SIZE_BYTES = 200 * 1024 * 1024   // 200MB hard cap
+const HTTP_UPLOAD_THRESHOLD = 50 * 1024 * 1024   // >50MB → HTTP pre-upload
 
 const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 B'
@@ -164,7 +168,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       return { valid: false, error: `Maximum ${MAX_ATTACHMENT_COUNT} files allowed. You have ${count} files.` }
     }
     if (totalSize > MAX_TOTAL_SIZE_BYTES) {
-      return { valid: false, error: `Total size (${formatFileSize(totalSize)}) exceeds 70MB limit.` }
+      return { valid: false, error: `Total size (${formatFileSize(totalSize)}) exceeds 200 MB limit.` }
     }
     return { valid: true, error: null }
   }, [pendingAttachments])
@@ -297,6 +301,10 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     }, 0)
   }, [pendingPrefill, dispatch])
 
+  useEffect(() => {
+    if (replyTarget) inputRef.current?.focus()
+  }, [replyTarget])
+
   const handleChatReply = useCallback((
     sessionId: string | undefined,
     displayName: string,
@@ -308,7 +316,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       displayName,
       originalContent: fullContent,
     })
-    inputRef.current?.focus()
   }, [setReplyTarget])
 
   const toggleListening = useCallback(() => {
@@ -483,6 +490,45 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     fileInputRef.current?.click()
   }
 
+  const uploadChatAttachment = (file: globalThis.File, placeholder: PendingAttachment) => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const xhr = new XMLHttpRequest()
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText)
+          if (data.success) {
+            setPendingAttachments(prev => prev.map(a =>
+              a === placeholder
+                ? { ...a, serverPath: data.serverPath, url: data.url, uploadStatus: 'ready' as const }
+                : a
+            ))
+            return
+          }
+        } catch {}
+      }
+      setPendingAttachments(prev => prev.map(a =>
+        a === placeholder ? { ...a, uploadStatus: 'error' as const } : a
+      ))
+      setAttachmentError(`Failed to upload "${file.name}".`)
+    }
+
+    xhr.onerror = () => {
+      setPendingAttachments(prev => prev.map(a =>
+        a === placeholder ? { ...a, uploadStatus: 'error' as const } : a
+      ))
+      setAttachmentError(`Failed to upload "${file.name}": network error.`)
+    }
+
+    const name = encodeURIComponent(file.name)
+    const type = encodeURIComponent(file.type || 'application/octet-stream')
+    xhr.open('POST', `/api/chat-attachments/upload?name=${name}&type=${type}`)
+    xhr.send(formData)
+  }
+
   const processFiles = async (files: globalThis.File[]) => {
     if (files.length === 0) return
 
@@ -492,30 +538,51 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       return
     }
 
-    const newAttachments: PendingAttachment[] = []
     let newTotalSize = pendingAttachments.reduce((sum, att) => sum + att.size, 0)
 
+    // Validate sizes first before doing any I/O
     for (const file of files) {
       if (file.size > MAX_TOTAL_SIZE_BYTES) {
-        setAttachmentError(`File "${file.name}" (${formatFileSize(file.size)}) exceeds the 70MB limit.`)
+        setAttachmentError(`File "${file.name}" (${formatFileSize(file.size)}) exceeds the 200 MB limit.`)
         return
       }
       if (newTotalSize + file.size > MAX_TOTAL_SIZE_BYTES) {
-        setAttachmentError(`Adding "${file.name}" would exceed the 70MB total size limit.`)
+        setAttachmentError(`Adding "${file.name}" would exceed the 200 MB total size limit.`)
         return
       }
-      try {
-        const content = await readFileAsBase64(file)
-        newAttachments.push({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, content })
-        newTotalSize += file.size
-      } catch {
-        setAttachmentError(`Failed to read file "${file.name}".`)
-        return
-      }
+      newTotalSize += file.size
     }
 
     setAttachmentError(null)
-    setPendingAttachments(prev => [...prev, ...newAttachments])
+
+    for (const file of files) {
+      if (file.size <= HTTP_UPLOAD_THRESHOLD) {
+        // Small file: read to base64 inline
+        try {
+          const content = await readFileAsBase64(file)
+          setPendingAttachments(prev => [...prev, {
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            size: file.size,
+            content,
+          }])
+        } catch {
+          setAttachmentError(`Failed to read file "${file.name}".`)
+          return
+        }
+      } else {
+        // Large file: HTTP pre-upload so it never gets base64-encoded in memory
+        const placeholder: PendingAttachment = {
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          content: '',
+          uploadStatus: 'uploading',
+        }
+        setPendingAttachments(prev => [...prev, placeholder])
+        uploadChatAttachment(file, placeholder)
+      }
+    }
   }
 
   const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -738,9 +805,11 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                     onClick={() => openPreview(att)}
                     title="Click to preview"
                   >
-                    {att.type.startsWith('image/') ? (
+                    {att.uploadStatus === 'uploading' ? (
+                      <Loader2 size={12} className={styles.uploadingSpinner} />
+                    ) : att.type.startsWith('image/') ? (
                       <img
-                        src={`data:${att.type};base64,${att.content}`}
+                        src={att.content ? `data:${att.type};base64,${att.content}` : (att.url ?? '')}
                         alt={att.name}
                         className={styles.pendingImageThumb}
                       />

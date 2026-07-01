@@ -488,7 +488,7 @@ There are four failure types. Identify which one you are in, then follow the mat
 
 **File / shell / Python action returns `status=error`**
 - Read the `message` field. It often points at the fix (file not found, permission, syntax error, missing dep).
-- If the message says missing dependency for `run_python` / `run_shell`, install it via `pip install`/`npm install` in a follow-up `run_shell` call (auto-installed in sandboxed mode for declared `requirements`, but ad-hoc imports require explicit install).
+- If the message says a missing dependency while running a script via `run_shell` (e.g. a Python `ModuleNotFoundError`), install it with `pip install`/`npm install` in a follow-up `run_shell` call.
 - If it says path not found, `find_files` or `list_folder` to locate before retry.
 
 **Web / fetch action returns error**
@@ -662,9 +662,8 @@ If the log shows                               then
 [LIMIT] ... 100% ... Waiting for user choice   task is paused. Do not issue actions
                                                until next trigger. See ## Errors above.
 
-ModuleNotFoundError in run_python output       the script needs a dependency. Install
-                                               via run_shell "pip install <pkg>" or
-                                               declare in action requirements.
+ModuleNotFoundError from a run_shell script    the script needs a dependency. Install
+                                               it via run_shell "pip install <pkg>" first.
 
 PermissionError / OSError on file write        the path is wrong, locked, or outside
                                                the allowed scope. Verify with
@@ -714,7 +713,7 @@ You're blocked when you don't know what to do next AND retrying won't help. The 
 - **Ignoring `"warning"` events** about action/token limits. The harness will pause your task soon — get ahead of it. At 80%, wrap up or send the partial result.
 - **Continuing to issue actions while limit-paused (100%).** They will not fire. The user is being shown a Continue/Abort dialog. Wait for the next trigger.
 - **Trying to retry after `LLMConsecutiveFailureError`.** The task is already cancelled by `_handle_react_error`. Do NOT recreate it. Tell the user the LLM configuration needs attention.
-- **Catching exceptions in `run_python` / `run_shell` and printing "ok".** The harness sees `status=success` if your script swallows the error. Always propagate non-zero exit codes / raise on failure.
+- **Catching exceptions in a `run_shell` script and printing "ok".** The harness sees `status=success` if your script swallows the error. Always propagate non-zero exit codes / raise on failure.
 - **Fabricating success messages on failure.** Forbidden. If you couldn't read the file or call the API, do not paraphrase what you "would have" produced.
 - **Asking open-ended "what should I do" questions.** Always one specific question with an implied default ("Use the bot token from settings.oauth.slack, or reuse the existing /slack login session?").
 - **Self-detected logical loops.** The consecutive-failure breaker only catches LLM-call failures. If you keep choosing slightly different params for the same action and getting the same business-logic error (e.g., "user not found" three times with three different IDs you guessed), that is a logical loop. Stop and ask the user.
@@ -746,9 +745,9 @@ Supported parameters: `glob`, `file_type`, `before_context` / `after_context`, `
 
 Full input schema: [app/data/action/grep_files.py](app/data/action/grep_files.py).
 
-### stream_read + stream_edit
+### read_file + stream_edit
 - Use as a pair when modifying an existing file.
-- `stream_read` returns the exact bytes.
+- `read_file` returns the exact content with line numbers.
 - `stream_edit` applies a precise diff.
 - Preferred over `write_file` for edits. Preserves unrelated content and avoids whole-file overwrites.
 
@@ -758,6 +757,21 @@ Use only when:
 - Doing a deliberate full rewrite of a small file.
 
 Never use `write_file` to patch an existing large file. Use `stream_edit`.
+
+For large files (long documents, scripts, datasets), DO NOT try to emit the
+whole file in one step. Each action is a single model response bounded by the
+output-token limit. Build the file incrementally instead:
+1. Create the file with the first chunk (`write_file` in overwrite mode).
+2. Append the next section with `write_file` in append mode — one bounded chunk per step.
+3. Repeat until the content is complete.
+4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`),
+   or for a PDF build the markdown then convert it with `convert_to_pdf` (pass
+   `source_path` pointing at the markdown file; format is auto-detected from the
+   extension; pass `style` to override FORMAT.md). The same action handles every
+   source format (text, csv, xlsx, html, url, images, docx/odt/rtf/pptx). Use
+   `convert_from_pdf` for the reverse direction (PDF → .docx or .html).
+Keep each chunk small — roughly ~150 lines (a few KB) at most — so it fits
+comfortably within one response's output-token budget.
 
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
@@ -1089,13 +1103,18 @@ This is non-optional. Generating documents without reading FORMAT.md produces in
 
 ### Action support
 
-Document generation actions in the standard action set:
+Document actions in the standard action set:
 ```
-create_pdf              build a PDF from markdown / text
-                        (preferred over rendering via run_python)
 convert_to_markdown     normalize office formats before further processing
 read_pdf                read a PDF with page support
+convert_to_pdf          render any source → PDF; source format auto-detected from input
+                        (markdown/text/csv/xlsx/html/url/images/docx/odt/rtf/pptx)
+convert_from_pdf        PDF → editable .docx (pdf2docx) or layout-preserving .html (PyMuPDF);
+                        the html target is the EDIT path: convert_from_pdf → stream_edit → convert_to_pdf
+edit_pdf                annotate / redact / replace / watermark an existing PDF
 ```
+
+For DOCX/PPTX/XLSX *generation*, there is no built-in action — use the per-format skills listed below.
 
 Skills that compose document workflows (sample):
 ```
@@ -1283,7 +1302,7 @@ parallelizable   bool  default True. False = action runs alone in its turn (writ
 Key implications when reading an action:
 - `mode="CLI"` actions exist (e.g. `read_file`, `task_start`). They are loaded by default.
 - `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `task_update_todos`, `add_action_sets`, `remove_action_sets`.
-- `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. `run_python` is sandboxed; most other actions are internal.
+- `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
 - `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `task_start`, `send_message`, `ignore`. Prefer adding to an `action_sets` list over using `default=True`.
 
 ### Built-in action categories (orientation only — read source for current state)
@@ -1296,9 +1315,11 @@ core                     send_message, task_start, task_end, task_update_todos, 
                          check_integration_status, disconnect_integration
 
 file_operations          read_file, grep_files, find_files, list_folder, stream_edit, write_file,
-                         read_pdf, convert_to_markdown, create_pdf
+                         read_pdf, convert_to_markdown
 
-shell                    run_shell, run_python
+document_processing      convert_to_pdf, convert_from_pdf, edit_pdf, read_pdf, convert_to_markdown
+
+shell                    run_shell
 
 web_research             web_fetch, web_search, http_request
 
@@ -1388,7 +1409,7 @@ Beyond the eight curated sets, these sets exist because actions declare them:
 ```
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
-content_creation      generate_image, create_pdf, ...
+content_creation      generate_image, ...
 living_ui             living_ui_http, living_ui_restart, ...
 
 per-integration sets (loaded only when the user has the integration connected):
@@ -1997,7 +2018,7 @@ See `## Proactive`.
   disable it via config.
 - The watcher subscribes to parent DIRECTORIES, so creating a new file in app/config/
   is detected, but the file must be explicitly registered for any reload to fire.
-- Sandboxed actions (run_python with requirements) install their packages on first
+- Sandboxed actions (those declaring `requirements`) install their packages on first
   call, NOT on config save. The config has no effect on action sandboxes.
 
 ---
@@ -4088,16 +4109,17 @@ Agent:
 
 **Example 4: Repeated friction recognized over many tasks**
 ```
-You've noticed across 5+ tasks that whenever you generate a PDF, you keep
-forgetting to call create_pdf vs trying to render via run_python first.
+You've noticed across 5+ tasks that whenever you convert an office document
+you keep reaching for read_pdf first instead of running convert_to_markdown,
+and only realising mid-task that the input was a .docx.
 
-Agent (when starting an unrelated PDF task and noticing the pattern):
-  1. RECOGNIZE: pattern of forgetting the right action.
+Agent (when starting an unrelated document task and noticing the pattern):
+  1. RECOGNIZE: pattern of picking the wrong reader action.
   2. CATEGORIZE: AGENT.md operational improvement (## Self-Edit).
      This is a NON-OBVIOUS convention worth recording.
   3. VALIDATE: yes, future-you would benefit.
   4. PROPOSE: not always required for AGENT.md polish — but if the user
-     has a pattern of complaining about PDFs, ask. Otherwise, log it.
+     has a pattern of complaining about it, ask. Otherwise, log it.
   5. EXECUTE: stream_edit AGENT.md ## Documents adding a clarifying note.
   6. VERIFY: re-read on next turn so the new instruction is in context.
   7. RECORD: bump version in front matter; sync to template.

@@ -1,8 +1,4 @@
 <div align="center">
-    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
-</div>
-
-<div align="center">
     <img src="assets/craftbot_logo_text_small.png" alt="CraftBot" width="256"/>
 </div>
 
@@ -43,18 +39,23 @@ Beyond that, CraftBot has all the core capabilities of a general-purpose agent h
   <a href="README.ja.md">日本語</a> | <a href="README.cn.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
 </p>
 
+<div align="center">
+    <img src="assets/README_banner.png" alt="CraftBot Banner" width="1280"/>
+</div>
+
 ## ✨ Highlighted Features
 
 Aside from being an AI agent that can create and operate its own SaaS tools, CraftBot includes all the core features of an agent harness, enabling it to work as a general AI agent alongside you across your tasks, tools, memory, and daily workflows.
 
+- **Agent Profiles** 40+ Agent Profiles (CEO agent, Finance agent, marketing lead agent, devops engineer, video producer agent, or 37 others) ready to work for you. Find the desire roles from **[CraftBot Agent Bundles](https://github.com/CraftOS-dev/craftbot-agent-bundles)** and import them with one-click.
+- **Playbook catalogue** Not sure how to automate with AI agent? CraftBot has 120 playbooks ready for use (across 19 categories). Open the playbook picker from the top bar, pick a playbook, and it start running task for you.
 - **Living UI.** Build, import, or evolve custom apps that live inside CraftBot. The agent stays aware of the UI's state and can read, write, and act on its data directly.
 - **Multi-tasking and session routing.** Still using `/new` command? CraftBot knows when to start a new session and when to resume a task, keeping conversation and context unified.
 - **Self-hosted and BYOK.** Flexible LLM provider system supporting OpenAI, Google Gemini, Anthropic Claude, OpenRoute, and more. Or host your own model with 0 tokens spent using Ollama.
 - **Memory System.** Local knowledge base built from your interaction with CraftBot via RAG + Agent File System + distillation. CraftBot dreams and consolidates events that happened throughout the day at midnight.
 - **Proactive Agent.** Learn your preferences, habits, and life goals. Then, perform planning and initiate tasks (with approval, of course) to help you improve in life.
-- **External Tools Integration.** Connect to Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, and Telegram (more to come!) with embedded credentials and OAuth support.
+- **External Tools Integration.** Connect to your apps like Google Workspace, Slack, Notion, Zoom, LinkedIn, Discord, Telegram and more (more to come!) with OAuth support or your own key.
 - **Skills and MCP.** 150+ MCP and 170+ Skills ready. Quick installation of new Skills and MCPs. Create/improve Skills from completed tasks with one click.
-- **Cross-Platform** Full support for Windows, macOS, and Linux with platform-specific code variants and Docker containerization.
 - **Browser interface and CLI support.** Use CraftBot the way it fits: through a simple browser UI for everyday interaction, or via the CLI for scripting and headless environments.
 
 ---
@@ -99,89 +100,11 @@ python craftbot.py uninstall  # Stop, remove auto-start, and uninstall packages
     <img src="assets/living_ui_banner.gif" alt="CraftBot Banner" width="1280"/>
 </div>
 
-- Need a kanban board with an AI co-pilot built in?
-- A custom CRM shaped exactly like your workflow?
-- A company dashboard that CraftBot can read and drive on your behalf?
+- Need a kanban board with an AI co-pilot built in? 
+- A custom CRM shaped exactly like your workflow? 
+- A company dashboard that CraftBot can read and drive on your behalf? 
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/CraftOS-dev/CraftBot.git
-cd CraftBot
-
-# 2. Install into a conda environment
-python install.py --conda
-
-# 3. Run CraftBot
-conda run -n craftbot python run.py
-
-# If conda is not in PATH (Windows only):
-&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
-```
-
-> [!NOTE]
-> Each time you want to run CraftBot, use `conda run -n craftbot python run.py`. There is no background service — you start and stop it yourself.
-
----
-
-### Option 3 — Manual Install (pip)
-
-**Use this if:** you want full control over your Python environment and prefer managing CraftBot yourself with no automatic service or background process.
-
-`install.py` (no flags) does a standard pip install into whichever Python environment is currently active. You start and stop CraftBot manually using `run.py`.
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/CraftOS-dev/CraftBot.git
-cd CraftBot
-
-# 2. Install dependencies into your active Python environment
-python install.py
-
-# 3. Run CraftBot
-python run.py
-```
-
-The first run will guide you through setting up your API keys and preferences.
-
-> [!NOTE]
-> If Node.js is not installed, the installer will provide step-by-step instructions. You can also skip browser mode entirely and use CLI mode — no Node.js required: `python run.py --cli`
-
----
-
-### What you can do right after?
-- Talk to the agent naturally
-- Ask it to perform complex multi-step tasks
-- Type `/help` to see available commands
-- Connect to Google, Slack, Notion, and more
-
-### 🖥️ Interface Modes
-
-<div align="center">
-    <img src="assets/WCA_README_banner.png" alt="CraftOS Banner" width="1280"/>
-</div>
-
-CraftBot supports multiple UI modes. Choose based on your preference:
-
-| Mode | Command | Requirements | Best For |
-|------|---------|--------------|----------|
-| **Browser** | `python run.py` | Node.js 18+ | Modern web interface, easiest to use |
-| **CLI** | `python run.py --cli` | None | Command-line, lightweight |
-
-**Browser mode** is the default and recommended. If you don't have Node.js, the installer will provide installation instructions or you can use **CLI mode** instead.
-
----
-
-## 🧬 Living UI
-
-**Living UI is a system/app/dashboard that evolve with your needs.**
-
-Need a kanban board with an AI co-pilot built in? A custom CRM shaped exactly
-like your workflow? A company dashboard that CraftBot can read and drive on
-your behalf? Spin it up as a Living UI that runs alongside CraftBot and grows as your needs change.
-
-<div align="center">
-    <img src="assets/living-ui-example.png" alt="Living UI example" width="1280"/>
-</div>
+Spin it up as a Living UI that runs alongside CraftBot and grows as your needs change.
 
 ### Three ways to create a Living UI
 
@@ -219,20 +142,6 @@ REST API, and trigger actions on your behalf.
 
 Build, customize, and evolve your own Living UI, and rely less on subscription tools that were never built to fit your needs perfectly.
 
-| Component | Description |
-|-----------|-------------|
-| **Agent Base** | Core orchestration layer that manages task lifecycle, coordinates between components, and handles the main agentic loop. |
-| **LLM Interface** | Unified interface supporting multiple LLM providers (OpenAI, Gemini, Anthropic, BytePlus, Ollama). |
-| **Context Engine** | Generates optimized prompts with KV-cache support. |
-| **Action Manager** | Retrieves and executes actions from the library. Custom action is easy to extend |
-| **Action Router** | Intelligently selects the best matching action based on task requirements and resolves input parameters via LLM when needed. |
-| **Event Stream** | Real-time event publishing system for task progress tracking, UI updates, and execution monitoring. |
-| **Memory Manager** | RAG-based semantic memory using ChromaDB. Handles memory chunking, embedding, retrieval, and incremental updates. |
-| **State Manager** | Global state management for tracking agent execution context, conversation history, and runtime configuration. |
-| **Task Manager** | Manages task definitions, enable simple and complex tasks bode, create todos, and multi-step workflow tracking. |
-| **Skill Manager** | Loads and injects pluggable skills into the agent context. |
-| **MCP Adapter** | Model Context Protocol integration that converts MCP tools into native actions. |
-
 ---
  
 # Three Living UIs to try in 5 minutes
@@ -258,67 +167,6 @@ Build, customize, and evolve your own Living UI, and rely less on subscription t
 | `python craftbot.py status` | Check if CraftBot is running and if auto-start is enabled |
 | `python craftbot.py logs` | Show recent log output (`-n 100` for more lines) |
 | `python craftbot.py uninstall` | Stop CraftBot, remove auto-start registration, uninstall pip packages, and purge pip cache |
-
----
-
-### install.py — Manual Setup
-
-| Flag | Description |
-|------|-------------|
-| (none) | Standard pip install — uses your active Python environment |
-| `--conda` | Install into a conda environment (auto-installs Miniconda if not found) |
-
-```bash
-# Standard pip install
-python install.py
-
-# With conda environment
-python install.py --conda
-```
-
----
-
-### run.py — Running CraftBot (Manual Setup Only)
-
-> If you used `craftbot.py install`, CraftBot starts automatically. Use `run.py` only when running manually.
-
-| Flag | Description |
-|------|-------------|
-| (none) | Run in **Browser** mode (recommended, requires Node.js) |
-| `--cli` | Run in **CLI** mode (lightweight, no Node.js required) |
-
-**Windows (PowerShell):**
-```powershell
-# Browser mode (default, requires Node.js)
-python run.py
-
-# CLI mode (no Node.js required)
-python run.py --cli
-
-# With conda environment
-conda run -n craftbot python run.py
-
-# Or using full path if conda not in PATH
-&"$env:USERPROFILE\miniconda3\Scripts\conda.exe" run -n craftbot python run.py
-```
-
-**Linux/macOS (Bash):**
-```bash
-python run.py          # Browser mode
-python run.py --cli    # CLI mode
-
-# With conda environment
-conda run -n craftbot python run.py
-```
-
-> [!NOTE]
-> **Installation:** The installer now provides clear guidance if dependencies are missing. If Node.js is not found, you'll be prompted to install it or can switch to CLI mode. Installation automatically detects GPU availability and falls back to CPU-only mode if needed.
-
-> [!TIP]
-> **First-time setup:** CraftBot will guide you through an onboarding sequence to configure API keys, the agent's name, MCPs, and Skills.
-
-> [!NOTE]
-> **Playwright Chromium:** Optional for WhatsApp Web integration. If installation fails, the agent will still work fine for other tasks. Install manually later with: `playwright install chromium`
 
 ---
 

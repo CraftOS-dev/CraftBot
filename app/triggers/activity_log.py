@@ -79,9 +79,7 @@ def make_idem_key(
     Internal keys (``_``-prefixed, injected by the executor) are excluded so
     the hash reflects only the user-visible content of the action.
     """
-    content = {
-        k: v for k, v in (input_data or {}).items() if not k.startswith("_")
-    }
+    content = {k: v for k, v in (input_data or {}).items() if not k.startswith("_")}
     canonical = json.dumps(content, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
     return f"{session_id or 'conv'}:{action_name}:{digest}"
@@ -132,9 +130,7 @@ class ActivityLog:
             ).fetchone()
         return dict(row) if row else None
 
-    def record_intent(
-        self, idem_key: str, action: str, task_id: Optional[str]
-    ) -> None:
+    def record_intent(self, idem_key: str, action: str, task_id: Optional[str]) -> None:
         """Upsert the row to INTENT (fresh attempt or deliberate retake)."""
         now = _now_iso()
         with self._connect() as conn:
@@ -266,12 +262,8 @@ class ActivityLogGuard:
                 f"completed (provider ref: {row['provider_ref'] or 'n/a'}). "
                 f"The original output is returned. Do not retry."
             )
-            logger.info(
-                f"[ActivityLog] Skipped duplicate {action_name} ({idem_key})"
-            )
-            return GuardDecision(
-                proceed=False, idem_key=idem_key, stored_output=stored
-            )
+            logger.info(f"[ActivityLog] Skipped duplicate {action_name} ({idem_key})")
+            return GuardDecision(proceed=False, idem_key=idem_key, stored_output=stored)
 
         # Stale INTENT: a previous attempt was interrupted between starting
         # the side effect and recording its outcome. Surface once; the next

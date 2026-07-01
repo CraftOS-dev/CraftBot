@@ -24,10 +24,87 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict, Optional
 
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
+
+
+class EventType(str, Enum):
+    """Closed set of event categories.
+
+    The UI transformer routes solely on this field. New event categories
+    are added here, not invented at call sites as ad-hoc `kind` strings.
+
+    INVARIANT: nothing in the consumer path (UI transformer, etc.) is
+    allowed to look at `kind` or `message` substrings to decide how to
+    handle an event. Producers MUST set `event_type` explicitly when
+    calling `log()`. The only place `kind` is consulted for typing is
+    `_legacy_event_type_from_kind` below — used exclusively to upgrade
+    events restored from persistence written before this field existed.
+    """
+
+    USER_MESSAGE = "user_message"
+    AGENT_MESSAGE = "agent_message"
+    SYSTEM = "system"
+    ERROR = "error"
+    REASONING = "reasoning"
+    ACTION_START = "action_start"
+    ACTION_END = "action_end"
+    TASK_START = "task_start"
+    TASK_END = "task_end"
+    WAITING_FOR_USER = "waiting_for_user"
+    RELEVANT_MEMORIES = "relevant_memories"
+    TODOS = "todos"
+    INTERNAL = "internal"
+
+
+# Legacy `kind` → `event_type` mapping. NEW code MUST NOT call this.
+# It exists solely so that EVENT.md / sessions.db entries written before
+# the `event_type` field was introduced still render correctly after
+# upgrade. Once all such persistence has rolled over, this map can be
+# deleted along with `_legacy_event_type_from_kind`.
+_LEGACY_KIND_TO_EVENT_TYPE: Dict[str, "EventType"] = {
+    "action_start": EventType.ACTION_START,
+    "action_end": EventType.ACTION_END,
+    "action_error": EventType.ACTION_END,
+    "gui action start": EventType.ACTION_START,
+    "gui action end": EventType.ACTION_END,
+    "task_start": EventType.TASK_START,
+    "task_started": EventType.TASK_START,
+    "task_end": EventType.TASK_END,
+    "task_ended": EventType.TASK_END,
+    "agent reasoning": EventType.REASONING,
+    "reasoning": EventType.REASONING,
+    "waiting_for_user": EventType.WAITING_FOR_USER,
+    "relevant_memories": EventType.RELEVANT_MEMORIES,
+    "system": EventType.SYSTEM,
+    "error": EventType.ERROR,
+    "warning": EventType.SYSTEM,
+    "loop_detection_warning": EventType.SYSTEM,
+    "internal": EventType.INTERNAL,
+    "todos": EventType.TODOS,
+}
+
+
+def _legacy_event_type_from_kind(kind: Optional[str]) -> Optional["EventType"]:
+    """Map a legacy free-text `kind` string to an `EventType`.
+
+    DO NOT call this for routing decisions in new code. It is only used
+    by `Event.from_dict()` to upgrade persisted events that lack an
+    explicit `event_type` field.
+    """
+    if not kind:
+        return None
+    k = kind.lower().strip()
+    if k in _LEGACY_KIND_TO_EVENT_TYPE:
+        return _LEGACY_KIND_TO_EVENT_TYPE[k]
+    if k.startswith("agent message"):
+        return EventType.AGENT_MESSAGE
+    if k.startswith("user message"):
+        return EventType.USER_MESSAGE
+    return None
 
 
 @dataclass
@@ -36,11 +113,31 @@ class Event:
     Public event object with prompt context and display variants.
 
     Attributes:
-        message: The full event message for prompts and debugging
-        kind: Category describing the event family (e.g., "action_start")
-        severity: Importance level (DEBUG, INFO, WARN, ERROR)
-        display_message: Optional alternative message for UI display
-        ts: Timestamp when event was created (UTC)
+        message: The full event message for prompts and debugging.
+        kind: Human-readable label for the prompt-facing snapshot
+            (e.g., ``"agent message to platform: Telegram"``). NOT used
+            by the UI transformer for routing — see `event_type`.
+        severity: Importance level (DEBUG, INFO, WARN, ERROR).
+        display_message: Optional alternative message for UI display.
+        ts: Timestamp when event was created (UTC).
+        event_type: Closed-set category used by consumers for routing,
+            hiding, and rendering. Producers set this explicitly.
+        action_name: Canonical action identifier when this event belongs
+            to an action lifecycle (start/end). None otherwise.
+        action_display_name: User-facing name (typically the snake_case
+            action name reformatted to "Title case"). Optional; consumers
+            fall back to `action_name` when absent.
+        action_id: Stable identifier paired across an action's start and
+            end events so consumers can correlate them without parsing.
+            Set by ``ActionManager`` (which generates it as ``run_id``
+            internally) so multiple parallel calls of the same action
+            can still be matched start↔end.
+        action_input: Structured input payload at action_start.
+        action_output: Structured output payload at action_end.
+        task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
+            TASK_END events.
+        platform: Originating/destination platform for chat messages
+            (e.g., ``"Telegram"``, ``"CraftBot Interface"``).
     """
 
     message: str
@@ -48,6 +145,14 @@ class Event:
     severity: str
     display_message: Optional[str] = None
     ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    event_type: Optional[EventType] = None
+    action_name: Optional[str] = None
+    action_display_name: Optional[str] = None
+    action_id: Optional[str] = None
+    action_input: Optional[Dict[str, Any]] = None
+    action_output: Optional[Dict[str, Any]] = None
+    task_status: Optional[str] = None
+    platform: Optional[str] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -72,22 +177,53 @@ class Event:
             "severity": self.severity,
             "display_message": self.display_message,
             "ts": self.ts.isoformat(),
+            "event_type": self.event_type.value if self.event_type else None,
+            "action_name": self.action_name,
+            "action_display_name": self.action_display_name,
+            "action_id": self.action_id,
+            "action_input": self.action_input,
+            "action_output": self.action_output,
+            "task_status": self.task_status,
+            "platform": self.platform,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Event":
-        """Deserialize an event from a dictionary."""
+        """Deserialize an event from a dictionary.
+
+        Events written before `event_type` existed have no value for that
+        field; we upgrade them here by mapping `kind` once at load time.
+        New events MUST set `event_type` at log() time, so this
+        upgrade path stays cold for fresh writes.
+        """
         ts = (
             datetime.fromisoformat(data["ts"])
             if isinstance(data.get("ts"), str)
             else datetime.now(timezone.utc)
         )
+        raw_event_type = data.get("event_type")
+        event_type: Optional[EventType]
+        if raw_event_type:
+            try:
+                event_type = EventType(raw_event_type)
+            except ValueError:
+                event_type = None
+        else:
+            event_type = _legacy_event_type_from_kind(data.get("kind"))
         return cls(
             message=data["message"],
             kind=data["kind"],
             severity=data["severity"],
             display_message=data.get("display_message"),
             ts=ts,
+            event_type=event_type,
+            action_name=data.get("action_name"),
+            action_display_name=data.get("action_display_name"),
+            action_id=data.get("action_id"),
+            action_input=data.get("action_input"),
+            action_output=data.get("action_output"),
+            task_status=data.get("task_status"),
+            platform=data.get("platform"),
         )
 
     @property

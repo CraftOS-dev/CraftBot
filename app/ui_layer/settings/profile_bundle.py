@@ -88,6 +88,60 @@ def _should_skip_path(path: Path) -> bool:
     return False
 
 
+def _validate_skill_md(skill_md: Path) -> Optional[str]:
+    """Mirror agent_core.core.impl.skill.loader.SkillLoader.parse_skill_file.
+
+    Returns None if the file would load cleanly at runtime, else a short
+    reason explaining why the SkillManager would silently drop it. Catches
+    the malformed-frontmatter case where YAML parses junk like
+    `description: Foo: bar` as a nested mapping.
+    """
+    import re as _re
+    import yaml as _yaml
+
+    if not skill_md.is_file():
+        return "SKILL.md missing"
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"read failed: {exc}"
+    if len(text.strip()) < 1:
+        return "file is empty"
+    fm = _re.match(r"^---\s*\n(.*?)\n---\s*\n", text, _re.DOTALL)
+    if not fm:
+        # Bodied style (HTML comment / heading only) — loader derives metadata.
+        return None
+    try:
+        data = _yaml.safe_load(fm.group(1))
+    except _yaml.YAMLError as exc:
+        return f"YAML frontmatter: {str(exc).splitlines()[0]}"
+    if not isinstance(data, dict):
+        return "frontmatter is not a YAML dict"
+    return None
+
+
+def _validate_mcp_entry(server: Dict[str, Any]) -> Optional[str]:
+    """Mirror agent_core.core.impl.mcp.config.MCPConfig.from_dict validation.
+
+    Returns None if the entry would be accepted by the runtime, else a short
+    reason. This is the same shape check applied by the bundler — the
+    importer enforces it again so corrupt bundles (or polluted upstream
+    catalogs) can never silently bloat the recipient's mcp_config.json.
+    """
+    if not server.get("name"):
+        return "missing name"
+    transport = server.get("transport", "stdio")
+    if transport == "stdio":
+        if not server.get("command"):
+            return "transport=stdio without command"
+    elif transport in ("sse", "http", "streamable_http"):
+        if not server.get("url"):
+            return f"transport={transport} without url"
+    else:
+        return f"unknown transport {transport!r}"
+    return None
+
+
 def _copy_dir_filtered(src: Path, dst: Path) -> None:
     """Recursive copy honoring SKIP_DIR_NAMES / SKIP_FILE_SUFFIXES."""
     if not src.exists():
@@ -103,7 +157,9 @@ def _copy_dir_filtered(src: Path, dst: Path) -> None:
             try:
                 shutil.copy2(entry, target)
             except OSError as exc:
-                logger.warning(f"[PROFILE_BUNDLE] Skipping unreadable file {entry}: {exc}")
+                logger.warning(
+                    f"[PROFILE_BUNDLE] Skipping unreadable file {entry}: {exc}"
+                )
 
 
 def _agent_name() -> str:
@@ -124,7 +180,9 @@ def _looks_like_secret(env_key: str) -> bool:
     return any(hint in upper for hint in SECRET_ENV_HINTS)
 
 
-def _strip_mcp_secrets(servers: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[str]]:
+def _strip_mcp_secrets(
+    servers: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[str]]:
     """Strip env-var values that look like secrets. Returns (cleaned, stripped_names)."""
     stripped: List[str] = []
     cleaned: List[Dict[str, Any]] = []
@@ -176,9 +234,7 @@ def _gather_export_contents() -> Dict[str, Any]:
     """Pre-flight inventory used by manifest + README."""
     skills_config = _load_json(SKILLS_CONFIG_PATH, {"enabled_skills": []})
     enabled_skills = [
-        s
-        for s in skills_config.get("enabled_skills", [])
-        if (SKILLS_DIR / s).is_dir()
+        s for s in skills_config.get("enabled_skills", []) if (SKILLS_DIR / s).is_dir()
     ]
 
     mcp_config = _load_json(MCP_CONFIG_PATH, {"mcp_servers": []})
@@ -189,9 +245,7 @@ def _gather_export_contents() -> Dict[str, Any]:
         s for s in mcp_config.get("mcp_servers", []) if s.get("enabled", False)
     ]
 
-    md_present = [
-        f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()
-    ]
+    md_present = [f for f in PROFILE_MD_FILES if (AGENT_FILE_SYSTEM_PATH / f).is_file()]
 
     living_ui_projects = _load_living_ui_projects(LIVING_UI_PROJECTS_FILE)
 
@@ -419,7 +473,9 @@ def inspect_bundle(bundle_path: str) -> Dict[str, Any]:
                 env = server.get("env") or {}
                 missing = [k for k in env if not env.get(k)]
                 if missing:
-                    mcp_needs_env.append({"name": server.get("name", ""), "env_keys": missing})
+                    mcp_needs_env.append(
+                        {"name": server.get("name", ""), "env_keys": missing}
+                    )
 
             contents = manifest.get("contents", {})
             return {
@@ -449,9 +505,21 @@ class ImportSummary:
     skills_added: List[str]
     skills_skipped: List[str]
     skills_missing: List[str]
+    # Skills whose folder is on disk but whose SKILL.md fails runtime
+    # validation. Each entry: {name, reason, origin}. Folder is preserved on
+    # disk — the importer NEVER deletes files for validation reasons.
+    skills_invalid: List[Dict[str, str]]
+    # CraftBot-essential skills (user-invocable: false in frontmatter) that
+    # were force-enabled regardless of import mode. Typically overlaps with
+    # skills_added when the bundle includes them (current build.py always
+    # does).
+    skills_system_enabled: List[str]
     mcp_added: List[str]
     mcp_skipped: List[str]
     mcp_needs_env: List[Dict[str, Any]]
+    # MCP servers from the bundle whose config shape is invalid. Each entry:
+    # {name, reason}. These never enter mcp_config.json.
+    mcp_invalid: List[Dict[str, str]]
     md_applied: List[str]
     living_ui_added: List[str]
     living_ui_renamed: List[str]
@@ -488,39 +556,100 @@ def _apply_md_files(src_profile: Path, mode: str) -> List[str]:
     return applied
 
 
+def _is_system_skill_md(skill_md: Path) -> bool:
+    """A SKILL.md belongs to the always-import set iff its YAML frontmatter
+    declares ``user-invocable: false``. This is the same marker the runtime
+    uses to identify system-spawned tasks ([browser_adapter.py]
+    _INTERNAL_SKILL_NAMES). Auto-discovery via this marker means new system
+    skills get the always-import treatment automatically — no hardcoded list
+    to keep in sync.
+    """
+    import re as _re
+    import yaml as _yaml
+
+    if not skill_md.is_file():
+        return False
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    m = _re.match(r"^---\s*\n(.*?)\n---\s*\n", text, _re.DOTALL)
+    if not m:
+        return False
+    try:
+        data = _yaml.safe_load(m.group(1))
+    except _yaml.YAMLError:
+        return False
+    return isinstance(data, dict) and data.get("user-invocable") is False
+
+
+def _discover_system_skills_in(skills_dir: Path) -> List[str]:
+    """Return names of folders under `skills_dir` whose SKILL.md is marked
+    `user-invocable: false`. Used by the importer to identify which entries
+    in the bundle (or already on disk) must be force-enabled regardless of
+    import mode.
+    """
+    out: List[str] = []
+    if not skills_dir.is_dir():
+        return out
+    for sk in skills_dir.iterdir():
+        if sk.is_dir() and _is_system_skill_md(sk / "SKILL.md"):
+            out.append(sk.name)
+    return sorted(out)
+
+
 def _apply_skills(
     src_skills_dir: Path, mode: str
-) -> Tuple[List[str], List[str], List[str]]:
-    """Install skill folders and update skills_config.json.
+) -> Tuple[List[str], List[str], List[str], List[Dict[str, str]], List[str]]:
+    """Install skill folders from the bundle and update skills_config.json.
 
-    ``replace`` — bundle overwrites local on name collision; new skills added.
-    ``overwrite`` — every existing skill folder under SKILLS_DIR is deleted,
-    then the bundle's skills are installed and become the entire skill set
-    (no disabled defaults left over).
+    Returns ``(added, skipped, missing, invalid, system_enabled)``.
 
-    Bundles produced by agent_bundle/build.py list every skill the agent uses
-    in ``enabled.json`` but only ship folders for the "bundled" ones — the
-    "default" skills are assumed to already exist on the recipient's install.
-    We split bundle_enabled into three buckets accordingly:
+    Bundle model (post-rebuild, no more "default" assumption):
+      Every skill the agent uses ships physically inside the bundle's
+      ``skills/`` folder. ``enabled.json`` lists exactly that set. One code
+      path covers every skill — no two-bucket logic.
 
-    - ``added``: bundle shipped a folder; copied to disk and enabled.
-    - ``already_present``: no folder in bundle, but recipient already has it
-      locally; enabled (replace mode only — overwrite mode wipes local first
-      so this bucket is always empty there).
-    - ``missing``: bundle expected the recipient to already have it but they
-      don't; NOT enabled (would leave a ghost entry pointing at no folder).
+    Import modes:
+      ``replace`` — bundle's skills are written into the recipient's skills
+        dir, overwriting any folder of the same name. Skills the recipient
+        had locally that the bundle doesn't ship are left untouched.
+      ``overwrite`` — recipient's entire skills dir is wiped first, then the
+        bundle's skills are installed. The recipient's skill set ends up
+        exactly == bundle's.
+
+    System skills (always-import):
+      Skills with ``user-invocable: false`` in their SKILL.md frontmatter
+      are CraftBot-essential. Build.py force-includes them in every bundle.
+      The importer force-enables them in skills_config.json in every mode,
+      so a profile import can never strip the agent of its core ability to
+      spawn memory-processing / heartbeat / planner / Living-UI workflows.
+
+    Buckets:
+      ``added`` — folder copied from bundle, SKILL.md validates, name enabled.
+      ``skipped`` — reserved/empty (preserved for API back-compat).
+      ``missing`` — name in ``enabled.json`` but no folder shipped (bundle bug).
+      ``invalid`` — folder copied but SKILL.md fails validation. The folder
+        is LEFT ON DISK (never deleted) so the user can inspect/fix it. The
+        name is NOT added to skills_config.json so the loader doesn't trip
+        on it at runtime.
+      ``system_enabled`` — system skills (user-invocable: false) that were
+        force-enabled. Overlaps with ``added`` when the bundle includes them
+        (the new build.py always does).
     """
     added: List[str] = []
-    already_present: List[str] = []
+    skipped: List[str] = []  # unused under the new model; kept for API shape
     missing: List[str] = []
+    invalid: List[Dict[str, str]] = []
     enabled_list_path = src_skills_dir / "enabled.json"
     bundle_enabled = _load_json(enabled_list_path, {}).get("enabled_skills", [])
 
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
     if mode == "overwrite":
-        # Strict factory reset: wipe every skill folder, then install the
-        # bundle's. The recipient's skill set ends up exactly = bundle's.
+        # Strict factory reset (this IS what the user picked when they chose
+        # Overwrite mode). The validation-failure path below never deletes;
+        # only the explicit Overwrite contract does.
         for child in list(SKILLS_DIR.iterdir()):
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
@@ -529,60 +658,91 @@ def _apply_skills(
         src = src_skills_dir / skill_name
         dst = SKILLS_DIR / skill_name
         if not src.is_dir():
-            # Bundle didn't include a folder for this one — it's a "default"
-            # skill the recipient is expected to have. Keep it enabled only if
-            # the folder actually exists locally; otherwise drop it so the
-            # enabled list never contains ghost entries.
-            if dst.is_dir():
-                already_present.append(skill_name)
-            else:
-                missing.append(skill_name)
-                logger.warning(
-                    f"[PROFILE_BUNDLE] Bundle expected default skill "
-                    f"'{skill_name}' but no folder exists locally; skipping."
-                )
+            # Bundle's enabled.json names a skill it didn't ship a folder
+            # for. Under the new build.py this never happens; if it does it
+            # means the bundle was built by an older toolchain. Skip cleanly.
+            missing.append(skill_name)
+            logger.warning(
+                f"[PROFILE_BUNDLE] Bundle enabled.json names '{skill_name}' "
+                f"but no folder was shipped — bundle is from an older build "
+                f"toolchain. Skipping."
+            )
             continue
+
+        # Replace-on-collision is the documented behavior of both modes
+        # (bundle's version wins for skills the bundle ships). This is NOT
+        # the validation-failure path — that one never deletes.
         if dst.exists():
             shutil.rmtree(dst, ignore_errors=True)
         _copy_dir_filtered(src, dst)
+
+        # Validate AFTER copy. Failure → name is not enabled, but the folder
+        # is left on disk untouched so the user can inspect/repair the file.
+        copy_err = _validate_skill_md(dst / "SKILL.md")
+        if copy_err:
+            invalid.append({"name": skill_name, "reason": copy_err, "origin": "bundle"})
+            logger.warning(
+                f"[PROFILE_BUNDLE] Bundled skill '{skill_name}' fails "
+                f"validation ({copy_err}); NOT enabling, folder left on "
+                f"disk at {dst} for manual inspection."
+            )
+            continue
         added.append(skill_name)
 
-    installed_now = added + already_present
+    # Force-discover and force-enable system skills. We discover from the
+    # RECIPIENT's skills dir (post-copy) so the always-import promise holds
+    # for any system skill physically present — whether the bundle just
+    # installed it, the recipient already had it, or it's been there since
+    # initial CraftBot install. Mode is irrelevant: Overwrite wipes-then-
+    # installs the bundle's copy; Replace adds it if the bundle had it.
+    system_skills = _discover_system_skills_in(SKILLS_DIR)
+    system_enabled: List[str] = list(system_skills)
 
     if mode == "overwrite":
-        # Authoritative config: bundle's enabled list IS the skill state, but
-        # filtered to entries that physically exist on disk after the copy.
+        # Bundle's enabled list IS the skill state — but always union with
+        # the system skills so they survive a "wipe and install bundle".
         config = {
             "auto_load": True,
-            "enabled_skills": installed_now,
+            "enabled_skills": _dedup_preserve_order(added + system_enabled),
             "disabled_skills": [],
         }
     else:
-        # Additive: enable everything the bundle wanted that we can back with
-        # a real folder, but never disable anything the user already had.
+        # Additive: enable everything the bundle installed + the system
+        # skills; never disable anything the user already had. If a system
+        # skill is currently in disabled_skills, un-disable it (always-on).
         config = _load_json(
             SKILLS_CONFIG_PATH,
             {"auto_load": True, "enabled_skills": [], "disabled_skills": []},
         )
         enabled_set = list(config.get("enabled_skills", []))
         disabled_set = list(config.get("disabled_skills", []))
-        for skill_name in installed_now:
+        for skill_name in added + system_enabled:
             if skill_name not in enabled_set:
                 enabled_set.append(skill_name)
             if skill_name in disabled_set:
                 disabled_set.remove(skill_name)
-        config["enabled_skills"] = enabled_set
+        config["enabled_skills"] = _dedup_preserve_order(enabled_set)
         config["disabled_skills"] = disabled_set
 
     SKILLS_CONFIG_PATH.write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    return added, already_present, missing
+    return added, skipped, missing, invalid, system_enabled
+
+
+def _dedup_preserve_order(items: List[str]) -> List[str]:
+    seen: set = set()
+    out: List[str] = []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
 
 
 def _apply_mcp(
     src_mcp_dir: Path, mode: str
-) -> Tuple[List[str], List[str], List[Dict[str, Any]]]:
+) -> Tuple[List[str], List[str], List[Dict[str, Any]], List[Dict[str, str]]]:
     """Install MCP server configs from the bundle.
 
     ``replace`` — bundle overwrites local on name collision (preserving any
@@ -590,20 +750,43 @@ def _apply_mcp(
     ``overwrite`` — local mcp_config.json is wiped and replaced entirely with
     the bundle's servers; no env values are preserved (the recipient's MCP
     state ends up exactly = bundle's).
+
+    Each candidate entry is shape-validated BEFORE landing in the catalog —
+    entries that would be rejected by the runtime (stdio without command,
+    sse/http without url, unknown transport) go into the ``invalid`` bucket
+    and never touch mcp_config.json. This guarantees a successful import
+    means the runtime can actually load every named server.
     """
     added: List[str] = []
     skipped: List[str] = []
     needs_env: List[Dict[str, Any]] = []
+    invalid: List[Dict[str, str]] = []
 
     servers_path = src_mcp_dir / "servers.json"
     bundle_servers = _load_json(servers_path, {}).get("mcp_servers", [])
 
+    def _filter_valid(servers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        good: List[Dict[str, Any]] = []
+        for s in servers:
+            name = s.get("name", "")
+            if not name:
+                invalid.append({"name": "<unnamed>", "reason": "missing name"})
+                continue
+            err = _validate_mcp_entry(s)
+            if err:
+                invalid.append({"name": name, "reason": err})
+                logger.warning(
+                    f"[PROFILE_BUNDLE] MCP '{name}' fails shape validation "
+                    f"({err}); not adding to catalog."
+                )
+                continue
+            good.append(s)
+        return good
+
     if mode == "overwrite":
         cleaned: List[Dict[str, Any]] = []
-        for server in bundle_servers:
-            name = server.get("name", "")
-            if not name:
-                continue
+        for server in _filter_valid(bundle_servers):
+            name = server["name"]
             missing_env = [k for k, v in (server.get("env") or {}).items() if not v]
             if missing_env:
                 needs_env.append({"name": name, "env_keys": missing_env})
@@ -613,17 +796,15 @@ def _apply_mcp(
             json.dumps({"mcp_servers": cleaned}, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-        return added, skipped, needs_env
+        return added, skipped, needs_env, invalid
 
     # replace mode — additive with overwrite-on-conflict + env preservation
     current = _load_json(MCP_CONFIG_PATH, {"mcp_servers": []})
     existing = current.get("mcp_servers", [])
     by_name = {s.get("name", ""): s for s in existing}
 
-    for server in bundle_servers:
-        name = server.get("name", "")
-        if not name:
-            continue
+    for server in _filter_valid(bundle_servers):
+        name = server["name"]
         missing_env = [k for k, v in (server.get("env") or {}).items() if not v]
         if missing_env:
             needs_env.append({"name": name, "env_keys": missing_env})
@@ -648,7 +829,7 @@ def _apply_mcp(
     MCP_CONFIG_PATH.write_text(
         json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    return added, skipped, needs_env
+    return added, skipped, needs_env, invalid
 
 
 def _plan_and_copy_living_ui_imports(
@@ -825,9 +1006,7 @@ def _apply_living_ui(
     back to a direct file write.
     """
     bundle_projects = _load_living_ui_projects(src_living_dir / "projects.json")
-    target_living_dir = (
-        manager.living_ui_dir if manager is not None else LIVING_UI_DIR
-    )
+    target_living_dir = manager.living_ui_dir if manager is not None else LIVING_UI_DIR
     target_living_dir.mkdir(parents=True, exist_ok=True)
 
     if mode == "overwrite":
@@ -929,10 +1108,16 @@ def import_profile(
         bundle_name = manifest.get("name") or "imported profile"
 
         md_applied = _apply_md_files(work_dir / "profile", mode)
-        skills_added, skills_already_present, skills_missing = _apply_skills(
-            work_dir / "skills", mode
+        (
+            skills_added,
+            skills_skipped,
+            skills_missing,
+            skills_invalid,
+            skills_system_enabled,
+        ) = _apply_skills(work_dir / "skills", mode)
+        mcp_added, mcp_skipped, mcp_needs_env, mcp_invalid = _apply_mcp(
+            work_dir / "mcp", mode
         )
-        mcp_added, mcp_skipped, mcp_needs_env = _apply_mcp(work_dir / "mcp", mode)
         living_added, living_renamed = _apply_living_ui(
             work_dir / "living_ui", mode, manager=living_ui_manager
         )
@@ -942,11 +1127,14 @@ def import_profile(
 
         summary = ImportSummary(
             skills_added=skills_added,
-            skills_skipped=skills_already_present,
+            skills_skipped=skills_skipped,
             skills_missing=skills_missing,
+            skills_invalid=skills_invalid,
+            skills_system_enabled=skills_system_enabled,
             mcp_added=mcp_added,
             mcp_skipped=mcp_skipped,
             mcp_needs_env=mcp_needs_env,
+            mcp_invalid=mcp_invalid,
             md_applied=md_applied,
             living_ui_added=living_added,
             living_ui_renamed=living_renamed,

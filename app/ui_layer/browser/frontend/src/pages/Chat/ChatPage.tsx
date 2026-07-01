@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Check, X, Loader2, Reply, RotateCw } from 'lucide-react'
+import { Check, X, Loader2, Reply, RotateCw, Trash2 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
 import { MascotDisplay } from '@mascot'
 import { getActivePlaceholder } from '../../utils/taskPlaceholder'
-import { useTaskListAutoScroll } from '../../hooks'
+import { useTaskListAutoScroll, useTaskListFLIP, useMascotVisibility } from '../../hooks'
+import type { ActionItem } from '../../types'
 import styles from './ChatPage.module.css'
 
 // Panel width limits
@@ -23,6 +24,8 @@ export function ChatPage() {
     completingTaskId,
     resumeTask,
     resumingTaskId,
+    deleteTask,
+    deletingTaskId,
     setReplyTarget,
     loadOlderActions,
     hasMoreActions,
@@ -86,8 +89,20 @@ export function ChatPage() {
     })
   }, [setReplyTarget])
 
-  // Group actions by task
-  const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
+  // Split tasks into "in-progress" (running / waiting / paused / pending) and
+  // "ended" (completed / error / cancelled). Each group is sorted newest-first
+  // by createdAt so a freshly-started task lands on top of its section, and a
+  // task that just ended pops to the top of the ended section. The combined
+  // `tasks` array keeps active-then-ended order so the pagination hook's count
+  // stays correct.
+  const { tasks, activeTasks, endedTasks } = useMemo(() => {
+    const taskItems = actions.filter(a => a.itemType === 'task')
+    const isEnded = (s: string) => s === 'completed' || s === 'error' || s === 'cancelled'
+    const byNewestFirst = (a: ActionItem, b: ActionItem) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+    const active = taskItems.filter(t => !isEnded(t.status)).sort(byNewestFirst)
+    const ended = taskItems.filter(t => isEnded(t.status)).sort(byNewestFirst)
+    return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
+  }, [actions])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
   const getActionsForTask = (taskId: string) =>
@@ -103,6 +118,13 @@ export function ChatPage() {
     loading: loadingOlderActions,
     loadMore: loadOlderActions,
   })
+
+  // FLIP animates a task sliding from active → ended (or vice-versa) and the
+  // surrounding rows shifting up/down to accommodate. Each row registers its
+  // outer <div> via `flipRef(task.id)`.
+  const flipRef = useTaskListFLIP()
+
+  const [mascotVisible] = useMascotVisibility()
 
   return (
     <div className={`${styles.chatPage} ${isResizing ? styles.resizing : ''}`} ref={containerRef}>
@@ -124,7 +146,7 @@ export function ChatPage() {
           Scroll + pagination behavior is shared via useTaskListAutoScroll
           so the two stay in sync. */}
       <div className={styles.actionPanel} style={{ width: panelWidth, flexShrink: 0 }}>
-        <MascotDisplay />
+        {mascotVisible && <MascotDisplay />}
         <div className={styles.panelHeader}>
           <h3>Tasks & Actions</h3>
         </div>
@@ -138,8 +160,8 @@ export function ChatPage() {
             <div className={styles.emptyActions}>
               <p>No active tasks</p>
             </div>
-          ) : (
-            tasks.map(task => {
+          ) : (() => {
+            const renderTaskRow = (task: ActionItem) => {
               const isExpanded = selectedTaskId === task.id
               const taskActions = isExpanded ? getActionsForTask(task.id) : []
               const listPlaceholder = isExpanded
@@ -149,7 +171,7 @@ export function ChatPage() {
                 listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
 
               return (
-                <div key={task.id} className={styles.taskGroup}>
+                <div ref={flipRef(task.id)} className={styles.taskGroup}>
                   <div
                     className={`${styles.taskItem} ${isExpanded ? styles.selected : ''}`}
                     onClick={() => setSelectedTaskId(isExpanded ? null : task.id)}
@@ -210,24 +232,44 @@ export function ChatPage() {
                       </>
                     )}
                     {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') && (
-                      <IconButton
-                        size="sm"
-                        variant="ghost"
-                        className={styles.taskResumeBtn}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          resumeTask(task.id)
-                        }}
-                        disabled={resumingTaskId === task.id}
-                        title="Continue Task"
-                        icon={
-                          resumingTaskId === task.id ? (
-                            <Loader2 size={12} className={styles.spinning} />
-                          ) : (
-                            <RotateCw size={12} />
-                          )
-                        }
-                      />
+                      <>
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          className={styles.taskResumeBtn}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            resumeTask(task.id)
+                          }}
+                          disabled={resumingTaskId === task.id}
+                          title="Continue Task"
+                          icon={
+                            resumingTaskId === task.id ? (
+                              <Loader2 size={12} className={styles.spinning} />
+                            ) : (
+                              <RotateCw size={12} />
+                            )
+                          }
+                        />
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          className={styles.taskDeleteBtn}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteTask(task.id)
+                          }}
+                          disabled={deletingTaskId === task.id}
+                          title="Delete Task"
+                          icon={
+                            deletingTaskId === task.id ? (
+                              <Loader2 size={12} className={styles.spinning} />
+                            ) : (
+                              <Trash2 size={12} />
+                            )
+                          }
+                        />
+                      </>
                     )}
                   </div>
                   {isExpanded && (
@@ -264,8 +306,28 @@ export function ChatPage() {
                   )}
                 </div>
               )
-            })
-          )}
+            }
+
+            return (
+              <>
+                {activeTasks.length === 0 && endedTasks.length > 0 && (
+                  <div className={styles.emptyActiveSection}>No active task now...</div>
+                )}
+                {tasks.map((task, i) => {
+                  // Divider sits above the first ended row whenever the ended
+                  // section has rows — when active is empty, it sits below
+                  // the "No active tasks" placeholder.
+                  const showDivider = i === activeTasks.length
+                  return (
+                    <React.Fragment key={task.id}>
+                      {showDivider && <div className={styles.sectionDivider} />}
+                      {renderTaskRow(task)}
+                    </React.Fragment>
+                  )
+                })}
+              </>
+            )
+          })()}
         </div>
       </div>
     </div>

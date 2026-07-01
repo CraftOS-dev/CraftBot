@@ -65,23 +65,6 @@ class ContextEngineProtocol(Protocol):
         """
         ...
 
-    def get_memory_context(
-        self,
-        query: Optional[str] = None,
-        top_k: int = 5,
-    ) -> str:
-        """
-        Get formatted memory context.
-
-        Args:
-            query: Optional query for retrieval.
-            top_k: Number of results.
-
-        Returns:
-            Formatted memory context string.
-        """
-        ...
-
     def get_event_stream_delta(self, call_type: str) -> Tuple[str, bool]:
         """
         Get events added since the last sync point for session caching.

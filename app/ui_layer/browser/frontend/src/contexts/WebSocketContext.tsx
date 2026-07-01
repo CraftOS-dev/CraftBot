@@ -32,6 +32,7 @@ import {
   setCancellingTaskId as tasksSetCancellingTaskId,
   setCompletingTaskId as tasksSetCompletingTaskId,
   setResumingTaskId as tasksSetResumingTaskId,
+  setDeletingTaskId as tasksSetDeletingTaskId,
 } from '../store/slices/tasksSlice'
 import {
   selectAllActions,
@@ -40,6 +41,7 @@ import {
   selectCancellingTaskId,
   selectCompletingTaskId,
   selectResumingTaskId,
+  selectDeletingTaskId,
   selectOldestTaskCreatedAt,
 } from '../store/selectors/tasks'
 import {
@@ -97,7 +99,8 @@ interface PendingAttachment {
   name: string
   type: string
   size: number
-  content: string  // base64
+  content: string       // base64 for small files; '' when serverPath is set
+  serverPath?: string   // pre-uploaded via HTTP (large files)
 }
 
 // Reply target for reply-to-chat/task feature
@@ -149,6 +152,7 @@ interface WebSocketContextType extends WebSocketState {
   cancellingTaskId: string | null
   completingTaskId: string | null
   resumingTaskId: string | null
+  deletingTaskId: string | null
   // Slice-backed (dashboardSlice).
   dashboardMetrics: DashboardMetrics | null
   filteredMetricsCache: Record<MetricsTimePeriod, FilteredDashboardMetrics | null>
@@ -181,6 +185,7 @@ interface WebSocketContextType extends WebSocketState {
   cancelTask: (taskId: string) => void
   completeTask: (taskId: string) => void
   resumeTask: (taskId: string, message?: string) => void
+  deleteTask: (taskId: string) => void
   openFile: (path: string) => void
   openFolder: (path: string) => void
   requestFilteredMetrics: (period: MetricsTimePeriod) => void
@@ -262,6 +267,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const cancellingTaskId = useAppSelector(selectCancellingTaskId)
   const completingTaskId = useAppSelector(selectCompletingTaskId)
   const resumingTaskId = useAppSelector(selectResumingTaskId)
+  const deletingTaskId = useAppSelector(selectDeletingTaskId)
   const oldestTaskCreatedAt = useAppSelector(selectOldestTaskCreatedAt)
   const dashboardMetrics = useAppSelector(selectDashboardMetrics)
   const filteredMetricsCache = useAppSelector(selectFilteredMetricsCache)
@@ -405,7 +411,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendOrQueue(JSON.stringify({
       type: 'message',
       content,
-      attachments: attachments || [],
+      attachments: (attachments || []).map(att => att.serverPath
+        ? { name: att.name, type: att.type, size: att.size, serverPath: att.serverPath }
+        : { name: att.name, type: att.type, size: att.size, content: att.content }
+      ),
       replyContext: replyContext || null,
       livingUIId: livingUIId || null,
       clientId,
@@ -442,6 +451,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         taskId,
         message: message || '',
       }))
+    }
+  }, [dispatch])
+
+  const deleteTask = useCallback((taskId: string) => {
+    if (client.isConnected) {
+      dispatch(tasksSetDeletingTaskId(taskId))
+      client.sendString(JSON.stringify({ type: 'task_delete', taskId }))
     }
   }, [dispatch])
 
@@ -678,6 +694,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         cancellingTaskId,
         completingTaskId,
         resumingTaskId,
+        deletingTaskId,
         dashboardMetrics,
         filteredMetricsCache,
         onboardingStep,
@@ -704,6 +721,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         cancelTask,
         completeTask,
         resumeTask,
+        deleteTask,
         openFile,
         openFolder,
         requestFilteredMetrics,

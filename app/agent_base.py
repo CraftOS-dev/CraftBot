@@ -98,6 +98,7 @@ from app.triggers import (
 from app.prompt import ROUTE_TO_SESSION_PROMPT
 from app.state.types import ReasoningResult
 from agent_core.core.task import Task
+from agent_core.core.event_stream.event import EventType
 from app.task.task_manager import TaskManager
 from app.event_stream import EventStreamManager
 from app.gui.gui_module import GUIModule
@@ -366,6 +367,16 @@ class AgentBase:
         )
         self.memory_file_watcher.start()
 
+        # Sub-agent runtime — owns the lifecycle of in-flight sub-agents.
+        # Kept separate from TaskManager so spawning a sub-agent does NOT
+        # trigger UI/chatserver/SessionStorage side effects.
+        from app.subagent import SubAgentManager
+
+        self.subagent_manager = SubAgentManager(
+            event_stream_manager=self.event_stream_manager,
+            llm_interface=self.llm,
+        )
+
         InternalActionInterface.initialize(
             self.llm,
             self.task_manager,
@@ -375,6 +386,10 @@ class AgentBase:
             video_gen_interface=self.video_gen,
             memory_manager=self.memory_manager,
             context_engine=self.context_engine,
+            subagent_manager=self.subagent_manager,
+            action_manager=self.action_manager,
+            action_library=self.action_library,
+            event_stream_manager=self.event_stream_manager,
         )
 
         # Initialize footage callback (will be set by CraftBot interface later)
@@ -1236,6 +1251,7 @@ class AgentBase:
                 "agent reasoning",
                 reasoning,
                 severity="DEBUG",
+                event_type=EventType.REASONING,
                 display_message=None,
                 task_id=session_id,
             )
@@ -1282,6 +1298,7 @@ class AgentBase:
                 "agent reasoning",
                 reasoning,
                 severity="DEBUG",
+                event_type=EventType.REASONING,
                 display_message=None,
                 task_id=session_id,
             )
@@ -1318,8 +1335,10 @@ class AgentBase:
                     self.event_stream_manager.log(
                         kind="action_error",
                         message=f"Action {action_name} failed: {error_msg}",
+                        event_type=EventType.ACTION_END,
                         display_message=f"{action_name} → failed",
                         action_name=action_name,
+                        action_output={"status": "error", "error": error_msg},
                     )
                 continue
 
@@ -1541,6 +1560,7 @@ class AgentBase:
             self.event_stream_manager.log(
                 "error",
                 f"[REACT] {type(error).__name__}: {user_message}",
+                event_type=EventType.ERROR,
                 display_message=user_message,
                 task_id=session_to_use,
             )
@@ -1610,6 +1630,7 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Action limit reached: 100% of the maximum actions ({max_actions} actions) has been used. Waiting for user decision.",
+                    event_type=EventType.SYSTEM,
                     display_message=None,
                     task_id=current_task_id,
                 )
@@ -1617,18 +1638,6 @@ class AgentBase:
             await self._send_limit_choice_message("action", current_task_id)
             await self._pause_task_for_limit_choice(current_task_id)
             return False
-        elif (action_count / max_actions) >= 0.8:
-            if self.event_stream_manager:
-                self.event_stream_manager.log(
-                    "warning",
-                    f"Action limit nearing: 80% of the maximum actions ({max_actions} actions) has been used. "
-                    "Consider wrapping up the task or informing the user that the task may be too complex. "
-                    "If necessary, mark the task as aborted to prevent premature termination.",
-                    display_message=None,
-                    task_id=current_task_id,
-                )
-                self.state_manager.bump_event_stream()
-                return True
 
         # Check token limits
         if (token_count / max_tokens) >= 1.0:
@@ -1636,6 +1645,7 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Token limit reached: 100% of the maximum tokens ({max_tokens} tokens) has been used. Waiting for user decision.",
+                    event_type=EventType.SYSTEM,
                     display_message=None,
                     task_id=current_task_id,
                 )
@@ -1643,20 +1653,8 @@ class AgentBase:
             await self._send_limit_choice_message("token", current_task_id)
             await self._pause_task_for_limit_choice(current_task_id)
             return False
-        elif (token_count / max_tokens) >= 0.8:
-            if self.event_stream_manager:
-                self.event_stream_manager.log(
-                    "warning",
-                    f"Token limit nearing: 80% of the maximum tokens ({max_tokens} tokens) has been used. "
-                    "Consider wrapping up the task or informing the user that the task may be too complex. "
-                    "If necessary, mark the task as aborted to prevent premature termination.",
-                    display_message=None,
-                    task_id=current_task_id,
-                )
-                self.state_manager.bump_event_stream()
-                return True
 
-        # No limits close or reached
+        # No limits reached
         return True
 
     async def _send_limit_choice_message(
@@ -1687,6 +1685,7 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "internal",
                     message,
+                    event_type=EventType.INTERNAL,
                     display_message=None,
                     task_id=session_id,
                 )
@@ -1815,6 +1814,7 @@ class AgentBase:
             self.event_stream_manager.log(
                 "system",
                 msg,
+                event_type=EventType.SYSTEM,
                 display_message=msg,
                 task_id=session_id,
             )
@@ -1853,6 +1853,7 @@ class AgentBase:
             self.event_stream_manager.log(
                 "system",
                 msg,
+                event_type=EventType.SYSTEM,
                 display_message=msg,
                 task_id=session_id,
             )
@@ -2080,7 +2081,9 @@ class AgentBase:
         self.event_stream_manager.get_main_stream().log(
             "agent message to platform: CraftBot Interface",
             notification,
+            event_type=EventType.AGENT_MESSAGE,
             display_message=notification,
+            platform="CraftBot Interface",
         )
         self.state_manager._append_to_conversation_history("agent", notification)
         self.state_manager.bump_event_stream()
@@ -2204,8 +2207,17 @@ class AgentBase:
         self.event_stream_manager.get_main_stream().log(
             event_label,
             chat_content,
+            event_type=EventType.USER_MESSAGE,
             display_message=chat_content,
+            platform=platform or None,
         )
+
+        # Inject relevant memories right after the user message so the
+        # conversation-mode LLM sees them in the same stream. session_id=None
+        # routes the memory event to the same main stream as the user message.
+        from agent_core.core.impl.memory.injector import inject_memory_event
+        inject_memory_event(query=chat_content, session_id=None)
+
         self.state_manager._append_to_conversation_history("user", chat_content)
         self.state_manager.bump_event_stream()
 
@@ -3192,6 +3204,7 @@ class AgentBase:
                         "system",
                         "Task restored after agent restart. "
                         "Resuming from previous state.",
+                        event_type=EventType.SYSTEM,
                         task_id=task_id,
                     )
 

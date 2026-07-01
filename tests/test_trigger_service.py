@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Integration tests for TriggerService + TriggerQueue + TriggerStore
- — including crash/restart simulations."""
+— including crash/restart simulations."""
 
 import asyncio
 import heapq
@@ -310,9 +310,7 @@ class TestRehydrateEdges:
     def test_waiting_for_reply_round_trips(self, tmp_path):
         async def scenario():
             store, queue, service = make_stack(tmp_path)
-            await service.emit(
-                spec(waiting_for_reply=True, fire_at=time.time() + 9999)
-            )
+            await service.emit(spec(waiting_for_reply=True, fire_at=time.time() + 9999))
             # crash before it fires
 
             store2, queue2, service2 = make_stack(tmp_path)

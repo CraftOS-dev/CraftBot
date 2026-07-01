@@ -475,7 +475,7 @@ schedule_task(
 ## Allowed Actions
 
 **Core:** `recurring_read`, `recurring_add`, `recurring_update_task`, `scheduled_task_list`,
-`schedule_task`, `read_file`, `stream_read`, `stream_edit`, `memory_search`,
+`schedule_task`, `read_file`, `stream_edit`, `memory_search`,
 `send_message`, `task_update_todos`, `task_end`
 
 **External Integrations (use selectively based on user):**

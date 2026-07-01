@@ -14,7 +14,7 @@ from agent_core import action
     input_schema={
         "to": {
             "type": "string",
-            "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix.",
+            "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix. Pass `user` (or `me` / `owner` / `self`) to send to your own (the owner's) number — use this to reply to the user on a WhatsApp-originated task.",
             "example": "1234567890",
         },
         "message": {

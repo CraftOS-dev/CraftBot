@@ -14,8 +14,10 @@ Hooks allow runtime-specific behavior:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import re
+import time
 import requests
 from typing import Any, Dict, List, Optional
 
@@ -38,10 +40,31 @@ from agent_core.core.hooks import (
     ReportUsageHook,
     LogToDbHook,
     UsageEventData,
+    LLMCallRecord,
+    RecordLLMCallHook,
 )
 
 # Logging setup - use shared agent_core logger for consistency
 from agent_core.utils.logger import logger
+from agent_core.utils.token import billable_tokens
+
+# Per-call metadata (prompt identity + start time) propagated from the public
+# entry methods down to the capture chokepoint (_call_log_to_db) without
+# threading it through every provider method. asyncio.to_thread copies the
+# context into the worker thread, so this survives the sync offload, and each
+# asyncio Task / thread gets its own copy so concurrent calls don't clobber.
+_llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_llm_call_ctx", default={}
+)
+
+# Per-call metadata (prompt identity + start time) propagated from the public
+# entry methods down to the capture chokepoint (_call_log_to_db) without
+# threading it through every provider method. asyncio.to_thread copies the
+# context into the worker thread, so this survives the sync offload, and each
+# asyncio Task / thread gets its own copy so concurrent calls don't clobber.
+_llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_llm_call_ctx", default={}
+)
 
 
 class _EmptyResponse(Exception):
@@ -120,6 +143,7 @@ class LLMInterface:
         set_token_count: Optional[SetTokenCountHook] = None,
         report_usage: Optional[ReportUsageHook] = None,
         log_to_db: Optional[LogToDbHook] = None,
+        record_llm_call: Optional[RecordLLMCallHook] = None,
     ) -> None:
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -137,6 +161,7 @@ class LLMInterface:
         self._set_token_count = set_token_count or (lambda x: None)
         self._report_usage = report_usage
         self._log_to_db = log_to_db
+        self._record_llm_call = record_llm_call
 
         # Consecutive failure tracking to prevent infinite retry loops
         self._consecutive_failures = 0
@@ -373,8 +398,18 @@ class LLMInterface:
         status: str,
         token_count_input: int,
         token_count_output: int,
+        cached_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> None:
-        """Call the log_to_db hook if set."""
+        """Call the log_to_db hook if set, and capture the full call for the
+        prompt profiler / eval harvesting.
+
+        This method is invoked from every provider path right after the
+        response is parsed, so it is the single chokepoint where the full
+        prompt, response, and token counts coexist. Prompt identity + latency
+        are read from the per-call context (`_llm_call_ctx`) set at the public
+        entry point.
+        """
         if self._log_to_db:
             try:
                 self._log_to_db(
@@ -387,6 +422,56 @@ class LLMInterface:
                 )
             except Exception as e:
                 logger.warning(f"[LLM] Failed to log to database: {e}")
+
+        if self._record_llm_call:
+            try:
+                ctx = _llm_call_ctx.get() or {}
+                start = ctx.get("start")
+                latency_ms = (
+                    int((time.perf_counter() - start) * 1000) if start else 0
+                )
+                self._record_llm_call(
+                    LLMCallRecord(
+                        provider=self.provider or "",
+                        model=self.model or "",
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response=output,
+                        status=status,
+                        input_tokens=token_count_input,
+                        output_tokens=token_count_output,
+                        cached_tokens=cached_tokens,
+                        cache_creation_tokens=cache_creation_tokens,
+                        latency_ms=latency_ms,
+                        prompt_name=ctx.get("prompt_name"),
+                        call_type=ctx.get("call_type"),
+                        task_id=ctx.get("task_id"),
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"[LLM] Failed to capture LLM call: {e}")
+
+    def _begin_call(
+        self,
+        prompt_name: Optional[str] = None,
+        call_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ) -> None:
+        """Stamp per-call identity + start time into the context for capture.
+
+        Called at the public entry points; read back at the capture chokepoint
+        (`_call_log_to_db`). The explicit `prompt_name` (passed by the call
+        site) is what lets the profiler tell apart prompts that share a
+        call_type (e.g. the three action-selection prompts).
+        """
+        _llm_call_ctx.set(
+            {
+                "prompt_name": prompt_name,
+                "call_type": call_type,
+                "task_id": task_id,
+                "start": time.perf_counter(),
+            }
+        )
 
     # ───────────────────────────  Public helpers  ────────────────────────────
     def _generate_response_sync(
@@ -481,7 +566,7 @@ class LLMInterface:
 
             # Update token count via hook
             current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
+            self._set_token_count(current_count + billable_tokens(response))
 
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
@@ -521,8 +606,10 @@ class LLMInterface:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Generate a single response from the configured provider."""
+        self._begin_call(prompt_name=prompt_name)
         return self._generate_response_sync(system_prompt, user_prompt, log_response)
 
     @profile("llm_generate_response_async", OperationCategory.LLM)
@@ -531,8 +618,12 @@ class LLMInterface:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread."""
+        # Stamp the context here, in the caller's context, so asyncio.to_thread
+        # copies it into the worker thread where the capture runs.
+        self._begin_call(prompt_name=prompt_name)
         return await asyncio.to_thread(
             self._generate_response_sync,
             system_prompt,
@@ -745,6 +836,53 @@ class LLMInterface:
         get_cache_metrics().reset()
         logger.info("[CACHE] Cache metrics reset")
 
+    def _finalize_session_response(
+        self, response: Dict[str, Any], log_response: bool
+    ) -> str:
+        """Shared tail for the session-cache provider branches.
+
+        Mirrors the failure handling in `_generate_response_sync`: an empty
+        response is treated as a failure, the consecutive-failure counter is
+        tracked, and the classified cause is surfaced (raising
+        `LLMConsecutiveFailureError` once the threshold is hit so the agent
+        aborts instead of retrying forever). On success the counter resets and
+        the cleaned content is returned.
+        """
+        content = (response.get("content") or "").strip()
+        if not content:
+            error_info = response.get("error_info_obj")
+            error_msg = response.get("error", "")
+            if error_info is not None:
+                error_detail = error_info.message
+            elif error_msg:
+                error_detail = f"LLM provider returned error: {error_msg}"
+            else:
+                error_detail = (
+                    f"LLM returned empty response. "
+                    f"Provider: {self.provider}, Model: {self.model}. "
+                    f"This may indicate an API error or service unavailability."
+                )
+            logger.error(f"[LLM ERROR] {error_detail}")
+            self._consecutive_failures += 1
+            logger.warning(
+                f"[LLM CONSECUTIVE FAILURE] Count: "
+                f"{self._consecutive_failures}/{self._max_consecutive_failures}"
+            )
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                raise LLMConsecutiveFailureError(
+                    self._consecutive_failures, last_error_info=error_info
+                )
+            raise RuntimeError(error_detail)
+
+        # Success - reset consecutive failure counter
+        self._consecutive_failures = 0
+        cleaned = re.sub(self._CODE_BLOCK_RE, "", content)
+        current_count = self._get_token_count()
+        self._set_token_count(current_count + billable_tokens(response))
+        if log_response:
+            logger.info(f"[LLM RECV] {cleaned}")
+        return cleaned
+
     def _generate_response_with_session_sync(
         self,
         task_id: str,
@@ -775,6 +913,17 @@ class LLMInterface:
         """
         if user_prompt is None:
             raise ValueError("`user_prompt` cannot be None.")
+
+        # Same consecutive-failure backstop as `_generate_response_sync`. The
+        # session path previously had none, so a persistent provider error
+        # (e.g. out-of-credits) retried forever instead of aborting.
+        if self._consecutive_failures >= self._max_consecutive_failures:
+            logger.critical(
+                f"[LLM ABORT] Consecutive failure threshold reached "
+                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+                f"Aborting to prevent infinite retries."
+            )
+            raise LLMConsecutiveFailureError(self._consecutive_failures)
 
         if log_response:
             logger.info(
@@ -827,14 +976,7 @@ class LLMInterface:
                     {"role": "model", "parts": [{"text": assistant_content}]}
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle OpenAI/DeepSeek/Grok/OpenRouter with call_type-based cache routing
         if self.provider in ("openai", "deepseek", "grok", "openrouter"):
@@ -901,14 +1043,7 @@ class LLMInterface:
                     effective_system_prompt, user_prompt, call_type=call_type
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle Anthropic with multi-turn KV caching
         if self.provider == "anthropic" and self._anthropic_client:
@@ -990,14 +1125,7 @@ class LLMInterface:
                 history.append({"role": "user", "content": user_prompt})
                 history.append({"role": "assistant", "content": assistant_content})
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle Bedrock with multi-turn cachePoint caching.
         # Mirrors the Anthropic-direct pattern: accumulate the user/assistant
@@ -1085,14 +1213,7 @@ class LLMInterface:
                     f"has_error={response_has_error})"
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + response.get("tokens_used", 0))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # If not BytePlus (and not Gemini/OpenAI/Anthropic/Bedrock which are handled above), fall back to standard
         if self.provider != "byteplus" or not self._byteplus_cache_manager:
@@ -1146,13 +1267,7 @@ class LLMInterface:
                 effective_system_prompt, user_prompt, log_response=False
             )
 
-        cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
-
-        current_count = self._get_token_count()
-        self._set_token_count(current_count + response.get("tokens_used", 0))
-        if log_response:
-            logger.info(f"[LLM RECV] {cleaned}")
-        return cleaned
+        return self._finalize_session_response(response, log_response)
 
     def _process_session_response(
         self,
@@ -1211,6 +1326,7 @@ class LLMInterface:
             "success",
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -1223,7 +1339,11 @@ class LLMInterface:
             cached_tokens or 0,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def _process_prefix_response(
         self, result: Dict[str, Any], session_key: str
@@ -1276,9 +1396,14 @@ class LLMInterface:
             "success",
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def generate_response_with_session(
         self,
@@ -1287,6 +1412,7 @@ class LLMInterface:
         user_prompt: str,
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Synchronous session-based response generation.
 
@@ -1296,7 +1422,11 @@ class LLMInterface:
             user_prompt: The user prompt to send.
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
+            prompt_name: Identity of the named prompt, for capture/profiling.
         """
+        self._begin_call(
+            prompt_name=prompt_name, call_type=call_type, task_id=task_id
+        )
         return self._generate_response_with_session_sync(
             task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
         )
@@ -1309,6 +1439,7 @@ class LLMInterface:
         user_prompt: str,
         system_prompt_for_new_session: Optional[str] = None,
         log_response: bool = True,
+        prompt_name: Optional[str] = None,
     ) -> str:
         """Async wrapper for session-based response generation.
 
@@ -1318,7 +1449,13 @@ class LLMInterface:
             user_prompt: The user prompt to send.
             system_prompt_for_new_session: System prompt to use if creating new session.
             log_response: Whether to log the response.
+            prompt_name: Identity of the named prompt, for capture/profiling.
         """
+        # Stamp here (caller's context) so asyncio.to_thread copies it into the
+        # worker thread where capture runs.
+        self._begin_call(
+            prompt_name=prompt_name, call_type=call_type, task_id=task_id
+        )
         return await asyncio.to_thread(
             self._generate_response_with_session_sync,
             task_id,
@@ -1344,6 +1481,7 @@ class LLMInterface:
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
+        cached_tokens = 0
         session_key = f"{task_id}:{call_type}"
 
         try:
@@ -1467,6 +1605,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -1487,7 +1626,11 @@ class LLMInterface:
             cached_tokens,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     # ───────────────────── Provider‑specific private helpers ─────────────────────
     @profile("llm_openai_call", OperationCategory.LLM)
@@ -1665,6 +1808,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage. service_type stays "llm_openai" (the request shape) but
@@ -1922,6 +2066,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens,
         )
 
         # Report usage
@@ -2080,6 +2225,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         # Report usage
@@ -2092,7 +2238,11 @@ class LLMInterface:
             cached_tokens or 0,
         )
 
-        return {"tokens_used": total_tokens or 0, "content": content or ""}
+        return {
+            "tokens_used": total_tokens or 0,
+            "content": content or "",
+            "cached_tokens": cached_tokens or 0,
+        }
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.
@@ -2265,6 +2415,12 @@ class LLMInterface:
         token_count_input = token_count_output = 0
         total_tokens = 0
         cached_tokens = 0
+        # Initialized here (not just inside the try) so the post-`except`
+        # _call_log_to_db below can reference them even when the API call
+        # throws before they're assigned (e.g. out-of-credits). Otherwise the
+        # real provider error is masked by an UnboundLocalError.
+        cache_creation = 0
+        cache_read = 0
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None
@@ -2379,6 +2535,8 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens,  # cache_read — was MISSING (always 0)
+            cache_creation_tokens=cache_creation,  # cache_write — to settle write-vs-expiry
         )
 
         # Report usage
@@ -2580,6 +2738,7 @@ class LLMInterface:
             status,
             token_count_input,
             token_count_output,
+            cached_tokens=cached_tokens or 0,
         )
 
         self._report_usage_async(

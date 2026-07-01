@@ -17,6 +17,7 @@ from typing import Optional, Dict, Any, Callable
 from tzlocal import get_localzone
 
 from agent_core.core.prompts import (
+    CURRENT_DATETIME_PROMPT,
     AGENT_ROLE_PROMPT,
     AGENT_INFO_PROMPT,
     ENVIRONMENTAL_CONTEXT_PROMPT,
@@ -27,17 +28,6 @@ from agent_core.core.prompts import (
     LANGUAGE_INSTRUCTION,
 )
 from agent_core.core.state import get_state, get_session_or_none
-
-
-# Import memory mode check (deferred to avoid circular imports)
-def _is_memory_enabled() -> bool:
-    """Check if memory mode is enabled. Returns True if unknown."""
-    try:
-        from app.ui_layer.settings.memory_settings import is_memory_enabled
-
-        return is_memory_enabled()
-    except ImportError:
-        return True  # Default to enabled if settings module not available
 
 
 # Set up logger - use shared agent_core logger for consistency
@@ -182,9 +172,15 @@ class ContextEngine:
         return POLICY_PROMPT
 
     def create_system_environmental_context(self) -> str:
-        """Create a system message block with environmental context."""
+        """Create a system message block with environmental context.
+
+        NOTE: the current date/time is deliberately NOT included here — it would
+        change every call and live in the cached system prefix, busting Gemini's
+        prefix-based implicit cache. It is injected into the dynamic event-stream
+        tail instead (see `current_datetime_block` / `get_event_stream`). Only
+        stable environment facts belong in this cached block.
+        """
         import platform
-        from datetime import datetime
 
         try:
             from app.config import AGENT_WORKSPACE_ROOT
@@ -192,10 +188,7 @@ class ContextEngine:
             AGENT_WORKSPACE_ROOT = "."
 
         local_timezone = get_localzone()
-        now = datetime.now(local_timezone)
-        current_datetime = now.strftime("%Y-%m-%d %H:%M:%S") + f" ({local_timezone})"
         return ENVIRONMENTAL_CONTEXT_PROMPT.format(
-            current_datetime=current_datetime,
             user_location=local_timezone,
             working_directory=AGENT_WORKSPACE_ROOT,
             operating_system=platform.system(),
@@ -205,6 +198,17 @@ class ContextEngine:
             vm_os_version="6.12.13",
             vm_os_platform="Linux a5e39e32118c 6.12.13 #1 SMP Thu Mar 13 11:34:50 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux",
         )
+
+    def current_datetime_block(self) -> str:
+        """Render the current date/time as a dynamic block for the user/event
+        tail. Kept out of the cached system prefix on purpose (see
+        create_system_environmental_context)."""
+        from datetime import datetime
+
+        local_timezone = get_localzone()
+        now = datetime.now(local_timezone)
+        current_datetime = now.strftime("%Y-%m-%d %H:%M:%S") + f" ({local_timezone})"
+        return CURRENT_DATETIME_PROMPT.format(current_datetime=current_datetime)
 
     def create_system_file_system_context(self) -> str:
         """Create a system message block with agent file system context."""
@@ -281,6 +285,10 @@ class ContextEngine:
             2. Current task's event stream (real-time events for this task)
         """
         sections = []
+
+        # Current date/time goes in this dynamic tail (NOT the cached system
+        # prefix) so the prompt prefix stays byte-stable for cache hits.
+        # sections.append(self.current_datetime_block())
 
         # Get conversation history (recent messages from BEFORE this task)
         # This provides context without injecting into the actual event stream
@@ -463,12 +471,19 @@ class ContextEngine:
                 )
             current_task = get_state().current_task
 
+        # Active Task ID lives in task_state (relocated from agent_state).
+        if session:
+            task_id = session.get_agent_properties().get("current_task_id", "")
+        else:
+            task_id = get_state().get_agent_properties().get("current_task_id", "")
+
         if current_task:
             is_simple = getattr(current_task, "mode", "complex") == "simple"
 
             if is_simple:
                 return (
                     "<current_task>\n"
+                    f"Active Task ID: {task_id}\n"
                     f"Task: {current_task.name} [SIMPLE MODE]\n"
                     f"Instruction: {current_task.instruction}\n"
                     "Mode: Simple task - execute directly, no todos required\n"
@@ -477,6 +492,7 @@ class ContextEngine:
 
             lines = [
                 "<current_task>",
+                f"Active Task ID: {task_id}",
                 f"Task: {current_task.name}",
                 f"Instruction: {current_task.instruction}",
                 "Mode: Complex task - use todos in event stream to track progress",
@@ -546,7 +562,6 @@ class ContextEngine:
         # Try session-specific state first
         session = get_session_or_none(session_id)
         if session:
-            agent_properties = session.get_agent_properties()
             gui_mode_status = "GUI mode" if session.gui_mode else "CLI mode"
         else:
             # CRITICAL: Log warning when falling back to global state
@@ -555,16 +570,9 @@ class ContextEngine:
                     f"[CONTEXT_ENGINE] get_agent_state: Session not found for session_id={session_id!r}, "
                     f"falling back to global STATE. This may cause context leakage!"
                 )
-            agent_properties = get_state().get_agent_properties()
             gui_mode_status = "GUI mode" if get_state().gui_mode else "CLI mode"
 
-        if agent_properties:
-            return (
-                "<agent_state>\n"
-                f"- Active Task ID: {agent_properties.get('current_task_id')}\n"
-                f"- Current Mode: {gui_mode_status}\n"
-                "</agent_state>"
-            )
+        # Active Task ID now lives in task_state (see get_task_state).
         return f"<agent_state>\n- Current Mode: {gui_mode_status}\n</agent_state>"
 
     def get_conversation_history(self) -> str:
@@ -578,140 +586,6 @@ class ContextEngine:
     def get_user_info(self) -> str:
         """Get current user info for user prompts (WCA-specific via hook)."""
         return self._get_user_info()
-
-    def _build_memory_query(
-        self, query: Optional[str], session_id: Optional[str]
-    ) -> Optional[str]:
-        """Build a semantic query for memory retrieval.
-
-        Combines task instruction with recent conversation messages (both user
-        and agent) to provide better context for memory search.
-
-        Args:
-            query: Optional explicit query string.
-            session_id: Optional session ID for session-specific state lookup.
-
-        Returns:
-            A query string suitable for semantic memory search, or None if no context.
-        """
-        # Get task instruction as the base query
-        session = get_session_or_none(session_id)
-        if session and session.current_task:
-            task_instruction = session.current_task.instruction
-        else:
-            current_task = get_state().current_task
-            task_instruction = current_task.instruction if current_task else None
-
-        if not task_instruction:
-            # Fall back to explicit query if no task
-            return query if query else None
-
-        # Get recent conversation messages for additional context
-        recent_context = self._get_recent_conversation_for_memory(session_id, limit=5)
-
-        if recent_context:
-            return f"{task_instruction}\n\nRecent conversation:\n{recent_context}"
-        else:
-            return task_instruction
-
-    def _get_recent_conversation_for_memory(
-        self, session_id: Optional[str], limit: int = 5
-    ) -> str:
-        """Get recent conversation messages for memory query context.
-
-        Args:
-            session_id: Optional session ID for session-specific event stream.
-            limit: Maximum number of messages to include.
-
-        Returns:
-            Formatted string of recent user and agent messages.
-        """
-        try:
-            event_stream_manager = self.state_manager.event_stream_manager
-            if not event_stream_manager:
-                return ""
-
-            # Get messages from conversation history (includes both user and agent)
-            recent_messages = event_stream_manager.get_recent_conversation_messages(
-                limit
-            )
-            if not recent_messages:
-                return ""
-
-            # Format messages simply for semantic search
-            lines = []
-            for event in recent_messages:
-                # Simplify the kind label for the query
-                if "user message" in event.kind:
-                    lines.append(f"User: {event.message}")
-                elif "agent message" in event.kind:
-                    lines.append(f"Agent: {event.message}")
-
-            return "\n".join(lines)
-
-        except Exception as e:
-            logger.warning(f"[MEMORY] Failed to get recent conversation: {e}")
-            return ""
-
-    def get_memory_context(
-        self,
-        query: Optional[str] = None,
-        top_k: int = 5,
-        session_id: Optional[str] = None,
-    ) -> str:
-        """Get relevant memories for inclusion in prompts.
-
-        Args:
-            query: Optional query string for memory retrieval. If not provided,
-                   uses current task instruction combined with recent conversation.
-            top_k: Number of top memories to retrieve.
-            session_id: Optional session ID for session-specific state lookup.
-        """
-        if not self._memory_manager:
-            return ""
-
-        # Check if memory is enabled in settings
-        if not _is_memory_enabled():
-            return ""
-
-        # Build semantic query from task instruction + recent conversation
-        # This provides better context than using the raw trigger description
-        memory_query = self._build_memory_query(query, session_id)
-        if not memory_query:
-            return ""
-
-        try:
-            pointers = self._memory_manager.retrieve(
-                memory_query, top_k=top_k, min_relevance=0.3
-            )
-
-            if not pointers:
-                return ""
-
-            lines = ["<relevant_memories>"]
-            lines.append(
-                "Historical context from previous interactions (verify against current event stream):"
-            )
-            lines.append("")
-
-            for ptr in pointers:
-                lines.append(
-                    f"- [{ptr.file_path}] {ptr.section_path}: {ptr.summary} "
-                    f"(relevance: {ptr.relevance_score:.2f})"
-                )
-
-            lines.append("")
-            lines.append(
-                "Note: Memories may be outdated. Trust current event stream over memories if they conflict."
-            )
-            lines.append("Use memory_search action to retrieve full content if needed.")
-            lines.append("</relevant_memories>")
-
-            return "\n".join(lines)
-
-        except Exception as e:
-            logger.warning(f"[MEMORY] Failed to retrieve memory context: {e}")
-            return ""
 
     # ──────────────────────── USER MESSAGE COMPONENTS ────────────────────────
 

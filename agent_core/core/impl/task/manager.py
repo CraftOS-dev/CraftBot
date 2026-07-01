@@ -34,6 +34,7 @@ from typing import Awaitable, Callable, List, Dict, Any, Optional, TYPE_CHECKING
 
 from agent_core.core.task import Task, TodoItem
 from agent_core.core.state import get_state, StateSession
+from agent_core.core.event_stream.event import EventType
 from agent_core.core.impl.llm import LLMCallType
 
 if TYPE_CHECKING:
@@ -359,7 +360,9 @@ class TaskManager:
             self.event_stream_manager.log(
                 event_label,
                 original_query,
+                event_type=EventType.USER_MESSAGE,
                 display_message=original_query,
+                platform=original_platform,
                 task_id=task_id,
             )
 
@@ -369,9 +372,18 @@ class TaskManager:
         self.event_stream_manager.log(
             "task_start",
             f"Created task: '{task_name}'",
+            event_type=EventType.TASK_START,
             display_message=task_name,
             task_id=task_id,
         )
+
+        # Inject memory event into the new task's stream. Uses the task
+        # instruction as the query — for user-spawned tasks this is usually
+        # the LLM's expansion of the user message; for proactive / scheduled
+        # tasks it's the trigger description. inject_memory_event no-ops if
+        # nothing passes min_relevance, so noise is filtered automatically.
+        from agent_core.core.impl.memory.injector import inject_memory_event
+        inject_memory_event(query=task_instruction, session_id=task_id)
 
         self._set_agent_property("current_task_id", task_id)
 
@@ -665,7 +677,9 @@ class TaskManager:
         self.event_stream_manager.log(
             "task_end",
             f"Task ended with status '{status}'. {note or ''}",
+            event_type=EventType.TASK_END,
             display_message=task.name,
+            task_status=status,
             task_id=task.id,
         )
 

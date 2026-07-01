@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, CheckCircle, ArrowLeft, Reply, Plus, Loader2, RotateCw } from 'lucide-react'
+import { ChevronRight, XCircle, CheckCircle, ArrowLeft, Reply, Plus, Loader2, RotateCw, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
 import type { ActionItem } from '../../types'
 import { useSkillCreator } from './useSkillCreator'
 import { getActivePlaceholder, type ActivePlaceholder } from '../../utils/taskPlaceholder'
-import { useTaskListAutoScroll } from '../../hooks'
+import { useTaskListAutoScroll, useTaskListFLIP } from '../../hooks'
 import { getActionRenderer, parseIO } from './actionRenderers/renderers'
 import styles from './TasksPage.module.css'
 
@@ -546,7 +546,7 @@ const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions, messages, cancelTask, cancellingTaskId, completeTask, completingTaskId, resumeTask, resumingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
+  const { actions, messages, cancelTask, cancellingTaskId, completeTask, completingTaskId, resumeTask, resumingTaskId, deleteTask, deletingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
   const internalWorkflowIds = useMemo(() => new Set(skillMeta.internalWorkflowIds), [skillMeta.internalWorkflowIds])
   const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
   const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
@@ -576,7 +576,20 @@ export function TasksPage() {
   // A counter we bump every second to re-render live durations for running items.
   const [, forceTick] = useState(0)
 
-  const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
+  // Split tasks into "in-progress" (running / waiting / paused / pending) and
+  // "ended" (completed / error / cancelled). Each group is sorted newest-first
+  // by createdAt so a freshly-started task appears at the top of its section,
+  // and a task that just ended pops to the top of the ended section. The
+  // combined `tasks` array keeps active-then-ended order so pagination counts
+  // and selection lookups work unchanged.
+  const { tasks, activeTasks, endedTasks } = useMemo(() => {
+    const taskItems = actions.filter(a => a.itemType === 'task')
+    const isEnded = (s: string) => s === 'completed' || s === 'error' || s === 'cancelled'
+    const byNewestFirst = (a: ActionItem, b: ActionItem) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+    const active = taskItems.filter(t => !isEnded(t.status)).sort(byNewestFirst)
+    const ended = taskItems.filter(t => isEnded(t.status)).sort(byNewestFirst)
+    return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
+  }, [actions])
 
   // Scroll behavior + scroll-to-top pagination for the All Tasks list.
   // Same hook as ChatPage's Tasks & Actions sidebar so the two behave
@@ -587,6 +600,11 @@ export function TasksPage() {
     loading: loadingOlderActions,
     loadMore: loadOlderActions,
   })
+
+  // FLIP animates a task sliding from active → ended (or vice-versa) and the
+  // surrounding rows shifting up/down to accommodate. Operates on whatever
+  // <div> each row registers via `flipRef(task.id)`.
+  const flipRef = useTaskListFLIP()
 
   const selectedTask = useMemo(
     () => tasks.find(t => t.id === selectedTaskId) ?? null,
@@ -803,87 +821,129 @@ export function TasksPage() {
               <p>No tasks yet</p>
             </div>
           ) : (
-            tasks.map(task => {
-              const taskItems = getItemsForTask(task.id)
-              const actionCount = getActionCountForTask(task.id)
-              const isCurrentTask = selectedTaskId === task.id
-              const listPlaceholder = isCurrentTask
-                ? getActivePlaceholder(task.status, taskItems)
-                : null
-              const showListReply =
-                listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
+            (() => {
+              const renderTaskRow = (task: ActionItem) => {
+                const taskItems = getItemsForTask(task.id)
+                const actionCount = getActionCountForTask(task.id)
+                const isCurrentTask = selectedTaskId === task.id
+                const listPlaceholder = isCurrentTask
+                  ? getActivePlaceholder(task.status, taskItems)
+                  : null
+                const showListReply =
+                  listPlaceholder?.status === 'waiting' && !tasksAwaitingOption.has(task.id)
+
+                return (
+                  <div ref={flipRef(task.id)} className={styles.taskGroup}>
+                    <button
+                      className={`${styles.taskItem} ${isCurrentTask ? styles.selected : ''}`}
+                      onClick={() => handleSelectFromList(task)}
+                    >
+                      <ChevronRight
+                        size={14}
+                        className={`${styles.chevron} ${isCurrentTask ? styles.expanded : ''}`}
+                      />
+                      <StatusIndicator status={task.status} size="sm" />
+                      <span className={styles.itemName}>{task.name}</span>
+                      {(task.status === 'running' || task.status === 'waiting') && !tasksAwaitingOption.has(task.id) && (
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          className={styles.taskReplyBtn}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleTaskReply(task)
+                          }}
+                          title="Reply to Task"
+                          icon={<Reply size={12} />}
+                        />
+                      )}
+                      {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') && (
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          className={styles.taskDeleteBtn}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteTask(task.id)
+                          }}
+                          disabled={deletingTaskId === task.id}
+                          title="Delete Task"
+                          icon={
+                            deletingTaskId === task.id ? (
+                              <Loader2 size={12} className={styles.spinning} />
+                            ) : (
+                              <Trash2 size={12} />
+                            )
+                          }
+                        />
+                      )}
+                      <Badge variant="default">
+                        {actionCount} actions
+                      </Badge>
+                    </button>
+
+                    {isCurrentTask && (
+                      <div className={styles.actionsList}>
+                        {taskItems.map(action => (
+                          <button
+                            key={action.id}
+                            className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${scrollTargetId === action.id ? styles.selected : ''}`}
+                            onClick={() => handleSelectFromList(action)}
+                          >
+                            {action.itemType !== 'reasoning' && (
+                              <StatusIndicator status={action.status} size="sm" />
+                            )}
+                            <span className={styles.itemName}>{action.name}</span>
+                          </button>
+                        ))}
+                        {listPlaceholder && (
+                          <div className={styles.placeholderItem}>
+                            <StatusIndicator status={listPlaceholder.status} size="sm" />
+                            <span className={styles.itemName}>{listPlaceholder.label}</span>
+                            {showListReply && (
+                              <IconButton
+                                size="sm"
+                                variant="ghost"
+                                className={styles.placeholderReplyBtn}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleTaskReply(task)
+                                }}
+                                title="Reply to Task"
+                                icon={<Reply size={12} />}
+                              />
+                            )}
+                          </div>
+                        )}
+                        {taskItems.length === 0 && !listPlaceholder && (
+                          <div className={styles.noActions}>No actions yet</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
 
               return (
-                <div key={task.id} className={styles.taskGroup}>
-                  <button
-                    className={`${styles.taskItem} ${isCurrentTask ? styles.selected : ''}`}
-                    onClick={() => handleSelectFromList(task)}
-                  >
-                    <ChevronRight
-                      size={14}
-                      className={`${styles.chevron} ${isCurrentTask ? styles.expanded : ''}`}
-                    />
-                    <StatusIndicator status={task.status} size="sm" />
-                    <span className={styles.itemName}>{task.name}</span>
-                    {(task.status === 'running' || task.status === 'waiting') && !tasksAwaitingOption.has(task.id) && (
-                      <IconButton
-                        size="sm"
-                        variant="ghost"
-                        className={styles.taskReplyBtn}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleTaskReply(task)
-                        }}
-                        title="Reply to Task"
-                        icon={<Reply size={12} />}
-                      />
-                    )}
-                    <Badge variant="default">
-                      {actionCount} actions
-                    </Badge>
-                  </button>
-
-                  {isCurrentTask && (
-                    <div className={styles.actionsList}>
-                      {taskItems.map(action => (
-                        <button
-                          key={action.id}
-                          className={`${styles.actionItem} ${action.itemType === 'reasoning' ? styles.reasoningItem : ''} ${scrollTargetId === action.id ? styles.selected : ''}`}
-                          onClick={() => handleSelectFromList(action)}
-                        >
-                          {action.itemType !== 'reasoning' && (
-                            <StatusIndicator status={action.status} size="sm" />
-                          )}
-                          <span className={styles.itemName}>{action.name}</span>
-                        </button>
-                      ))}
-                      {listPlaceholder && (
-                        <div className={styles.placeholderItem}>
-                          <StatusIndicator status={listPlaceholder.status} size="sm" />
-                          <span className={styles.itemName}>{listPlaceholder.label}</span>
-                          {showListReply && (
-                            <IconButton
-                              size="sm"
-                              variant="ghost"
-                              className={styles.placeholderReplyBtn}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleTaskReply(task)
-                              }}
-                              title="Reply to Task"
-                              icon={<Reply size={12} />}
-                            />
-                          )}
-                        </div>
-                      )}
-                      {taskItems.length === 0 && !listPlaceholder && (
-                        <div className={styles.noActions}>No actions yet</div>
-                      )}
-                    </div>
+                <>
+                  {activeTasks.length === 0 && endedTasks.length > 0 && (
+                    <div className={styles.emptyActiveSection}>No active task now...</div>
                   )}
-                </div>
+                  {tasks.map((task, i) => {
+                    // Divider sits above the first ended row whenever the
+                    // ended section has rows — when active is empty, it sits
+                    // below the "No active tasks" placeholder.
+                    const showDivider = i === activeTasks.length
+                    return (
+                      <React.Fragment key={task.id}>
+                        {showDivider && <div className={styles.sectionDivider} />}
+                        {renderTaskRow(task)}
+                      </React.Fragment>
+                    )
+                  })}
+                </>
               )
-            })
+            })()
           )}
         </div>
       </div>
@@ -963,6 +1023,23 @@ export function TasksPage() {
                         Create Skill
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={
+                        deletingTaskId === selectedTask.id ? (
+                          <Loader2 size={14} className={styles.spinning} />
+                        ) : (
+                          <Trash2 size={14} />
+                        )
+                      }
+                      loading={deletingTaskId === selectedTask.id}
+                      disabled={deletingTaskId === selectedTask.id}
+                      onClick={() => deleteTask(selectedTask.id)}
+                      className={styles.deleteButton}
+                    >
+                      {deletingTaskId === selectedTask.id ? 'Deleting…' : 'Delete Task'}
+                    </Button>
                   </>
                 ) : null}
               </div>

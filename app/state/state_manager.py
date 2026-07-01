@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from agent_core.core.state.types import MainState
 from agent_core.core.state.session import StateSession
+from agent_core.core.event_stream.event import EventType
 from agent_core.utils.file_utils import rotate_md_file_if_needed
 from app.state.types import AgentProperties
 from app.state.agent_state import STATE
@@ -65,10 +66,13 @@ class StateManager:
         # Track in main state
         self._main_state.add_task_started(task.id, task.name, task.created_at)
 
-        # Log to main stream
+        # Log to main stream. Main-stream task_started events are conversation
+        # history bookkeeping; the per-task stream's task_start (logged by
+        # TaskManager) is what surfaces in the UI Tasks panel.
         self.log_to_main_stream(
             "task_started",
             f"Started task: {task.name}",
+            event_type=EventType.TASK_START,
             display_message=f"Task started: {task.name}",
         )
         logger.debug(f"[STATE] Task created and tracked in main state: {task.id}")
@@ -85,11 +89,15 @@ class StateManager:
         # Update main state
         self._main_state.mark_task_ended(task.id, status, task.ended_at or "", summary)
 
-        # Log to main stream
+        # Log to main stream. Main-stream task_ended events are conversation
+        # history bookkeeping; the per-task stream's task_end is what the UI
+        # Tasks panel renders.
         self.log_to_main_stream(
             "task_ended",
             f"Task {status}: {task.name}. {summary or ''}",
+            event_type=EventType.TASK_END,
             display_message=f"Task {status}: {task.name}",
+            task_status=status,
         )
 
         # NOTE: Do NOT remove stream here. The TaskManager's on_stream_remove hook
@@ -236,7 +244,9 @@ class StateManager:
         self.event_stream_manager.log(
             event_label,
             content,
+            event_type=EventType.USER_MESSAGE,
             display_message=content,
+            platform=platform,
             task_id=task_id,
         )
 
@@ -246,6 +256,11 @@ class StateManager:
             content,
             display_message=content,
         )
+
+        # Inject relevant memories into the same event stream right after the
+        # user message. The agent sees them as part of the chronological flow.
+        from agent_core.core.impl.memory.injector import inject_memory_event
+        inject_memory_event(query=content, session_id=task_id)
 
         self.bump_event_stream()
         self._append_to_conversation_history("user", content)
@@ -281,7 +296,9 @@ class StateManager:
             self.event_stream_manager.log(
                 event_label,
                 content,
+                event_type=EventType.AGENT_MESSAGE,
                 display_message=content,
+                platform=platform,
                 task_id=task_id,
             )
         else:
@@ -289,7 +306,9 @@ class StateManager:
             main_stream.log(
                 event_label,
                 content,
+                event_type=EventType.AGENT_MESSAGE,
                 display_message=content,
+                platform=platform,
             )
 
         # Skip _conversation_history (the global list re-injected into every active

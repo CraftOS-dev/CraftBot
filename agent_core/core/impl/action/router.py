@@ -150,7 +150,6 @@ class ActionRouter:
         # Build the instruction prompt for the LLM
         full_prompt = SELECT_ACTION_PROMPT.format(
             event_stream=self.context_engine.get_event_stream(),
-            memory_context=self.context_engine.get_memory_context(query),
             query=query,
             action_candidates=self._format_candidates(action_candidates),
             integration_essentials=integration_essentials,
@@ -160,7 +159,9 @@ class ActionRouter:
         current_prompt = full_prompt
 
         for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(current_prompt, is_task=False)
+            decision = await self._prompt_for_decision(
+                current_prompt, is_task=False, prompt_name="SELECT_ACTION"
+            )
 
             # Parse parallel action decisions with format error detection
             actions, format_error = self._parse_parallel_action_decisions(decision)
@@ -253,9 +254,6 @@ class ActionRouter:
 
         # Build the instruction prompt for the LLM
         task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(
-            query, session_id=session_id
-        )
         event_stream_content = self.context_engine.get_event_stream(
             session_id=session_id
         )
@@ -285,19 +283,16 @@ class ActionRouter:
             logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
             integration_essentials = ""
 
+        decision_prompt_name = "SELECT_ACTION_IN_TASK"
         static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
-            memory_context=memory_context,
             event_stream="",  # Empty for static prompt
             query=query,
             action_candidates=self._format_candidates(action_candidates),
             integration_essentials=integration_essentials,
         )
         full_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
-            memory_context=memory_context,
             event_stream=event_stream_content,
             query=query,
             action_candidates=self._format_candidates(action_candidates),
@@ -314,6 +309,7 @@ class ActionRouter:
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
+                prompt_name=decision_prompt_name,
             )
 
             # Parse parallel action decisions with format error detection
@@ -405,9 +401,6 @@ class ActionRouter:
 
         # Build the instruction prompt
         task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(
-            query, session_id=session_id
-        )
         event_stream_content = self.context_engine.get_event_stream(
             session_id=session_id
         )
@@ -433,10 +426,10 @@ class ActionRouter:
             logger.debug(f"[ACTION] simple-task essentials lookup failed: {e}")
             integration_essentials = ""
 
+        decision_prompt_name = "SELECT_ACTION_IN_SIMPLE_TASK"
         static_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
-            memory_context=memory_context,
             event_stream="",  # Empty for static prompt
             query=query,
             action_candidates=self._format_candidates(action_candidates),
@@ -445,7 +438,6 @@ class ActionRouter:
         full_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
-            memory_context=memory_context,
             event_stream=event_stream_content,
             query=query,
             action_candidates=self._format_candidates(action_candidates),
@@ -462,6 +454,7 @@ class ActionRouter:
                 static_prompt=static_prompt,
                 call_type=LLMCallType.ACTION_SELECTION,
                 session_id=session_id,
+                prompt_name=decision_prompt_name,
             )
 
             # Parse parallel action decisions with format error detection
@@ -548,24 +541,20 @@ class ActionRouter:
 
         # Build the instruction prompt for the LLM
         task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(
-            query, session_id=session_id
-        )
         event_stream_content = self.context_engine.get_event_stream(
             session_id=session_id
         )
+        decision_prompt_name = "SELECT_ACTION_IN_GUI"
         static_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
             event_stream="",  # Empty for static prompt
-            memory_context=memory_context,
             gui_action_space=GUI_ACTION_SPACE_PROMPT,
         )
         full_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
             event_stream=event_stream_content,
-            memory_context=memory_context,
             gui_action_space=GUI_ACTION_SPACE_PROMPT,
         )
 
@@ -579,6 +568,7 @@ class ActionRouter:
                 static_prompt=static_prompt,
                 call_type=LLMCallType.GUI_ACTION_SELECTION,
                 session_id=session_id,
+                prompt_name=decision_prompt_name,
             )
 
             # Check for GUI format errors
@@ -629,6 +619,7 @@ class ActionRouter:
         static_prompt: Optional[str] = None,
         call_type: str = LLMCallType.ACTION_SELECTION,
         session_id: Optional[str] = None,
+        prompt_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -639,6 +630,8 @@ class ActionRouter:
             static_prompt: Optional static portion for caching.
             call_type: Type of LLM call for cache keying.
             session_id: Optional session ID for session-specific state lookup.
+            prompt_name: Identity of the named prompt, tagged onto the captured
+                LLM call for per-prompt profiling.
         """
         max_retries = 3
         last_error: Optional[Exception] = None
@@ -710,6 +703,7 @@ class ActionRouter:
                                     call_type=call_type,
                                     user_prompt=delta_events,
                                     system_prompt_for_new_session=system_prompt,
+                                    prompt_name=prompt_name,
                                 )
                                 # Mark events as synced after successful call
                                 self.context_engine.mark_event_stream_synced(
@@ -739,6 +733,7 @@ class ActionRouter:
                                 call_type=call_type,
                                 user_prompt=current_prompt,
                                 system_prompt_for_new_session=system_prompt,
+                                prompt_name=prompt_name,
                             )
                             # Mark events as synced after successful session creation
                             self.context_engine.mark_event_stream_synced(
@@ -747,12 +742,12 @@ class ActionRouter:
                     else:
                         # No session registered (simple task) - use prefix cache / regular response
                         raw_response = await self.llm_interface.generate_response_async(
-                            system_prompt, current_prompt
+                            system_prompt, current_prompt, prompt_name=prompt_name
                         )
                 else:
                     # Not in task context - use regular response
                     raw_response = await self.llm_interface.generate_response_async(
-                        system_prompt, current_prompt
+                        system_prompt, current_prompt, prompt_name=prompt_name
                     )
 
                 # Validate response before parsing
@@ -1035,35 +1030,14 @@ class ActionRouter:
         return base_prompt + feedback_block
 
     def _format_candidates(self, candidates: List[Dict[str, Any]]) -> str:
-        """Format action candidates with compact schema for reduced prompt size."""
-        if not candidates:
-            return "[]"
+        """Format action candidates with compact schema for reduced prompt size.
 
-        compact: List[Dict[str, Any]] = []
-        for c in candidates:
-            input_schema = c.get("input_schema") or {}
-            params = {}
+        Delegates to ``agent_core.core.action_framework.format_action_candidates``
+        so the format stays in sync with the sub-agent prompt builder.
+        """
+        from agent_core.core.action_framework import format_action_candidates
 
-            for param_name, param_def in input_schema.items():
-                if isinstance(param_def, dict):
-                    ptype = param_def.get("type", "any")
-                    desc = param_def.get("description", "")
-                    is_optional = (
-                        "default" in desc.lower() or "optional" in desc.lower()
-                    )
-                    req = "optional" if is_optional else "required"
-                    params[param_name] = f"{ptype}, {req} - {desc}"
-                else:
-                    params[param_name] = str(param_def)
-
-            entry = {
-                "name": c.get("name"),
-                "description": c.get("description", ""),
-                "params": params,
-            }
-            compact.append(entry)
-
-        return json.dumps(compact, indent=2, ensure_ascii=False)
+        return format_action_candidates(candidates)
 
     def _format_action_names(self, names: List[str]) -> str:
         if not names:
