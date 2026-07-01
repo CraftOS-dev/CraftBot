@@ -199,6 +199,12 @@ async def connect_subscription_async(provider: str) -> Tuple[bool, str]:
     the OAuth flow awaits a loopback HTTP callback — wrapping it in a fresh
     event loop from inside the browser adapter's running loop would
     deadlock; the sync wrapper below is only for CLI / script callers.
+
+    This function is scoped to just the OAuth handshake + credential
+    persistence. The caller (browser adapter) is responsible for flipping
+    the active LLM provider and reinitializing the live LLM interface via
+    ``update_model_settings`` + ``agent.reinitialize_llm`` — same path
+    that the manual Save flow uses.
     """
     try:
         from craftos_integrations.integrations.llm_oauth import tokens as _oauth_tokens

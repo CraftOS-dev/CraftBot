@@ -5849,9 +5849,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         spinning a new loop with ``run_until_complete`` from inside a running
         loop raises ``RuntimeError``. Long-running because the user has to
         complete the browser sign-in; the frontend should show a spinner.
+
+        On success, this handler also makes ``provider`` the active LLM
+        provider using the same ``update_model_settings`` + ``reinitialize_llm``
+        path that the manual Save flow uses — so "Sign in with X"
+        implicitly = "use X" without a separate Save click. The newly-active
+        provider is echoed back in ``active_provider`` so the frontend
+        dropdown updates immediately.
         """
         try:
             success, message = await connect_subscription_async(provider)
+            active_provider = self._activate_provider_via_settings(success, provider)
             status_payload = get_subscription_status(provider)
             await self._broadcast(
                 {
@@ -5861,6 +5869,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "provider": provider,
                         "message": message,
                         "status": status_payload,
+                        "active_provider": active_provider,
                     },
                 }
             )
@@ -5876,6 +5885,35 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    def _activate_provider_via_settings(
+        self, connect_success: bool, provider: str
+    ) -> Optional[str]:
+        """Reuse the manual-Save path to make ``provider`` the active LLM.
+
+        Wraps the exact same two calls the model_settings_update handler
+        makes — ``update_model_settings(llm_provider=provider)`` persists
+        the switch to settings.json and clears model overrides, then
+        ``agent.reinitialize_llm(provider)`` rebuilds the live LLM
+        interface. Returns the provider name that was successfully
+        activated so the caller can echo it to the frontend, or ``None``
+        if either the connect itself failed or reinit raised.
+        """
+        if not connect_success:
+            return None
+        try:
+            update_model_settings(llm_provider=provider)
+            self._controller.agent.reinitialize_llm(provider)
+            logger.info(
+                f"[BROWSER] LLM reinitialized with provider: {provider}"
+            )
+            return provider
+        except Exception as e:
+            logger.warning(
+                f"[BROWSER] Failed to activate provider {provider} after "
+                f"subscription connect: {e}"
+            )
+            return None
 
     async def _handle_model_subscription_disconnect(self, provider: str) -> None:
         """Remove stored OAuth credentials for the given provider."""
@@ -5965,9 +6003,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_model_subscription_complete(
         self, provider: str, code: str, attempt_id: Optional[str]
     ) -> None:
-        """Finalize the paste-back flow: exchange the user-pasted code for tokens."""
+        """Finalize the paste-back flow: exchange the user-pasted code for tokens.
+
+        On success, activates ``provider`` as the current LLM the same way
+        ``_handle_model_subscription_connect`` does — see
+        ``_activate_provider_via_settings``.
+        """
         try:
             success, message = complete_subscription(provider, code, attempt_id)
+            active_provider = self._activate_provider_via_settings(success, provider)
             await self._broadcast(
                 {
                     "type": "model_subscription_complete",
@@ -5976,6 +6020,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "provider": provider,
                         "message": message,
                         "status": get_subscription_status(provider),
+                        "active_provider": active_provider,
                     },
                 }
             )

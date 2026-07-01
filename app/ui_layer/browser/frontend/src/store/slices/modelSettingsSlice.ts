@@ -303,12 +303,28 @@ register('ollama_models_get', (data, dispatch) => {
   dispatch(setOllamaModels({ models: d.success ? (d.models || []) : [], available: d.success }))
 })
 
-// Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
+// Subscription OAuth (ChatGPT Plus/Pro, SuperGrok).
+//
+// On success the backend also flips the active LLM provider to the one
+// we just signed into (so "Sign in with ChatGPT" implicitly = "use ChatGPT")
+// and echoes the newly-active provider back in ``active_provider``.
+// Mirror it into the dropdown selector state so the UI stays consistent
+// without waiting for the user to hit Save.
 register('model_subscription_connect', (data, dispatch) => {
-  const d = data as { success: boolean; provider?: string; status?: SubscriptionStatus; message?: string; error?: string }
+  const d = data as {
+    success: boolean
+    provider?: string
+    status?: SubscriptionStatus
+    active_provider?: string | null
+    message?: string
+    error?: string
+  }
   if (d.provider) {
     dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
     if (d.status) dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
+    if (d.success && d.active_provider) {
+      dispatch(setProvider(d.active_provider))
+    }
   }
 })
 
@@ -345,12 +361,22 @@ register('model_subscription_prepare', (data, dispatch) => {
 })
 
 register('model_subscription_complete', (data, dispatch) => {
-  const d = data as { success: boolean; provider?: string; status?: SubscriptionStatus; message?: string; error?: string }
+  const d = data as {
+    success: boolean
+    provider?: string
+    status?: SubscriptionStatus
+    active_provider?: string | null
+    message?: string
+    error?: string
+  }
   if (!d.provider) return
   dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
   if (d.success) {
     if (d.status) dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
     dispatch(clearSubscriptionPasteback(d.provider))
+    if (d.active_provider) {
+      dispatch(setProvider(d.active_provider))
+    }
   } else {
     dispatch(setSubscriptionPasteback({
       provider: d.provider,
