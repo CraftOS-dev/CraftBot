@@ -371,6 +371,13 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     if isinstance(error_type, str):
         if error_type == "credit_balance_too_low":
             category = ErrorCategory.CREDIT
+        # Sakana (Fugu) signals prepaid-credit exhaustion with HTTP 429 +
+        # type "usage_limit_reached". 429 alone resolves to RATE_LIMIT
+        # ("try again shortly"), which is wrong here — the account is out of
+        # funds, not being throttled, so retrying never succeeds. Map the
+        # typed field, not the free-text message, to CREDIT.
+        elif error_type == "usage_limit_reached":
+            category = ErrorCategory.CREDIT
         elif error_type == "overloaded_error":
             category = ErrorCategory.SERVER
         # OpenRouter content moderation (OR itself flags the content before forwarding)

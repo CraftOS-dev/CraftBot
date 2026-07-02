@@ -68,6 +68,7 @@ from app.internal_action_interface import InternalActionInterface
 
 from app.llm import LLMInterface
 from agent_core.core.impl.llm.errors import (
+    classify_llm_error,
     classify_llm_error_message,
     LLMConsecutiveFailureError,
 )
@@ -2063,6 +2064,50 @@ class AgentBase:
             pass
         return f"[Living UI: {living_ui_id}]"
 
+    def _surface_llm_error_to_main_stream(self, error: Exception) -> None:
+        """Post a provider/LLM error to the main event stream as an error card.
+
+        Used for failures that occur *before* a session exists — currently the
+        routing LLM call in `_handle_chat_message`. In-task failures go through
+        `_handle_react_error` (which targets the task's own stream); this is the
+        session-less counterpart so a provider outage during routing is never
+        silently swallowed.
+
+        The message resolution mirrors `_handle_react_error`: prefer the cause
+        attached to a consecutive-failure wrapper, otherwise let the classifier
+        produce the rich, provider-aware string (for the RuntimeError the LLM
+        interface raises, `str(error)` already IS that string, and the
+        classifier returns it unchanged).
+        """
+        if not self.event_stream_manager:
+            return
+
+        if (
+            isinstance(error, LLMConsecutiveFailureError)
+            and error.last_error_info is not None
+        ):
+            user_message = error.last_error_info.message
+        else:
+            try:
+                user_message = classify_llm_error(error).message
+            except Exception:
+                user_message = str(error) or "AI service error"
+
+        try:
+            self.event_stream_manager.get_main_stream().log(
+                "error",
+                f"[ROUTING] {type(error).__name__}: {user_message}",
+                severity="ERROR",
+                event_type=EventType.ERROR,
+                display_message=user_message,
+            )
+            self.state_manager.bump_event_stream()
+        except Exception:
+            logger.error(
+                "[CHAT] Failed to surface LLM error to main stream",
+                exc_info=True,
+            )
+
     def _post_third_party_notification(self, payload: Dict, platform: str) -> None:
         """Post a deterministic notification about a third-party external message
         to the main event stream. No session, no trigger, no LLM."""
@@ -2403,14 +2448,31 @@ class AgentBase:
                 recent_conversation = self.session_router.format_recent_conversation(
                     limit=10
                 )
-                routing_result = await self.session_router.route(
-                    item_type="message",
-                    item_content=chat_content,
-                    existing_sessions=existing_sessions,
-                    source_platform=platform,
-                    current_living_ui_id=living_ui_id,
-                    recent_conversation=recent_conversation,
-                )
+                try:
+                    routing_result = await self.session_router.route(
+                        item_type="message",
+                        item_content=chat_content,
+                        existing_sessions=existing_sessions,
+                        source_platform=platform,
+                        current_living_ui_id=living_ui_id,
+                        recent_conversation=recent_conversation,
+                    )
+                except Exception as route_error:
+                    # Routing makes an LLM call. When the provider itself is
+                    # down (out of credit, bad key, rate limit, ...) that error
+                    # would otherwise unwind to the broad handler below and only
+                    # be logged — the user sees nothing. In-task failures surface
+                    # via `_handle_react_error`, but routing runs before any
+                    # session exists, so surface it here on the main stream with
+                    # the same classified message. The message is already parked
+                    # durably, so it re-delivers on the next boot once the
+                    # provider is healthy again.
+                    logger.error(
+                        f"[CHAT] Routing LLM call failed: {route_error}",
+                        exc_info=True,
+                    )
+                    self._surface_llm_error_to_main_stream(route_error)
+                    return
                 if routing_result.get("action") == "route":
                     matched = routing_result.get("session_id", "new")
                     if matched != "new":

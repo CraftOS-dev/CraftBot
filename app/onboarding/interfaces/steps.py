@@ -177,6 +177,38 @@ class ApiKeyStep:
     OPENROUTER_PROXIED = {"moonshot", "minimax"}
     OPENROUTER_PROXIED_DISPLAY = {"moonshot": "Moonshot (Kimi)", "minimax": "MiniMax"}
 
+    @staticmethod
+    def _provider_info(provider: str) -> Dict[str, Any]:
+        """Look up a provider's PROVIDER_INFO entry (single source of truth
+        for subscription-OAuth capability, shared with the Settings page)."""
+        try:
+            from app.ui_layer.settings.model_settings import PROVIDER_INFO
+
+            return PROVIDER_INFO.get(provider, {}) or {}
+        except Exception:
+            return {}
+
+    def supports_subscription_oauth(self) -> bool:
+        """True when this provider offers a subscription sign-in (ChatGPT
+        Plus/Pro, SuperGrok) as an alternative to an API key."""
+        return bool(self._provider_info(self.provider).get("supports_subscription_oauth"))
+
+    def subscription_label(self) -> str:
+        """Button label for the subscription sign-in (e.g. 'Sign in with ChatGPT')."""
+        return self._provider_info(self.provider).get("subscription_label") or ""
+
+    def _subscription_connected(self) -> bool:
+        """True when an OAuth subscription credential is already stored for
+        this provider — in which case an API key is optional."""
+        if not self.supports_subscription_oauth():
+            return False
+        try:
+            from app.ui_layer.settings.provider_settings import get_subscription_status
+
+            return bool(get_subscription_status(self.provider).get("connected"))
+        except Exception:
+            return False
+
     @property
     def title(self) -> str:
         if self.provider == "remote":
@@ -220,6 +252,13 @@ class ApiKeyStep:
             api_key = value.get("api_key", "")
             if not api_key or len(str(api_key).strip()) < 10:
                 return False, "API key is required"
+            return True, None
+
+        # A connected subscription (ChatGPT Plus/Pro, SuperGrok) authorizes the
+        # provider via an OAuth bearer, so the API key is optional. Accept an
+        # empty submission in that case; a typed key still validates below.
+        is_empty = not value or (isinstance(value, str) and not value.strip())
+        if is_empty and self._subscription_connected():
             return True, None
 
         if not value or not isinstance(value, str):

@@ -34,6 +34,14 @@ import {
 import { Button } from '../../components/ui'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { IntegrationsSettings } from '../Settings/IntegrationsSettings'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { getSocketClient } from '../../store/socket/socketInstance'
+import {
+  selectSubscriptionOauth,
+  selectSubscriptionPending,
+  selectSubscriptionPasteback,
+} from '../../store/selectors/modelSettings'
+import { setSubscriptionPending, clearSubscriptionPasteback } from '../../store/slices/modelSettingsSlice'
 import type { OnboardingStep, OnboardingStepOption, OnboardingFormField } from '../../types'
 import styles from './OnboardingPage.module.css'
 
@@ -348,6 +356,22 @@ export function OnboardingPage() {
     minimax: 'minimax/minimax-01',
   }
 
+  // Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). The connect/status
+  // handlers are provider-agnostic and shared with the Settings model panel —
+  // we reuse the same WebSocket messages and redux state here so signing in
+  // during onboarding behaves identically. Responses flow into redux via the
+  // globally-registered modelSettings handlers.
+  const dispatch = useAppDispatch()
+  const socket = getSocketClient()
+  const subscriptionOauth = useAppSelector(selectSubscriptionOauth)
+  const subscriptionPending = useAppSelector(selectSubscriptionPending)
+  const subscriptionPasteback = useAppSelector(selectSubscriptionPasteback)
+  const [pastebackCode, setPastebackCode] = useState('')
+  // When a subscription is connected, the API-key field collapses behind a
+  // subtle link so the connected state reads cleanly; the user can still
+  // expand it to store a key instead.
+  const [showKeyInput, setShowKeyInput] = useState(false)
+
   // Local form state
   const [selectedValue, setSelectedValue] = useState<string | string[]>('')
   const [textValue, setTextValue] = useState('')
@@ -540,6 +564,39 @@ export function OnboardingPage() {
   const isOllamaStep =
     onboardingStep?.name === 'api_key' && onboardingStep?.provider === 'remote'
 
+  // ── Subscription OAuth derived state (api_key step only) ──
+  const apiKeyProvider =
+    onboardingStep?.name === 'api_key' ? (onboardingStep.provider ?? '') : ''
+  const supportsSub = !!onboardingStep?.supports_subscription_oauth && !!apiKeyProvider
+  const subStatus = apiKeyProvider ? subscriptionOauth[apiKeyProvider] : undefined
+  const isSubConnected = !!subStatus?.connected
+  const isSubPending = apiKeyProvider ? !!subscriptionPending[apiKeyProvider] : false
+  const subPasteback = apiKeyProvider ? subscriptionPasteback[apiKeyProvider] : undefined
+
+  // Refresh the live subscription status whenever we land on a sub-capable
+  // api_key step, and clear any stale paste-back code entry.
+  useEffect(() => {
+    if (supportsSub && apiKeyProvider) {
+      socket.send('model_subscription_status', { provider: apiKeyProvider })
+      setPastebackCode('')
+      setShowKeyInput(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supportsSub, apiKeyProvider])
+
+  const handleSubscriptionConnect = useCallback(() => {
+    if (!apiKeyProvider) return
+    dispatch(setSubscriptionPending({ provider: apiKeyProvider, pending: true }))
+    // OpenAI uses a loopback callback (auto-redirect); xAI/Grok's flow ends on
+    // a "copy this code" page, so it goes through the paste-back flow. Mirrors
+    // the decision in the Settings model panel.
+    const useLoopback = apiKeyProvider === 'openai'
+    socket.send(
+      useLoopback ? 'model_subscription_connect' : 'model_subscription_prepare',
+      { provider: apiKeyProvider },
+    )
+  }, [apiKeyProvider, dispatch, socket])
+
   const canSubmit = (() => {
     if (!onboardingStep) return false
     if (onboardingLoading) return false
@@ -548,6 +605,8 @@ export function OnboardingPage() {
     }
     if (isIntegrationsStep) return true  // Connection is optional — Next always works
     if (isFormStep) return true  // All form fields are optional
+    // A connected subscription authorizes the provider without an API key.
+    if (isSubConnected) return true
     if (onboardingStep.options.length > 0) {
       return isMultiSelect ? true : !!selectedValue
     }
@@ -926,20 +985,175 @@ export function OnboardingPage() {
       )
     }
 
-    return (
-      <div className={styles.formGroup}>
+    // Shared API-key input + hint (used by name step, plain-key providers, and
+    // the collapsible fallback under a connected subscription).
+    const identityLine = [subStatus?.email, subStatus?.plan].filter(Boolean).join(' · ')
+    const keyInputBlock = (
+      <>
         <input
           type={isApiKey ? 'password' : 'text'}
           className={`${styles.textInput} ${onboardingError ? styles.error : ''}`}
           value={textValue}
           onChange={e => setTextValue(e.target.value)}
-          placeholder={isApiKey ? 'Enter your API key' : 'Enter a name'}
+          placeholder={isApiKey ? (isSubConnected ? 'API key (optional)' : 'Enter your API key') : 'Enter a name'}
           maxLength={isApiKey ? undefined : 20}
-          autoFocus
+          autoFocus={!supportsSub}
           onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
         />
         {isApiKey && (
           <div className={styles.inputHint}>Your API key is stored locally.</div>
+        )}
+      </>
+    )
+
+    const dividerRow = (label: string) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0 14px' }}>
+        <div style={{ flex: 1, height: 1, background: 'var(--border-color, #333)' }} />
+        <span style={{ fontSize: '0.75rem', letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.5 }}>{label}</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border-color, #333)' }} />
+      </div>
+    )
+
+    // Non-subscription providers (and the name step) keep the plain input.
+    if (!(isApiKey && supportsSub)) {
+      return <div className={styles.formGroup}>{keyInputBlock}</div>
+    }
+
+    return (
+      <div className={styles.formGroup}>
+        {isSubConnected ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '14px 16px',
+              border: '1px solid var(--border-color, #333)',
+              borderRadius: 10,
+              background: 'var(--bg-elevated, rgba(255,255,255,0.03))',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: 'var(--success-bg, rgba(63,185,80,0.15))',
+                  color: 'var(--success, #3fb950)',
+                  flexShrink: 0,
+                }}
+              >
+                <Check size={16} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Connected</span>
+                {identityLine && (
+                  <span
+                    style={{
+                      fontSize: '0.8rem',
+                      opacity: 0.6,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={identityLine}
+                  >
+                    {identityLine}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              disabled={isSubPending}
+              onClick={() => {
+                dispatch(setSubscriptionPending({ provider: apiKeyProvider, pending: true }))
+                socket.send('model_subscription_disconnect', { provider: apiKeyProvider })
+              }}
+              style={{ flexShrink: 0 }}
+            >
+              {isSubPending ? 'Working…' : 'Disconnect'}
+            </Button>
+          </div>
+        ) : subPasteback?.awaiting ? (
+          <div>
+            <input
+              type="text"
+              className={styles.textInput}
+              placeholder="Paste the code from the sign-in page"
+              value={pastebackCode}
+              onChange={e => setPastebackCode(e.target.value)}
+              disabled={isSubPending}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Button
+                variant="primary"
+                disabled={isSubPending || !pastebackCode.trim()}
+                onClick={() => {
+                  dispatch(setSubscriptionPending({ provider: apiKeyProvider, pending: true }))
+                  socket.send('model_subscription_complete', {
+                    provider: apiKeyProvider,
+                    code: pastebackCode.trim(),
+                    attemptId: subPasteback?.attemptId,
+                  })
+                }}
+              >
+                {isSubPending ? 'Submitting…' : 'Submit code'}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={isSubPending}
+                onClick={() => {
+                  dispatch(clearSubscriptionPasteback(apiKeyProvider))
+                  setPastebackCode('')
+                }}
+              >
+                Cancel
+              </Button>
+              {subPasteback?.authUrl && (
+                <a href={subPasteback.authUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.82rem', textDecoration: 'underline' }}>
+                  Reopen sign-in page
+                </a>
+              )}
+            </div>
+            {subPasteback?.errorMessage && (
+              <div style={{ color: 'var(--error, #e5484d)', fontSize: '0.82rem', marginTop: 8 }}>{subPasteback.errorMessage}</div>
+            )}
+          </div>
+        ) : (
+          <Button
+            variant="primary"
+            fullWidth
+            disabled={isSubPending}
+            onClick={handleSubscriptionConnect}
+          >
+            {isSubPending ? 'Opening browser…' : (onboardingStep.subscription_label || `Sign in with ${apiKeyProvider}`)}
+          </Button>
+        )}
+
+        {/* API-key fallback. Collapsed behind a link once connected so the
+            connected card stands alone; always shown otherwise. */}
+        {isSubConnected && !showKeyInput ? (
+          <div style={{ textAlign: 'center', marginTop: 14 }}>
+            <button
+              type="button"
+              onClick={() => setShowKeyInput(true)}
+              style={{ background: 'none', border: 'none', color: 'var(--text-secondary, #999)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+            >
+              Use an API key instead
+            </button>
+          </div>
+        ) : (
+          <>
+            {dividerRow('or enter an API key')}
+            {keyInputBlock}
+          </>
         )}
       </div>
     )

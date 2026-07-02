@@ -2172,6 +2172,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             ],
                             "default": controller.get_step_default(),
                             "provider": getattr(step, "provider", None),
+                            **self._step_subscription_meta(step),
                             "form_fields": self._get_step_form_fields(step),
                         },
                     },
@@ -2188,6 +2189,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    @staticmethod
+    def _step_subscription_meta(step) -> Dict[str, Any]:
+        """Subscription-OAuth hints for a step (empty for non-api_key steps).
+
+        Lets the onboarding UI render a 'Sign in with ChatGPT/Grok' button next
+        to the API-key field for providers that support subscription auth, the
+        same capability the Settings model panel exposes.
+        """
+        supports = getattr(step, "supports_subscription_oauth", None)
+        if callable(supports) and supports():
+            return {
+                "supports_subscription_oauth": True,
+                "subscription_label": step.subscription_label(),
+            }
+        return {"supports_subscription_oauth": False, "subscription_label": ""}
 
     @staticmethod
     def _get_step_form_fields(step) -> Optional[list]:
@@ -2403,6 +2420,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 ],
                                 "default": controller.get_step_default(),
                                 "provider": getattr(step, "provider", None),
+                                **self._step_subscription_meta(step),
                                 "form_fields": self._get_step_form_fields(step),
                             },
                         },
@@ -2494,6 +2512,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 ],
                                 "default": controller.get_step_default(),
                                 "provider": getattr(step, "provider", None),
+                                **self._step_subscription_meta(step),
                             },
                         },
                     }
@@ -2556,6 +2575,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             ],
                             "default": controller.get_step_default(),
                             "provider": getattr(step, "provider", None),
+                            **self._step_subscription_meta(step),
                             "form_fields": self._get_step_form_fields(step),
                         },
                     },
