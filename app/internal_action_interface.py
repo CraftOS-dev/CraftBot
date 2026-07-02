@@ -124,7 +124,7 @@ class InternalActionInterface:
                 "InternalActionInterface not initialized with LLMInterface."
             )
         response = await cls.llm_interface.generate_response_async(
-            prompt, system_message, prompt_name="USE_LLM"
+            system_message, prompt, prompt_name="USE_LLM"
         )
         return {"llm_response": response}
 

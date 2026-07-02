@@ -117,6 +117,17 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
 }
 
 
+def provider_display_name(provider: Optional[str]) -> str:
+    """User-facing display name for a provider id (e.g. "openai" → "OpenAI").
+
+    Public accessor over `_PROVIDER_DISPLAY` so other modules (app.i18n)
+    don't grow their own divergent copy of the map.
+    """
+    if not provider:
+        return "Provider"
+    return _PROVIDER_DISPLAY.get(provider, provider.title())
+
+
 # Used only when the provider gave us no message at all (rare). Most
 # real-world errors have an upstream message that's already informative;
 # we lead with that and only append a short action hint.
