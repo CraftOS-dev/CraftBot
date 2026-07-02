@@ -110,6 +110,8 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
     "byteplus": "BytePlus",
     "deepseek": "DeepSeek",
     "grok": "Grok",
+    "glm": "Z.ai (GLM)",
+    "fugu": "Sakana (Fugu)",
     "moonshot": "Moonshot",
     "minimax": "MiniMax",
     "remote": "Ollama",

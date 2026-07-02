@@ -117,6 +117,8 @@ class ProviderStep:
         ("minimax", "MiniMax", "MiniMax models"),
         ("moonshot", "Moonshot", "Moonshot models"),
         ("grok", "Grok (xAI)", "Grok models"),
+        ("glm", "Z.ai (GLM)", "GLM models"),
+        ("fugu", "Sakana (Fugu)", "Fugu models"),
         ("remote", "Ollama (Local)", "Self-hosted models"),
     ]
 
@@ -163,6 +165,8 @@ class ApiKeyStep:
         "minimax": "MINIMAX_API_KEY",
         "moonshot": "MOONSHOT_API_KEY",
         "grok": "XAI_API_KEY",
+        "glm": "ZAI_API_KEY",
+        "fugu": "SAKANA_API_KEY",
         "remote": None,  # Ollama uses a base URL, not an API key
     }
 

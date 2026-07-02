@@ -22,6 +22,8 @@ class ProviderCommand(Command):
         "byteplus": ("BYTEPLUS_API_KEY", "BytePlus"),
         "deepseek": ("DEEPSEEK_API_KEY", "DeepSeek"),
         "grok": ("XAI_API_KEY", "Grok (xAI)"),
+        "glm": ("ZAI_API_KEY", "Z.ai (GLM)"),
+        "fugu": ("SAKANA_API_KEY", "Sakana (Fugu)"),
         "openrouter": ("OPENROUTER_API_KEY", "OpenRouter"),
         "remote": (None, "Ollama (Local)"),
     }
@@ -54,6 +56,8 @@ Providers:
   byteplus   - BytePlus Kimi models
   deepseek   - DeepSeek models
   grok       - Grok (xAI) models
+  glm        - Z.ai (GLM) models
+  fugu       - Sakana (Fugu) models
   openrouter - OpenRouter (300+ models, one key)
   remote     - Ollama (local models)
 
