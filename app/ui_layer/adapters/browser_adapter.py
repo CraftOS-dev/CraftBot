@@ -1110,6 +1110,17 @@ class BrowserAdapter(InterfaceAdapter):
             living_ui_id=living_ui_id,
         )
 
+    async def _handle_enhance_prompt(self, content: str, ws) -> None:
+        """Enhance a user's prompt using the LLM for clarity and precision."""
+        try:
+            enhanced: str = await self._controller.handle_prompt_enhance(
+                user_message=content
+            )
+            await ws.send_json({"type": "prompt_enhanced", "content": enhanced.strip()})
+            return
+        except Exception as e:
+            logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
+
     def _handle_task_start(self, event: UIEvent) -> None:
         """Handle task start event with metrics tracking."""
         # Call parent implementation
@@ -1484,6 +1495,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             command = data.get("command", "")
             if command:
                 await self.submit_message(command)
+
+        elif msg_type == "enhance_prompt":
+            content = data.get("content", "")
+            if content and ws:
+                await self._handle_enhance_prompt(content, ws)
 
         elif msg_type == "chat_history":
             before_timestamp = data.get("beforeTimestamp")

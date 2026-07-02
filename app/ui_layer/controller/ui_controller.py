@@ -320,6 +320,9 @@ class UIController:
         elif value == "llm_retry":
             await self._agent.handle_llm_retry(session_id)
 
+    async def handle_prompt_enhance(self, user_message: str) -> str:
+        return await self._agent._handle_prompt_enhance(user_message=user_message)
+
     # ─────────────────────────────────────────────────────────────────────
     # Event Processing
     # ─────────────────────────────────────────────────────────────────────

@@ -111,6 +111,7 @@ from app.ui_layer.settings.memory_settings import (
     get_memory_max_items,
     get_memory_prune_target,
 )
+from app.i18n import classify_provider_error
 from agent_core import profile, profile_loop, OperationCategory
 from agent_core import (
     # Registries for dependency injection
@@ -2552,6 +2553,15 @@ class AgentBase:
 
         except Exception as e:
             logger.error(f"Error handling external event: {e}", exc_info=True)
+
+    async def _handle_prompt_enhance(self, user_message: str) -> str:
+        try:
+            from agent_core.core.prompts.reasoning import PROMPT_ENHANCE_REASONING_PROMPT
+            response = await self.llm.generate_response_async(system_prompt=PROMPT_ENHANCE_REASONING_PROMPT, user_prompt=user_message)
+            result = json.loads(response)
+            return result.get('enhanced_prompt', '')
+        except Exception as e:
+            logger.error(f"{classify_provider_error(error=e)}")
 
     # =====================================
     # Hooks

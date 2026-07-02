@@ -138,6 +138,8 @@ interface WebSocketState {
   lastSeenMessageId: string | null
   // Reply state for reply-to-chat/task feature
   replyTarget: ReplyTarget | null
+  // Enhanced prompt result from backend LLM
+  enhancedPrompt: string | null
 }
 
 interface WebSocketContextType extends WebSocketState {
@@ -201,6 +203,9 @@ interface WebSocketContextType extends WebSocketState {
   // Reply-to-chat/task methods
   setReplyTarget: (target: ReplyTarget) => void
   clearReplyTarget: () => void
+  // Enhance prompt
+  enhancePrompt: (content: string) => void
+  clearEnhancedPrompt: () => void
   // Chat pagination
   loadOlderMessages: () => void
   // Action pagination
@@ -243,6 +248,8 @@ const defaultState: WebSocketState = {
   lastSeenMessageId: getInitialLastSeenMessageId(),
   // Reply state
   replyTarget: null,
+  // Enhance prompt result
+  enhancedPrompt: null,
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
@@ -319,6 +326,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       case 'navigate': {
         const { path } = (msg.data || {}) as { path?: string }
         if (path) navigateRef.current(path)
+        break
+      }
+
+      case 'prompt_enhanced': {
+        const { content } = msg as unknown as { type: string; content: string }
+        setState(prev => ({ ...prev, enhancedPrompt: content }))
         break
       }
     }
@@ -454,6 +467,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [dispatch])
 
+  const enhancePrompt = useCallback((content: string) => {
+    sendOrQueue(JSON.stringify({ type: 'enhance_prompt', content }))
+  }, [sendOrQueue])
+
+  const clearEnhancedPrompt = useCallback(() => {
+    setState(prev => ({ ...prev, enhancedPrompt: null }))
+  }, [])
   const deleteTask = useCallback((taskId: string) => {
     if (client.isConnected) {
       dispatch(tasksSetDeletingTaskId(taskId))
@@ -742,6 +762,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         startLocalLLM,
         requestSuggestedModels,
         pullOllamaModel,
+        enhancedPrompt: state.enhancedPrompt,
+        enhancePrompt,
+        clearEnhancedPrompt,
         sendOptionClick,
         uploadAgentProfilePicture,
         removeAgentProfilePicture,

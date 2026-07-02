@@ -152,6 +152,7 @@ export type WSMessageType =
   | 'living_ui_data_changed'
   | 'living_ui_question'
   | 'living_ui_error'
+  | 'prompt_enhanced'
 
 export interface WSMessage {
   type: WSMessageType
