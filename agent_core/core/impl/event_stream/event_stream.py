@@ -256,7 +256,12 @@ class EventStream:
         if len(message) <= MAX_EVENT_INLINE_CHARS or self.temp_dir is None:
             return message
 
-        if action_name == "stream read" or action_name == "grep":
+        # Never externalize the retrieval actions' own outputs: they are how
+        # the agent reads externalized content back, so pointering them would
+        # send the agent chasing a pointer to a pointer. ("grep" / "stream
+        # read" are legacy names kept for safety; the live actions are
+        # grep_files / read_file.)
+        if action_name in ("grep_files", "read_file", "grep", "stream read"):
             return message
 
         try:

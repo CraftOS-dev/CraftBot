@@ -30,6 +30,7 @@ What it deliberately does NOT do at any stage:
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Dict, Optional, TYPE_CHECKING
 
 from app.logger import logger
@@ -62,6 +63,7 @@ class SubAgentManager:
         agent_type: str,
         query: str,
         parent_task_id: Optional[str] = None,
+        parent_temp_dir: Optional[str] = None,
     ) -> SubAgent:
         """
         Register a new sub-agent and set up its isolated event stream.
@@ -75,6 +77,15 @@ class SubAgentManager:
                 parent's context.
             parent_task_id: Optional id of the task that spawned this
                 sub-agent, for logging only.
+            parent_temp_dir: Optional temp directory of the spawning task.
+                When set, the child's event stream externalizes oversized
+                action outputs into ``<parent_temp_dir>/<sub_id>/`` (same
+                mechanism as the main agent). Nesting under the parent's
+                temp dir means the files outlive the sub-agent — the parent
+                can still grep paths cited in the child's result — and are
+                removed by the parent task's normal temp-dir cleanup.
+                When None (e.g. conversation-mode spawn), externalization
+                stays off, preserving the previous behaviour.
 
         Returns:
             The newly created :class:`SubAgent`.
@@ -92,8 +103,11 @@ class SubAgentManager:
         self.subagents[sub_id] = sub
 
         # Isolated event stream. EventStreamManager.create_stream is a pure
-        # data-structure op — no UI/chatserver hooks fire here.
-        self.event_stream_manager.create_stream(sub_id, temp_dir=None)
+        # data-structure op — no UI/chatserver hooks fire here. The temp_dir
+        # enables output externalization (EventStream._externalize_message);
+        # the directory itself is created lazily on first externalized event.
+        sub_temp_dir = Path(parent_temp_dir) / sub_id if parent_temp_dir else None
+        self.event_stream_manager.create_stream(sub_id, temp_dir=sub_temp_dir)
 
         # Drop a single bootstrap event onto the CHILD's stream only.
         # The parent stream never sees it.

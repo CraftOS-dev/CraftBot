@@ -133,6 +133,18 @@ def spawn_subagent(input_data: dict) -> dict:
     # PARENT task's id (recorded on the SubAgent for traceability).
     parent_task_id = input_data.get("_session_id")
 
+    # Resolve the parent task's temp dir so the child's event stream can
+    # externalize oversized action outputs (same mechanism as the main
+    # agent). Falls back to None (externalization off) when spawned outside
+    # a task or the task has no temp dir.
+    parent_temp_dir = None
+    if parent_task_id and InternalActionInterface.task_manager is not None:
+        parent_task = InternalActionInterface.task_manager.get_task_by_id(
+            parent_task_id
+        )
+        if parent_task is not None:
+            parent_temp_dir = getattr(parent_task, "temp_dir", None) or None
+
     mgr = InternalActionInterface.subagent_manager
     action_manager = InternalActionInterface.action_manager
     action_library = InternalActionInterface.action_library
@@ -157,6 +169,7 @@ def spawn_subagent(input_data: dict) -> dict:
             agent_type=agent_type,
             query=query,
             parent_task_id=parent_task_id,
+            parent_temp_dir=parent_temp_dir,
         )
     except ValueError as e:
         return {"status": "error", "result": "", "message": str(e)}
