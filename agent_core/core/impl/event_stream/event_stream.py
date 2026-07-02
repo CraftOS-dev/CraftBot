@@ -34,7 +34,7 @@ SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 # pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
 # agent retrieves the full content with grep_files / read_file when it needs it.
-MAX_EVENT_INLINE_CHARS = 8000
+MAX_EVENT_INLINE_CHARS = 16000
 # Always preserve at least this many most-recent events in tail_events when summarizing.
 # Guards against a single oversized event (e.g. a large read_pdf result) being purged in the
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
