@@ -551,6 +551,39 @@ def _wrap_response(
 # ════════════════════════════════════════════════════════════════════════
 
 
+def _translate_backend_error(exc: Exception, model: str) -> Exception:
+    """Rewrite Codex-backend errors into user-actionable messages.
+
+    The chatgpt.com/backend-api/codex host returns 400 "model not
+    supported when using Codex with a ChatGPT account" for Free-tier
+    bearers — the API accepts the token but the account has no Codex
+    entitlement. Surface that as a plan-explanation rather than a
+    model-config error so the user knows to upgrade or switch auth.
+    """
+    text = str(exc)
+    if "ChatGPT account" not in text and "not supported when using Codex" not in text:
+        return exc
+    plan = ""
+    try:
+        from craftos_integrations.integrations.llm_oauth.chatgpt import load as _load
+        cred = _load()
+        if cred is not None:
+            plan = (getattr(cred, "plan", "") or "").lower()
+    except Exception:
+        pass
+    if plan == "free" or not plan:
+        return RuntimeError(
+            "ChatGPT subscription is connected but this account has no Plus/Pro/Team "
+            "plan — the Codex backend rejects all models for Free-tier accounts. "
+            "Upgrade at chat.openai.com, disconnect the subscription in Settings, "
+            "or switch back to API-key auth."
+        )
+    return RuntimeError(
+        f"ChatGPT subscription rejected model {model!r}: {text}. "
+        "Try a different model from the subscription list, or switch to API-key auth."
+    )
+
+
 class _CompletionsNamespace:
     def __init__(self, parent: "ChatGPTSubscriptionClient"):
         self._parent = parent
@@ -571,7 +604,7 @@ class _CompletionsNamespace:
             logger.error(
                 f"[CHATGPT-SUB] responses.create failed: {type(exc).__name__}: {exc}"
             )
-            raise
+            raise _translate_backend_error(exc, translated.get("model", "")) from exc
 
         # The Codex backend requires stream=True, but the caller wants a
         # synchronous response. Consume the event stream into a normalized

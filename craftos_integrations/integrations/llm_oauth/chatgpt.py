@@ -338,13 +338,8 @@ def complete_login_with_code(
 
     id_token = raw.get("id_token", "")
     info = _extract_account_info(id_token)
-    plan = (info.get("plan") or "").lower()
-    if not plan or plan == "free":
-        return False, (
-            "ChatGPT account has no Plus/Pro/Team subscription. "
-            "Subscription auth requires a paid ChatGPT plan."
-        )
-    if plan not in _VALID_PLANS:
+    plan = (info.get("plan") or "free").lower()
+    if plan not in _VALID_PLANS and plan != "free":
         logger.info(f"[CHATGPT-OAUTH] unrecognized plan_type '{plan}' — accepting")
 
     cred = ChatGPTOAuthCredential(
@@ -362,7 +357,14 @@ def complete_login_with_code(
     matched_id = _pasteback.find_id(attempt_id)
     if matched_id:
         _pasteback.pop(matched_id)
-    return True, f"ChatGPT {plan.title()} connected{' as ' + cred.email if cred.email else ''}."
+    who = f" as {cred.email}" if cred.email else ""
+    if plan == "free":
+        return True, (
+            f"ChatGPT connected{who} — this account has no Plus/Pro/Team plan, "
+            "so LLM calls will fail until you upgrade at chat.openai.com or "
+            "switch back to API-key auth."
+        )
+    return True, f"ChatGPT {plan.title()} connected{who}."
 
 
 async def run_login() -> Tuple[bool, str]:
@@ -378,13 +380,8 @@ async def run_login() -> Tuple[bool, str]:
         return False, "ChatGPT OAuth returned no access token"
 
     info = _extract_account_info(id_token)
-    plan = (info.get("plan") or "").lower()
-    if not plan or plan == "free":
-        return False, (
-            "ChatGPT account has no Plus/Pro/Team subscription. "
-            "Subscription auth requires a paid ChatGPT plan."
-        )
-    if plan not in _VALID_PLANS:
+    plan = (info.get("plan") or "free").lower()
+    if plan not in _VALID_PLANS and plan != "free":
         # Unknown plan string — accept but log so we notice new tiers.
         logger.info(f"[CHATGPT-OAUTH] unrecognized plan_type '{plan}' — accepting")
 
@@ -400,7 +397,11 @@ async def run_login() -> Tuple[bool, str]:
         client_id=_client_id(),
     )
     save_credential(CRED_FILE, cred)
-    return True, (
-        f"ChatGPT {plan.title()} connected"
-        f"{' as ' + cred.email if cred.email else ''}."
-    )
+    who = f" as {cred.email}" if cred.email else ""
+    if plan == "free":
+        return True, (
+            f"ChatGPT connected{who} — this account has no Plus/Pro/Team plan, "
+            "so LLM calls will fail until you upgrade at chat.openai.com or "
+            "switch back to API-key auth."
+        )
+    return True, f"ChatGPT {plan.title()} connected{who}."
