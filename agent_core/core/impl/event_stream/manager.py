@@ -301,8 +301,10 @@ class EventStreamManager:
         if not self._agent_file_system_path:
             return
 
-        # Format: [YYYY/MM/DD HH:MM:SS] [kind]: message
-        timestamp = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%M:%S")
+        # Format: [YYYY/MM/DD HH:MM:SS] [kind]: message — LOCAL time, matching
+        # state_manager's writes to the same files and the loguru log files
+        # (this line was the lone UTC writer, so entries used to mix clocks).
+        timestamp = datetime.now().astimezone().strftime("%Y/%m/%d %H:%M:%S")
         event_line = f"[{timestamp}] [{kind}]: {message}\n"
 
         with self._file_lock:

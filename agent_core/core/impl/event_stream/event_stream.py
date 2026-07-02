@@ -126,13 +126,21 @@ class EventStream:
     # ───────────────────────────── datetime tag ──────────────────────────
     def _append_datetime_event(self) -> None:
         """Append a current date/time marker (minute precision) to the tail. Uses
-        UTC to match the per-event timestamps in compact_line — otherwise the line
-        shows two disagreeing times (UTC event-ts vs local marker). Cheap, and
-        deliberately NOT in PROTECTED_SUMMARY_KINDS — if it gets summarized away a
-        fresh one is pushed right after each summarization. Caller holds the lock."""
+        LOCAL time to match the per-event timestamps in compact_line and the
+        context engine's current-datetime block — otherwise the stream shows two
+        disagreeing clocks (UTC events vs local "now"). Cheap, and deliberately
+        NOT in PROTECTED_SUMMARY_KINDS — if it gets summarized away a fresh one
+        is pushed right after each summarization. Caller holds the lock."""
         now = datetime.now(timezone.utc)
+        local = now.astimezone()
+        try:
+            from tzlocal import get_localzone
+
+            tz_label = str(get_localzone())
+        except Exception:
+            tz_label = local.tzname() or "local"
         ev = Event(
-            message=now.strftime("%Y-%m-%d %H:%M UTC"),
+            message=f"{local.strftime('%Y-%m-%d %H:%M')} ({tz_label})",
             kind="datetime",
             severity="INFO",
             event_type=EventType.INTERNAL,
