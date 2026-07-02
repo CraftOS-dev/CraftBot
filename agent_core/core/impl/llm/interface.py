@@ -190,6 +190,17 @@ class LLMInterface:
         self._anthropic_client = ctx["anthropic_client"]
         self._bedrock_client = ctx.get("bedrock_client")
         self._initialized = ctx.get("initialized", False)
+        # auth_mode is "subscription" when an OAuth bearer is in use, else
+        # unset (treat as "api_key"). The factory wraps the ``client`` in a
+        # ChatGPTSubscriptionClient when auth_mode=="subscription" for
+        # OpenAI, which translates chat.completions calls to the Responses
+        # API on the fly — no behavioral difference at the call sites.
+        self._auth_mode: str = ctx.get("auth_mode", "api_key")
+        if self.provider == "openai" and self._auth_mode == "subscription":
+            logger.info(
+                "[LLM] OpenAI ChatGPT subscription mode active — routing via"
+                " chatgpt.com/backend-api/codex Responses API."
+            )
 
         # Initialize BytePlus-specific attributes
         self._byteplus_cache_manager: Optional[BytePlusCacheManager] = None
@@ -307,6 +318,7 @@ class LLMInterface:
             self._anthropic_client = ctx["anthropic_client"]
             self._bedrock_client = ctx.get("bedrock_client")
             self._initialized = ctx.get("initialized", False)
+            self._auth_mode = ctx.get("auth_mode", "api_key")
 
             if ctx["byteplus"]:
                 self.api_key = ctx["byteplus"]["api_key"]
@@ -772,7 +784,8 @@ class LLMInterface:
                     prompts_and_types.append((system_prompt, call_type))
 
         # Clean up multi-turn message histories across all providers that
-        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini).
+        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini,
+        # openai-subscription).
         for buffer in (
             self._anthropic_session_messages,
             self._bedrock_session_messages,
@@ -1831,6 +1844,11 @@ class LLMInterface:
             if extra_body:
                 request_kwargs["extra_body"] = extra_body
 
+            # In ChatGPT subscription mode the ``self.client`` is a
+            # ChatGPTSubscriptionClient that re-routes chat.completions
+            # calls through the Responses API (the only surface the
+            # chatgpt.com/backend-api/codex backend exposes). Call-site
+            # stays unchanged.
             response = self.client.chat.completions.create(**request_kwargs)
             if not response.choices:
                 raise ValueError(f"Provider returned no choices (model={self.model!r})")
