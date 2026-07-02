@@ -38,7 +38,6 @@ from agent_core.core.hooks import (
     UsageEventData,
 )
 from agent_core.utils.logger import logger
-from app.i18n import classify_provider_error
 
 # Default polling cadence: start tight to catch fast Seedance jobs, back off to
 # avoid hammering for slow Veo jobs.
@@ -77,6 +76,18 @@ _SEEDANCE_RESOLUTION_VALID = {"480p", "720p", "1080p"}
 _SEEDANCE_ASPECT_VALID = {"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}
 
 _AUDIO_CAPABLE_PROVIDERS = {"gemini", "openai", "byteplus"}  # all three honor it
+
+
+def _classify_error(provider: str, exc: Exception, model: str) -> str:
+    """Render *exc* as a human-readable error string via the shared catalog.
+
+    Import deferred to call time — agent_core must stay importable without
+    the host `app` package (all app.* imports in this package are
+    function-local by convention).
+    """
+    from app.i18n import classify_provider_error
+
+    return classify_provider_error(exc, provider=provider, model=model)
 
 
 # ── File / image helpers ─────────────────────────────────────────────────────
@@ -513,11 +524,7 @@ class VideoGenInterface:
 
         if not paths:
             raise RuntimeError(
-                classify_provider_error(
-                    first_error or RuntimeError("no result"),
-                    provider="openai",
-                    model=self.model,
-                )
+                _classify_error("openai", first_error or RuntimeError("no result"), self.model)
             )
         return paths
 
@@ -529,7 +536,7 @@ class VideoGenInterface:
             try:
                 obj = self.client.videos.retrieve(video_id)
             except Exception as exc:
-                raise RuntimeError(classify_provider_error(exc, provider="openai", model=self.model)) from exc
+                raise RuntimeError(_classify_error("openai", exc, self.model)) from exc
 
             status = getattr(obj, "status", None)
             if status == "completed":
@@ -561,7 +568,7 @@ class VideoGenInterface:
         try:
             content = self.client.videos.download_content(video_id)
         except Exception as exc:
-            raise RuntimeError(classify_provider_error(exc, provider="openai", model=self.model)) from exc
+            raise RuntimeError(_classify_error("openai", exc, self.model)) from exc
 
         # The SDK may return bytes directly or an HTTPResponse-like object.
         if isinstance(content, bytes):
@@ -709,7 +716,7 @@ class VideoGenInterface:
                 # generate_audio intentionally omitted — see comment above.
             )
         except Exception as exc:
-            raise RuntimeError(classify_provider_error(exc, provider="gemini", model=self.model)) from exc
+            raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
 
         operation_name = op.get("name")
         if not operation_name:
@@ -760,7 +767,7 @@ class VideoGenInterface:
                 try:
                     data = self._gemini_client.download_video(uri, timeout=180)
                 except Exception as exc:
-                    raise RuntimeError(classify_provider_error(exc, provider="gemini", model=self.model)) from exc
+                    raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
             elif inline:
                 data = base64.b64decode(inline)
             else:
@@ -789,7 +796,7 @@ class VideoGenInterface:
             try:
                 op = self._gemini_client.poll_video_operation(operation_name)
             except Exception as exc:
-                raise RuntimeError(classify_provider_error(exc, provider="gemini", model=self.model)) from exc
+                raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
 
             if op.get("done"):
                 err = op.get("error")
@@ -937,11 +944,7 @@ class VideoGenInterface:
 
         if not paths:
             raise RuntimeError(
-                classify_provider_error(
-                    first_error or RuntimeError("no result"),
-                    provider="byteplus",
-                    model=self.model,
-                )
+                _classify_error("byteplus", first_error or RuntimeError("no result"), self.model)
             )
         return paths
 
@@ -961,7 +964,7 @@ class VideoGenInterface:
                 timeout=60,
             )
         except Exception as exc:
-            raise RuntimeError(classify_provider_error(exc, provider="byteplus", model=self.model)) from exc
+            raise RuntimeError(_classify_error("byteplus", exc, self.model)) from exc
 
         if not r.ok:
             try:
@@ -1005,7 +1008,7 @@ class VideoGenInterface:
                 )
                 r.raise_for_status()
             except Exception as exc:
-                raise RuntimeError(classify_provider_error(exc, provider="byteplus", model=self.model)) from exc
+                raise RuntimeError(_classify_error("byteplus", exc, self.model)) from exc
 
             data = r.json()
             status = (data.get("status") or "").lower()

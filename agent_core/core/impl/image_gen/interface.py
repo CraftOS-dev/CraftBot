@@ -29,7 +29,6 @@ from agent_core.core.hooks import (
     UsageEventData,
 )
 from agent_core.utils.logger import logger
-from app.i18n import classify_provider_error
 
 try:
     from PIL import Image as _PilImage  # type: ignore[import]
@@ -56,6 +55,19 @@ _OPENAI_QUALITY_MAP: Dict[str, str] = {
     "2K": "high",
     "4K": "high",  # API tops out at 1536px; warn caller
 }
+
+
+def _classify_error(provider: str, exc: Exception, model: str) -> str:
+    """Render *exc* as a human-readable error string via the shared catalog.
+
+    Import deferred to call time — agent_core must stay importable without
+    the host `app` package (all app.* imports in this package are
+    function-local by convention).
+    """
+    from app.i18n import classify_provider_error
+
+    return classify_provider_error(exc, provider=provider, model=model)
+
 
 # ── File-path helpers ─────────────────────────────────────────────────────────
 
@@ -358,7 +370,7 @@ class ImageGenInterface:
                     quality=quality,
                 )
         except Exception as exc:
-            raise RuntimeError(classify_provider_error(exc, provider="openai", model=self.model)) from exc
+            raise RuntimeError(_classify_error("openai", exc, self.model)) from exc
 
         usage = getattr(response, "usage", None)
         if usage is not None:
@@ -473,7 +485,7 @@ class ImageGenInterface:
                 safety_settings=safety_settings,
             )
         except Exception as exc:
-            raise RuntimeError(classify_provider_error(exc, provider="gemini", model=self.model)) from exc
+            raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
 
         usage_md = result.get("usage_metadata") or {}
         if usage_md:
