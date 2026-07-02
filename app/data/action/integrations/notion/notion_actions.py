@@ -401,7 +401,13 @@ def restore_notion_database(input_data: dict) -> dict:
 
 @action(
     name="get_notion_page_content",
-    description="Get the content blocks of a Notion page (or any block that has children).",
+    description=(
+        "Get the content blocks of a Notion page (or any block that has children). "
+        "By default returns SIMPLIFIED content (each block's type + plain text) to keep the "
+        "output small and readable. Set include_metadata=true to get the FULL raw blocks "
+        "including block IDs, timestamps and other metadata — do this when you need block IDs "
+        "to update or delete specific blocks."
+    ),
     action_sets=["notion_blocks", "notion"],
     input_schema={
         "page_id": {
@@ -409,18 +415,58 @@ def restore_notion_database(input_data: dict) -> dict:
             "description": "Page ID (or block ID for nested children).",
             "example": "abc123",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": (
+                "False (default): return only {type, text} per block — lean, for reading. "
+                "True: return the full raw blocks with block IDs/timestamps/etc. — needed to "
+                "edit or delete specific blocks."
+            ),
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
-        "content": {"type": "array"},
+        "content": {
+            "type": "array",
+            "description": "Simplified blocks [{type, text, ...}] when include_metadata is false; full raw blocks when true.",
+        },
     },
 )
 def get_notion_page_content(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    include_metadata = bool(input_data.get("include_metadata", False))
+    result = run_client_sync(
         "notion", "get_block_children", block_id=input_data["page_id"]
     )
+    if include_metadata or result.get("status") == "error":
+        return result
+
+    raw = result.get("result", {})
+    blocks = raw.get("results", []) if isinstance(raw, dict) else []
+
+    def _simplify(b: dict) -> dict:
+        t = b.get("type")
+        data = b.get(t) if isinstance(b.get(t), dict) else {}
+        text = "".join(
+            rt.get("plain_text", "")
+            for rt in data.get("rich_text", [])
+            if isinstance(rt, dict)
+        )
+        out = {"type": t, "text": text}
+        if t == "to_do":
+            out["checked"] = bool(data.get("checked"))
+        if b.get("has_children"):
+            out["has_children"] = True
+        return out
+
+    content = [_simplify(b) for b in blocks if isinstance(b, dict)]
+    out = {"status": "success", "content": content}
+    if isinstance(raw, dict) and raw.get("has_more"):
+        out["has_more"] = True
+        out["next_cursor"] = raw.get("next_cursor")
+    return out
 
 
 @action(

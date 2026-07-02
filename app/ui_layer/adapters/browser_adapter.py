@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
+from agent_core.core.event_stream.event import EventType
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -743,6 +744,53 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 "type": "action_clear",
             }
         )
+
+    async def delete_terminal_task(self, task_id: str) -> List[str]:
+        """
+        Remove a single ended task (completed/error/cancelled) and its child
+        actions. Running/waiting tasks are refused so the user cannot
+        accidentally drop a live task by clicking the wrong icon.
+
+        Returns:
+            List of removed item IDs (task + child actions). Empty if the
+            task wasn't found or wasn't in a terminal state.
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
+
+        # Locate the task in memory and verify it's terminal
+        task_item = next(
+            (i for i in self._items if i.id == task_id and i.item_type == "task"),
+            None,
+        )
+        if not task_item or task_item.status not in terminal_statuses:
+            return []
+
+        removed_ids = [
+            item.id
+            for item in self._items
+            if item.id == task_id or item.parent_id == task_id
+        ]
+        self._items = [
+            item
+            for item in self._items
+            if item.id != task_id and item.parent_id != task_id
+        ]
+
+        if self._storage:
+            try:
+                self._storage.delete_task_with_actions(task_id)
+            except Exception:
+                pass
+
+        for item_id in removed_ids:
+            await self._adapter._broadcast(
+                {
+                    "type": "action_remove",
+                    "data": {"id": item_id},
+                }
+            )
+
+        return removed_ids
 
     async def clear_terminal_tasks(self) -> int:
         """
@@ -1541,6 +1589,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             message = data.get("message", "") or ""
             await self._handle_task_resume(task_id, message)
 
+        elif msg_type == "task_delete":
+            task_id = data.get("taskId", "")
+            await self._handle_task_delete(task_id)
+
         elif msg_type == "option_click":
             value = data.get("value", "")
             session_id = data.get("sessionId", "")
@@ -1575,7 +1627,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_agent_profile_picture_remove()
 
         elif msg_type == "reset":
-            await self._handle_reset()
+            await self._handle_reset(data)
 
         elif msg_type == "clear_conversation":
             await self._handle_clear_conversation()
@@ -3684,6 +3736,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             agent.event_stream_manager.log(
                 "system",
                 llm_message,
+                event_type=EventType.SYSTEM,
                 display_message=f"Task '{task.name}' resumed by user.",
                 task_id=task_id,
             )
@@ -3802,6 +3855,72 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_complete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_delete(self, task_id: str) -> None:
+        """Delete an ended task and its child actions from the panel and
+        from persistence so it can't be resumed or resurrected on restart.
+        Only completed/error/cancelled tasks are eligible — running tasks
+        must be cancelled or completed first.
+        """
+        try:
+            if not task_id:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Missing taskId",
+                        },
+                    }
+                )
+                return
+
+            removed_ids = await self._action_panel.delete_terminal_task(task_id)
+            if not removed_ids:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found or still active",
+                        },
+                    }
+                )
+                return
+
+            # Drop session_storage rows so a restart can't resurrect the
+            # event stream; mirrors clear_task_persistence used by /clear-tasks.
+            try:
+                self._controller.agent.clear_task_persistence([task_id])
+            except Exception as e:
+                logger.warning(
+                    f"[task_delete] Failed to clear task persistence for {task_id}: {e}"
+                )
+
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                        "removed": len(removed_ids),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[task_delete] Failed to delete {task_id}: {e}")
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,
@@ -4016,14 +4135,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_reset(self) -> None:
-        """Reset agent state (equivalent to /reset command)."""
-        result = await reset_agent_state(self._controller)
+    async def _handle_reset(self, data: dict | None = None) -> None:
+        """Reset agent state.
+
+        If ``data`` carries a ``components`` list (from the settings checklist),
+        only those parts are reset. With no components it's a full reset
+        (equivalent to /reset).
+        """
+        components = None
+        if isinstance(data, dict):
+            raw = data.get("components")
+            if isinstance(raw, list):
+                components = [str(c) for c in raw]
+
+        result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Clear chat messages and actions in UI
-            await self._chat.clear()
-            await self._action_panel.clear()
+            # Only clear the UI panels whose data was actually reset. A full
+            # reset (components is None) clears both.
+            if components is None or "conversation" in components:
+                await self._chat.clear()
+            if components is None or "tasks" in components:
+                await self._action_panel.clear()
+
+            # If LivingUI apps were deleted, push refreshed (now-empty) lists so
+            # the frontend reflects the deletion. Both the main LivingUI page
+            # (living_ui_list) and the Settings > LivingUI page
+            # (living_ui_settings_get) cache their own project lists and won't
+            # refetch on their own, so we must push to both.
+            if components is not None and "livingui" in components:
+                await self._handle_living_ui_list()
+                await self._handle_living_ui_settings_get()
 
             await self._broadcast(
                 {
@@ -4343,7 +4485,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # ---- Spawn the workflow task -----------------------------
             # Use absolute paths in the instruction so the agent can pass
-            # them verbatim to read_file / write_file / stream_edit. With
+            # them verbatim to read_file / stream_edit. With
             # relative paths (e.g. "skills/<name>/SKILL.md") the agent has
             # been observed mistakenly prepending the source-file's prefix
             # (`agent_file_system/`), landing the new SKILL.md inside the

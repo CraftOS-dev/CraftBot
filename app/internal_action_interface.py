@@ -21,6 +21,7 @@ from app.logger import logger
 from pathlib import Path
 from app.config import AGENT_WORKSPACE_ROOT
 from app.gui.gui_module import GUI_MODE_ACTIONS
+from agent_core.core.event_stream.event import EventType
 from app.memory import MemoryManager
 import mss
 import mss.tools
@@ -31,6 +32,10 @@ if TYPE_CHECKING:
     from app.gui.gui_module import GUIModule
     from app.scheduler import SchedulerManager
     from app.proactive import ProactiveManager
+    from app.subagent.manager import SubAgentManager
+    from app.event_stream import EventStreamManager
+    from agent_core.core.impl.action.manager import ActionManager
+    from agent_core.core.impl.action.library import ActionLibrary
 
 
 class InternalActionInterface:
@@ -53,6 +58,12 @@ class InternalActionInterface:
     scheduler: Optional["SchedulerManager"] = None
     proactive_manager: Optional["ProactiveManager"] = None
     ui_adapter: Optional[Any] = None  # Reference to UI adapter (browser, CLI, etc.)
+    # Sub-agent runtime — set during AgentBase.__init__. Used by
+    # spawn_subagent / sub_task_end actions.
+    subagent_manager: Optional["SubAgentManager"] = None
+    action_manager: Optional["ActionManager"] = None
+    action_library: Optional["ActionLibrary"] = None
+    event_stream_manager: Optional["EventStreamManager"] = None
 
     @classmethod
     def initialize(
@@ -68,6 +79,10 @@ class InternalActionInterface:
         memory_manager: MemoryManager | None = None,
         scheduler: Optional["SchedulerManager"] = None,
         ui_adapter: Optional[Any] = None,
+        subagent_manager: Optional["SubAgentManager"] = None,
+        action_manager: Optional["ActionManager"] = None,
+        action_library: Optional["ActionLibrary"] = None,
+        event_stream_manager: Optional["EventStreamManager"] = None,
     ):
         """
         Register the shared interfaces that actions depend on.
@@ -87,6 +102,10 @@ class InternalActionInterface:
         cls.memory_manager = memory_manager
         cls.scheduler = scheduler
         cls.ui_adapter = ui_adapter
+        cls.subagent_manager = subagent_manager
+        cls.action_manager = action_manager
+        cls.action_library = action_library
+        cls.event_stream_manager = event_stream_manager
 
     @classmethod
     def set_ui_adapter(cls, ui_adapter: Any) -> None:
@@ -110,12 +129,38 @@ class InternalActionInterface:
         return {"llm_response": response}
 
     @classmethod
-    def describe_image(cls, image_path: str, prompt: Optional[str] = None) -> str:
-        """Produce a textual description for an image using the VLM."""
+    def _ensure_vlm_available(cls) -> None:
+        """Raise a clear error if the configured provider has no VLM model.
+
+        The agent's main LLM provider (e.g. deepseek) may not support vision.
+        Without this guard, calls fall through to VLMInterface methods that
+        either crash or return provider-specific gibberish. Raising here lets
+        the action wrappers catch it and inject the error into the event stream.
+        """
         if cls.vlm_interface is None:
             raise RuntimeError(
                 "InternalActionInterface not initialized with VLMInterface."
             )
+        if not cls.vlm_interface.is_initialized:
+            from agent_core.core.models.model_registry import MODEL_REGISTRY
+            from agent_core.core.models.types import InterfaceType
+
+            provider = cls.vlm_interface.provider or "unknown"
+            if MODEL_REGISTRY.get(provider, {}).get(InterfaceType.VLM) is None:
+                raise RuntimeError(
+                    f"VLM is not available for provider '{provider}'. "
+                    "Switch VLM provider in setting to the one "
+                    "that supports vision (e.g. anthropic, openai, gemini, byteplus)."
+                )
+            raise RuntimeError(
+                f"VLM for provider '{provider}' is not initialized. "
+                "Check that the API key is configured in app/config/settings.json."
+            )
+
+    @classmethod
+    def describe_image(cls, image_path: str, prompt: Optional[str] = None) -> str:
+        """Produce a textual description for an image using the VLM."""
+        cls._ensure_vlm_available()
         return cls.vlm_interface.describe_image(image_path, user_prompt=prompt)
 
     @classmethod
@@ -162,10 +207,7 @@ class InternalActionInterface:
         Run OCR on an image and persist the extracted text to workspace.
         Returns a concise status dict + saved file path to avoid UI flooding.
         """
-        if cls.vlm_interface is None:
-            raise RuntimeError(
-                "InternalActionInterface not initialized with VLMInterface."
-            )
+        cls._ensure_vlm_available()
 
         import os
         from datetime import datetime
@@ -201,10 +243,7 @@ class InternalActionInterface:
         Analyse a video by extracting keyframes and querying the VLM.
         Persists the summary to workspace to avoid UI/context flooding.
         """
-        if cls.vlm_interface is None:
-            raise RuntimeError(
-                "InternalActionInterface not initialized with VLMInterface."
-            )
+        cls._ensure_vlm_available()
 
         import os
         from datetime import datetime
@@ -264,10 +303,7 @@ class InternalActionInterface:
     @classmethod
     def describe_screen(cls) -> Dict[str, str]:
         """Capture the current virtual desktop and describe it with the VLM."""
-        if cls.vlm_interface is None:
-            raise RuntimeError(
-                "InternalActionInterface not initialised with VLMInterface."
-            )
+        cls._ensure_vlm_available()
 
         temp_dir = Path(AGENT_WORKSPACE_ROOT)
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
@@ -1040,6 +1076,77 @@ class InternalActionInterface:
         cls.state_manager.event_stream_manager.log(
             kind="todos",
             message=todos_str,
+            severity="INFO",
+            event_type=EventType.TODOS,
+            task_id=task_id,
+        )
+        cls.state_manager.bump_event_stream()
+
+    @classmethod
+    def update_requirements(
+        cls, requirements: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Record the deliverable requirement list by emitting a [requirements]
+        event into the event stream.
+
+        Requirements are NOT persisted on the Task — the action is standalone.
+        The agent re-issues the full list on every update; the event stream
+        is the source of truth that the LLM reads back.
+
+        Args:
+            requirements: List of requirement dictionaries with keys
+                          dimension, requirement, done_when, and optional status.
+
+        Returns:
+            Status and the requirement list as passed in.
+        """
+        cls._emit_requirements_event(requirements)
+        return {"status": "ok", "requirements": requirements}
+
+    @classmethod
+    def _emit_requirements_event(
+        cls, requirements: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Emit a [requirements] event to the event stream.
+
+        Each requirement is rendered on three lines so the model can read
+        the dimension, the spec, and the check independently:
+            [SAT]/[VIO]/[ ] <dimension>: <requirement>
+                   done_when: <done_when>
+        """
+        if cls.state_manager is None:
+            return
+
+        lines = []
+        for r in requirements:
+            status = r.get("status", "pending")
+            dimension = r.get("dimension", "")
+            requirement = r.get("requirement", "")
+            done_when = r.get("done_when", "")
+
+            if status == "satisfied":
+                marker = "[SAT]"
+            elif status == "violated":
+                marker = "[VIO]"
+            else:
+                marker = "[ ]"
+
+            lines.append(f"  {marker} {dimension}: {requirement}")
+            if done_when:
+                lines.append(f"         done_when: {done_when}")
+
+        if lines:
+            req_str = "\n" + "\n".join(lines)
+        else:
+            req_str = "(no requirements set)"
+
+        task_id = cls._get_current_task_id()
+
+        cls.state_manager.event_stream_manager.log(
+            kind="requirements",
+            message=req_str,
             severity="INFO",
             task_id=task_id,
         )

@@ -3,7 +3,14 @@ from agent_core import action
 
 @action(
     name="http_request",
-    description="Sends HTTP requests (GET, POST, PUT, PATCH, DELETE) with optional headers, params, and body.",
+    description=(
+        "Sends HTTP requests (GET, POST, PUT, PATCH, DELETE) with optional headers, "
+        "params, and body. To DOWNLOAD A FILE (zip, exe, pdf, image, any binary), set "
+        "'save_to' to a destination path — the raw bytes are streamed to disk intact and "
+        "'saved_path' is returned instead of 'body'. Binary responses are auto-saved to "
+        "the workspace 'downloads/' folder even without 'save_to'; only text/JSON is ever "
+        "returned inline in 'body'. Never expect binary file content inside 'body'."
+    ),
     mode="CLI",
     action_sets=["core"],
     input_schema={
@@ -56,6 +63,18 @@ from agent_core import action
             "example": True,
             "description": "Verify TLS certificates. Defaults to true.",
         },
+        "save_to": {
+            "type": "string",
+            "example": "D:/Work/CraftOS/CraftBot/agent_file_system/workspace/tcc.zip",
+            "description": (
+                "Optional destination path to save the response body to as raw "
+                "bytes (binary-safe). Use this to download files. Absolute paths "
+                "are used as-is; relative paths resolve under the workspace. If it "
+                "names an existing directory, the filename is derived from the URL "
+                "or Content-Disposition. When set, 'saved_path' is returned and "
+                "'body' is omitted."
+            ),
+        },
     },
     output_schema={
         "status": {
@@ -76,7 +95,22 @@ from agent_core import action
         "body": {
             "type": "string",
             "example": '{"ok":true}',
-            "description": "Response body as text.",
+            "description": "Response body as text. Omitted for binary/saved responses.",
+        },
+        "saved_path": {
+            "type": "string",
+            "example": "D:/Work/CraftOS/CraftBot/agent_file_system/workspace/downloads/tcc.zip",
+            "description": "Absolute path the response was saved to (downloads / binary / save_to).",
+        },
+        "bytes_written": {
+            "type": "integer",
+            "example": 314159,
+            "description": "Number of bytes written to 'saved_path'.",
+        },
+        "content_type": {
+            "type": "string",
+            "example": "application/zip",
+            "description": "Response Content-Type (bare media type, no parameters).",
         },
         "response_json": {
             "type": "object",
@@ -147,6 +181,8 @@ def send_http_requests(input_data: dict) -> dict:
     timeout = float(input_data.get("timeout", 30))
     allow_redirects = bool(input_data.get("allow_redirects", True))
     verify_tls = bool(input_data.get("verify_tls", True))
+    save_to = input_data.get("save_to")
+    save_to = str(save_to).strip() if save_to else ""
     allowed = {"GET", "POST", "PUT", "PATCH", "DELETE"}
     if method not in allowed:
         return {
@@ -278,11 +314,148 @@ def send_http_requests(input_data: dict) -> dict:
         kwargs["json"] = json_body
     elif data_body is not None:
         kwargs["data"] = data_body
+
+    import os
+    import re
+    import mimetypes
+    from urllib.parse import urlparse, unquote
+
+    def _bare_content_type(resp) -> str:
+        # "application/zip; charset=..." -> "application/zip"
+        return (resp.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
+
+    def _is_textual(content_type: str):
+        """True/False for known types, None when unknown (caller should sniff)."""
+        if not content_type:
+            return None
+        if content_type.startswith("text/"):
+            return True
+        if content_type in {
+            "application/json",
+            "application/xml",
+            "application/javascript",
+            "application/ld+json",
+            "application/x-www-form-urlencoded",
+            "image/svg+xml",
+        }:
+            return True
+        if content_type.endswith("+json") or content_type.endswith("+xml"):
+            return True
+        return False
+
+    def _sanitize_filename(name: str) -> str:
+        name = os.path.basename(unquote(name or "")).strip().strip('"')
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", name).strip("._-")
+        return name
+
+    def _derive_filename(resp, content_type: str) -> str:
+        # 1) Content-Disposition filename*=UTF-8''... or filename="..."
+        cd = resp.headers.get("Content-Disposition", "") or ""
+        m = re.search(r"filename\*=(?:[^']*'')?([^;]+)", cd) or re.search(
+            r'filename="?([^";]+)"?', cd
+        )
+        if m:
+            fn = _sanitize_filename(m.group(1))
+            if fn:
+                return fn
+        # 2) Basename from the final URL path
+        fn = _sanitize_filename(urlparse(resp.url).path)
+        if fn:
+            return fn
+        # 3) Fallback: timestamped name with an extension guessed from the type
+        ext = mimetypes.guess_extension(content_type) if content_type else None
+        return f"download_{int(time.time() * 1000)}{ext or '.bin'}"
+
+    def _resolve_save_path(save_to: str, resp, content_type: str) -> str:
+        # Absolute paths are honored; relative paths resolve under the workspace.
+        if os.path.isabs(save_to):
+            base = save_to
+        else:
+            try:
+                from agent_core.core.config import get_workspace_root
+
+                base = os.path.join(get_workspace_root(), save_to)
+            except Exception:
+                base = os.path.abspath(save_to)
+        # If the target is (or looks like) a directory, derive the filename.
+        if os.path.isdir(base) or save_to.endswith(("/", "\\")):
+            base = os.path.join(base, _derive_filename(resp, content_type))
+        return base
+
+    def _auto_download_path(resp, content_type: str) -> str:
+        try:
+            from agent_core.core.config import get_workspace_root
+
+            root = get_workspace_root()
+        except Exception:
+            root = os.getcwd()
+        return os.path.join(root, "downloads", _derive_filename(resp, content_type))
+
+    def _stream_to_file(resp, path: str) -> int:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        written = 0
+        with open(path, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    fh.write(chunk)
+                    written += len(chunk)
+        return written
+
     try:
         t0 = time.time()
-        resp = requests.request(method, url, **kwargs)
-        elapsed_ms = int((time.time() - t0) * 1000)
+        # stream=True lets us inspect headers before pulling the body, and keeps
+        # large downloads out of memory (we write them straight to disk).
+        resp = requests.request(method, url, stream=True, **kwargs)
         resp_headers = {k: v for k, v in resp.headers.items()}
+        content_type = _bare_content_type(resp)
+
+        # Decide whether this response is a file to save (binary-safe) or text
+        # to return inline. Explicit save_to always saves; otherwise auto-save
+        # anything that isn't recognizably textual so binary bytes are never
+        # decoded through resp.text (which corrupts them).
+        textual = _is_textual(content_type)
+        should_save = bool(save_to) or textual is False
+
+        if not should_save and textual is None:
+            # Unknown content type — sniff the leading bytes for NUL to tell
+            # binary from text without committing to a decode.
+            peek = resp.raw.read(2048, decode_content=True) or b""
+            is_binary = b"\x00" in peek
+            # Re-expose the peeked bytes so the body remains complete.
+            resp._content = peek + resp.raw.read(decode_content=True)
+            resp._content_consumed = True
+            should_save = is_binary
+
+        if should_save:
+            dest = (
+                _resolve_save_path(save_to, resp, content_type)
+                if save_to
+                else _auto_download_path(resp, content_type)
+            )
+            written = _stream_to_file(resp, dest)
+            elapsed_ms = int((time.time() - t0) * 1000)
+            note = (
+                ""
+                if save_to
+                else " (binary response auto-saved; not returned inline)"
+            )
+            return {
+                "status": "success" if resp.ok else "error",
+                "status_code": resp.status_code,
+                "response_headers": resp_headers,
+                "saved_path": os.path.abspath(dest),
+                "bytes_written": written,
+                "content_type": content_type,
+                "final_url": resp.url,
+                "elapsed_ms": elapsed_ms,
+                "message": (f"Saved {written} bytes to {os.path.abspath(dest)}{note}")
+                if resp.ok
+                else f"HTTP {resp.status_code}",
+            }
+
+        # Textual response — return inline as before.
+        body_text = resp.text
+        elapsed_ms = int((time.time() - t0) * 1000)
         parsed_json = None
         try:
             parsed_json = resp.json()
@@ -292,7 +465,8 @@ def send_http_requests(input_data: dict) -> dict:
             "status": "success" if resp.ok else "error",
             "status_code": resp.status_code,
             "response_headers": resp_headers,
-            "body": resp.text,
+            "body": body_text,
+            "content_type": content_type,
             "final_url": resp.url,
             "elapsed_ms": elapsed_ms,
             "message": "" if resp.ok else f"HTTP {resp.status_code}",

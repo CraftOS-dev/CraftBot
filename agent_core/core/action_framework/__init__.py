@@ -17,6 +17,11 @@ from agent_core.core.action_framework.loader import (
     load_actions_from_directories,
     DEFAULT_ACTION_PATHS,
 )
+from agent_core.core.action_framework.formatting import (
+    candidate_dict_from_action,
+    format_action_candidates,
+    format_actions_by_name,
+)
 
 __all__ = [
     # Registry classes
@@ -36,4 +41,8 @@ __all__ = [
     "PLATFORM_LINUX",
     "PLATFORM_WINDOWS",
     "PLATFORM_DARWIN",
+    # Formatting
+    "candidate_dict_from_action",
+    "format_action_candidates",
+    "format_actions_by_name",
 ]

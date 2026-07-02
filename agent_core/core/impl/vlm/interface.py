@@ -85,6 +85,23 @@ class VLMInterface:
         # Defer import to avoid circular dependency
         from app.models.factory import ModelFactory
         from app.models.types import InterfaceType
+        from agent_core.core.models.model_registry import MODEL_REGISTRY
+
+        # Providers like DeepSeek have VLM=None in the registry. Initializing
+        # them would raise inside ModelFactory and crash the backend at startup.
+        # Set up an uninitialized state instead — VLM actions then surface a
+        # clean "VLM not available" error to the event stream.
+        registry_model = model or MODEL_REGISTRY.get(provider, {}).get(
+            InterfaceType.VLM
+        )
+        if registry_model is None:
+            self.model = None
+            self.client = None
+            self.remote_url = None
+            self._anthropic_client = None
+            self._bedrock_client = None
+            self._initialized = False
+            return
 
         ctx = ModelFactory.create(
             provider=provider,

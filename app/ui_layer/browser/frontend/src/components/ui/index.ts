@@ -22,6 +22,8 @@ export type { ModalProps, ModalSize, ModalSectionProps } from './Modal'
 
 export { ConfirmModal } from './ConfirmModal'
 export type { ConfirmModalProps } from './ConfirmModal'
+export { ResetModal } from './ResetModal'
+export type { ResetModalProps } from './ResetModal'
 
 export { ImportProfileModal } from './ImportProfileModal'
 export type {

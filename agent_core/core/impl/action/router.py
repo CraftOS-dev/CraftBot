@@ -1030,35 +1030,14 @@ class ActionRouter:
         return base_prompt + feedback_block
 
     def _format_candidates(self, candidates: List[Dict[str, Any]]) -> str:
-        """Format action candidates with compact schema for reduced prompt size."""
-        if not candidates:
-            return "[]"
+        """Format action candidates with compact schema for reduced prompt size.
 
-        compact: List[Dict[str, Any]] = []
-        for c in candidates:
-            input_schema = c.get("input_schema") or {}
-            params = {}
+        Delegates to ``agent_core.core.action_framework.format_action_candidates``
+        so the format stays in sync with the sub-agent prompt builder.
+        """
+        from agent_core.core.action_framework import format_action_candidates
 
-            for param_name, param_def in input_schema.items():
-                if isinstance(param_def, dict):
-                    ptype = param_def.get("type", "any")
-                    desc = param_def.get("description", "")
-                    is_optional = (
-                        "default" in desc.lower() or "optional" in desc.lower()
-                    )
-                    req = "optional" if is_optional else "required"
-                    params[param_name] = f"{ptype}, {req} - {desc}"
-                else:
-                    params[param_name] = str(param_def)
-
-            entry = {
-                "name": c.get("name"),
-                "description": c.get("description", ""),
-                "params": params,
-            }
-            compact.append(entry)
-
-        return json.dumps(compact, indent=2, ensure_ascii=False)
+        return format_action_candidates(candidates)
 
     def _format_action_names(self, names: List[str]) -> str:
         if not names:

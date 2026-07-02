@@ -469,6 +469,23 @@
   background: var(--color-success-light);
 }
 
+/* Task delete button - shown on hover for terminal (ended) tasks */
+.taskDeleteBtn {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.taskItem:hover .taskDeleteBtn {
+  opacity: 1;
+}
+
+.taskDeleteBtn:hover {
+  color: var(--color-error);
+  background: var(--color-error-light);
+}
+
 .spinning {
   animation: spin 1s linear infinite;
 }
@@ -881,6 +898,10 @@
   padding-right: var(--space-8);
 }
 
+.userWrapper {
+  padding-left: var(--space-8);
+}
+
 /* Message bubble container - wraps bubble + attachments + reply button */
 .messageBubbleContainer {
   position: relative;
@@ -890,17 +911,31 @@
   min-width: 0;
 }
 
-/* Reply button outside the bubble - positioned in the padding area */
-.replyButtonOutside {
+/* Action buttons (reply, copy) outside the bubble - positioned in the
+ * wrapper's padding. Stacks vertically when there is more than one. */
+.messageActionsOutside {
   position: absolute;
   top: var(--space-1);
-  left: 100%;
-  margin-left: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
 
-.messageWrapper:hover .replyButtonOutside {
+/* Agent bubbles sit on the left side of the wrapper, so actions go right. */
+.agentWrapper .messageActionsOutside {
+  left: 100%;
+  margin-left: var(--space-1);
+}
+
+/* User bubbles align right, so actions go on the left of the bubble. */
+.userWrapper .messageActionsOutside {
+  right: 100%;
+  margin-right: var(--space-1);
+}
+
+.messageWrapper:hover .messageActionsOutside {
   opacity: 1;
 }
 

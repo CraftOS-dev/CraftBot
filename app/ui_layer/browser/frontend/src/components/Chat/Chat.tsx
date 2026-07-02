@@ -324,6 +324,9 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     setEnhancing(true)
     enhancePrompt(input.trim())
   }, [input, enhancing, enhancePrompt])
+  useEffect(() => {
+    if (replyTarget) inputRef.current?.focus()
+  }, [replyTarget])
 
   const handleChatReply = useCallback((
     sessionId: string | undefined,
@@ -336,7 +339,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       displayName,
       originalContent: fullContent,
     })
-    inputRef.current?.focus()
   }, [setReplyTarget])
 
   const toggleListening = useCallback(() => {
