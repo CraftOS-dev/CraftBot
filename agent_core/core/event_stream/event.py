@@ -282,11 +282,15 @@ class EventRecord:
         Generate a compact single-line representation of this event.
 
         Format: "HH:MM:SS [kind]: message" with optional " xN" suffix for repeats.
+        The time is rendered in LOCAL time: storage stays UTC, but everything the
+        model sees must agree with the local wall clock the context engine's
+        current-datetime block reports (and with the log files a human reads
+        alongside). A naive ts (legacy persisted data) is assumed local.
 
         Returns:
             Compact string representation
         """
-        t = self.ts.strftime("%H:%M:%S")
+        t = self.ts.astimezone().strftime("%H:%M:%S")
         k = self.event.kind
         msg = self.event.message
         suffix = f" x{self.repeat_count}" if self.repeat_count > 1 else ""

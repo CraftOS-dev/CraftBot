@@ -34,7 +34,7 @@ SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
 # pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
 # an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
 # agent retrieves the full content with grep_files / read_file when it needs it.
-MAX_EVENT_INLINE_CHARS = 8000
+MAX_EVENT_INLINE_CHARS = 16000
 # Always preserve at least this many most-recent events in tail_events when summarizing.
 # Guards against a single oversized event (e.g. a large read_pdf result) being purged in the
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
@@ -126,13 +126,21 @@ class EventStream:
     # ───────────────────────────── datetime tag ──────────────────────────
     def _append_datetime_event(self) -> None:
         """Append a current date/time marker (minute precision) to the tail. Uses
-        UTC to match the per-event timestamps in compact_line — otherwise the line
-        shows two disagreeing times (UTC event-ts vs local marker). Cheap, and
-        deliberately NOT in PROTECTED_SUMMARY_KINDS — if it gets summarized away a
-        fresh one is pushed right after each summarization. Caller holds the lock."""
+        LOCAL time to match the per-event timestamps in compact_line and the
+        context engine's current-datetime block — otherwise the stream shows two
+        disagreeing clocks (UTC events vs local "now"). Cheap, and deliberately
+        NOT in PROTECTED_SUMMARY_KINDS — if it gets summarized away a fresh one
+        is pushed right after each summarization. Caller holds the lock."""
         now = datetime.now(timezone.utc)
+        local = now.astimezone()
+        try:
+            from tzlocal import get_localzone
+
+            tz_label = str(get_localzone())
+        except Exception:
+            tz_label = local.tzname() or "local"
         ev = Event(
-            message=now.strftime("%Y-%m-%d %H:%M UTC"),
+            message=f"{local.strftime('%Y-%m-%d %H:%M')} ({tz_label})",
             kind="datetime",
             severity="INFO",
             event_type=EventType.INTERNAL,
@@ -256,7 +264,12 @@ class EventStream:
         if len(message) <= MAX_EVENT_INLINE_CHARS or self.temp_dir is None:
             return message
 
-        if action_name == "stream read" or action_name == "grep":
+        # Never externalize the retrieval actions' own outputs: they are how
+        # the agent reads externalized content back, so pointering them would
+        # send the agent chasing a pointer to a pointer. ("grep" / "stream
+        # read" are legacy names kept for safety; the live actions are
+        # grep_files / read_file.)
+        if action_name in ("grep_files", "read_file", "grep", "stream read"):
             return message
 
         try:

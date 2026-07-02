@@ -61,6 +61,24 @@ No prose, no markdown fences, no extra keys. One action per turn.
 
 _DECIDE_NUDGE = "Decide your next action now. Reply with the JSON object only."
 
+# Appended to the system prompt of any sub-agent type whose action list
+# includes the retrieval pair (grep_files / read_file). Oversized action
+# outputs are externalized by the event stream (EventStream._externalize_message)
+# into files under the sub-agent's temp dir; this note teaches the model the
+# retrieval protocol. Kept out of SUBAGENT_OUTPUT_FORMAT because it only
+# applies when the retrieval actions are actually available.
+_EXTERNALIZED_OUTPUT_NOTE = """
+EXTERNALIZED OUTPUTS:
+When an action's output is very large, your event log will show a pointer
+line ("... saved in <file path> ... | keywords: ...") instead of the content.
+The full output is in that file — it is NOT lost and you must NOT re-run the
+action to get it back. Use grep_files on the file with the listed keywords
+(or your own search terms) to pull just the relevant lines; use read_file
+with offset/limit only when you need a specific region in full.
+"""
+
+_RETRIEVAL_ACTIONS = ("grep_files", "read_file")
+
 
 class SubAgentContextEngine:
     """Builds prompt pieces for sub-agent LLM calls."""
@@ -95,10 +113,13 @@ class SubAgentContextEngine:
             self.action_library,
             on_missing="[SubAgentContextEngine]",
         )
-        return defn.system_prompt.format(
+        prompt = defn.system_prompt.format(
             action_list=action_list_str,
             output_format=SUBAGENT_OUTPUT_FORMAT,
         )
+        if any(a in sub.compiled_actions for a in _RETRIEVAL_ACTIONS):
+            prompt += _EXTERNALIZED_OUTPUT_NOTE
+        return prompt
 
     # ------------------------------------------------------------------
     # User prompts

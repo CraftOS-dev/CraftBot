@@ -106,7 +106,15 @@ register_subagent(
         "web_fetch",
         "http_request",
         "convert_to_markdown",
+        # Retrieval pair for externalized outputs: large web_fetch /
+        # http_request results are replaced in the event log by a file
+        # pointer; these two actions read the content back selectively.
+        "grep_files",
+        "read_file",
     ],
-    max_iterations=20,
-    max_wall_seconds=300,
+    # Externalized outputs turn "read whole page inline" into
+    # "pointer → grep → (maybe) read_file", costing 1-2 extra turns per
+    # large source — budgets sized accordingly.
+    max_iterations=30,
+    max_wall_seconds=450,
 )

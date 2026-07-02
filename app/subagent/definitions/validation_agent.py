@@ -50,7 +50,7 @@ YOUR LOOP:
 1. Read the artifact(s) named in the query. Use read_file, read_pdf,
    list_folder, find_files, grep_files as appropriate.
 2. For each criterion in the DoD, gather objective evidence:
-   - Run tests / scripts via run_python or run_shell.
+   - Run tests / scripts via run_shell.
    - Grep for forbidden or required patterns.
    - Fetch URLs the artifact references via web_fetch / http_request
      and verify they resolve / return the expected shape.
@@ -159,7 +159,6 @@ register_subagent(
         "grep_files",
         "list_folder",
         # Execute checks
-        "run_python",
         "run_shell",
         # External standards & API verification
         "web_search",
