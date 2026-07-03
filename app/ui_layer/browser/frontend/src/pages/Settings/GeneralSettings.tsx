@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   ChevronRight,
   RotateCcw,
@@ -15,6 +15,8 @@ import {
   ListChecks,
   Package,
   PackageOpen,
+  Volume2,
+  Play,
 } from 'lucide-react'
 import {
   Button,
@@ -28,7 +30,7 @@ import {
 } from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useConfirmModal, useMascotVisibility } from '../../hooks'
+import { useConfirmModal, useMascotVisibility, useTtsSettings } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -72,6 +74,44 @@ function getInitialAgentName(): string {
   return localStorage.getItem('craftbot-agent-name') || 'CraftBot'
 }
 
+// Human-readable language label for a BCP-47 tag (best effort via Intl).
+const languageDisplay = (() => {
+  let dn: Intl.DisplayNames | null = null
+  try {
+    dn = new Intl.DisplayNames(undefined, { type: 'language' })
+  } catch {
+    dn = null
+  }
+  return (lang: string): string => {
+    const primary = lang.split('-')[0]
+    const label = dn?.of(primary)
+    return label && label.toLowerCase() !== primary.toLowerCase() ? label : lang
+  }
+})()
+
+interface VoiceGroup {
+  label: string
+  voices: SpeechSynthesisVoice[]
+}
+
+// Group the available TTS voices by language so the dropdown stays navigable
+// (a typical machine exposes dozens of voices across many languages).
+function groupVoicesByLanguage(voices: SpeechSynthesisVoice[]): VoiceGroup[] {
+  const map = new Map<string, SpeechSynthesisVoice[]>()
+  for (const v of voices) {
+    const key = (v.lang || 'other').split('-')[0]
+    const arr = map.get(key) ?? []
+    arr.push(v)
+    map.set(key, arr)
+  }
+  return Array.from(map.entries())
+    .map(([key, vs]) => ({
+      label: languageDisplay(key),
+      voices: vs.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
 export function GeneralSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { agentProfilePictureUrl, agentProfilePictureHasCustom } = useWebSocket()
@@ -79,6 +119,8 @@ export function GeneralSettings() {
   const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
   const [mascotVisible, setMascotVisible] = useMascotVisibility()
+  const tts = useTtsSettings()
+  const voiceGroups = useMemo(() => groupVoicesByLanguage(tts.voices), [tts.voices])
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
   const [theme, setTheme] = useState(getInitialTheme)
@@ -780,6 +822,78 @@ export function GeneralSettings() {
             onChange={(e) => setMascotVisible(e.target.checked)}
           />
         </div>
+
+        {tts.isSupported && (
+          <div className={styles.formGroup}>
+            <label>
+              <Volume2
+                size={14}
+                style={{ verticalAlign: '-2px', marginRight: 6 }}
+              />
+              Read-aloud voice
+            </label>
+            <select
+              value={tts.selectedVoiceURI}
+              onChange={(e) => tts.setSelectedVoiceURI(e.target.value)}
+            >
+              <option value="">Automatic (match message language)</option>
+              {voiceGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.voices.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {v.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <span className={styles.hint}>
+              Voice for the “Read aloud” button on agent messages. Many voices
+              list a Male/Female variant in their name. Leave on Automatic to
+              match each message’s language (Japanese, Chinese, Arabic, …).
+              {tts.voices.length === 0 && ' Loading system voices…'}
+            </span>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-3)',
+                marginTop: 'var(--space-2)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span
+                className={styles.hint}
+                style={{ minWidth: 92, margin: 0 }}
+              >
+                Speed {tts.rate.toFixed(1)}×
+              </span>
+              <input
+                type="range"
+                min={0.5}
+                max={2}
+                step={0.1}
+                value={tts.rate}
+                onChange={(e) => tts.setRate(parseFloat(e.target.value))}
+                style={{ flex: 1, minWidth: 120, accentColor: 'var(--color-primary)' }}
+                aria-label="Read-aloud speed"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Play size={14} />}
+                onClick={() =>
+                  tts.speakSample(
+                    'Hi, this is CraftBot reading your messages aloud.'
+                  )
+                }
+              >
+                Test
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={styles.sectionFooter}>

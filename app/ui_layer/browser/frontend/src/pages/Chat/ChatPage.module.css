@@ -939,6 +939,32 @@
   opacity: 1;
 }
 
+/* Keep the toolbar visible while a message is being read aloud (the wrapper
+ * may not be hovered), and gently pulse the active read-aloud button so the
+ * "speaking" state is legible at a glance. */
+.messageActionsOutside:has(.readAloudActive) {
+  opacity: 1;
+}
+
+.readAloudActive {
+  color: var(--color-primary);
+  animation: readAloudPulse 1.4s ease-in-out infinite;
+}
+
+.readAloudActive:hover:not(:disabled) {
+  color: var(--color-primary-hover);
+}
+
+@keyframes readAloudPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 /* Reply bar above input - styled like pending attachments */
 .replyBar {
   display: flex;

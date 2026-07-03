@@ -1,8 +1,9 @@
 import React, { memo, useState, useMemo, useRef, useEffect } from 'react'
-import { Reply, Copy, Check } from 'lucide-react'
+import { Reply, Copy, Check, Volume2, Square } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useReadAloud } from '../../hooks'
 import styles from './ChatPage.module.css'
 
 interface ChatMessageProps {
@@ -50,12 +51,17 @@ export const ChatMessageItem = memo(function ChatMessageItem({
     dispatchLockRef.current = !!selected
   }, [selected])
   const { agentProfilePictureUrl } = useWebSocket()
+  const readAloud = useReadAloud(message.messageId)
 
   // Show reply for agent messages, except those presenting options that
   // require the user to make an explicit choice via the option buttons.
   const hasPendingOptions = !!(message.options && message.options.length > 0)
   const canReply = message.style === 'agent' && onReply && !hasPendingOptions
   const canCopy = message.style === 'user' || message.style === 'agent'
+  // Read aloud is offered for agent prose only (skip while options are
+  // pending, and only when the browser supports speech synthesis).
+  const canReadAloud =
+    message.style === 'agent' && !hasPendingOptions && readAloud.isSupported
 
   // Parse reply context for user messages
   const { userMessage, replyContext } = useMemo(() => {
@@ -74,6 +80,11 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         : message.content
       onReply(message.taskSessionId, displayName, message.content)
     }
+  }
+
+  const handleReadAloud = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    readAloud.toggle(message.content)
   }
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -138,8 +149,10 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         </div>
       )}
       {/* Action buttons - positioned outside the bubble (right for agent,
-          left for user). Stacked vertically when both reply + copy show. */}
-      {isHovered && (canReply || canCopy) && (
+          left for user). Stacked vertically when several actions show. The
+          toolbar also stays visible while a message is being read aloud so
+          the user can stop it without hovering. */}
+      {(isHovered || readAloud.isSpeaking) && (canReply || canCopy || canReadAloud) && (
         <div className={styles.messageActionsOutside}>
           {canReply && (
             <IconButton
@@ -148,6 +161,17 @@ export const ChatMessageItem = memo(function ChatMessageItem({
               size="sm"
               onClick={handleReply}
               tooltip="Reply to this message"
+            />
+          )}
+          {canReadAloud && (
+            <IconButton
+              icon={readAloud.isSpeaking ? <Square size={14} /> : <Volume2 size={14} />}
+              variant="ghost"
+              size="sm"
+              active={readAloud.isSpeaking}
+              className={readAloud.isSpeaking ? styles.readAloudActive : ''}
+              onClick={handleReadAloud}
+              tooltip={readAloud.isSpeaking ? 'Stop reading' : 'Read aloud'}
             />
           )}
           {canCopy && (
