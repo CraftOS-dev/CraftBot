@@ -11,7 +11,8 @@ const FEMALE_NAMES = [
   'lekha', 'luciana', 'mariska', 'mei-jia', 'melina', 'milena', 'monica',
   'mónica', 'nora', 'paola', 'sin-ji', 'tarik', 'ting-ting', 'yuna', 'zosia',
   'zuzana', 'linh', 'nicky', 'aria', 'jenny', 'michelle', 'clara', 'sonia',
-  'libby', 'maisie', 'natasha', 'yan', 'xiaoxiao', 'hyunsu',
+  'libby', 'maisie', 'natasha', 'yan', 'xiaoxiao', 'hyunsu', 'huihui',
+  'yaoyao', 'hanhan', 'tracy', 'hoda', 'naayf', 'heami', 'irina', 'ekaterina',
 ]
 
 const MALE_NAMES = [

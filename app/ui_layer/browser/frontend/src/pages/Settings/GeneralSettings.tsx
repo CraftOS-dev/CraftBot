@@ -31,7 +31,7 @@ import {
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useConfirmModal, useMascotVisibility, useTtsSettings } from '../../hooks'
-import { inferVoiceGender } from '../../utils/voiceGender'
+import { friendlyVoiceName } from '../../utils/voiceLabel'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -840,23 +840,19 @@ export function GeneralSettings() {
               <option value="">Automatic (match message language)</option>
               {voiceGroups.map((group) => (
                 <optgroup key={group.label} label={group.label}>
-                  {group.voices.map((v) => {
-                    const g = inferVoiceGender(v)
-                    const tag = g === 'female' ? ' · Female' : g === 'male' ? ' · Male' : ''
-                    return (
-                      <option key={v.voiceURI} value={v.voiceURI}>
-                        {v.name}{tag}
-                      </option>
-                    )
-                  })}
+                  {group.voices.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {friendlyVoiceName(v)}
+                    </option>
+                  ))}
                 </optgroup>
               ))}
             </select>
             <span className={styles.hint}>
-              Voice for the “Read aloud” button on agent messages. Leave on
-              Automatic to match each message’s language (Japanese, Chinese,
-              Arabic, …) and use the voice type below.
-              {tts.voices.length === 0 && ' Loading system voices…'}
+              The voice CraftBot uses when reading a message aloud. Keep it on
+              Automatic and it picks a voice that matches the message’s
+              language.
+              {tts.voices.length === 0 && ' Loading voices…'}
             </span>
 
             <div
@@ -884,9 +880,7 @@ export function GeneralSettings() {
               </select>
             </div>
             <span className={styles.hint}>
-              Preferred gender when a voice is auto-selected (Automatic mode, or
-              when a message is in another language). Detected from voice names,
-              so it depends on what your system provides.
+              Prefer a male or female voice when CraftBot chooses one for you.
             </span>
 
             <div
