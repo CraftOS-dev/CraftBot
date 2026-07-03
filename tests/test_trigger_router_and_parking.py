@@ -21,9 +21,13 @@ class FakeLLM:
         self.response = response
         self.calls = 0
 
-    async def generate_response_async(self, system_prompt: str, user_prompt: str):
+    async def generate_response_async(
+        self, system_prompt: str, user_prompt: str, prompt_name=None, **_kwargs
+    ):
         self.calls += 1
+        self.last_system_prompt = system_prompt
         self.last_prompt = user_prompt
+        self.last_prompt_name = prompt_name
         return self.response
 
 
@@ -39,6 +43,7 @@ class TestSessionRouter:
         router = SessionRouter(llm, ROUTING_PROMPT)
         result = run(router.route("message", "continue that task", "sessions"))
         assert result["session_id"] == "abc123"
+        assert llm.last_prompt_name == "ROUTE_TO_SESSION"
         assert llm.calls == 1
 
     def test_new_session_decision(self):
