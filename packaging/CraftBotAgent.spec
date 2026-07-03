@@ -13,6 +13,7 @@ Build from the repo root: `python -m PyInstaller packaging/CraftBotAgent.spec`.
 All paths below are derived from SPECPATH (the absolute directory of this
 spec file), so the build works regardless of the current working directory.
 """
+import glob as _glob
 import os as _os
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -37,6 +38,18 @@ _datas_extra = []
 _version_path = _root('VERSION')
 if _os.path.isfile(_version_path):
     _datas_extra.append((_version_path, '.'))
+
+# Locale catalogs loaded at runtime by app.i18n via Path(__file__).parent —
+# globbed so dropping in a new errors.<lang>.json needs no spec edit. Fail
+# loudly if none are found: shipping without them degrades every provider
+# error message to its raw catalog key.
+_i18n_catalogs = _glob.glob(_root('app', 'i18n', 'errors.*.json'))
+if not _i18n_catalogs:
+    raise RuntimeError(
+        "No app/i18n/errors.*.json catalogs found — the packaged agent would "
+        "show raw error keys instead of messages."
+    )
+_datas_extra += [(_f, 'app/i18n') for _f in _i18n_catalogs]
 
 datas = [
     *_datas_extra,

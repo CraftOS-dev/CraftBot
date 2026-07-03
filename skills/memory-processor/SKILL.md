@@ -34,7 +34,7 @@ Process 50 lines at a time to avoid memory issues.
 
 ### Steps:
 
-1. **Read first batch**: `stream_read` EVENT_UNPROCESSED.md, offset=11, limit=50
+1. **Read first batch**: `read_file` EVENT_UNPROCESSED.md, offset=11, limit=50
 2. **Create todos**: Use `task_update_todos` to create initial todo list
 3. **Loop for each batch**:
    - Distill batch: Apply rules below, extract IMPORTANT memories only
@@ -129,11 +129,11 @@ Only save the memory if it contains lasting value:
 
 ## Allowed Actions
 
-`stream_read`, `stream_edit`, `memory_search`, `grep_files`, `task_end`, `task_update_todos`
+`read_file`, `stream_edit`, `memory_search`, `grep_files`, `task_end`, `task_update_todos`
 
 ## FORBIDDEN Actions
 
-`send_message`, `ignore`, `run_python`, `run_shell`, `write_file`, `create_file`
+`send_message`, `ignore`, `run_shell`, `write_file`, `create_file`
 
 ## Example
 
@@ -185,7 +185,7 @@ N+3. [pending] Replace oldest block in MEMORY.md
 
 Execute AFTER event processing completes:
 
-1. `stream_read` MEMORY.md from line 11 (skip the header block) up to the oldest-N range indicated in the task instruction.
+1. `read_file` MEMORY.md from line 11 (skip the header block) up to the oldest-N range indicated in the task instruction.
 2. Decide, item by item, what to merge / drop / keep. See ranking heuristics below. The 150-word limit still applies to every merged item.
 3. `stream_edit` MEMORY.md to replace the oldest block with the consolidated set. The `# Memory Log` / `## Overview` / `## Memory` header (lines 1-10) must remain intact.
 

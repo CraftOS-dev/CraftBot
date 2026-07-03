@@ -2,13 +2,120 @@
 
 .layout {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
   overflow: hidden;
+  position: relative;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border-primary);
+  overflow: hidden;
+  transition: transform var(--transition-base);
 }
 
 .content {
   flex: 1;
   overflow: hidden;
   background: var(--bg-primary);
+  min-width: 0;
+}
+
+/* Hamburger toggle — hidden on desktop, shown on mobile */
+.menuButton {
+  display: none;
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: calc(var(--z-sticky) + 2);
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  background: var(--sidebar-bg);
+  color: var(--text-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.menuButton:hover {
+  background: var(--bg-elevated);
+}
+
+/* Backdrop behind the drawer on mobile */
+.backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: var(--z-sticky);
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  pointer-events: none;
+}
+
+/* Narrow desktop / tablet: <1024px — shrink the sidebar */
+@media (max-width: 1023px) {
+  .sidebar {
+    width: calc(var(--sidebar-width) * 0.7);
+  }
+}
+
+/* Collapsed sidebar — icon-only mode */
+.sidebar.sidebarCollapsed {
+  width: 56px;
+}
+
+/* Mobile: ≤768px */
+@media (max-width: 768px) {
+  .menuButton {
+    display: flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: calc(var(--z-sticky) + 1);
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-lg);
+    max-width: 85vw;
+    /* Leave room at the top so the floating menu button (X when open)
+     * doesn't cover the first nav item. */
+    padding-top: calc(var(--space-2) + 36px + var(--space-1));
+  }
+
+  .sidebarOpen {
+    transform: translateX(0);
+  }
+
+  .backdrop {
+    display: block;
+  }
+
+  .backdropVisible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* On mobile, content area gets a little top padding so it isn't under
+   * the hamburger button. Only when the sidebar is rendered. */
+  .contentWithSidebar {
+    padding-top: calc(var(--space-2) + 36px + var(--space-2));
+  }
+
+  /* In mobile drawer mode the collapse-to-icons behavior makes no sense —
+   * the drawer is hidden by default and slides in full-width. Reset any
+   * collapsed width so the drawer still renders normally. */
+  .sidebar.sidebarCollapsed {
+    width: 280px;
+  }
 }

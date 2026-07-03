@@ -15,6 +15,7 @@ interface TasksExtraState {
   cancellingTaskId: string | null
   completingTaskId: string | null
   resumingTaskId: string | null
+  deletingTaskId: string | null
 }
 
 const initialState = adapter.getInitialState<TasksExtraState>({
@@ -23,6 +24,7 @@ const initialState = adapter.getInitialState<TasksExtraState>({
   cancellingTaskId: null,
   completingTaskId: null,
   resumingTaskId: null,
+  deletingTaskId: null,
 })
 
 const tasksSlice = createSlice({
@@ -119,6 +121,9 @@ const tasksSlice = createSlice({
       }
       state.resumingTaskId = null
     },
+    setDeletingTaskId(state, action: PayloadAction<string | null>) {
+      state.deletingTaskId = action.payload
+    },
   },
 })
 
@@ -137,6 +142,7 @@ export const {
   markCompleted,
   setResumingTaskId,
   markResumed,
+  setDeletingTaskId,
 } = tasksSlice.actions
 
 export const tasksAdapter = adapter
@@ -214,4 +220,10 @@ register('task_resume_response', (data, dispatch) => {
   } else {
     dispatch(setResumingTaskId(null))
   }
+})
+
+register('task_delete_response', (_data, dispatch) => {
+  // The action_remove broadcasts already dropped the rows; just clear the
+  // optimistic in-flight flag regardless of success.
+  dispatch(setDeletingTaskId(null))
 })

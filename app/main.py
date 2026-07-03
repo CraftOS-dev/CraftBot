@@ -9,6 +9,46 @@ Run this before the app directory, using 'python -m app.main'
 """
 
 # ============================================================================
+# CRITICAL: SSL bootstrap BEFORE any TLS-using import (aiohttp, openai, etc.)
+#
+# On Windows, a single malformed certificate in the OS cert store
+# ("Trusted Root", "CA", etc.) breaks ssl.create_default_context() with
+# "[ASN1: NOT_ENOUGH_DATA]" because the stdlib loads ALL Windows certs in
+# one batch via load_verify_locations(cadata=...). One bad cert poisons the
+# whole batch.
+#
+# Workaround: wrap SSLContext._load_windows_store_certs to swallow that
+# specific SSLError. Lost Windows-CA-store certs are replaced by certifi's
+# Mozilla bundle (set_default_verify_paths still runs), so server cert
+# validation still works for PyPI / OpenAI / Anthropic / etc.
+import sys as _sys
+
+if _sys.platform == "win32":
+    import ssl as _ssl
+
+    _orig_load_win_certs = getattr(_ssl.SSLContext, "_load_windows_store_certs", None)
+    if _orig_load_win_certs is not None:
+
+        def _safe_load_windows_store_certs(self, storename, purpose):
+            try:
+                return _orig_load_win_certs(self, storename, purpose)
+            except _ssl.SSLError:
+                # Malformed cert in store — skip silently. certifi still loads.
+                return None
+
+        _ssl.SSLContext._load_windows_store_certs = _safe_load_windows_store_certs
+
+    # Also try truststore as an extra layer (uses Windows SChannel directly
+    # on modern versions); harmless if not installed.
+    try:
+        import truststore as _truststore
+
+        _truststore.inject_into_ssl()
+    except Exception:
+        pass
+# ============================================================================
+
+# ============================================================================
 # CRITICAL: Suppress console logging BEFORE imports
 # Must be done before any module calls logging.basicConfig()
 # ============================================================================
@@ -46,6 +86,51 @@ def _suppress_console_logging_early() -> None:
 
 
 _suppress_console_logging_early()
+# ============================================================================
+
+
+# ============================================================================
+# CRITICAL: SSL shim for Windows certificate store
+# Must run BEFORE any import that pulls in aiohttp/ssl (e.g. app.agent_base).
+#
+# On some Windows machines the system certificate store contains a malformed
+# certificate. The combination of conda's Python 3.10 + bundled OpenSSL in
+# this environment can't parse the raw-DER batch that _load_windows_store_certs
+# concatenates, and crashes at module import time with:
+#   ssl.SSLError: [ASN1: NOT_ENOUGH_DATA] not enough data (_ssl.c:4040)
+#
+# aiohttp triggers this at import time via _make_ssl_context(True), so we
+# can't catch it after the fact. We:
+#   1. Point Python's default verify paths at certifi's CA bundle.
+#   2. Wrap _load_windows_store_certs to swallow SSLError so a single bad
+#      Windows cert no longer kills startup.
+# ============================================================================
+def _install_ssl_windows_store_shim() -> None:
+    if _os.name != "nt":
+        return
+    try:
+        import ssl as _ssl
+        import certifi as _certifi
+    except Exception:
+        return
+
+    _os.environ.setdefault("SSL_CERT_FILE", _certifi.where())
+    _os.environ.setdefault("REQUESTS_CA_BUNDLE", _certifi.where())
+
+    _orig = getattr(_ssl.SSLContext, "_load_windows_store_certs", None)
+    if _orig is None:
+        return
+
+    def _safe_load_windows_store_certs(self, storename, purpose):
+        try:
+            return _orig(self, storename, purpose)
+        except _ssl.SSLError:
+            return bytearray()
+
+    _ssl.SSLContext._load_windows_store_certs = _safe_load_windows_store_certs
+
+
+_install_ssl_windows_store_shim()
 # ============================================================================
 
 import argparse

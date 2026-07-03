@@ -110,11 +110,24 @@ _PROVIDER_DISPLAY: Dict[str, str] = {
     "byteplus": "BytePlus",
     "deepseek": "DeepSeek",
     "grok": "Grok",
+    "glm": "Z.ai (GLM)",
+    "fugu": "Sakana (Fugu)",
     "moonshot": "Moonshot",
     "minimax": "MiniMax",
     "remote": "Ollama",
     "bedrock": "AWS Bedrock",
 }
+
+
+def provider_display_name(provider: Optional[str]) -> str:
+    """User-facing display name for a provider id (e.g. "openai" → "OpenAI").
+
+    Public accessor over `_PROVIDER_DISPLAY` so other modules (app.i18n)
+    don't grow their own divergent copy of the map.
+    """
+    if not provider:
+        return "Provider"
+    return _PROVIDER_DISPLAY.get(provider, provider.title())
 
 
 # Used only when the provider gave us no message at all (rare). Most
@@ -357,6 +370,13 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     # Anthropic-style nested error type can appear when OR proxies Anthropic
     if isinstance(error_type, str):
         if error_type == "credit_balance_too_low":
+            category = ErrorCategory.CREDIT
+        # Sakana (Fugu) signals prepaid-credit exhaustion with HTTP 429 +
+        # type "usage_limit_reached". 429 alone resolves to RATE_LIMIT
+        # ("try again shortly"), which is wrong here — the account is out of
+        # funds, not being throttled, so retrying never succeeds. Map the
+        # typed field, not the free-text message, to CREDIT.
+        elif error_type == "usage_limit_reached":
             category = ErrorCategory.CREDIT
         elif error_type == "overloaded_error":
             category = ErrorCategory.SERVER

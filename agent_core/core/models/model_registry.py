@@ -70,6 +70,23 @@ MODEL_REGISTRY = {
         InterfaceType.IMAGE_GEN: None,
         InterfaceType.VIDEO_GEN: None,
     },
+    "glm": {
+        # Z.ai (Zhipu AI) GLM-5.2 -- 1M-context, OpenAI-compatible, multimodal.
+        InterfaceType.LLM: "glm-5.2",
+        InterfaceType.VLM: "glm-5.2",
+        InterfaceType.EMBEDDING: None,
+        InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
+    },
+    "fugu": {
+        # Sakana AI Fugu -- OpenAI-compatible orchestration model. Text/LLM
+        # only here; no native vision/embedding/image/video models exposed.
+        InterfaceType.LLM: "fugu",
+        InterfaceType.VLM: None,
+        InterfaceType.EMBEDDING: None,
+        InterfaceType.IMAGE_GEN: None,
+        InterfaceType.VIDEO_GEN: None,
+    },
     "openrouter": {
         # OpenRouter slugs follow `<provider>/<model>` format. Default to a Claude
         # model so KV caching exercises the cache_control path on first use.

@@ -16,11 +16,11 @@ from agent_core import action
         "shell": {
             "type": "string",
             "example": "auto",
-            "description": "Shell to use. Default is platform's native shell (cmd, bash, or zsh).",
+            "description": "Shell to use. Windows: 'cmd' (default), 'powershell', or 'pwsh' — bash/zsh are NOT available, and an unsupported value returns an error. macOS: 'bash' (default) or 'zsh'. Linux: ignored (runs via the system shell).",
         },
         "timeout": {
             "type": "integer",
-            "example": 60,
+            "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
@@ -55,7 +55,7 @@ from agent_core import action
     test_payload={
         "command": "dir C:\\\\Windows\\\\System32",
         "shell": "auto",
-        "timeout": 60,
+        "timeout": 600,
         "cwd": "/home/user",
         "env": {"MY_VAR": "123"},
         "background": False,
@@ -87,7 +87,7 @@ def shell_exec(input_data: dict) -> dict:
             "pid": None,
         }
 
-    timeout_seconds = float(timeout_val) if timeout_val is not None else 30.0
+    timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
         return {
@@ -214,11 +214,11 @@ def shell_exec(input_data: dict) -> dict:
         "shell": {
             "type": "string",
             "example": "auto",
-            "description": "Shell to use. Default is platform's native shell (cmd, bash, or zsh).",
+            "description": "Shell to use. Windows: 'cmd' (default), 'powershell', or 'pwsh' — bash/zsh are NOT available, and an unsupported value returns an error. macOS: 'bash' (default) or 'zsh'. Linux: ignored (runs via the system shell).",
         },
         "timeout": {
             "type": "integer",
-            "example": 60,
+            "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
@@ -253,7 +253,7 @@ def shell_exec(input_data: dict) -> dict:
     test_payload={
         "command": "dir C:\\\\Windows\\\\System32",
         "shell": "auto",
-        "timeout": 60,
+        "timeout": 600,
         "cwd": "/home/user",
         "env": {"MY_VAR": "123"},
         "background": False,
@@ -279,17 +279,34 @@ def shell_exec_windows(input_data: dict) -> dict:
 
     command = str(input_data.get("command", "")).strip()
     shell_choice = str(input_data.get("shell", "cmd")).strip().lower()
-    if shell_choice == "auto":
+    if shell_choice in ("", "auto"):
         shell_choice = "cmd"
-    shell_choice = (
-        shell_choice if shell_choice in ("cmd", "powershell", "pwsh") else "cmd"
-    )
+    if shell_choice not in ("cmd", "powershell", "pwsh"):
+        # Previously any unsupported value (e.g. "bash", "sh", "zsh") was
+        # silently coerced to cmd, so a bash heredoc would run under cmd and
+        # fail with a cryptic "<< was unexpected at this time." Return an
+        # explicit error instead so the caller knows its shell choice was
+        # rejected and why.
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": (
+                f"Shell '{shell_choice}' is not available on Windows. "
+                "Supported shells: cmd, powershell, pwsh. "
+                "bash/zsh/sh syntax (e.g. heredocs) will NOT run here — "
+                "use PowerShell for scripting, or write files via a file action "
+                "rather than shell redirection."
+            ),
+            "pid": None,
+        }
     timeout_val = input_data.get("timeout")
     cwd = input_data.get("cwd")
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
-    timeout_seconds = float(timeout_val) if timeout_val is not None else 30.0
+    timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
         return {
@@ -445,11 +462,11 @@ def shell_exec_windows(input_data: dict) -> dict:
         "shell": {
             "type": "string",
             "example": "auto",
-            "description": "Shell to use. Default is platform's native shell (cmd, bash, or zsh).",
+            "description": "Shell to use. Windows: 'cmd' (default), 'powershell', or 'pwsh' — bash/zsh are NOT available, and an unsupported value returns an error. macOS: 'bash' (default) or 'zsh'. Linux: ignored (runs via the system shell).",
         },
         "timeout": {
             "type": "integer",
-            "example": 60,
+            "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
@@ -484,7 +501,7 @@ def shell_exec_windows(input_data: dict) -> dict:
     test_payload={
         "command": "dir C:\\\\Windows\\\\System32",
         "shell": "auto",
-        "timeout": 60,
+        "timeout": 600,
         "cwd": "/home/user",
         "env": {"MY_VAR": "123"},
         "background": False,
@@ -517,7 +534,7 @@ def shell_exec_darwin(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
-    timeout_seconds = float(timeout_val) if timeout_val is not None else 30.0
+    timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
         return {

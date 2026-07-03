@@ -322,6 +322,16 @@ class OnboardingFlowController:
         return raw, "direct", ""
 
     @staticmethod
+    def _subscription_connected(provider: str) -> bool:
+        """True when an OAuth subscription credential is stored for ``provider``."""
+        try:
+            from app.ui_layer.settings.provider_settings import get_subscription_status
+
+            return bool(get_subscription_status(provider).get("connected"))
+        except Exception:
+            return False
+
+    @staticmethod
     def _parse_agent_name(raw: Any) -> str:
         """The agent-name step is a form (dict); accept plain strings too."""
         if isinstance(raw, dict):
@@ -358,6 +368,13 @@ class OnboardingFlowController:
 
         if provider and api_key:
             save_settings_to_json(provider, api_key)
+        elif provider and self._subscription_connected(provider):
+            # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok) authorizes this
+            # provider without an API key. Persist the provider selection so it
+            # sticks even if the OAuth connect handler's own activation didn't
+            # run (e.g. headless / no live agent). The OAuth bearer is sourced
+            # by the factory; no key is written.
+            save_settings_to_json(provider, "")
         return provider
 
     @staticmethod

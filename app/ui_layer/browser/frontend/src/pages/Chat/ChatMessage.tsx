@@ -1,5 +1,5 @@
 import React, { memo, useState, useMemo, useRef, useEffect } from 'react'
-import { Reply } from 'lucide-react'
+import { Reply, Copy, Check } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -38,6 +38,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   onOptionClick,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null)
   // The selection is owned by the message prop (the single source of truth).
   // The ref is a one-shot guard to suppress double-dispatch between the click
@@ -54,6 +55,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   // require the user to make an explicit choice via the option buttons.
   const hasPendingOptions = !!(message.options && message.options.length > 0)
   const canReply = message.style === 'agent' && onReply && !hasPendingOptions
+  const canCopy = message.style === 'user' || message.style === 'agent'
 
   // Parse reply context for user messages
   const { userMessage, replyContext } = useMemo(() => {
@@ -72,6 +74,16 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         : message.content
       onReply(message.taskSessionId, displayName, message.content)
     }
+  }
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    // For user messages strip the [REPLYING TO ...] marker so the
+    // clipboard only contains what the user actually typed.
+    const text = message.style === 'user' ? userMessage : message.content
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   const isAgent = message.style === 'agent'
@@ -125,16 +137,29 @@ export const ChatMessageItem = memo(function ChatMessageItem({
           />
         </div>
       )}
-      {/* Reply button - positioned outside the bubble at top-right */}
-      {canReply && isHovered && (
-        <IconButton
-          icon={<Reply size={14} />}
-          variant="ghost"
-          size="sm"
-          onClick={handleReply}
-          tooltip="Reply to this message"
-          className={styles.replyButtonOutside}
-        />
+      {/* Action buttons - positioned outside the bubble (right for agent,
+          left for user). Stacked vertically when both reply + copy show. */}
+      {isHovered && (canReply || canCopy) && (
+        <div className={styles.messageActionsOutside}>
+          {canReply && (
+            <IconButton
+              icon={<Reply size={14} />}
+              variant="ghost"
+              size="sm"
+              onClick={handleReply}
+              tooltip="Reply to this message"
+            />
+          )}
+          {canCopy && (
+            <IconButton
+              icon={copied ? <Check size={14} /> : <Copy size={14} />}
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              tooltip={copied ? 'Copied!' : 'Copy message'}
+            />
+          )}
+        </div>
       )}
     </div>
   )

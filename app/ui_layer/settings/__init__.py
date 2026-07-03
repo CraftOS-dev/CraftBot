@@ -110,6 +110,17 @@ from app.ui_layer.settings.model_settings import (
     get_ollama_models,
 )
 
+# Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). Anthropic is excluded
+# by design — Pro/Max OAuth in third-party tools is banned by Anthropic ToS.
+from app.ui_layer.settings.provider_settings import (
+    complete_subscription,
+    connect_subscription,
+    connect_subscription_async,
+    disconnect_subscription,
+    get_subscription_status,
+    prepare_subscription_async,
+)
+
 __all__ = [
     # MCP settings
     "list_mcp_servers",
@@ -193,4 +204,11 @@ __all__ = [
     "test_connection",
     "validate_can_save",
     "get_ollama_models",
+    # Subscription OAuth
+    "connect_subscription",
+    "connect_subscription_async",
+    "disconnect_subscription",
+    "get_subscription_status",
+    "prepare_subscription_async",
+    "complete_subscription",
 ]

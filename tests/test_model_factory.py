@@ -13,24 +13,26 @@ def _run_with_blocked_sdks(code: str) -> subprocess.CompletedProcess:
         import importlib.abc
         import sys
 
+        # Block the OAuth token lookup so these tests are hermetic: a
+        # connected subscription (SuperGrok/ChatGPT Plus) would otherwise take
+        # the OAuth-precedence path and eagerly build a client, making the
+        # SDK-deferral contract depend on the developer's local credentials.
+        _BLOCKED_PREFIXES = ("openai", "anthropic")
+        _BLOCKED_EXACT = ("craftos_integrations.integrations.llm_oauth.tokens",)
+
+        def _is_blocked(name):
+            return name in _BLOCKED_EXACT or any(
+                name == p or name.startswith(p + ".") for p in _BLOCKED_PREFIXES
+            )
+
         class BlockProviderSdks(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
-                if (
-                    fullname == "openai"
-                    or fullname.startswith("openai.")
-                    or fullname == "anthropic"
-                    or fullname.startswith("anthropic.")
-                ):
+                if _is_blocked(fullname):
                     raise ImportError(f"{{fullname}} intentionally blocked")
                 return None
 
         for name in list(sys.modules):
-            if (
-                name == "openai"
-                or name.startswith("openai.")
-                or name == "anthropic"
-                or name.startswith("anthropic.")
-            ):
+            if _is_blocked(name):
                 del sys.modules[name]
         sys.meta_path.insert(0, BlockProviderSdks())
 

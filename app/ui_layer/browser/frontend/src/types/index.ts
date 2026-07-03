@@ -152,6 +152,7 @@ export type WSMessageType =
   | 'living_ui_data_changed'
   | 'living_ui_question'
   | 'living_ui_error'
+  | 'prompt_enhanced'
 
 export interface WSMessage {
   type: WSMessageType
@@ -601,6 +602,11 @@ export interface OnboardingStep {
   options: OnboardingStepOption[]
   default: string | string[] | null
   provider?: string | null   // only present on the api_key step
+  // Subscription OAuth (ChatGPT Plus/Pro, SuperGrok) hints — only meaningful on
+  // the api_key step. When true the step shows a "Sign in with <provider>"
+  // button as an alternative to pasting an API key.
+  supports_subscription_oauth?: boolean
+  subscription_label?: string | null
   form_fields?: OnboardingFormField[] | null  // present on form steps (e.g., user_profile)
 }
 

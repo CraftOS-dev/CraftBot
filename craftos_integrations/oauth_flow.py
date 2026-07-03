@@ -106,21 +106,79 @@ def _cleanup_files(*paths: str) -> None:
 def _make_callback_handler(result_holder: Dict[str, Any]):
     class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            params = parse_qs(urlparse(self.path).query)
-            returned_state = params.get("state", [None])[0]
-            result_holder["error"] = params.get("error", [None])[0]
+            parsed = urlparse(self.path)
+            path = parsed.path
+            params = parse_qs(parsed.query)
 
+            # Ignore non-callback paths (favicon.ico, /, etc). Browsers fire
+            # these automatically and they have no OAuth params — without
+            # this filter they'd be misread as a failed callback and would
+            # overwrite a successful result. Configured callback path is
+            # stored on the holder; empty/"/" means "any path counts".
+            expected_path = result_holder.get("expected_path") or "/"
+            if expected_path and expected_path != "/" and path != expected_path:
+                self.send_response(204)
+                self.end_headers()
+                return
+
+            # If the result is already settled, treat any extra request as
+            # noise — don't let it mutate state. Send a quiet 204.
+            if result_holder.get("code") or result_holder.get("error"):
+                self.send_response(204)
+                self.end_headers()
+                return
+
+            returned_state = params.get("state", [None])[0]
+            oauth_error = params.get("error", [None])[0]
+            oauth_error_description = params.get("error_description", [""])[0]
+            code = params.get("code", [None])[0]
             expected_state = result_holder.get("expected_state")
-            if expected_state and returned_state != expected_state:
+
+            # Decide what kind of response this is:
+            #   1. Provider returned an error → preserve the real error text;
+            #      do NOT rewrite it as "state mismatch" even if state is
+            #      absent (providers commonly omit state on error responses).
+            #   2. Otherwise, if state is present and doesn't match → real
+            #      CSRF-style mismatch on a success response.
+            #   3. Otherwise, success: extract the code.
+            if oauth_error:
+                result_holder["error"] = (
+                    f"{oauth_error}: {oauth_error_description}"
+                    if oauth_error_description
+                    else oauth_error
+                )
+            elif expected_state and returned_state and returned_state != expected_state:
                 result_holder["error"] = "OAuth state mismatch — possible CSRF attack"
-                result_holder["code"] = None
+            elif expected_state and not returned_state and not code:
+                # Empty callback that's neither a success nor a declared
+                # error — surface that as a distinct failure so we don't
+                # mislabel it as CSRF.
+                result_holder["error"] = (
+                    "OAuth callback returned no code, no error, and no state"
+                )
             else:
-                result_holder["code"] = params.get("code", [None])[0]
+                result_holder["code"] = code
+                if not code:
+                    result_holder["error"] = "OAuth callback returned no code"
+
+            # Log the raw callback path for debugging — redact `code` since
+            # it's an authorization grant the agent can later exchange.
+            try:
+                from .logger import get_logger as _gl
+
+                redacted_params = {
+                    k: ("<redacted>" if k == "code" else v) for k, v in params.items()
+                }
+                _gl(__name__).info(
+                    f"[OAUTH] callback received path={path} params={redacted_params}"
+                )
+            except Exception:
+                pass
 
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            if result_holder["code"]:
+            if result_holder.get("code"):
                 self.wfile.write(
                     b"<h2>Authorization successful!</h2><p>You can close this tab.</p>"
                 )
@@ -159,6 +217,7 @@ def _run_oauth_flow_sync(
     timeout: int = 120,
     use_https: bool = False,
     cancel_event: Optional[threading.Event] = None,
+    expected_path: str = "/",
 ) -> Tuple[Optional[str], Optional[str]]:
     if cancel_event and cancel_event.is_set():
         return None, "OAuth cancelled"
@@ -169,6 +228,7 @@ def _run_oauth_flow_sync(
         "state": None,
         "error": None,
         "expected_state": expected_state,
+        "expected_path": expected_path,
     }
     handler_class = _make_callback_handler(result_holder)
 
@@ -236,6 +296,7 @@ async def run_localhost_callback(
     port: int = 8765,
     timeout: int = 120,
     use_https: bool = False,
+    expected_path: str = "/",
 ) -> Tuple[Optional[str], Optional[str]]:
     """Default OAuth runner. Returns (code, error)."""
     cancel_event = threading.Event()
@@ -248,6 +309,7 @@ async def run_localhost_callback(
             timeout=timeout,
             use_https=use_https,
             cancel_event=cancel_event,
+            expected_path=expected_path,
         )
 
     try:
@@ -258,11 +320,29 @@ async def run_localhost_callback(
 
 
 async def get_oauth_runner(
-    auth_url: str, *, use_https: bool = False
+    auth_url: str,
+    *,
+    use_https: bool = False,
+    port: int = 8765,
+    expected_path: str = "/",
 ) -> Tuple[Optional[str], Optional[str]]:
-    """Resolve and call the configured oauth_runner (or the default)."""
+    """Resolve and call the configured oauth_runner (or the default).
+
+    ``port`` and ``expected_path`` are forwarded only when the runner accepts
+    them — older host-injected runners predate the kwargs, so we degrade to
+    the older call shapes on ``TypeError``. Existing flows (port=8765,
+    expected_path="/") hit the same code path as before.
+    """
     runner = ConfigStore.oauth_runner or run_localhost_callback
-    return await runner(auth_url, use_https=use_https)
+    try:
+        return await runner(
+            auth_url, use_https=use_https, port=port, expected_path=expected_path
+        )
+    except TypeError:
+        try:
+            return await runner(auth_url, use_https=use_https, port=port)
+        except TypeError:
+            return await runner(auth_url, use_https=use_https)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -299,8 +379,8 @@ class OAuthFlow:
     def __init__(
         self,
         *,
-        client_id_key: str,
-        client_secret_key: Optional[str],
+        client_id_key: Optional[str] = None,
+        client_secret_key: Optional[str] = None,
         auth_url: str,
         token_url: str,
         userinfo_url: Optional[str] = None,
@@ -313,6 +393,10 @@ class OAuthFlow:
         userinfo_extra_headers: Optional[Dict[str, str]] = None,
         extra_auth_params: Optional[Dict[str, str]] = None,
         scope_param: str = "scope",
+        client_id_literal: Optional[str] = None,
+        callback_port: int = 8765,
+        callback_path: str = "",
+        callback_host: str = "localhost",
     ):
         self.client_id_key = client_id_key
         self.client_secret_key = client_secret_key
@@ -328,12 +412,29 @@ class OAuthFlow:
         self.userinfo_extra_headers = userinfo_extra_headers or {}
         self.extra_auth_params = extra_auth_params or {}
         self.scope_param = scope_param
+        self.client_id_literal = client_id_literal
+        self.callback_port = callback_port
+        self.callback_path = callback_path
+        self.callback_host = callback_host
 
     @property
     def redirect_uri(self) -> str:
-        return REDIRECT_URI_HTTPS if self.use_https else REDIRECT_URI
+        scheme = "https" if self.use_https else "http"
+        if (
+            self.callback_port == 8765
+            and self.callback_host == "localhost"
+            and not self.callback_path
+        ):
+            return REDIRECT_URI_HTTPS if self.use_https else REDIRECT_URI
+        return (
+            f"{scheme}://{self.callback_host}:{self.callback_port}{self.callback_path}"
+        )
 
     def _client_id(self) -> Optional[str]:
+        if self.client_id_literal:
+            return self.client_id_literal
+        if not self.client_id_key:
+            return None
         return ConfigStore.get_oauth(self.client_id_key) or None
 
     def _client_secret(self) -> Optional[str]:
@@ -454,7 +555,12 @@ class OAuthFlow:
             except RuntimeError as e:
                 return {"error": str(e)}
 
-            code, error = await get_oauth_runner(url, use_https=self.use_https)
+            code, error = await get_oauth_runner(
+                url,
+                use_https=self.use_https,
+                port=self.callback_port,
+                expected_path=self.callback_path or "/",
+            )
             if error:
                 return {"error": error}
             if not code:

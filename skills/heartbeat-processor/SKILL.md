@@ -305,7 +305,7 @@ All recurring proactive tasks use tier 0 or tier 1:
 ## Allowed Actions
 
 `recurring_read`, `recurring_update_task`, `send_message`, `memory_search`,
-`read_file`, `stream_read`, `web_search`, `web_fetch`, `schedule_task`,
+`read_file`, `web_search`, `web_fetch`, `schedule_task`,
 `task_update_todos`, `task_end`
 
 ## Forbidden Actions

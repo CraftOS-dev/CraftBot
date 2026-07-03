@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
-import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, ChevronDown } from 'lucide-react'
+import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, ChevronDown, Sparkles } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
@@ -114,6 +114,9 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     loadOlderMessages,
     hasMoreMessages,
     loadingOlderMessages,
+    enhancedPrompt,
+    enhancePrompt,
+    clearEnhancedPrompt,
   } = useWebSocket()
 
   const status = useDerivedAgentStatus({ actions, messages, connected })
@@ -130,6 +133,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   }, [messages])
 
   const [input, setInput] = useState('')
+  const [enhancing, setEnhancing] = useState(false)
   const dispatch = useAppDispatch()
   const pendingPrefill = useAppSelector(selectPendingPrefill)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
@@ -301,6 +305,29 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     }, 0)
   }, [pendingPrefill, dispatch])
 
+  // Consume enhanced prompt from context when WS response arrives
+  useEffect(() => {
+    if (enhancedPrompt === null) return
+    setInput(enhancedPrompt)
+    setEnhancing(false)
+    clearEnhancedPrompt()
+    inputRef.current?.focus()
+  }, [enhancedPrompt, clearEnhancedPrompt])
+
+  // Reset enhancing spinner if the WebSocket disconnects mid-request
+  useEffect(() => {
+    if (!connected) setEnhancing(false)
+  }, [connected])
+
+  const handleEnhancePrompt = useCallback(() => {
+    if (!input.trim() || enhancing) return
+    setEnhancing(true)
+    enhancePrompt(input.trim())
+  }, [input, enhancing, enhancePrompt])
+  useEffect(() => {
+    if (replyTarget) inputRef.current?.focus()
+  }, [replyTarget])
+
   const handleChatReply = useCallback((
     sessionId: string | undefined,
     displayName: string,
@@ -312,7 +339,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       displayName,
       originalContent: fullContent,
     })
-    inputRef.current?.focus()
   }, [setReplyTarget])
 
   const toggleListening = useCallback(() => {
@@ -730,6 +756,13 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       <div className={styles.inputArea}>
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
         <IconButton icon={<Paperclip size={18} />} variant="ghost" tooltip="Attach file" onClick={handleAttachClick} />
+        <IconButton
+          icon={enhancing ? <Loader2 size={18} className={styles.uploadingSpinner} /> : <Sparkles size={18} />}
+          variant="ghost"
+          tooltip={enhancing ? 'Enhancing...' : 'AI Enhance'}
+          onClick={handleEnhancePrompt}
+          disabled={!input.trim() || enhancing}
+        />
 
         <div className={styles.micGroup} ref={langDropdownRef}>
           <button
