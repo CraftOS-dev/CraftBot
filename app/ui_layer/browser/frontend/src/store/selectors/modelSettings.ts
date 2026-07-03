@@ -17,3 +17,6 @@ export const selectAwsCredentials = (state: RootState) => state.modelSettings.aw
 export const selectModelHasLoadedProviders = (state: RootState) => state.modelSettings.hasLoadedProviders
 export const selectModelHasLoadedSettings = (state: RootState) => state.modelSettings.hasLoadedSettings
 export const selectModelHasLoadedSlowMode = (state: RootState) => state.modelSettings.hasLoadedSlowMode
+export const selectSubscriptionOauth = (state: RootState) => state.modelSettings.subscriptionOauth
+export const selectSubscriptionPending = (state: RootState) => state.modelSettings.subscriptionPending
+export const selectSubscriptionPasteback = (state: RootState) => state.modelSettings.subscriptionPasteback

@@ -24,13 +24,13 @@ from agent_core import action
         },
         "limit": {
             "type": "integer",
-            "example": 2000,
-            "description": "Maximum number of lines to read. Default is 2000. Use smaller values for focused reading of large files.",
+            "example": 500,
+            "description": "Maximum number of lines to read. Default is 500. Use smaller values for focused reading of large files.",
         },
         "max_line_length": {
             "type": "integer",
-            "example": 2000,
-            "description": "Maximum characters per line before truncation. Default is 2000. Lines exceeding this will be truncated with '...'.",
+            "example": 500,
+            "description": "Maximum characters per line before truncation. Default is 500. Lines exceeding this will be truncated with '...'.",
         },
     },
     output_schema={

@@ -78,146 +78,16 @@ _SEEDANCE_ASPECT_VALID = {"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}
 _AUDIO_CAPABLE_PROVIDERS = {"gemini", "openai", "byteplus"}  # all three honor it
 
 
-# ── Error message catalog ────────────────────────────────────────────────────
-_ERR: Dict[str, Dict[str, str]] = {
-    "openai": {
-        "quota": "OpenAI API rate limit or quota exceeded",
-        "invalid_key": "Invalid OpenAI API key — verify your key in settings.",
-        "content_policy": "Request blocked by OpenAI content policy — modify your prompt.",
-        "model_not_found": (
-            "OpenAI model not available — ensure your account has access to Sora."
-        ),
-        "timeout": "OpenAI Sora generation timed out while polling for completion.",
-        "generic": "OpenAI video generation failed",
-    },
-    "gemini": {
-        "quota": "Gemini API rate limit or quota exceeded",
-        "invalid_key": "Invalid Gemini API key — verify your Google API key in settings.",
-        "content_policy": "Request blocked by Gemini safety filters — modify your prompt.",
-        "model_not_found": (
-            "Gemini model not available — ensure your account has access to a Veo "
-            "video generation model."
-        ),
-        "timeout": "Gemini Veo generation timed out while polling for completion.",
-        "generic": "Gemini video generation failed",
-    },
-    "byteplus": {
-        "quota": "BytePlus API rate limit or quota exceeded",
-        "invalid_key": "Invalid BytePlus API key — verify your key in settings.",
-        "content_policy": "Request blocked by BytePlus content policy — modify your prompt.",
-        "model_not_found": (
-            "BytePlus model not available — ensure your account has access to a "
-            "Seedance video model on the configured region."
-        ),
-        "timeout": "BytePlus Seedance generation timed out while polling for completion.",
-        "generic": "BytePlus video generation failed",
-    },
-}
+def _classify_error(provider: str, exc: Exception, model: str) -> str:
+    """Render *exc* as a human-readable error string via the shared catalog.
 
-
-def _extract_api_error(exc: Exception) -> Tuple[Optional[int], str]:
-    """Pull the HTTP status and the API's actual error message off an exception.
-
-    Returns ``(status_code, api_message)``. Either may be ``None``/``""`` if
-    the exception isn't a ``requests.HTTPError`` or doesn't carry a JSON body.
-
-    Why this matters: the bare ``str(exc)`` for an HTTPError is
-    ``"400 Client Error: Bad Request for url: https://...veo-3.1-generate-preview..."``.
-    Loose substring matching on that URL false-positives on everything from
-    ``rate`` (inside ``generate``) to ``content`` (inside any ``...content...``
-    endpoint). Extracting the structured fields gives correct signal.
+    Import deferred to call time — agent_core must stay importable without
+    the host `app` package (all app.* imports in this package are
+    function-local by convention).
     """
-    status_code: Optional[int] = None
-    api_message = ""
-    resp = getattr(exc, "response", None)
-    if resp is not None:
-        try:
-            status_code = int(getattr(resp, "status_code", 0)) or None
-        except Exception:
-            status_code = None
-        try:
-            body = resp.json()
-            if isinstance(body, dict):
-                err = body.get("error")
-                if isinstance(err, dict):
-                    api_message = str(err.get("message", "")).strip()
-                elif isinstance(err, str):
-                    api_message = err.strip()
-                else:
-                    api_message = str(body.get("message", "")).strip()
-        except Exception:
-            api_message = ""
-    return status_code, api_message
+    from app.i18n import classify_provider_error
 
-
-def _classify_error(provider: str, exc: Exception) -> str:
-    """Map a raw exception to a catalog entry for the given provider.
-
-    Prefers the structured HTTP status + API error body over heuristic
-    substring matching on the exception's stringified form (which falsely
-    matched ``rate`` inside ``generate`` in the previous implementation).
-    The generic fallback surfaces the API's actual message so future bugs
-    aren't silently hidden behind a generic placeholder.
-    """
-    catalog = _ERR.get(provider, _ERR["openai"])
-    status_code, api_message = _extract_api_error(exc)
-
-    # Prefer the API's own error message; fall back to the exception string.
-    raw = api_message or str(exc)
-    msg = raw.lower()
-
-    is_quota = (
-        status_code == 429
-        or "rate limit" in msg
-        or "ratelimit" in msg
-        or "rate_limit" in msg
-        or "quota" in msg
-        or "billing" in msg
-        or "insufficient_quota" in msg
-    )
-    if is_quota:
-        return catalog["quota"]
-
-    is_auth = (
-        status_code in (401, 403)
-        or "api key" in msg
-        or "api_key" in msg
-        or "invalid_api_key" in msg
-        or "authentication" in msg
-        or "unauthorized" in msg
-    )
-    if is_auth:
-        return catalog["invalid_key"]
-
-    is_policy = (
-        "content policy" in msg
-        or "content_policy" in msg
-        or "safety" in msg
-        or "blocked" in msg
-    )
-    if is_policy:
-        return catalog["content_policy"]
-
-    is_not_found = (
-        status_code == 404
-        or "not found" in msg
-        or "not available" in msg
-        or "does not exist" in msg
-    )
-    if is_not_found:
-        return catalog["model_not_found"]
-
-    if "timeout" in msg or "timed out" in msg:
-        return catalog["timeout"]
-
-    # Generic fallback — include the API's actual message so misclassified
-    # 400s like the durationSeconds / numberOfVideos errors surface clearly
-    # instead of getting swallowed as "generation failed". The API message
-    # is server-emitted text (no header / URL leakage of key fragments).
-    base = catalog["generic"]
-    if api_message:
-        return f"{base}: {api_message}"
-    return base
+    return classify_provider_error(exc, provider=provider, model=model)
 
 
 # ── File / image helpers ─────────────────────────────────────────────────────
@@ -654,7 +524,9 @@ class VideoGenInterface:
 
         if not paths:
             raise RuntimeError(
-                _classify_error("openai", first_error or RuntimeError("no result"))
+                _classify_error(
+                    "openai", first_error or RuntimeError("no result"), self.model
+                )
             )
         return paths
 
@@ -666,7 +538,7 @@ class VideoGenInterface:
             try:
                 obj = self.client.videos.retrieve(video_id)
             except Exception as exc:
-                raise RuntimeError(_classify_error("openai", exc)) from exc
+                raise RuntimeError(_classify_error("openai", exc, self.model)) from exc
 
             status = getattr(obj, "status", None)
             if status == "completed":
@@ -698,7 +570,7 @@ class VideoGenInterface:
         try:
             content = self.client.videos.download_content(video_id)
         except Exception as exc:
-            raise RuntimeError(_classify_error("openai", exc)) from exc
+            raise RuntimeError(_classify_error("openai", exc, self.model)) from exc
 
         # The SDK may return bytes directly or an HTTPResponse-like object.
         if isinstance(content, bytes):
@@ -846,7 +718,7 @@ class VideoGenInterface:
                 # generate_audio intentionally omitted — see comment above.
             )
         except Exception as exc:
-            raise RuntimeError(_classify_error("gemini", exc)) from exc
+            raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
 
         operation_name = op.get("name")
         if not operation_name:
@@ -897,7 +769,9 @@ class VideoGenInterface:
                 try:
                     data = self._gemini_client.download_video(uri, timeout=180)
                 except Exception as exc:
-                    raise RuntimeError(_classify_error("gemini", exc)) from exc
+                    raise RuntimeError(
+                        _classify_error("gemini", exc, self.model)
+                    ) from exc
             elif inline:
                 data = base64.b64decode(inline)
             else:
@@ -926,7 +800,7 @@ class VideoGenInterface:
             try:
                 op = self._gemini_client.poll_video_operation(operation_name)
             except Exception as exc:
-                raise RuntimeError(_classify_error("gemini", exc)) from exc
+                raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
 
             if op.get("done"):
                 err = op.get("error")
@@ -1074,7 +948,9 @@ class VideoGenInterface:
 
         if not paths:
             raise RuntimeError(
-                _classify_error("byteplus", first_error or RuntimeError("no result"))
+                _classify_error(
+                    "byteplus", first_error or RuntimeError("no result"), self.model
+                )
             )
         return paths
 
@@ -1094,7 +970,7 @@ class VideoGenInterface:
                 timeout=60,
             )
         except Exception as exc:
-            raise RuntimeError(_classify_error("byteplus", exc)) from exc
+            raise RuntimeError(_classify_error("byteplus", exc, self.model)) from exc
 
         if not r.ok:
             try:
@@ -1138,7 +1014,9 @@ class VideoGenInterface:
                 )
                 r.raise_for_status()
             except Exception as exc:
-                raise RuntimeError(_classify_error("byteplus", exc)) from exc
+                raise RuntimeError(
+                    _classify_error("byteplus", exc, self.model)
+                ) from exc
 
             data = r.json()
             status = (data.get("status") or "").lower()

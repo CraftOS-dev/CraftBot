@@ -17,6 +17,29 @@
   min-height: 0;
 }
 
+/* Fade overlay at the top of the scroll area — opaque panel background at
+   the very top, transitioning to fully transparent below. Lets messages
+   scroll behind the chat panel's top edge instead of meeting a hard line. */
+.messagesArea::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Leave 8px on the right so the gradient doesn't sit over the scrollbar
+     (matches ::-webkit-scrollbar width in global.css). */
+  right: 8px;
+  height: 28px;
+  /* Start with a partially transparent panel color (color-mix) so even the
+     top edge is subtle, not a solid bar. */
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg-primary) 45%, transparent) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 4;
+}
+
 .messagesContainer {
   flex: 1;
   overflow-y: auto;

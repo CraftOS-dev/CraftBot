@@ -1,82 +1,162 @@
-/* NavBar Component Styles */
+/* NavBar Component Styles (sidebar body) */
 
 .navBar {
-  height: var(--navbar-height);
   display: flex;
+  flex-direction: column;
   align-items: stretch;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-primary);
-  padding: 0 var(--space-2);
-  flex-shrink: 0;
+  background: transparent;
+  padding: var(--space-2) var(--space-2) 0;
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---- Top row: logo (left) + collapse toggle (right) ---- */
+.collapseRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: var(--space-2);
-  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+  flex-shrink: 0;
+  min-height: 32px;
+}
+
+.logo {
+  display: block;
+  height: 20px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  /* Nudge the wordmark up slightly — its visual mass sits low, so a true
+     center-aligned position with the collapse button reads as bottom-heavy. */
+  transform: translateY(-3px);
+}
+
+.collapseButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.collapseButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+@media (max-width: 768px) {
+  .collapseRow {
+    display: none;
+  }
+}
+
+/* ---- Collapsed mode: hide labels, center icons ---- */
+.collapsed.navBar {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.collapsed .collapseRow {
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.collapsed .label,
+.collapsed .livingUITabLabel,
+.collapsed .addLivingUILabel {
+  display: none;
+}
+
+.collapsed .navItem,
+.collapsed .livingUITab,
+.collapsed .addLivingUIButton {
+  justify-content: center;
+  gap: 0;
+  padding: var(--space-2) 0;
+}
+
+.collapsed .navRight {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* Scroll area wrapper holds the scrollable content + fade overlays */
 .scrollArea {
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: stretch;
   flex: 1 1 auto;
-  min-width: 0;
+  min-height: 0;
 }
 
 /* Scrollable content (left nav + divider + living UI tabs + add button) */
 .scrollContent {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-1);
   flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  cursor: grab;
   user-select: none;
-  touch-action: pan-x;
-  padding: 0 var(--space-1);
+  touch-action: pan-y;
+  padding: var(--space-1) 0;
 }
 
 .scrollContent::-webkit-scrollbar {
   display: none;
 }
 
-.scrollContent:active {
-  cursor: grabbing;
-}
-
-/* Right section: Settings, pinned */
+/* Right section: Settings, pinned at bottom of sidebar */
 .navRight {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   flex-shrink: 0;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  border-top: 1px solid var(--border-primary);
 }
 
 /* Outer divider between scroll area and Settings */
 .divider {
   flex-shrink: 0;
-  width: 1px;
-  align-self: stretch;
-  margin: var(--space-2) 0;
+  height: 1px;
+  width: 100%;
+  margin: var(--space-1) 0;
   background: var(--border-primary);
 }
 
 /* Inner divider that scrolls with the content (between left nav and living UI) */
 .innerDivider {
   flex-shrink: 0;
-  width: 1px;
-  align-self: stretch;
-  margin: var(--space-2) var(--space-1);
+  height: 1px;
+  width: 100%;
+  margin: var(--space-2) 0;
   background: var(--border-primary);
 }
 
-/* Fade overlays on the sides of the scroll area */
+/* Fade overlays on the top/bottom of the scroll area */
 .fade {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 32px;
+  left: 0;
+  right: 0;
+  height: 24px;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -84,13 +164,13 @@
 }
 
 .fadeLeft {
-  left: 0;
-  background: linear-gradient(to right, var(--bg-primary) 0%, rgba(0, 0, 0, 0) 100%);
+  top: 0;
+  background: linear-gradient(to bottom, var(--sidebar-bg) 0%, var(--sidebar-bg-transparent) 100%);
 }
 
 .fadeRight {
-  right: 0;
-  background: linear-gradient(to left, var(--bg-primary) 0%, rgba(0, 0, 0, 0) 100%);
+  bottom: 0;
+  background: linear-gradient(to top, var(--sidebar-bg) 0%, var(--sidebar-bg-transparent) 100%);
 }
 
 .fadeVisible {
@@ -112,6 +192,8 @@
   transition: all var(--transition-fast);
   cursor: pointer;
   flex-shrink: 0;
+  width: 100%;
+  text-align: left;
 }
 
 .navItem:hover {
@@ -133,11 +215,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .label {
   display: block;
-  max-width: 100px;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -159,6 +242,8 @@
   white-space: nowrap;
   transition: background var(--transition-fast), color var(--transition-fast);
   flex-shrink: 0;
+  width: 100%;
+  text-align: left;
 }
 
 .livingUITab:hover {
@@ -183,41 +268,35 @@
 }
 
 .livingUITabLabel {
-  max-width: 120px;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Add Living UI button */
+/* Add Living UI button — subtle, looks like a muted nav item */
 .addLivingUIButton {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
-  color: #fff;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
   font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
+  font-weight: var(--font-medium);
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 0 10px rgba(255, 79, 24, 0.35);
-  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
-  letter-spacing: 0.01em;
+  transition: background var(--transition-fast), color var(--transition-fast);
   flex-shrink: 0;
+  width: 100%;
+  text-align: left;
 }
 
 .addLivingUIButton:hover {
-  background: var(--color-primary-hover);
-  box-shadow: 0 0 16px rgba(255, 79, 24, 0.5);
-  transform: translateY(-1px);
-}
-
-.addLivingUIButton:active {
-  transform: translateY(0);
-  box-shadow: 0 0 8px rgba(255, 79, 24, 0.3);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
 }
 
 .addLivingUIIcon {
@@ -231,6 +310,9 @@
 
 .addLivingUILabel {
   white-space: nowrap;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Spinner animation */
@@ -244,20 +326,5 @@
   }
   to {
     transform: rotate(360deg);
-  }
-}
-
-/* Responsive: hide labels on smaller screens */
-@media (max-width: 768px) {
-  .label {
-    display: none;
-  }
-
-  .navItem {
-    padding: var(--space-2);
-  }
-
-  .addLivingUILabel {
-    display: none;
   }
 }

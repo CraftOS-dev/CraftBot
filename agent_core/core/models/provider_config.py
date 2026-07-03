@@ -41,6 +41,16 @@ PROVIDER_CONFIG = {
         api_key_env="XAI_API_KEY",
         default_base_url="https://api.x.ai/v1",
     ),
+    "glm": ProviderConfig(
+        # Z.ai (Zhipu AI) GLM models -- OpenAI-compatible API.
+        api_key_env="ZAI_API_KEY",
+        default_base_url="https://api.z.ai/api/paas/v4",
+    ),
+    "fugu": ProviderConfig(
+        # Sakana AI Fugu -- OpenAI-compatible API.
+        api_key_env="SAKANA_API_KEY",
+        default_base_url="https://api.sakana.ai/v1",
+    ),
     "openrouter": ProviderConfig(
         api_key_env="OPENROUTER_API_KEY",
         base_url_env="OPENROUTER_BASE_URL",

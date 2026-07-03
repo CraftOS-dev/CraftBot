@@ -1,5 +1,5 @@
 import React from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from './components/layout'
 import { ChatPage } from './pages/Chat'
 import { TasksPage } from './pages/Tasks'
@@ -10,6 +10,13 @@ import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { LivingUIPage } from './pages/LivingUI'
 import { useWebSocket } from './contexts/WebSocketContext'
+
+// Forces LivingUIPage to remount per-project so useState initializers
+// (theme, custom colors) always start fresh — not carried over from a previous project.
+function LivingUIPageRoute() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <LivingUIPage key={projectId} />
+}
 
 function App() {
   const { initReceived, needsHardOnboarding } = useWebSocket()
@@ -64,7 +71,7 @@ function App() {
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/living-ui/:projectId" element={<LivingUIPage />} />
+        <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

@@ -15,6 +15,8 @@ import {
   setCurrentVlmModel,
   setSlowModeEnabled,
   setOllamaModels,
+  setSubscriptionPending,
+  clearSubscriptionPasteback,
 } from '../../store/slices/modelSettingsSlice'
 import {
   selectModelProviders,
@@ -34,6 +36,9 @@ import {
   selectCurrentImageGenModel,
   selectVideoGenProvider,
   selectCurrentVideoGenModel,
+  selectSubscriptionOauth,
+  selectSubscriptionPending,
+  selectSubscriptionPasteback,
 } from '../../store/selectors/modelSettings'
 import { getOllamaInstallPercent } from '../../utils/ollamaInstall'
 import {
@@ -56,6 +61,9 @@ interface ProviderInfo {
   has_image_gen: boolean
   supports_catalog?: boolean
   is_bedrock?: boolean
+  supports_subscription_oauth?: boolean
+  subscription_label?: string | null
+  subscription_models?: string[]
 }
 
 interface ApiKeyStatus {
@@ -101,6 +109,16 @@ export function ModelSettings() {
   const hasLoadedProviders = useAppSelector(selectModelHasLoadedProviders)
   const hasLoadedSettings = useAppSelector(selectModelHasLoadedSettings)
   const hasLoadedSlowMode = useAppSelector(selectModelHasLoadedSlowMode)
+  const subscriptionOauth = useAppSelector(selectSubscriptionOauth)
+  const subscriptionPending = useAppSelector(selectSubscriptionPending)
+  const subscriptionPasteback = useAppSelector(selectSubscriptionPasteback)
+  // Local state for the textbox value while the user types the pasted code.
+  // Keyed by provider so multiple Connect attempts don't bleed values.
+  const [pastebackInput, setPastebackInput] = useState<Record<string, string>>({})
+  // When subscription is connected, the API-key block collapses under a
+  // subtle "Use API key instead" toggle so it's clear only one method is
+  // needed. This tracks per-provider user intent to expand it manually.
+  const [apiKeyExpandedByUser, setApiKeyExpandedByUser] = useState<Record<string, boolean>>({})
   const isLoading = !hasLoadedProviders
   const isLoadingSlowMode = !hasLoadedSlowMode
 
@@ -355,7 +373,10 @@ export function ModelSettings() {
   }, [provider, isConnected, send, baseUrls])
 
   const currentProvider = providers.find(p => p.id === provider)
-  const hasKey = apiKeys[provider]?.has_key || newApiKey.length > 0
+  // A connected subscription counts as credentials for save-button enablement —
+  // the factory will use the OAuth bearer instead of an API key.
+  const hasSubscription = !!subscriptionOauth[provider]?.connected
+  const hasKey = apiKeys[provider]?.has_key || newApiKey.length > 0 || hasSubscription
   const needsKey = currentProvider?.requires_api_key && !hasKey
 
   // Update models when provider changes — only before settings have loaded (fallback to
@@ -769,35 +790,203 @@ export function ModelSettings() {
             </>
           )}
 
-          {/* API Key */}
-          {currentProvider?.requires_api_key && (
-            <div className={styles.formGroup}>
-              <label>
-                API Key
-                {apiKeys[provider]?.has_key ? (
-                  <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+          {/* Auth (Subscription OAuth + API Key) — either method authorizes
+              the provider. When the provider supports both, the subscription
+              block sits above an "or" divider and the API-key block sits
+              below; whichever is configured wins. When only API-key auth is
+              available (most providers), the subscription block is skipped
+              and the API key section renders as usual. Element vocabulary
+              is intentionally the same as the IntegrationsSettings "OAuth
+              or Token" pattern: connectFormDivider between choices,
+              standard formGroup / formInput / Button elements throughout. */}
+          {(() => {
+            const supportsSub = !!currentProvider?.supports_subscription_oauth
+            const subStatus = subscriptionOauth[provider]
+            const isSubConnected = !!subStatus?.connected
+            const isSubPending = !!subscriptionPending[provider]
+            const pb = subscriptionPasteback[provider]
+            const codeValue = pastebackInput[provider] || ''
+            const hasStoredKey = !!apiKeys[provider]?.has_key
+            const requiresKey = !!currentProvider?.requires_api_key
+            // When the subscription is connected, the API-key block collapses
+            // by default under a subtle toggle. The user can still expand it
+            // to change / clear a stored key without disconnecting first.
+            const apiKeyExpanded =
+              apiKeyExpandedByUser[provider] ?? (!isSubConnected || hasStoredKey)
+
+            const subscriptionBlock = supportsSub && (
+              <div className={styles.formGroup}>
+                <label>
+                  Subscription
+                  {isSubConnected ? (
+                    <Badge variant="success" style={{ marginLeft: 8 }}>Connected</Badge>
+                  ) : pb?.awaiting ? (
+                    <Badge variant="default" style={{ marginLeft: 8 }}>Awaiting code</Badge>
+                  ) : null}
+                </label>
+
+                {isSubConnected ? (
+                  <>
+                    {(subStatus?.email || subStatus?.plan) && (
+                      <span className={styles.subscriptionIdentity}>
+                        {[subStatus?.email, subStatus?.plan].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                    <div className={styles.subscriptionButtonRow}>
+                      <Button
+                        variant="secondary"
+                        disabled={isSubPending}
+                        onClick={() => {
+                          dispatch(setSubscriptionPending({ provider, pending: true }))
+                          send('model_subscription_disconnect', { provider })
+                        }}
+                      >
+                        {isSubPending ? <Loader2 size={14} className={styles.spinning} /> : 'Disconnect'}
+                      </Button>
+                    </div>
+                  </>
+                ) : pb?.awaiting ? (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Paste the code from the sign-in page"
+                      value={codeValue}
+                      onChange={(e) => setPastebackInput({ ...pastebackInput, [provider]: e.target.value })}
+                      disabled={isSubPending}
+                    />
+                    <div className={styles.subscriptionButtonRow}>
+                      <Button
+                        variant="primary"
+                        disabled={isSubPending || !codeValue.trim()}
+                        onClick={() => {
+                          dispatch(setSubscriptionPending({ provider, pending: true }))
+                          send('model_subscription_complete', {
+                            provider,
+                            code: codeValue.trim(),
+                            attemptId: pb.attemptId,
+                          })
+                        }}
+                      >
+                        {isSubPending ? <Loader2 size={14} className={styles.spinning} /> : 'Submit code'}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={isSubPending}
+                        onClick={() => {
+                          dispatch(clearSubscriptionPasteback(provider))
+                          setPastebackInput({ ...pastebackInput, [provider]: '' })
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      {pb.authUrl && (
+                        <a
+                          href={pb.authUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={styles.subscriptionInlineLink}
+                        >
+                          Reopen sign-in page
+                        </a>
+                      )}
+                    </div>
+                    {pb.errorMessage && (
+                      <div className={styles.formError}>{pb.errorMessage}</div>
+                    )}
+                  </>
                 ) : (
-                  <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                  <div className={styles.subscriptionButtonRow}>
+                    <Button
+                      variant="primary"
+                      disabled={isSubPending}
+                      onClick={() => {
+                        dispatch(setSubscriptionPending({ provider, pending: true }))
+                        // OpenAI's OAuth uses a proper loopback callback
+                        // (http://localhost:1455/auth/callback) — the browser
+                        // redirects back automatically, no paste needed.
+                        // xAI/Grok's flow ends on a "copy this code" page in
+                        // most browser contexts, so it goes through the
+                        // paste-back flow instead.
+                        const useLoopback = provider === 'openai'
+                        send(
+                          useLoopback ? 'model_subscription_connect' : 'model_subscription_prepare',
+                          { provider },
+                        )
+                        showToast(
+                          'success',
+                          `Opening browser to sign in with ${currentProvider?.name || provider}…`,
+                        )
+                      }}
+                    >
+                      {isSubPending
+                        ? <><Loader2 size={14} className={styles.spinning} /> Opening browser…</>
+                        : (currentProvider?.subscription_label || `Sign in with ${currentProvider?.name || provider}`)}
+                    </Button>
+                  </div>
                 )}
-              </label>
-              {apiKeys[provider]?.has_key && (
-                <div className={styles.maskedKey}>{apiKeys[provider].masked_key}</div>
-              )}
-              <input
-                type="password"
-                value={newApiKey}
-                onChange={(e) => { setNewApiKey(e.target.value); setHasChanges(true) }}
-                placeholder={apiKeys[provider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
-              />
-              {(['moonshot', 'minimax'] as string[]).includes(provider) && (
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
-                  {apiKeys['openrouter']?.has_key
-                    ? 'OpenRouter is configured and will be used automatically if the direct API is unavailable in your region.'
-                    : 'This provider may be geo-restricted. If the direct API fails, configure OpenRouter as a fallback — it will be used automatically.'}
-                </p>
-              )}
-            </div>
-          )}
+              </div>
+            )
+
+            // Compact "Use API key instead" toggle when subscription owns
+            // auth. Clicking expands the full API-key formGroup below the
+            // divider, so the user can still add/replace a key without
+            // disconnecting the subscription first.
+            const apiKeyCollapsedToggle = supportsSub && isSubConnected && !apiKeyExpanded && (
+              <button
+                type="button"
+                className={styles.subscriptionSecondaryLink}
+                onClick={() => setApiKeyExpandedByUser({ ...apiKeyExpandedByUser, [provider]: true })}
+              >
+                Use API key instead
+              </button>
+            )
+
+            const apiKeyBlock = requiresKey && (
+              <div className={styles.formGroup}>
+                <label>
+                  API Key
+                  {hasStoredKey ? (
+                    <Badge variant="success" style={{ marginLeft: 8 }}>Configured</Badge>
+                  ) : isSubConnected ? (
+                    <Badge variant="default" style={{ marginLeft: 8 }}>Optional</Badge>
+                  ) : (
+                    <Badge variant="warning" style={{ marginLeft: 8 }}>Required</Badge>
+                  )}
+                </label>
+                {hasStoredKey && (
+                  <div className={styles.maskedKey}>{apiKeys[provider].masked_key}</div>
+                )}
+                <input
+                  type="password"
+                  value={newApiKey}
+                  onChange={(e) => { setNewApiKey(e.target.value); setHasChanges(true) }}
+                  placeholder={hasStoredKey ? 'Enter new key to replace...' : 'Enter API key...'}
+                />
+                {(['moonshot', 'minimax'] as string[]).includes(provider) && (
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
+                    {apiKeys['openrouter']?.has_key
+                      ? 'OpenRouter is configured and will be used automatically if the direct API is unavailable in your region.'
+                      : 'This provider may be geo-restricted. If the direct API fails, configure OpenRouter as a fallback — it will be used automatically.'}
+                  </p>
+                )}
+              </div>
+            )
+
+            // If the provider doesn't support subscription auth, only the
+            // API-key block renders — no divider, no wrapper.
+            if (!supportsSub) return apiKeyBlock
+
+            return (
+              <>
+                {subscriptionBlock}
+                {requiresKey && (
+                  <div className={styles.connectFormDivider}>or</div>
+                )}
+                {apiKeyCollapsedToggle}
+                {(apiKeyExpanded || !isSubConnected) && apiKeyBlock}
+              </>
+            )
+          })()}
 
           {/* OpenRouter credits */}
           {provider === 'openrouter' && currentProvider?.supports_catalog && (

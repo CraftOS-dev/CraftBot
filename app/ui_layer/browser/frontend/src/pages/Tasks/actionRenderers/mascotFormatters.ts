@@ -118,18 +118,6 @@ const stream_edit: MascotActionFormatter = {
   },
 }
 
-const write_file: MascotActionFormatter = {
-  running: (i) => {
-    const fp = strField(i, 'file_path') ?? ''
-    return { status: 'running', label: 'Writing file', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
-  },
-  result: (i, _o, s) => {
-    const fp = strField(i, 'file_path') ?? ''
-    const verb = s === 'completed' ? 'Wrote file' : s === 'error' ? 'Write failed' : 'Write cancelled'
-    return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
-  },
-}
-
 const read_file: MascotActionFormatter = {
   running: (i) => {
     const fp = strField(i, 'file_path') ?? ''
@@ -178,13 +166,14 @@ const list_folder: MascotActionFormatter = {
   },
 }
 
-const create_pdf: MascotActionFormatter = {
+// Formatter for convert_to_pdf — covers all source formats via one schema.
+const convertToPdf: MascotActionFormatter = {
   running: (i) => {
-    const fp = strField(i, 'file_path') ?? ''
+    const fp = strField(i, 'output_path') ?? ''
     return { status: 'running', label: 'Creating PDF', body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
   result: (i, o, s) => {
-    const fp = strField(o, 'path') ?? strField(i, 'file_path') ?? ''
+    const fp = strField(o, 'path') ?? strField(i, 'output_path') ?? ''
     const verb = s === 'completed' ? 'Created PDF' : s === 'error' ? 'PDF creation failed' : 'PDF creation cancelled'
     return { status: s, label: verb, body: fp ? basename(fp) : undefined, bodyMono: !!fp }
   },
@@ -490,11 +479,11 @@ const task_update_todos: MascotActionFormatter = {
 const FORMATTER_REGISTRY: Record<SupportedActionName, MascotActionFormatter> = {
   // file ops
   stream_edit,
-  write_file,
   read_file,
   find_files,
   list_folder,
-  create_pdf,
+  convert_to_pdf: convertToPdf,
+  convert_from_pdf: convertToPdf,
   read_pdf,
   convert_to_markdown,
   // code execution

@@ -301,6 +301,27 @@
   color: rgb(16, 185, 129);
 }
 
+/* Light-theme diff text — the dark-theme salmon/mint colors above wash out
+   against a near-white background. Darken the foreground and slightly
+   strengthen the tinted background so removed/added lines stay readable. */
+[data-theme="light"] .diffLineRemoved {
+  background: rgba(239, 68, 68, 0.12);
+  color: #991b1b;
+}
+
+[data-theme="light"] .diffLineAdded {
+  background: rgba(16, 185, 129, 0.14);
+  color: #065f46;
+}
+
+[data-theme="light"] .diffLineRemoved::before {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .diffLineAdded::before {
+  color: #047857;
+}
+
 .diffSeparator {
   padding: var(--space-1) var(--space-3);
   color: var(--text-muted);

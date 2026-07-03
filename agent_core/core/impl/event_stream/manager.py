@@ -12,13 +12,13 @@ Also handles file-based event logging to:
 """
 
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 import threading
 
 from agent_core.core.impl.event_stream.event_stream import EventStream
-from agent_core.core.event_stream.event import Event
+from agent_core.core.event_stream.event import Event, EventType
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.utils.logger import logger
 from agent_core.utils.file_utils import rotate_md_file_if_needed
@@ -60,6 +60,8 @@ SKIP_UNPROCESSED_EVENT_TYPES = {
     "error",
     # System events
     "waiting_for_user",
+    # Memory retrieval pointers — re-derivable on demand, not a distillable fact
+    "relevant_memories",
 }
 
 
@@ -299,8 +301,10 @@ class EventStreamManager:
         if not self._agent_file_system_path:
             return
 
-        # Format: [YYYY/MM/DD HH:MM:SS] [kind]: message
-        timestamp = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%M:%S")
+        # Format: [YYYY/MM/DD HH:MM:SS] [kind]: message — LOCAL time, matching
+        # state_manager's writes to the same files and the loguru log files
+        # (this line was the lone UTC writer, so entries used to mix clocks).
+        timestamp = datetime.now().astimezone().strftime("%Y/%m/%d %H:%M:%S")
         event_line = f"[{timestamp}] [{kind}]: {message}\n"
 
         with self._file_lock:
@@ -339,8 +343,15 @@ class EventStreamManager:
         message: str,
         severity: str = "INFO",
         *,
+        event_type: Optional[EventType] = None,
         display_message: str | None = None,
         action_name: str | None = None,
+        action_display_name: str | None = None,
+        action_id: str | None = None,
+        action_input: Optional[dict] = None,
+        action_output: Optional[dict] = None,
+        task_status: Optional[str] = None,
+        platform: Optional[str] = None,
         task_id: str | None = None,
     ) -> int:
         """
@@ -390,8 +401,15 @@ class EventStreamManager:
             kind,
             message,
             severity,
+            event_type=event_type,
             display_message=display_message,
             action_name=action_name,
+            action_display_name=action_display_name,
+            action_id=action_id,
+            action_input=action_input,
+            action_output=action_output,
+            task_status=task_status,
+            platform=platform,
         )
 
         # Also log to markdown files for persistence

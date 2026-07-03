@@ -3,32 +3,31 @@
 .settingsPage {
   height: 100%;
   display: flex;
-  overflow: hidden;
+  justify-content: center;
+  /* Scroll at the page level so the scrollbar sits at the viewport's right
+     edge (not the settings body's right edge). The rail below uses
+     position:sticky so it stays visible while the content scrolls. */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-/* Sidebar */
+/* Category rail — flush against the content, no separate background or
+   border. Just a compact vertical list of icon+label buttons. */
 .sidebar {
-  width: 280px;
+  width: 180px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-primary);
-  background: var(--bg-secondary);
-}
-
-.sidebarHeader {
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-primary);
-}
-
-.sidebarHeader h2 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
+  /* Stays in place as the page scrolls. align-self:flex-start prevents
+     flex stretch, otherwise sticky wouldn't have room to work. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  padding: var(--space-6) 0;
 }
 
 .categoryList {
   flex: 1;
-  overflow-y: auto;
   padding: var(--space-2);
 }
 
@@ -57,58 +56,46 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
+  width: 28px;
+  height: 28px;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .categoryItem.active .categoryIcon {
-  background: var(--color-primary-light);
   color: var(--text-primary);
-}
-
-.categoryInfo {
-  flex: 1;
-  min-width: 0;
 }
 
 .categoryLabel {
-  display: block;
-  font-size: var(--text-sm);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
   font-weight: var(--font-medium);
   color: var(--text-primary);
-  margin-bottom: 2px;
-}
-
-.categoryDesc {
-  display: block;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chevron {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-/* Content */
+/* Content — sized to hug the settings section (600px + 2×space-6 padding)
+   so the parent's `justify-content: center` centers the rail+content group
+   as one unit. No internal overflow — the page-level scroller on
+   .settingsPage handles vertical scrolling. */
 .content {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 0 1 648px;
   padding: var(--space-6);
 }
 
-/* Settings Section */
+/* Settings Section. `padding-bottom` sits on the overflowing element so it
+   actually shows up at the scroll bottom — `.content` is flex-stretched to
+   the viewport height, so this section's natural height spills PAST
+   `.content`'s own padding, meaning padding on `.content` gets covered by
+   the overflow. Padding here is part of the overflow itself, so it's what
+   the user sees when they scroll to the end. */
 .settingsSection {
   max-width: 600px;
   margin: 0 auto;
+  padding-bottom: var(--space-10);
 }
 
 .sectionHeader {
@@ -1922,22 +1909,24 @@
    ───────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
-  /* Settings page layout */
+  /* Settings page layout. Reset the desktop `justify-content: center` —
+     under column-direction it becomes VERTICAL centering, which pushes
+     the top of the settings body above the viewport and cuts it off. */
   .settingsPage {
     flex-direction: column;
+    justify-content: flex-start;
   }
 
-  /* Sidebar becomes icon-only row at top */
+  /* Rail becomes an icon-only row at top. Reset desktop's sticky-column
+     padding, and give it a solid background + z-index so content passing
+     underneath (page-level scroll) doesn't bleed through the rail. */
   .sidebar {
     width: 100%;
     flex-direction: column;
-    border-right: none;
     border-bottom: 1px solid var(--border-primary);
-  }
-
-  /* Hide sidebar header on mobile */
-  .sidebarHeader {
-    display: none;
+    padding: 0;
+    background: var(--bg-primary);
+    z-index: 10;
   }
 
   /* Category list as horizontal scroll */
@@ -1955,7 +1944,7 @@
     display: none;
   }
 
-  /* Category item - icon only */
+  /* Category item - icon + short label stacked */
   .categoryItem {
     flex-direction: column;
     align-items: center;
@@ -1967,37 +1956,23 @@
     flex-shrink: 0;
   }
 
-  /* Icon - keep visible */
   .categoryIcon {
-    width: 32px;
-    height: 32px;
-  }
-
-  /* Hide description, show only short label */
-  .categoryInfo {
-    width: 100%;
-    text-align: center;
+    width: 28px;
+    height: 28px;
   }
 
   .categoryLabel {
     font-size: var(--text-xs);
-    margin-bottom: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    text-align: center;
   }
 
-  .categoryDesc {
-    display: none;
-  }
-
-  /* Hide chevron */
-  .chevron {
-    display: none;
-  }
-
-  /* Content area adjustments */
+  /* Content area adjustments. Reset the desktop `flex: 0 1 648px` — in
+     column layout the 648px flex-basis becomes a HEIGHT cap and cuts off
+     the top of tall settings screens. On mobile we want natural height,
+     full width. */
   .content {
+    flex: 0 0 auto;
+    width: 100%;
     padding: var(--space-4);
   }
 
@@ -2658,4 +2633,64 @@
   color: var(--text-primary);
   font-size: 12px;
   font-family: var(--font-mono);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Subscription auth (ChatGPT / SuperGrok) — used alongside the
+   API-key input as an alternative authorization path. Follows the
+   established "OAuth or Token" pattern from IntegrationsSettings.
+   ───────────────────────────────────────────────────────────── */
+
+/* Connected identity (e.g. "user@example.com · Plus") — plain text,
+   NOT wrapped in an input-shaped chip. Renders as a line of text above
+   the Disconnect button. */
+.subscriptionIdentity {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.subscriptionButtonRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.subscriptionInlineLink {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-decoration: underline;
+  margin-left: auto;
+}
+
+.subscriptionInlineLink:hover {
+  color: var(--text-secondary);
+}
+
+/* Subtle "Use API key instead" toggle shown BETWEEN the divider and the
+   collapsed API-key block when subscription auth is already connected.
+   Presented as a plain, quiet text button — visible but not
+   attention-grabbing, so the primary "subscription owns auth" signal
+   stays clear. */
+.subscriptionSecondaryLink {
+  align-self: flex-start;
+  padding: 0;
+  margin: calc(-1 * var(--space-1)) 0 0 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  text-decoration: underline;
+}
+
+.subscriptionSecondaryLink:hover {
+  color: var(--text-secondary);
+}
+
+/* Inline form-error message. Small, tinted, sits under an input group. */
+.formError {
+  font-size: var(--text-xs);
+  color: var(--color-red, #d33);
+  margin: 0;
 }

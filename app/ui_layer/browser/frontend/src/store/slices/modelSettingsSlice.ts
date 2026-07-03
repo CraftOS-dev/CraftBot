@@ -16,6 +16,23 @@ export interface ProviderInfo {
   has_video_gen: boolean
   supports_catalog?: boolean
   is_bedrock?: boolean
+  // Subscription OAuth (ChatGPT Plus/Pro, SuperGrok). When true the
+  // settings page shows a "Sign in with <provider>" button next to the
+  // API-key field. Anthropic is intentionally absent.
+  supports_subscription_oauth?: boolean
+  subscription_label?: string | null
+  subscription_models?: string[]
+}
+
+// One entry per provider that supports subscription OAuth. The backend
+// includes only providers where supports_subscription_oauth=true.
+export interface SubscriptionStatus {
+  supported: boolean
+  connected: boolean
+  email?: string
+  plan?: string
+  expires_at?: number
+  expires_in_seconds?: number
 }
 
 export interface ApiKeyStatus {
@@ -29,6 +46,17 @@ export interface AwsCredentialsStatus {
   has_session_token: boolean
   masked_access_key_id: string
   region: string
+}
+
+// Per-provider paste-back state. Once `attempt_id` is set, the UI knows the
+// user has clicked Connect and is now waiting to either complete the loopback
+// flow (silent success) or paste a code from the provider's "copy this code"
+// page (paste-back flow). Cleared on successful connect.
+export interface PastebackState {
+  awaiting: boolean
+  attemptId?: string
+  authUrl?: string
+  errorMessage?: string
 }
 
 interface ModelSettingsState {
@@ -46,6 +74,9 @@ interface ModelSettingsState {
   ollamaModels: string[]
   ollamaAvailable: boolean | null
   awsCredentials: AwsCredentialsStatus | null
+  subscriptionOauth: Record<string, SubscriptionStatus>
+  subscriptionPending: Record<string, boolean>
+  subscriptionPasteback: Record<string, PastebackState>
   hasLoadedProviders: boolean
   hasLoadedSettings: boolean
   hasLoadedSlowMode: boolean
@@ -66,6 +97,9 @@ const initialState: ModelSettingsState = {
   ollamaModels: [],
   ollamaAvailable: null,
   awsCredentials: null,
+  subscriptionOauth: {},
+  subscriptionPending: {},
+  subscriptionPasteback: {},
   hasLoadedProviders: false,
   hasLoadedSettings: false,
   hasLoadedSlowMode: false,
@@ -143,6 +177,21 @@ const modelSettingsSlice = createSlice({
       state.ollamaModels = action.payload.models
       state.ollamaAvailable = action.payload.available
     },
+    setSubscriptionOauth(state, action: PayloadAction<Record<string, SubscriptionStatus>>) {
+      state.subscriptionOauth = action.payload
+    },
+    setSubscriptionStatus(state, action: PayloadAction<{ provider: string; status: SubscriptionStatus }>) {
+      state.subscriptionOauth[action.payload.provider] = action.payload.status
+    },
+    setSubscriptionPending(state, action: PayloadAction<{ provider: string; pending: boolean }>) {
+      state.subscriptionPending[action.payload.provider] = action.payload.pending
+    },
+    setSubscriptionPasteback(state, action: PayloadAction<{ provider: string; state: PastebackState }>) {
+      state.subscriptionPasteback[action.payload.provider] = action.payload.state
+    },
+    clearSubscriptionPasteback(state, action: PayloadAction<string>) {
+      delete state.subscriptionPasteback[action.payload]
+    },
   },
 })
 
@@ -161,6 +210,11 @@ export const {
   setSlowModeEnabled,
   setOllamaModels,
   setAwsCredentials,
+  setSubscriptionOauth,
+  setSubscriptionStatus,
+  setSubscriptionPending,
+  setSubscriptionPasteback,
+  clearSubscriptionPasteback,
 } = modelSettingsSlice.actions
 
 export default modelSettingsSlice.reducer
@@ -183,6 +237,7 @@ register('model_settings_get', (data, dispatch) => {
     api_keys: Record<string, ApiKeyStatus>
     base_urls: Record<string, string>
     aws_credentials?: AwsCredentialsStatus | null
+    subscription_oauth?: Record<string, SubscriptionStatus>
   }
   if (d.success) {
     dispatch(setSettings({
@@ -197,6 +252,9 @@ register('model_settings_get', (data, dispatch) => {
       baseUrls: d.base_urls || {},
       awsCredentials: d.aws_credentials ?? null,
     }))
+    if (d.subscription_oauth) {
+      dispatch(setSubscriptionOauth(d.subscription_oauth))
+    }
   }
 })
 
@@ -243,4 +301,86 @@ register('slow_mode_set', (data, dispatch) => {
 register('ollama_models_get', (data, dispatch) => {
   const d = data as { success: boolean; models: string[] }
   dispatch(setOllamaModels({ models: d.success ? (d.models || []) : [], available: d.success }))
+})
+
+// Subscription OAuth (ChatGPT Plus/Pro, SuperGrok).
+//
+// On success the backend also flips the active LLM provider to the one
+// we just signed into (so "Sign in with ChatGPT" implicitly = "use ChatGPT")
+// and echoes the newly-active provider back in ``active_provider``.
+// Mirror it into the dropdown selector state so the UI stays consistent
+// without waiting for the user to hit Save.
+register('model_subscription_connect', (data, dispatch) => {
+  const d = data as {
+    success: boolean
+    provider?: string
+    status?: SubscriptionStatus
+    active_provider?: string | null
+    message?: string
+    error?: string
+  }
+  if (d.provider) {
+    dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
+    if (d.status) dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
+    if (d.success && d.active_provider) {
+      dispatch(setProvider(d.active_provider))
+    }
+  }
+})
+
+register('model_subscription_disconnect', (data, dispatch) => {
+  const d = data as { success: boolean; provider?: string; status?: SubscriptionStatus }
+  if (d.provider) {
+    dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
+    if (d.status) dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
+  }
+})
+
+register('model_subscription_status', (data, dispatch) => {
+  const d = data as { success: boolean; provider?: string; status?: SubscriptionStatus }
+  if (d.success && d.provider && d.status) {
+    dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
+  }
+})
+
+register('model_subscription_prepare', (data, dispatch) => {
+  const d = data as { success: boolean; provider?: string; auth_url?: string; attempt_id?: string; error?: string }
+  if (!d.provider) return
+  dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
+  if (d.success) {
+    dispatch(setSubscriptionPasteback({
+      provider: d.provider,
+      state: { awaiting: true, attemptId: d.attempt_id, authUrl: d.auth_url },
+    }))
+  } else {
+    dispatch(setSubscriptionPasteback({
+      provider: d.provider,
+      state: { awaiting: false, errorMessage: d.error || 'Failed to prepare sign-in' },
+    }))
+  }
+})
+
+register('model_subscription_complete', (data, dispatch) => {
+  const d = data as {
+    success: boolean
+    provider?: string
+    status?: SubscriptionStatus
+    active_provider?: string | null
+    message?: string
+    error?: string
+  }
+  if (!d.provider) return
+  dispatch(setSubscriptionPending({ provider: d.provider, pending: false }))
+  if (d.success) {
+    if (d.status) dispatch(setSubscriptionStatus({ provider: d.provider, status: d.status }))
+    dispatch(clearSubscriptionPasteback(d.provider))
+    if (d.active_provider) {
+      dispatch(setProvider(d.active_provider))
+    }
+  } else {
+    dispatch(setSubscriptionPasteback({
+      provider: d.provider,
+      state: { awaiting: true, errorMessage: d.error || d.message || 'Code exchange failed' },
+    }))
+  }
 })

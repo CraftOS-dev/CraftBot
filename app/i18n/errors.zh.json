@@ -1,0 +1,9 @@
+{
+  "provider_rate_limit":      "{provider_label} API 速率限制或配额已超限。",
+  "provider_invalid_key":     "{provider_label} API 密钥无效——请在设置中验证您的密钥。",
+  "provider_safety_block":    "请求被 {provider_label} 安全过滤器拦截 — 请修改您的提示词。",
+  "provider_model_not_found": "{provider_label} 模型不可用 — 请确保您的账户具有访问 {model} 的权限。",
+  "provider_timeout":         "在轮询完成状态时，{provider_label} 生成超时。",
+  "provider_connection":      "无法连接 {provider_label} — 请检查您的网络连接。",
+  "provider_generic":         "{provider_label} 生成失败。"
+}

@@ -556,7 +556,7 @@ Your updates to "Long-Term Goals" directly influence what the weekly and daily p
 ## Allowed Actions
 
 **Core:** `recurring_read`, `recurring_add`, `recurring_update_task`, `recurring_remove`,
-`scheduled_task_list`, `schedule_task`, `read_file`, `stream_read`, `stream_edit`,
+`scheduled_task_list`, `schedule_task`, `read_file`, `stream_edit`,
 `memory_search`, `send_message`, `task_update_todos`, `task_end`
 
 **External Integrations (use selectively based on user):**

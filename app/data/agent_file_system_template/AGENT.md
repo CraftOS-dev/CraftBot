@@ -1,5 +1,5 @@
 ---
-version: 3
+version: 4
 purpose: agent operations manual
 ---
 
@@ -17,6 +17,8 @@ connect platform        → ## Integrations
 use an integration      → ## Integrations  (and grep its INTEGRATION.md)
 switch model            → ## Models
 set API key             → ## Models
+delegate web research    → ## Sub-Agents
+lock the deliverable spec→ ## Tasks  (set_requirement)
 generate document       → ## Documents
 build Living UI         → ## Living UI
 schedule recurring task → ## Proactive
@@ -263,6 +265,9 @@ task_start(task_mode="complex", ...)             ← from conversation
    OR schedule_task(mode="complex", schedule="immediate", ...)  ← from inside a task
        │
        ▼
+set_requirement(<what "done" must contain>)       ← FIRST move, before you even acknowledge
+       │
+       ▼
 send_message                                      ← acknowledge IMMEDIATELY
        │
        ▼
@@ -285,6 +290,18 @@ wait for user reply  ← queues a future trigger; you do NOT block, see ## Runti
        ▼
 task_end                                          ← only after explicit approval
 ```
+
+### Lock the deliverable spec: `set_requirement`
+
+`task_update_todos` is your plan (the steps). `set_requirement` is your contract (what the finished output must contain). They are different things and you need both for a complex task.
+
+Call `set_requirement` as the very first action of a complex task, before acknowledging. Pass a list of checkable items, each with:
+- `dimension` — the aspect (content, structure, length, style, format, data_sources, tone, ...).
+- `requirement` — the specific, falsifiable spec. NOT "make it polished" — say "includes a revenue table for FY22-24".
+- `done_when` — the concrete pass/fail test.
+- `status` — `pending` (default), `satisfied`, or `violated`.
+
+Then, in your Verify phase, call `set_requirement` again with each item marked `satisfied` or `violated` (a `violated` item means rework before you Confirm). Always pass the COMPLETE current list — it replaces the previous one, it does not append. The requirement list is pinned into your context every turn and survives event-stream summarization, so it is your durable checklist for "am I actually done".
 
 ### Todo phase prefixes (mandatory in complex mode)
 
@@ -329,6 +346,41 @@ See `## Workspace` for the mission template and scan-on-start protocol.
 - Calling `task_end` **without a final `send_message`** → simple tasks must deliver the result; complex tasks must summarize and request approval. Never end silently.
 - Marking todos `completed` **before the actions ran** → mark `in_progress`, run, then mark `completed`.
 - Adding planning todos like `Acknowledge: Plan the work` to simple tasks → simple tasks do not use todos at all.
+
+---
+
+## Sub-Agents
+
+Inside a task you can delegate a self-contained chunk of work to a sub-agent with `spawn_subagent(agent_type, query)`. Use this to keep your own context clean while a focused worker does the digging.
+
+### When to delegate
+
+```
+Online research (search the web, fetch pages, gather facts)  → spawn_subagent("research_agent", ...)
+Local work (read files, grep the repo, memory_search)        → do it yourself, don't delegate
+```
+
+`research_agent` is the type available today (it gathers source-cited facts and returns a brief — it does not interpret or make decisions). More types may appear over time; if `agent_type` is rejected, the type isn't registered — do the work yourself or ask the user.
+
+### How to write a good `query`
+
+The sub-agent starts BLANK. It cannot see your conversation, the user, memory, the current task, or anything you already know. So the `query` must be fully self-contained:
+- State every fact, URL, name, and constraint it needs — do not reference "the file above" or "the user's request".
+- Say exactly what shape you want back (a list? a table? a one-paragraph summary with sources?).
+
+A vague query gets a vague brief. Be specific.
+
+### Fan out for breadth
+
+If a topic has several distinct sub-questions, spawn ONE research_agent per sub-question in the SAME turn (multiple `spawn_subagent` calls in one decision). They run in parallel — three agents cost about the same wall-clock as one. Do NOT ask a single agent to cover many unrelated topics; it returns shallow results (and may refuse).
+
+### Reading the result
+
+`spawn_subagent` returns `{status, result, ...}`. **Only `result` matters** — act on that. If `status` is `failed` or `timeout`, the brief is unusable: re-scope the query (narrow it, split it) and try once more. Do not spawn the same failing query in a loop.
+
+### When a sub-agent misbehaves
+
+Each sub-agent writes its own log file — see `## Errors` (self-troubleshooting). If a research_agent returned something wrong or empty, open its `sub_<type>_<id>.log` in the current run folder to see what it actually did, rather than guessing.
 
 ---
 
@@ -435,26 +487,25 @@ The harness already handles certain failures so you do not have to. Recognizing 
 
 ### LLM error classes (from `classify_llm_error`)
 
-When an LLM call fails non-fatally, `classify_llm_error()` returns one of these messages. Knowing the class tells you whether retrying makes sense and what to tell the user:
+When an LLM call fails, `classify_llm_error()` sorts it into a category. The category tells you whether retrying helps and what to tell the user:
 
 ```
-MSG_AUTH         (HTTP 401/403)   "Unable to connect to AI service. Check your API key in Settings."
-                                  → DO NOT retry. Tell user to set/fix API key. See ## Models.
-MSG_MODEL        (HTTP 404)       "The selected AI model is not available."
-                                  → DO NOT retry. Tell user model name is wrong/unavailable.
-MSG_CONFIG       (HTTP 400)       "AI service configuration error. The selected model may not support required features."
-                                  → DO NOT retry. May indicate a feature flag (vision, tool use) not supported by chosen model.
-MSG_RATE_LIMIT   (HTTP 429)       "AI service is rate-limited. Please wait a moment and try again."
-                                  → Retryable after delay. Consider enabling slow_mode in settings.
-MSG_SERVICE      (HTTP 5xx)       "AI service is temporarily unavailable. Please try again later."
-                                  → Retryable. Often transient.
-MSG_CONNECTION   (timeout, ConnectionError)  "Unable to reach AI service. Check your internet."
-                                  → Retryable if connectivity recovers.
-MSG_GENERIC      (unmatched)      "An error occurred with the AI service."
-                                  → Investigate before retrying.
+category      what it means                          what to do
+──────────    ───────────────────────────────────    ──────────────────────────────────
+AUTH          API key rejected / missing             DO NOT retry. User fixes key. See ## Models.
+CREDIT        Out of credits / billing exhausted     DO NOT retry — retrying never succeeds.
+                                                      Tell the user to top up their provider
+                                                      account (the error carries a billing link).
+MODEL         model name wrong / unavailable         DO NOT retry. User picks a valid model.
+RATE_LIMIT /  provider throttling / usage cap        Retryable after a delay. Consider slow_mode
+QUOTA                                                 (see ## Models).
+SERVER        provider 5xx, temporary                Retryable. Usually transient.
+CONNECTION    timeout / network                      Retryable once connectivity is back.
+BAD_REQUEST / other                                  Investigate before retrying.
+UNKNOWN
 ```
 
-These come back as user-friendly strings to display; the harness wraps them in `"error"` events. You see them via the event stream and `display_message`.
+Note CREDIT vs RATE_LIMIT: a rate limit clears if you wait; out-of-credits does not — never loop-retry a CREDIT error, just surface it. The displayed message is localized to the user's OS language, but the category and your response are the same regardless of language.
 
 ### Failure taxonomy and recovery decision
 
@@ -488,7 +539,7 @@ There are four failure types. Identify which one you are in, then follow the mat
 
 **File / shell / Python action returns `status=error`**
 - Read the `message` field. It often points at the fix (file not found, permission, syntax error, missing dep).
-- If the message says missing dependency for `run_python` / `run_shell`, install it via `pip install`/`npm install` in a follow-up `run_shell` call (auto-installed in sandboxed mode for declared `requirements`, but ad-hoc imports require explicit install).
+- If the message says a missing dependency while running a script via `run_shell` (e.g. a Python `ModuleNotFoundError`), install it with `pip install`/`npm install` in a follow-up `run_shell` call.
 - If it says path not found, `find_files` or `list_folder` to locate before retry.
 
 **Web / fetch action returns error**
@@ -532,12 +583,16 @@ EVENT.md                       agent_file_system/EVENT.md
                                warning, action_error, internal). Already on disk
                                and indexed by memory_search.
 
-logs/<timestamp>.log           project_root/logs/
+logs/<run>/                    project_root/logs/<timestamp>/  (ONE FOLDER PER RUN)
                                runtime perspective: harness internals, every
                                subsystem's INFO/WARN/ERROR log line. Loguru
-                               format. Rotates at 50 MB, kept 14 days.
-                               This is where stderr from sandboxed actions,
-                               MCP server output, and Python tracebacks land.
+                               format. Inside each run folder:
+                                 main.log              you (main agent) only
+                                 all.log               everything, interleaved
+                                 sub_<type>_<id>.log   one per sub-agent you spawned
+                               This is where stderr from actions, MCP server
+                               output, and Python tracebacks land. Rotates at
+                               50 MB, kept 14 days.
 
 diagnostic/logs/actions/       diagnostic/logs/actions/<ts>_<slug>.log.json
                                per-action diagnostic dump (when run via the
@@ -547,7 +602,8 @@ diagnostic/logs/actions/       diagnostic/logs/actions/<ts>_<slug>.log.json
 
 **Picking the right surface:**
 - "What did I do, and what did the harness say back?" → EVENT.md.
-- "Why did this action / MCP / hot-reload actually fail?" → `logs/<timestamp>.log`.
+- "Why did this action / MCP / hot-reload actually fail?" → newest `logs/<run>/all.log`.
+- "Why did a sub-agent I spawned misbehave?" → that run's `sub_<type>_<id>.log`.
 - "I want to replay one specific action's full input/output" → `diagnostic/logs/actions/`.
 
 **Log line format (loguru):**
@@ -583,15 +639,17 @@ timestamp                  level      module:function:line                      
 **Self-troubleshooting workflow.** When an action returns an error you cannot decode from `message` alone:
 
 ```
-1. Identify the latest log file:
-     list_folder logs/                        ← logs are timestamped, latest is freshest
+1. Identify the current run folder:
+     list_folder logs/                        ← run folders are timestamped, latest is freshest
+     Then read all.log inside it (or main.log for just your own lines, or a
+     sub_<type>_<id>.log for a specific sub-agent).
 2. Find the time window of the failure:
      - From EVENT.md, note the timestamp of the failing event.
-     - That same timestamp will exist in logs/<latest>.log (within seconds).
+     - That same timestamp will exist in logs/<run>/all.log (within seconds).
 3. Grep around that time + the relevant subsystem tag:
-     grep_files "[MCP]"   logs/<latest>.log -A 5 -B 1   ← MCP server failure?
-     grep_files "[ACTION]" logs/<latest>.log -A 5 -B 1   ← action execution issue?
-     grep_files "ERROR"    logs/<latest>.log -B 2 -A 10  ← any error-level line + context
+     grep_files "[MCP]"   logs/<run>/all.log -A 5 -B 1   ← MCP server failure?
+     grep_files "[ACTION]" logs/<run>/all.log -A 5 -B 1   ← action execution issue?
+     grep_files "ERROR"    logs/<run>/all.log -B 2 -A 10  ← any error-level line + context
 4. If a Python traceback is present, read upward from the traceback to the
    most recent INFO line in the same subsystem — that tells you the last
    successful step before the failure.
@@ -610,32 +668,32 @@ timestamp                  level      module:function:line                      
 
 ```
 # Did an MCP server crash on startup or fail to connect?
-grep_files "[MCP]" logs/<latest>.log -A 3
+grep_files "[MCP]" logs/<run>/all.log -A 3
 # → look for "Failed to connect", "subprocess exited", non-zero return codes.
 
 # Did the config watcher fail to apply a hot reload?
-grep_files "[CONFIG_WATCHER]" logs/<latest>.log -A 3
+grep_files "[CONFIG_WATCHER]" logs/<run>/all.log -A 3
 
 # Did settings.json fail to parse?
-grep_files "[SETTINGS]" logs/<latest>.log -A 3
+grep_files "[SETTINGS]" logs/<run>/all.log -A 3
 
 # Did an action time out, and which one?
-grep_files "Execution timed out" logs/<latest>.log -B 5
+grep_files "Execution timed out" logs/<run>/all.log -B 5
 
 # Did the LLM hit consecutive failures?
-grep_files "LLMConsecutiveFailureError\|MSG_CONSECUTIVE_FAILURE" logs/<latest>.log -A 5
+grep_files "LLMConsecutiveFailureError\|MSG_CONSECUTIVE_FAILURE" logs/<run>/all.log -A 5
 
 # Did a sandboxed action subprocess produce stderr?
-grep_files "venv\|requirements\|subprocess" logs/<latest>.log -A 3
+grep_files "venv\|requirements\|subprocess" logs/<run>/all.log -A 3
 
 # What did the agent's _check_agent_limits last log?
-grep_files "[LIMIT]" logs/<latest>.log -A 2
+grep_files "[LIMIT]" logs/<run>/all.log -A 2
 
 # When did the last task end, and how?
-grep_files "[TASK].*ended\|task_end\|mark_task_cancel" logs/<latest>.log -A 3
+grep_files "[TASK].*ended\|task_end\|mark_task_cancel" logs/<run>/all.log -A 3
 
 # Find the last 100 ERROR-level lines across the whole log:
-grep_files "| ERROR " logs/<latest>.log -A 5
+grep_files "| ERROR " logs/<run>/all.log -A 5
 ```
 
 **Acting on what you find.** A log line is data, not a fix. The decision rules:
@@ -662,9 +720,8 @@ If the log shows                               then
 [LIMIT] ... 100% ... Waiting for user choice   task is paused. Do not issue actions
                                                until next trigger. See ## Errors above.
 
-ModuleNotFoundError in run_python output       the script needs a dependency. Install
-                                               via run_shell "pip install <pkg>" or
-                                               declare in action requirements.
+ModuleNotFoundError from a run_shell script    the script needs a dependency. Install
+                                               it via run_shell "pip install <pkg>" first.
 
 PermissionError / OSError on file write        the path is wrong, locked, or outside
                                                the allowed scope. Verify with
@@ -679,7 +736,7 @@ Long gaps between INFO lines (no activity)     the loop may be waiting for a tri
 
 **When logs are the only honest source of truth.** Some failures do not surface as `status=error` in the action result — they manifest as the action *seeming to work* but the side effect not happening (e.g., `run_shell` returns 0 but a script printed "ok" while silently catching an exception; an MCP tool returns success but logged a warning that the operation was a no-op). When you suspect a silent failure, grep the logs for the timestamp of your action and look for `WARNING` or unexpected `ERROR` lines around it.
 
-**Rotation and freshness.** Log files rotate at 50 MB and old files are kept for 14 days. The latest file by mtime is the one with current activity. If your investigation needs older history (e.g., a crash from yesterday), `list_folder logs/` and pick by timestamp.
+**Rotation and freshness.** Logs rotate at 50 MB and old files are kept for 14 days. The newest run FOLDER (by timestamp) holds the current session; read `all.log` inside it. If your investigation needs older history (e.g., a crash from yesterday), `list_folder logs/` and pick an earlier run folder.
 
 **Do not ask the user for log content you can read yourself.** The user does not have a better view than you do. If they ask "what's the error?", read the log, summarize, and explain. They are not your support layer — you are theirs.
 
@@ -714,7 +771,7 @@ You're blocked when you don't know what to do next AND retrying won't help. The 
 - **Ignoring `"warning"` events** about action/token limits. The harness will pause your task soon — get ahead of it. At 80%, wrap up or send the partial result.
 - **Continuing to issue actions while limit-paused (100%).** They will not fire. The user is being shown a Continue/Abort dialog. Wait for the next trigger.
 - **Trying to retry after `LLMConsecutiveFailureError`.** The task is already cancelled by `_handle_react_error`. Do NOT recreate it. Tell the user the LLM configuration needs attention.
-- **Catching exceptions in `run_python` / `run_shell` and printing "ok".** The harness sees `status=success` if your script swallows the error. Always propagate non-zero exit codes / raise on failure.
+- **Catching exceptions in a `run_shell` script and printing "ok".** The harness sees `status=success` if your script swallows the error. Always propagate non-zero exit codes / raise on failure.
 - **Fabricating success messages on failure.** Forbidden. If you couldn't read the file or call the API, do not paraphrase what you "would have" produced.
 - **Asking open-ended "what should I do" questions.** Always one specific question with an implied default ("Use the bot token from settings.oauth.slack, or reuse the existing /slack login session?").
 - **Self-detected logical loops.** The consecutive-failure breaker only catches LLM-call failures. If you keep choosing slightly different params for the same action and getting the same business-logic error (e.g., "user not found" three times with three different IDs you guessed), that is a logical loop. Stop and ask the user.
@@ -746,9 +803,9 @@ Supported parameters: `glob`, `file_type`, `before_context` / `after_context`, `
 
 Full input schema: [app/data/action/grep_files.py](app/data/action/grep_files.py).
 
-### stream_read + stream_edit
+### read_file + stream_edit
 - Use as a pair when modifying an existing file.
-- `stream_read` returns the exact bytes.
+- `read_file` returns the exact content with line numbers.
 - `stream_edit` applies a precise diff.
 - Preferred over `write_file` for edits. Preserves unrelated content and avoids whole-file overwrites.
 
@@ -759,12 +816,34 @@ Use only when:
 
 Never use `write_file` to patch an existing large file. Use `stream_edit`.
 
+For large files (long documents, scripts, datasets), DO NOT try to emit the
+whole file in one step. Each action is a single model response bounded by the
+output-token limit. Build the file incrementally instead:
+1. Create the file with the first chunk (`write_file` in overwrite mode).
+2. Append the next section with `write_file` in append mode — one bounded chunk per step.
+3. Repeat until the content is complete.
+4. Then run or finalize it — run a script with `run_shell` (e.g. `python build_doc.py`),
+   or for a PDF build the markdown then convert it with `convert_to_pdf` (pass
+   `source_path` pointing at the markdown file; format is auto-detected from the
+   extension; pass `style` to override FORMAT.md). The same action handles every
+   source format (text, csv, xlsx, html, url, images, docx/odt/rtf/pptx). Use
+   `convert_from_pdf` for the reverse direction (PDF → .docx or .html).
+Keep each chunk small — roughly ~150 lines (a few KB) at most — so it fits
+comfortably within one response's output-token budget.
+
+### Externalized (offloaded) action output
+When an action returns a very large output, the harness does NOT dump it into your context — it saves it to a file and gives you a short pointer instead. You'll see a result like:
+```
+Action <name> completed. The output is too long therefore is saved in <path> ... | keywords: ...
+```
+When you see that, the real content is in the file at `<path>`. Retrieve it the same way you read any file: `grep_files` the path with a keyword to jump to the part you need, or `read_file` it with `offset`/`limit` to page through. Do NOT treat the pointer message as the answer — go read the file. (`grep_files` and `read_file` outputs are never externalized, so you won't get a pointer-to-a-pointer.)
+
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
 - `find_files`: recursive name pattern search across a tree.
 
 ### convert_to_markdown vs read_pdf
-- `read_pdf`: direct PDF reading with page support.
+- `read_pdf`: direct PDF reading with page support. By default it returns just the text/tables (lean, to save context); pass `include_metadata=true` for page count and engine info, or `mode="layout"` when you need per-word positions for a spatial/edit task.
 - `convert_to_markdown`: for office formats (docx, xlsx, pptx) you intend to grep afterwards.
 
 ### Anti-patterns
@@ -935,7 +1014,7 @@ app/config/onboarding_config.json     first-run state                           
 skills/<name>/SKILL.md                installed skills                            (## Skills)
 .credentials/<platform>.json          OAuth tokens, bot tokens, API keys
                                       DO NOT print contents to chat or logs
-logs/<timestamp>.log                  runtime logs                                (## Errors)
+logs/<run>/all.log                  runtime logs                                (## Errors)
 chroma_db_memory/                     ChromaDB index for memory_search
                                       DO NOT edit
 ```
@@ -1033,7 +1112,7 @@ A mission with stale `Next Steps` is worse than no mission. Always leave it acti
 - Configuration files (use `app/config/`).
 - Skills (use `skills/`).
 - Credentials (use `.credentials/`).
-- Logs (auto-go to `logs/<timestamp>.log`).
+- Logs (auto-go to `logs/<run>/all.log`).
 - Editing AGENT.md / USER.md / SOUL.md / FORMAT.md (these are in `agent_file_system/`, not `workspace/`).
 
 ---
@@ -1089,13 +1168,18 @@ This is non-optional. Generating documents without reading FORMAT.md produces in
 
 ### Action support
 
-Document generation actions in the standard action set:
+Document actions in the standard action set:
 ```
-create_pdf              build a PDF from markdown / text
-                        (preferred over rendering via run_python)
 convert_to_markdown     normalize office formats before further processing
 read_pdf                read a PDF with page support
+convert_to_pdf          render any source → PDF; source format auto-detected from input
+                        (markdown/text/csv/xlsx/html/url/images/docx/odt/rtf/pptx)
+convert_from_pdf        PDF → editable .docx (pdf2docx) or layout-preserving .html (PyMuPDF);
+                        the html target is the EDIT path: convert_from_pdf → stream_edit → convert_to_pdf
+edit_pdf                annotate / redact / replace / watermark an existing PDF
 ```
+
+For DOCX/PPTX/XLSX *generation*, there is no built-in action — use the per-format skills listed below.
 
 Skills that compose document workflows (sample):
 ```
@@ -1239,7 +1323,7 @@ Examples of files with multiple registrations:
 - `integration_management.py` registers `list_available_integrations`, `connect_integration`, `check_integration_status`, `disconnect_integration`.
 - `discord/discord_actions.py`, `slack/slack_actions.py`, `telegram/telegram_actions.py`, `notion/notion_actions.py`, `linkedin/linkedin_actions.py`, `jira/jira_actions.py`, `github/github_actions.py`, `outlook/outlook_actions.py`, `whatsapp/whatsapp_actions.py`, `twitter/twitter_actions.py`, `google_workspace/{gmail,google_calendar,google_drive}_actions.py` each register many actions.
 
-Total registered built-in actions: roughly 195 (varies by version). The exact number is logged at startup in `logs/<timestamp>.log` — search for `Action registry loaded`.
+Total registered built-in actions: roughly 195 (varies by version). The exact number is logged at startup in `logs/<run>/all.log` — search for `Action registry loaded`.
 
 ### How to discover actions
 
@@ -1283,7 +1367,7 @@ parallelizable   bool  default True. False = action runs alone in its turn (writ
 Key implications when reading an action:
 - `mode="CLI"` actions exist (e.g. `read_file`, `task_start`). They are loaded by default.
 - `parallelizable=False` actions cannot be batched. The router will sequence them. Examples: `task_update_todos`, `add_action_sets`, `remove_action_sets`.
-- `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. `run_python` is sandboxed; most other actions are internal.
+- `execution_mode="sandboxed"` means the action runs in a fresh venv subprocess with `requirement` packages installed automatically. Most actions are `internal` (run in-process).
 - `default=True` means the action is in the action list regardless of which sets are loaded. Common defaults: `task_start`, `send_message`, `ignore`. Prefer adding to an `action_sets` list over using `default=True`.
 
 ### Built-in action categories (orientation only — read source for current state)
@@ -1296,9 +1380,11 @@ core                     send_message, task_start, task_end, task_update_todos, 
                          check_integration_status, disconnect_integration
 
 file_operations          read_file, grep_files, find_files, list_folder, stream_edit, write_file,
-                         read_pdf, convert_to_markdown, create_pdf
+                         read_pdf, convert_to_markdown
 
-shell                    run_shell, run_python
+document_processing      convert_to_pdf, convert_from_pdf, edit_pdf, read_pdf, convert_to_markdown
+
+shell                    run_shell
 
 web_research             web_fetch, web_search, http_request
 
@@ -1388,7 +1474,7 @@ Beyond the eight curated sets, these sets exist because actions declare them:
 ```
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
-content_creation      generate_image, create_pdf, ...
+content_creation      generate_image, ...
 living_ui             living_ui_http, living_ui_restart, ...
 
 per-integration sets (loaded only when the user has the integration connected):
@@ -1613,7 +1699,7 @@ You may also encounter MCP server entries that point at standalone JSON files; t
 3.  stream_edit <config_path> ...                 make the edit (preserves unrelated content)
 4.  wait ~0.5s for debounce                        the watcher coalesces rapid saves
 5.  verify the reload happened                    see "Verifying a reload" below
-6.  if no effect: check logs/<latest>.log for     [SETTINGS] / [MCP] / [CONFIG_WATCHER] errors
+6.  if no effect: check logs/<run>/all.log for     [SETTINGS] / [MCP] / [CONFIG_WATCHER] errors
     [CONFIG_WATCHER] / [MCP] / [SETTINGS] errors
 ```
 
@@ -1706,12 +1792,12 @@ By config:
 
 ```
 settings.json
-  - check logs:  grep_files "[SETTINGS]" logs/<latest>.log -A 1
+  - check logs:  grep_files "[SETTINGS]" logs/<run>/all.log -A 1
   - or read back: read_file app/config/settings.json (confirm your edit landed)
   - in next task: model/provider/api_key changes are observable when an LLM call fires
 
 mcp_config.json
-  - check logs:  grep_files "[MCP]" logs/<latest>.log -A 2
+  - check logs:  grep_files "[MCP]" logs/<run>/all.log -A 2
   - look for:    "Connecting to '<server-name>'", "[StdioTransport] Starting subprocess"
   - in next task: list_action_sets shows mcp_<server-name> as a registered set
 
@@ -1721,11 +1807,11 @@ skills_config.json
   - new /<skill_name> slash commands appear after sync_skill_commands fires
 
 external_comms_config.json
-  - check logs:  grep_files "[EXT_COMMS]" logs/<latest>.log -A 2
+  - check logs:  grep_files "[EXT_COMMS]" logs/<run>/all.log -A 2
   - if telegram/whatsapp enabled and started, expect connection success messages
 
 scheduler_config.json
-  - check logs:  grep_files "[SCHEDULER]" logs/<latest>.log -A 2
+  - check logs:  grep_files "[SCHEDULER]" logs/<run>/all.log -A 2
   - call scheduled_task_list action  → confirms entries
 ```
 
@@ -1997,7 +2083,7 @@ See `## Proactive`.
   disable it via config.
 - The watcher subscribes to parent DIRECTORIES, so creating a new file in app/config/
   is detected, but the file must be explicitly registered for any reload to fire.
-- Sandboxed actions (run_python with requirements) install their packages on first
+- Sandboxed actions (those declaring `requirements`) install their packages on first
   call, NOT on config save. The config has no effect on action sandboxes.
 
 ---
@@ -2109,7 +2195,7 @@ After enabling/adding, in order of cheapness:
 
 ```
 1. grep the latest log for the server's name:
-     grep_files "[MCP].*<server_name>" logs/<latest>.log -A 1
+     grep_files "[MCP].*<server_name>" logs/<run>/all.log -A 1
    Expect: "Successfully connected" + "Registered N tools".
 
 2. confirm the action set is registered:
@@ -2408,7 +2494,7 @@ Toggle via `stream_edit` on `skills_config.json`, OR via the user-side commands 
 After enable / disable / install:
 
 ```
-1. grep_files "[SKILL]" logs/<latest>.log -A 1     (confirm reload fired)
+1. grep_files "[SKILL]" logs/<run>/all.log -A 1     (confirm reload fired)
 2. action: list_skills                              (returns the live list)
 3. user-side: /skill list                           (same data, different UI)
 4. /<skill_name>                                    (only works if user-invocable=true
@@ -2730,7 +2816,7 @@ After any connect attempt:
 ```
 1. check_integration_status(integration_id)         → returns success + account display
 2. /cred status (user-side)                          → overview of all integrations
-3. grep_files "[<platform>]" logs/<latest>.log     → look for connect / auth errors
+3. grep_files "[<platform>]" logs/<run>/all.log     → look for connect / auth errors
 ```
 
 If `check_integration_status` returns "Not connected" right after a successful `connect_integration` call, something is wrong. Common: the credential validated but the listener failed to start (check logs for that platform's tag).
@@ -2777,7 +2863,7 @@ connection works once, fails next session          token expired (some       use
                                                    tokens have short TTL)
 ```
 
-When in doubt: read the action's error message in full, then check `logs/<latest>.log` for the integration's tag.
+When in doubt: read the action's error message in full, then check `logs/<run>/all.log` for the integration's tag.
 
 ### When to use integration actions vs MCP
 
@@ -2854,6 +2940,8 @@ deepseek     deepseek-chat                (none)                      (none)    
 moonshot     moonshot-v1-8k               (none)                      (none)                   text only
 grok         grok-3                       grok-4-0709                 (none)                   xAI
 minimax      MiniMax-Text-01              (none)                      (none)                   text only
+glm          glm-5.2                      glm-5.2                     (none)                   Z.ai (GLM), OpenAI-compat
+fugu         fugu                         (none)                      (none)                   Sakana (Fugu), text only
 ```
 
 If you set `model.llm_model: null` in settings.json, the default from MODEL_REGISTRY is used. Set an explicit string to override.
@@ -2961,6 +3049,12 @@ If the user just provides a new key for the CURRENT provider (e.g., they updated
    run /provider <current> <new_key> to rebuild the client cleanly.
 ```
 
+### Subscription sign-in (ChatGPT / Grok)
+
+Some users authenticate OpenAI or Grok by signing in to their paid subscription (browser OAuth) instead of pasting an API key. Tokens live in `.credentials/*_oauth.json` and take precedence over any API key for that provider.
+
+The one thing you MUST know: **ChatGPT subscription mode cannot make tool calls.** It routes through OpenAI's Codex backend, which does not support the agent's actions. Symptom: actions mysteriously won't run, or you get a "not supported when using Codex with a ChatGPT account" error. The fix is to tell the user to either disconnect the subscription and use an API key, or upgrade if they're on the free tier. Do not keep retrying — it will not start working.
+
 ### Connection testing
 
 Before declaring the switch worked, verify. There's a built-in test using
@@ -3067,7 +3161,11 @@ This list is opinion, not authoritative. The user has the final say.
 
 ## Memory
 
-Memory is your long-term recall. It is RAG-backed (semantic search over a vector index), not text-grep over MEMORY.md. Items reach MEMORY.md only after the daily memory-processing pipeline distills them from the event stream. You read memory via the `memory_search` action; you do NOT write MEMORY.md directly.
+Memory is your long-term recall. It is RAG-backed (relevance search over MEMORY.md and a few other files), not text-grep. Items reach MEMORY.md only after the daily memory-processing pipeline distills them from the event stream. You do NOT write MEMORY.md directly.
+
+Two ways memory reaches you:
+- **Automatic injection (passive).** On every user message and at task creation, the most relevant memories are retrieved for you and dropped into your context as a `relevant_memories` event. You do NOT need to call `memory_search` just to see what you already know — it's already there.
+- **`memory_search` action (active).** Use it when you need to dig deeper on a specific question mid-task, beyond what got auto-injected.
 
 Code: [agent_core/core/impl/memory/manager.py](agent_core/core/impl/memory/manager.py) (`MemoryManager`), [agent_core/core/impl/memory/memory_file_watcher.py](agent_core/core/impl/memory/memory_file_watcher.py) (incremental re-indexing), [app/data/action/memory_search.py](app/data/action/memory_search.py) (action).
 
@@ -3129,7 +3227,7 @@ One fact per line. Multi-line entries break the parser.
 
 ### How memory_search works
 
-`memory_search(query, top_k)` is a vector search via ChromaDB ([app/data/action/memory_search.py](app/data/action/memory_search.py)):
+`memory_search(query, top_k)` runs a relevance search (semantic + keyword) over the indexed files ([app/data/action/memory_search.py](app/data/action/memory_search.py)):
 
 ```
 input:
@@ -3155,7 +3253,7 @@ output:
 
 Pointers are LIGHTWEIGHT references, not full content. To read the full chunk, `read_file <file_path>` and find the section, OR call the manager's `retrieve_full_content(chunk_id)` if exposed via an action.
 
-Relevance score is normalized from ChromaDB's L2 distance: `relevance = 1.0 / (1.0 + distance)`. A score above ~0.6 is usually "highly relevant"; below ~0.3 is weak.
+Relevance score is 0.0-1.0 (higher = more relevant), blending semantic similarity with keyword match. Treat it as a ranking hint within one query — don't compare scores across different queries. Ranking is NOT influenced by how recent a memory is; an old high-relevance fact outranks a fresh irrelevant one.
 
 ### Indexed files (what memory_search can find)
 
@@ -3209,7 +3307,7 @@ When MEMORY.md exceeds `memory.max_items` in settings.json (default 200), prunin
 
 ```
 1. memory-processing task includes needs_pruning=True
-2. processor evaluates each entry's relevance and recency
+2. processor keeps high-utility entries regardless of age, drops the least useful
 3. trims down to memory.prune_target (default 135)
 4. discarded entries are dropped (not archived)
 ```
@@ -3268,7 +3366,7 @@ Toggling `memory.enabled` to false does NOT delete `MEMORY.md` or `chroma_db_mem
 - `memory_search` returns "Memory is disabled" → check `memory.enabled` in settings.json. The user may have turned it off.
 - `memory_search` returns empty `results: []` with no error → the index may be empty (fresh install) or the query phrasing doesn't match the indexed content. Try rephrasing or `grep_files` as fallback.
 - Editing AGENT.md, USER.md, PROACTIVE.md, MEMORY.md, or EVENT_UNPROCESSED.md re-triggers re-indexing. If you make rapid edits, the watcher debounces but still consumes some time. Don't loop edit-then-search.
-- `relevance_score` is L2-distance-normalized. Don't compare scores across queries (different queries have different score distributions).
+- `relevance_score` is a per-query ranking hint. Don't compare scores across queries (different queries have different score distributions), and don't read a recency signal into it — ranking ignores age.
 - The `chroma_db_memory/` directory is an opaque ChromaDB store. Do not try to repair or migrate it. If corrupted, the user must delete the directory and let the manager rebuild on next startup.
 
 ---
@@ -3829,7 +3927,7 @@ This is non-optional. Without outcome history, the task has no memory of what it
 ```
 1. recurring_read(frequency="all", enabled_only=false)   ← see all entries
 2. read_file agent_file_system/PROACTIVE.md              ← inspect raw
-3. grep_files "[PROACTIVE]" logs/<latest>.log -A 1       ← startup confirmation
+3. grep_files "[PROACTIVE]" logs/<run>/all.log -A 1       ← startup confirmation
 4. After the next scheduled fire time, check logs and EVENT.md for execution.
 ```
 
@@ -3838,7 +3936,7 @@ If the task should have fired but didn't, check:
 - `enabled` on the task itself in PROACTIVE.md
 - `time` and `day` match the current moment
 - `conditions` are met
-- The heartbeat itself fired (`grep_files "Heartbeat" logs/<latest>.log`)
+- The heartbeat itself fired (`grep_files "Heartbeat" logs/<run>/all.log`)
 
 ### Where authority lives
 
@@ -4088,16 +4186,17 @@ Agent:
 
 **Example 4: Repeated friction recognized over many tasks**
 ```
-You've noticed across 5+ tasks that whenever you generate a PDF, you keep
-forgetting to call create_pdf vs trying to render via run_python first.
+You've noticed across 5+ tasks that whenever you convert an office document
+you keep reaching for read_pdf first instead of running convert_to_markdown,
+and only realising mid-task that the input was a .docx.
 
-Agent (when starting an unrelated PDF task and noticing the pattern):
-  1. RECOGNIZE: pattern of forgetting the right action.
+Agent (when starting an unrelated document task and noticing the pattern):
+  1. RECOGNIZE: pattern of picking the wrong reader action.
   2. CATEGORIZE: AGENT.md operational improvement (## Self-Edit).
      This is a NON-OBVIOUS convention worth recording.
   3. VALIDATE: yes, future-you would benefit.
   4. PROPOSE: not always required for AGENT.md polish — but if the user
-     has a pattern of complaining about PDFs, ask. Otherwise, log it.
+     has a pattern of complaining about it, ask. Otherwise, log it.
   5. EXECUTE: stream_edit AGENT.md ## Documents adding a clarifying note.
   6. VERIFY: re-read on next turn so the new instruction is in context.
   7. RECORD: bump version in front matter; sync to template.
