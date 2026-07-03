@@ -81,10 +81,6 @@ class EventTransformer:
         task_id: Optional[str] = None,
     ) -> Optional[UIEvent]:
         """Transform an agent event to a UI event, or None if it should be hidden."""
-        # Lazy import to avoid a circular dependency between the UI layer and
-        # agent_core's event-stream package at module load time.
-        from agent_core.core.event_stream.event import EventType
-
         et = event.event_type
         if et is None:
             # Event predates structured typing (or a producer forgot to set

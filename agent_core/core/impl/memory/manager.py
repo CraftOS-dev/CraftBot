@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+import os as _os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import chromadb
 
@@ -86,8 +87,6 @@ def _is_embedding_function_conflict(err: Exception) -> bool:
 # bge-base-en-v1.5 (better, slower), e5-small-v2, or any other
 # sentence-transformers model. Set to "default" to use ChromaDB's
 # bundled ONNX MiniLM.
-import os as _os
-
 MEMORY_EMBEDDING_MODEL = _os.environ.get(
     "MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"
 )
