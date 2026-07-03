@@ -31,6 +31,7 @@ import {
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useConfirmModal, useMascotVisibility, useTtsSettings } from '../../hooks'
+import { inferVoiceGender } from '../../utils/voiceGender'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -839,18 +840,22 @@ export function GeneralSettings() {
               <option value="">Automatic (match message language)</option>
               {voiceGroups.map((group) => (
                 <optgroup key={group.label} label={group.label}>
-                  {group.voices.map((v) => (
-                    <option key={v.voiceURI} value={v.voiceURI}>
-                      {v.name}
-                    </option>
-                  ))}
+                  {group.voices.map((v) => {
+                    const g = inferVoiceGender(v)
+                    const tag = g === 'female' ? ' · Female' : g === 'male' ? ' · Male' : ''
+                    return (
+                      <option key={v.voiceURI} value={v.voiceURI}>
+                        {v.name}{tag}
+                      </option>
+                    )
+                  })}
                 </optgroup>
               ))}
             </select>
             <span className={styles.hint}>
-              Voice for the “Read aloud” button on agent messages. Many voices
-              list a Male/Female variant in their name. Leave on Automatic to
-              match each message’s language (Japanese, Chinese, Arabic, …).
+              Voice for the “Read aloud” button on agent messages. Leave on
+              Automatic to match each message’s language (Japanese, Chinese,
+              Arabic, …) and use the voice type below.
               {tts.voices.length === 0 && ' Loading system voices…'}
             </span>
 
@@ -859,7 +864,37 @@ export function GeneralSettings() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 'var(--space-3)',
-                marginTop: 'var(--space-2)',
+                marginTop: 'var(--space-3)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span className={styles.hint} style={{ minWidth: 92, margin: 0 }}>
+                Voice type
+              </span>
+              <select
+                value={tts.gender}
+                onChange={(e) =>
+                  tts.setGender(e.target.value as '' | 'male' | 'female')
+                }
+                style={{ flex: 1, minWidth: 120 }}
+              >
+                <option value="">Any</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </div>
+            <span className={styles.hint}>
+              Preferred gender when a voice is auto-selected (Automatic mode, or
+              when a message is in another language). Detected from voice names,
+              so it depends on what your system provides.
+            </span>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-3)',
+                marginTop: 'var(--space-3)',
                 flexWrap: 'wrap',
               }}
             >

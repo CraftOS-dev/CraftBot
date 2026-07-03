@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { stripMarkdown } from '../utils/stripMarkdown'
 import { detectLanguage } from '../utils/detectLanguage'
+import { inferVoiceGender, type VoiceGender } from '../utils/voiceGender'
 
 /**
  * Read-aloud (text-to-speech) support built on the browser's Web Speech API.
@@ -18,6 +19,9 @@ import { detectLanguage } from '../utils/detectLanguage'
 
 const VOICE_KEY = 'craftbot-tts-voice' // stored voiceURI; '' = automatic
 const RATE_KEY = 'craftbot-tts-rate' // stored speaking rate (0.5–2)
+const GENDER_KEY = 'craftbot-tts-gender' // '' = any, or 'male' | 'female'
+
+export type VoiceGenderPref = '' | VoiceGender
 
 type Listener = (activeId: string | null) => void
 type VoicesListener = (voices: SpeechSynthesisVoice[]) => void
@@ -82,11 +86,23 @@ class ReadAloudController {
     localStorage.setItem(RATE_KEY, String(clampRate(rate)))
   }
 
+  getGender(): VoiceGenderPref {
+    if (typeof localStorage === 'undefined') return ''
+    const v = localStorage.getItem(GENDER_KEY)
+    return v === 'male' || v === 'female' ? v : ''
+  }
+
+  setGender(gender: VoiceGenderPref): void {
+    localStorage.setItem(GENDER_KEY, gender)
+  }
+
   /**
-   * Choose the best voice for `text`: the user's selected voice when it fits
-   * the message's language (or the language is undetermined), otherwise a
-   * voice matching the detected language, so non-Latin messages are read
-   * correctly regardless of the default pick.
+   * Choose the best voice for `text`:
+   *  1. the user's explicitly selected voice when it fits the message's
+   *     language (or the language is undetermined);
+   *  2. otherwise a voice matching the detected language, honoring the
+   *     preferred gender when possible, so non-Latin messages are read
+   *     correctly and in the requested voice type.
    */
   private pickVoice(text: string): SpeechSynthesisVoice | null {
     const detected = detectLanguage(text)
@@ -101,14 +117,32 @@ class ReadAloudController {
       if (fits) return selected
     }
 
-    if (detected) {
-      const tag = detected.toLowerCase()
-      const candidates = this.voices.filter(v =>
-        v.lang?.toLowerCase().startsWith(tag),
-      )
-      if (candidates.length > 0) {
-        return candidates.find(v => v.default) ?? candidates[0]
-      }
+    const gender = this.getGender()
+
+    // Language to auto-pick for: the detected script, or — when a gender is
+    // requested but the script is undetermined (e.g. Latin) — the browser's
+    // UI language, so the gender preference can still be honored.
+    const uiLang =
+      typeof navigator !== 'undefined'
+        ? navigator.language?.split('-')[0]?.toLowerCase()
+        : undefined
+    const tag = detected?.toLowerCase() ?? (gender ? uiLang : undefined)
+    if (!tag) return selected
+
+    let candidates = this.voices.filter(v =>
+      v.lang?.toLowerCase().startsWith(tag),
+    )
+    // If nothing matches the language but a gender is requested, widen the
+    // pool to all voices so the gender preference still applies.
+    if (candidates.length === 0 && gender) candidates = this.voices.slice()
+
+    if (gender) {
+      const gendered = candidates.filter(v => inferVoiceGender(v) === gender)
+      if (gendered.length > 0) candidates = gendered
+    }
+
+    if (candidates.length > 0) {
+      return candidates.find(v => v.default) ?? candidates[0]
     }
 
     return selected
@@ -224,6 +258,8 @@ export interface TtsSettings {
   voices: SpeechSynthesisVoice[]
   selectedVoiceURI: string
   setSelectedVoiceURI: (uri: string) => void
+  gender: VoiceGenderPref
+  setGender: (gender: VoiceGenderPref) => void
   rate: number
   setRate: (rate: number) => void
   speakSample: (text: string) => void
@@ -238,6 +274,9 @@ export function useTtsSettings(): TtsSettings {
   const [selectedVoiceURI, setSelectedURIState] = useState<string>(() =>
     controller.getSelectedVoiceURI(),
   )
+  const [gender, setGenderState] = useState<VoiceGenderPref>(() =>
+    controller.getGender(),
+  )
   const [rate, setRateState] = useState<number>(() => controller.getRate())
 
   useEffect(() => controller.subscribeVoices(setVoices), [])
@@ -245,6 +284,11 @@ export function useTtsSettings(): TtsSettings {
   const setSelectedVoiceURI = useCallback((uri: string) => {
     controller.setSelectedVoiceURI(uri)
     setSelectedURIState(uri)
+  }, [])
+
+  const setGender = useCallback((g: VoiceGenderPref) => {
+    controller.setGender(g)
+    setGenderState(g)
   }, [])
 
   const setRate = useCallback((r: number) => {
@@ -264,6 +308,8 @@ export function useTtsSettings(): TtsSettings {
     voices,
     selectedVoiceURI,
     setSelectedVoiceURI,
+    gender,
+    setGender,
     rate,
     setRate,
     speakSample,
