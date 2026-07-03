@@ -322,7 +322,9 @@ def send_http_requests(input_data: dict) -> dict:
 
     def _bare_content_type(resp) -> str:
         # "application/zip; charset=..." -> "application/zip"
-        return (resp.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
+        return (
+            (resp.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
+        )
 
     def _is_textual(content_type: str):
         """True/False for known types, None when unknown (caller should sniff)."""
@@ -435,9 +437,7 @@ def send_http_requests(input_data: dict) -> dict:
             written = _stream_to_file(resp, dest)
             elapsed_ms = int((time.time() - t0) * 1000)
             note = (
-                ""
-                if save_to
-                else " (binary response auto-saved; not returned inline)"
+                "" if save_to else " (binary response auto-saved; not returned inline)"
             )
             return {
                 "status": "success" if resp.ok else "error",

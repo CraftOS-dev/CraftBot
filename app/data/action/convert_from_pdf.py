@@ -46,15 +46,43 @@ from agent_core import action
         },
     },
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
-        "path": {"type": "string", "example": "C:/path/out.docx", "description": "Absolute path of the created file."},
-        "pages": {"type": "integer", "example": 2, "description": "Source PDF page count (html target only)."},
-        "size_bytes": {"type": "integer", "example": 18000, "description": "File size. Only on success."},
-        "format": {"type": "string", "example": "docx", "description": "Detected/used target format."},
-        "message": {"type": "string", "example": "...", "description": "Error detail. Only on error."},
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
+        "path": {
+            "type": "string",
+            "example": "C:/path/out.docx",
+            "description": "Absolute path of the created file.",
+        },
+        "pages": {
+            "type": "integer",
+            "example": 2,
+            "description": "Source PDF page count (html target only).",
+        },
+        "size_bytes": {
+            "type": "integer",
+            "example": 18000,
+            "description": "File size. Only on success.",
+        },
+        "format": {
+            "type": "string",
+            "example": "docx",
+            "description": "Detected/used target format.",
+        },
+        "message": {
+            "type": "string",
+            "example": "...",
+            "description": "Error detail. Only on error.",
+        },
     },
     requirement=["pdf2docx", "pymupdf"],
-    test_payload={"source_path": "C:/x/in.pdf", "output_path": "C:/x/out.docx", "simulated_mode": True},
+    test_payload={
+        "source_path": "C:/x/in.pdf",
+        "output_path": "C:/x/out.docx",
+        "simulated_mode": True,
+    },
 )
 def convert_from_pdf(input_data: dict) -> dict:
     import os
@@ -84,10 +112,16 @@ def convert_from_pdf(input_data: dict) -> dict:
 
     if fmt == "docx":
         if not output_path.lower().endswith(".docx"):
-            return {"status": "error", "message": "'output_path' must end with .docx for target_format='docx'."}
+            return {
+                "status": "error",
+                "message": "'output_path' must end with .docx for target_format='docx'.",
+            }
     elif fmt == "html":
         if not output_path.lower().endswith((".html", ".htm")):
-            return {"status": "error", "message": "'output_path' must end with .html for target_format='html'."}
+            return {
+                "status": "error",
+                "message": "'output_path' must end with .html for target_format='html'.",
+            }
     else:
         return {"status": "error", "message": f"Unsupported target_format: '{fmt}'."}
 

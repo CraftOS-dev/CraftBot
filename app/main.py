@@ -22,24 +22,27 @@ Run this before the app directory, using 'python -m app.main'
 # Mozilla bundle (set_default_verify_paths still runs), so server cert
 # validation still works for PyPI / OpenAI / Anthropic / etc.
 import sys as _sys
+
 if _sys.platform == "win32":
     import ssl as _ssl
-    _orig_load_win_certs = getattr(
-        _ssl.SSLContext, "_load_windows_store_certs", None
-    )
+
+    _orig_load_win_certs = getattr(_ssl.SSLContext, "_load_windows_store_certs", None)
     if _orig_load_win_certs is not None:
+
         def _safe_load_windows_store_certs(self, storename, purpose):
             try:
                 return _orig_load_win_certs(self, storename, purpose)
             except _ssl.SSLError:
                 # Malformed cert in store — skip silently. certifi still loads.
                 return None
+
         _ssl.SSLContext._load_windows_store_certs = _safe_load_windows_store_certs
 
     # Also try truststore as an extra layer (uses Windows SChannel directly
     # on modern versions); harmless if not installed.
     try:
         import truststore as _truststore
+
         _truststore.inject_into_ssl()
     except Exception:
         pass
@@ -84,6 +87,7 @@ def _suppress_console_logging_early() -> None:
 
 _suppress_console_logging_early()
 # ============================================================================
+
 
 # ============================================================================
 # CRITICAL: SSL shim for Windows certificate store

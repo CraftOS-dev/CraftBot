@@ -157,7 +157,8 @@ class EventStream:
         last = self._last_datetime_ts
         if (
             last is None
-            or (datetime.now(timezone.utc) - last).total_seconds() >= DATETIME_REFRESH_SECONDS
+            or (datetime.now(timezone.utc) - last).total_seconds()
+            >= DATETIME_REFRESH_SECONDS
         ):
             self._append_datetime_event()
 

@@ -2262,6 +2262,7 @@ class AgentBase:
         # conversation-mode LLM sees them in the same stream. session_id=None
         # routes the memory event to the same main stream as the user message.
         from agent_core.core.impl.memory.injector import inject_memory_event
+
         inject_memory_event(query=chat_content, session_id=None)
 
         self.state_manager._append_to_conversation_history("user", chat_content)
@@ -2618,10 +2619,15 @@ class AgentBase:
 
     async def _handle_prompt_enhance(self, user_message: str) -> str:
         try:
-            from agent_core.core.prompts.reasoning import PROMPT_ENHANCE_REASONING_PROMPT
-            response = await self.llm.generate_response_async(system_prompt=PROMPT_ENHANCE_REASONING_PROMPT, user_prompt=user_message)
+            from agent_core.core.prompts.reasoning import (
+                PROMPT_ENHANCE_REASONING_PROMPT,
+            )
+
+            response = await self.llm.generate_response_async(
+                system_prompt=PROMPT_ENHANCE_REASONING_PROMPT, user_prompt=user_message
+            )
             result = json.loads(response)
-            return result.get('enhanced_prompt', '')
+            return result.get("enhanced_prompt", "")
         except Exception as e:
             logger.error(f"{classify_provider_error(error=e)}")
 
@@ -2679,7 +2685,9 @@ class AgentBase:
         "livingui",
     )
 
-    async def reset_agent_state(self, components: "Optional[Iterable[str]]" = None) -> str:
+    async def reset_agent_state(
+        self, components: "Optional[Iterable[str]]" = None
+    ) -> str:
         """
         Reset runtime state so the agent behaves like a fresh instance.
 
@@ -2752,7 +2760,9 @@ class AgentBase:
         selected = {str(c).strip().lower() for c in components if str(c).strip()}
         unknown = selected - set(self.RESET_COMPONENTS)
         if unknown:
-            logger.warning(f"[RESET] Ignoring unknown reset components: {sorted(unknown)}")
+            logger.warning(
+                f"[RESET] Ignoring unknown reset components: {sorted(unknown)}"
+            )
         selected &= set(self.RESET_COMPONENTS)
         if not selected:
             return "Nothing selected to reset."
@@ -2855,7 +2865,9 @@ class AgentBase:
                 if await mgr.delete_project(project_id):
                     deleted += 1
             except Exception as e:
-                logger.warning(f"[RESET] Failed to delete LivingUI project {project_id}: {e}")
+                logger.warning(
+                    f"[RESET] Failed to delete LivingUI project {project_id}: {e}"
+                )
         return deleted
 
     async def _clear_usage_data(self) -> None:
@@ -3019,9 +3031,7 @@ class AgentBase:
                 else:
                     item.unlink()
             except Exception as e:
-                logger.warning(
-                    f"[RESET] Failed to remove workspace item {item}: {e}"
-                )
+                logger.warning(f"[RESET] Failed to remove workspace item {item}: {e}")
 
     _soft_onboarding_triggered: bool = False
 

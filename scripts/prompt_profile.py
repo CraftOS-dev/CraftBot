@@ -189,9 +189,16 @@ def _totals(agg: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _markdown(agg: List[Dict[str, Any]], totals: Dict[str, Any]) -> str:
     cols = [
-        "prompt_name", "model", "calls", "latency_p50_ms", "latency_p95_ms",
-        "avg_input_tokens", "avg_output_tokens", "cache_hit_ratio",
-        "total_cost_usd", "saved_usd",
+        "prompt_name",
+        "model",
+        "calls",
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "avg_input_tokens",
+        "avg_output_tokens",
+        "cache_hit_ratio",
+        "total_cost_usd",
+        "saved_usd",
     ]
     head = "| " + " | ".join(cols) + " |"
     sep = "| " + " | ".join("---" for _ in cols) + " |"
@@ -231,9 +238,10 @@ def main() -> int:
     rows = load_rows(db_path, since)
 
     if not rows:
-        print(f"No captured LLM calls found in {db_path}" + (
-            f" since {args.since}" if args.since else ""
-        ))
+        print(
+            f"No captured LLM calls found in {db_path}"
+            + (f" since {args.since}" if args.since else "")
+        )
         print("Run the agent (with capture on) to populate llm_calls, then retry.")
         return 0
 

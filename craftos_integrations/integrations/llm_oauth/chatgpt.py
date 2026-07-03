@@ -62,12 +62,14 @@ logger = get_logger(__name__)
 # Accepted-model list for ChatGPT-subscription auth
 # ════════════════════════════════════════════════════════════════════════
 
-CODEX_ACCEPTED_MODELS = frozenset({
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex-spark",
-})
+CODEX_ACCEPTED_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex-spark",
+    }
+)
 
 CODEX_DEFAULT_MODEL = "gpt-5.4"
 
@@ -179,6 +181,7 @@ def _extract_account_info(id_token: str) -> Dict[str, str]:
 
 def _client_id() -> str:
     from ...config import ConfigStore
+
     override = ConfigStore.get_oauth("OPENAI_OAUTH_CLIENT_ID")
     return (override or DEFAULT_CLIENT_ID).strip()
 

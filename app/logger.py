@@ -82,9 +82,7 @@ def define_log_level(print_level="ERROR", logfile_level="DEBUG", name: str = Non
 
 
 # Per-sub-agent files don't need the agent column — the filename already says it.
-_SUBAGENT_FORMAT = (
-    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
-)
+_SUBAGENT_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
 
 
 def add_subagent_log_sink(agent_tag: str):

@@ -70,6 +70,7 @@ def _is_embedding_function_conflict(err: Exception) -> bool:
         "conflict" in msg or "already exists" in msg
     )
 
+
 # ───────────────────────── Embedding Model ─────────────────────────
 # ChromaDB's default is sentence-transformers/all-MiniLM-L6-v2 (22M params,
 # 2021). Verbatim self-similarity scores ~0.65; topical matches sit at
@@ -86,6 +87,7 @@ def _is_embedding_function_conflict(err: Exception) -> bool:
 # sentence-transformers model. Set to "default" to use ChromaDB's
 # bundled ONNX MiniLM.
 import os as _os
+
 MEMORY_EMBEDDING_MODEL = _os.environ.get(
     "MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"
 )
@@ -325,6 +327,7 @@ class MemoryManager:
             from chromadb.utils.embedding_functions import (
                 SentenceTransformerEmbeddingFunction,
             )
+
             return SentenceTransformerEmbeddingFunction(
                 model_name=MEMORY_EMBEDDING_MODEL
             )
@@ -488,8 +491,7 @@ class MemoryManager:
                     metadata={
                         k: v
                         for k, v in meta.items()
-                        if k
-                        not in ("file_path", "section_path", "title", "summary")
+                        if k not in ("file_path", "section_path", "title", "summary")
                     },
                 )
             )
@@ -753,9 +755,7 @@ class MemoryManager:
             return self._chunk_memory_log(content, file_path)
         return self._chunk_by_sections(content, file_path)
 
-    def _chunk_memory_log(
-        self, content: str, file_path: str
-    ) -> List[MemoryChunk]:
+    def _chunk_memory_log(self, content: str, file_path: str) -> List[MemoryChunk]:
         """One chunk per ``[ts] [cat] content`` line.
 
         Each line is short enough on its own (memory items are capped at
@@ -813,9 +813,7 @@ class MemoryManager:
 
         return chunks
 
-    def _chunk_by_sections(
-        self, content: str, file_path: str
-    ) -> List[MemoryChunk]:
+    def _chunk_by_sections(self, content: str, file_path: str) -> List[MemoryChunk]:
         """Original header-based chunker. Preserves existing behaviour for
         non-list markdown (AGENT.md, USER.md, PROACTIVE.md, ...).
         """

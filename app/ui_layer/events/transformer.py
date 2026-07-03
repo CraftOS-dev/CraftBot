@@ -58,10 +58,12 @@ def _display_name_for(action_name: str | None, display_name: str | None) -> str:
 # the action panel. These are internal control-flow actions, not user-visible
 # work. Matched on the exact `event.action_name` field — never against
 # `kind` or `message` substrings.
-HIDDEN_ACTION_NAMES: frozenset[str] = frozenset({
-    "task_start",
-    "ignore",
-})
+HIDDEN_ACTION_NAMES: frozenset[str] = frozenset(
+    {
+        "task_start",
+        "ignore",
+    }
+)
 
 
 class EventTransformer:
@@ -201,7 +203,9 @@ class EventTransformer:
             return None
         # action_id is set by the producer (action_manager.run_id) so start
         # and end events correlate without ad-hoc dict tracking.
-        action_id = event.action_id or f"{task_id or 'main'}:{canonical}:{ts.timestamp()}"
+        action_id = (
+            event.action_id or f"{task_id or 'main'}:{canonical}:{ts.timestamp()}"
+        )
         return UIEvent(
             type=UIEventType.ACTION_START,
             data={
@@ -232,7 +236,9 @@ class EventTransformer:
         output = event.action_output
         # Status is derived from the structured output, not from message text.
         is_error = bool(output and output.get("status") == "error")
-        action_id = event.action_id or f"{task_id or 'main'}:{canonical}:{ts.timestamp()}"
+        action_id = (
+            event.action_id or f"{task_id or 'main'}:{canonical}:{ts.timestamp()}"
+        )
         error_message = output.get("error") if is_error and output else None
 
         return UIEvent(

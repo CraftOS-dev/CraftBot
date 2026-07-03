@@ -188,6 +188,7 @@ def _persist_auth_mode(provider: str, mode: str) -> None:
         settings.setdefault("auth_mode", {})[provider] = mode
         _save_settings(settings)
         from app.config import reload_settings
+
         reload_settings()
     except Exception as e:
         logger.warning(f"[SETTINGS] failed to persist auth_mode for {provider}: {e}")

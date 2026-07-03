@@ -54,7 +54,7 @@ def _page_css(style: Dict[str, Any]) -> str:
 # conflict with the host application's (nest_asyncio-patched) event loop.
 # Chromium works on Windows/Linux/macOS — unlike WeasyPrint, which needs GTK/
 # Pango/Cairo native libs and fails to import on a bare Windows box.
-_PLAYWRIGHT_CHILD = r'''
+_PLAYWRIGHT_CHILD = r"""
 import json, sys
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 from playwright.sync_api import sync_playwright
@@ -75,7 +75,7 @@ with sync_playwright() as p:
         kwargs["margin"] = {"top": m, "right": m, "bottom": m, "left": m}
     page.pdf(**kwargs)
     browser.close()
-'''
+"""
 
 
 def _run_playwright(cfg: Dict[str, Any], timeout_ms: int) -> Dict[str, Any]:
@@ -103,7 +103,10 @@ def _run_playwright(cfg: Dict[str, Any], timeout_ms: int) -> Dict[str, Any]:
             hint = " Run `playwright install chromium` to install the browser."
         elif "No module named 'playwright'" in err:
             hint = " Install the 'playwright' package."
-        return {"status": "error", "message": f"Playwright render failed: {err[:400]}{hint}"}
+        return {
+            "status": "error",
+            "message": f"Playwright render failed: {err[:400]}{hint}",
+        }
     return {"status": "success", "path": out, "size_bytes": os.path.getsize(out)}
 
 
@@ -131,25 +134,42 @@ def convert_url(
 
 
 def _render_html_weasyprint(
-    output_path: str, source_path: Optional[str], html_text: Optional[str], style: Dict[str, Any]
+    output_path: str,
+    source_path: Optional[str],
+    html_text: Optional[str],
+    style: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Fallback HTML→PDF via WeasyPrint. Its import can fail on Windows (no GTK/Pango/
     Cairo) — caught here so it degrades gracefully rather than crashing the action."""
     try:
         from weasyprint import HTML, CSS
     except Exception as exc:  # noqa: BLE001  (import-time OSError on bare Windows)
-        return {"status": "error", "message": f"WeasyPrint unavailable ({type(exc).__name__}: {exc})."}
+        return {
+            "status": "error",
+            "message": f"WeasyPrint unavailable ({type(exc).__name__}: {exc}).",
+        }
     try:
         sheets = []
         if any(k in (style or {}) for k in ("page_size", "orientation", "margin_in")):
             sheets.append(CSS(string=_page_css(style)))
         if style.get("css"):
             sheets.append(CSS(string=str(style["css"])))
-        doc = HTML(filename=source_path) if source_path else HTML(string=html_text or "", base_url=os.getcwd())
+        doc = (
+            HTML(filename=source_path)
+            if source_path
+            else HTML(string=html_text or "", base_url=os.getcwd())
+        )
         doc.write_pdf(output_path, stylesheets=sheets or None)
-        return {"status": "success", "path": output_path, "size_bytes": os.path.getsize(output_path)}
+        return {
+            "status": "success",
+            "path": output_path,
+            "size_bytes": os.path.getsize(output_path),
+        }
     except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "message": f"WeasyPrint render failed: {type(exc).__name__}: {exc}"}
+        return {
+            "status": "error",
+            "message": f"WeasyPrint render failed: {type(exc).__name__}: {exc}",
+        }
 
 
 def convert_html(
@@ -230,7 +250,9 @@ def _find_soffice() -> Optional[str]:
     return None
 
 
-def convert_office(source_path: str, output_path: str, timeout: int = 180) -> Dict[str, Any]:
+def convert_office(
+    source_path: str, output_path: str, timeout: int = 180
+) -> Dict[str, Any]:
     """Convert an office document to PDF via LibreOffice headless (native fidelity)."""
     soffice = _find_soffice()
     if not soffice:
@@ -247,7 +269,15 @@ def convert_office(source_path: str, output_path: str, timeout: int = 180) -> Di
     work = tempfile.mkdtemp()
     try:
         proc = subprocess.run(
-            [soffice, "--headless", "--convert-to", "pdf", "--outdir", work, os.path.abspath(source_path)],
+            [
+                soffice,
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                work,
+                os.path.abspath(source_path),
+            ],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -255,18 +285,29 @@ def convert_office(source_path: str, output_path: str, timeout: int = 180) -> Di
     except subprocess.TimeoutExpired:
         shutil.rmtree(work, ignore_errors=True)
         return {"status": "error", "message": "LibreOffice conversion timed out."}
-    produced = os.path.join(work, os.path.splitext(os.path.basename(source_path))[0] + ".pdf")
+    produced = os.path.join(
+        work, os.path.splitext(os.path.basename(source_path))[0] + ".pdf"
+    )
     if proc.returncode != 0 or not os.path.isfile(produced):
         shutil.rmtree(work, ignore_errors=True)
-        return {"status": "error", "message": f"LibreOffice conversion failed: {(proc.stderr or proc.stdout or '').strip()[:300]}"}
+        return {
+            "status": "error",
+            "message": f"LibreOffice conversion failed: {(proc.stderr or proc.stdout or '').strip()[:300]}",
+        }
     try:
         shutil.move(produced, abs_out)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    return {"status": "success", "path": abs_out, "size_bytes": os.path.getsize(abs_out)}
+    return {
+        "status": "success",
+        "path": abs_out,
+        "size_bytes": os.path.getsize(abs_out),
+    }
 
 
-def convert_pdf_to_html(source_path: str, output_path: str, mode: str = "xhtml") -> Dict[str, Any]:
+def convert_pdf_to_html(
+    source_path: str, output_path: str, mode: str = "xhtml"
+) -> Dict[str, Any]:
     """Extract a layout-rich HTML reconstruction of a PDF via PyMuPDF.
 
     The output HTML carries the original's fonts, sizes, colors, positions and
@@ -297,7 +338,10 @@ def convert_pdf_to_html(source_path: str, output_path: str, mode: str = "xhtml")
         n = len(doc)
         doc.close()
     except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "message": f"PDF→HTML extraction failed: {type(exc).__name__}: {exc}"}
+        return {
+            "status": "error",
+            "message": f"PDF→HTML extraction failed: {type(exc).__name__}: {exc}",
+        }
 
     # Carry the source's page size into the HTML so re-rendering preserves geometry
     # (convert_to_pdf html only overrides @page when the user explicitly passes page style).
@@ -316,7 +360,12 @@ def convert_pdf_to_html(source_path: str, output_path: str, mode: str = "xhtml")
     os.makedirs(os.path.dirname(abs_path) or ".", exist_ok=True)
     with open(abs_path, "w", encoding="utf-8") as f:
         f.write(html)
-    return {"status": "success", "path": abs_path, "pages": n, "size_bytes": os.path.getsize(abs_path)}
+    return {
+        "status": "success",
+        "path": abs_path,
+        "pages": n,
+        "size_bytes": os.path.getsize(abs_path),
+    }
 
 
 def convert_pdf_to_docx(source_path: str, output_path: str) -> Dict[str, Any]:
@@ -337,9 +386,16 @@ def convert_pdf_to_docx(source_path: str, output_path: str) -> Dict[str, Any]:
             cv.convert(abs_out)
         finally:
             cv.close()
-        return {"status": "success", "path": abs_out, "size_bytes": os.path.getsize(abs_out)}
+        return {
+            "status": "success",
+            "path": abs_out,
+            "size_bytes": os.path.getsize(abs_out),
+        }
     except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "message": f"PDF→DOCX conversion failed: {type(exc).__name__}: {exc}"}
+        return {
+            "status": "error",
+            "message": f"PDF→DOCX conversion failed: {type(exc).__name__}: {exc}",
+        }
 
 
 def office_to_pdf_impl(input_data: Dict[str, Any], allowed_exts) -> Dict[str, Any]:
@@ -356,7 +412,10 @@ def office_to_pdf_impl(input_data: Dict[str, Any], allowed_exts) -> Dict[str, An
     if not source_path or not os.path.isfile(source_path):
         return {"status": "error", "message": f"source_path not found: {source_path}"}
     if not source_path.lower().endswith(tuple(allowed_exts)):
-        return {"status": "error", "message": f"source must be one of {tuple(allowed_exts)}"}
+        return {
+            "status": "error",
+            "message": f"source must be one of {tuple(allowed_exts)}",
+        }
     return convert_office(source_path, output_path)
 
 

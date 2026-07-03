@@ -187,7 +187,15 @@ class ModelFactory:
             Dictionary with provider context including client instances
         """
         # OpenAI-compatible providers that use OpenAI client with a custom base_url
-        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter", "glm", "fugu"}
+        _OPENAI_COMPAT = {
+            "minimax",
+            "deepseek",
+            "moonshot",
+            "grok",
+            "openrouter",
+            "glm",
+            "fugu",
+        }
 
         if provider not in PROVIDER_CONFIG:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -258,7 +266,9 @@ class ModelFactory:
                     effective_model_for_subscription,
                 )
 
-                effective_model, was_substituted = effective_model_for_subscription(model)
+                effective_model, was_substituted = effective_model_for_subscription(
+                    model
+                )
                 if was_substituted:
                     logger.warning(
                         f"[FACTORY] ChatGPT subscription mode rejects model "

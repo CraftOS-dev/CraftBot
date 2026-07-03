@@ -174,10 +174,7 @@ class SubAgentContextEngine:
         what's new.
         """
         body = delta_events.strip() or "(no new events since last turn)"
-        return (
-            f"NEW EVENTS SINCE LAST TURN:\n{body}\n\n"
-            f"{_DECIDE_NUDGE}"
-        )
+        return f"NEW EVENTS SINCE LAST TURN:\n{body}\n\n{_DECIDE_NUDGE}"
 
     # ------------------------------------------------------------------
     # Helpers

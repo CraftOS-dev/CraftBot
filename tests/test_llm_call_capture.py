@@ -66,7 +66,12 @@ def test_capture_reads_context_and_latency():
         task_id="task-9",
     )
     llm._call_log_to_db(
-        "sys", "user", '{"action":"task_start"}', "success", 1200, 30,
+        "sys",
+        "user",
+        '{"action":"task_start"}',
+        "success",
+        1200,
+        30,
         cached_tokens=900,
     )
     assert len(captured) == 1

@@ -37,14 +37,19 @@ def test_requirements_survive_summarization():
     # Flood with filler so summarization fires and the requirements event ages
     # well past the keep-window.
     for i in range(400):
-        es.log("action_end", f"action {i} completed and produced some output text to add tokens")
+        es.log(
+            "action_end",
+            f"action {i} completed and produced some output text to add tokens",
+        )
 
     kinds = [r.event.kind for r in es.tail_events]
 
     # Summarization actually happened (old filler collapsed into the summary)…
     assert es.head_summary is not None
     # …and most early filler is gone from the verbatim tail…
-    assert "action 0 completed" not in "\n".join(r.event.message for r in es.tail_events)
+    assert "action 0 completed" not in "\n".join(
+        r.event.message for r in es.tail_events
+    )
     # …but the requirements event is still present verbatim, intact.
     assert "requirements" in kinds
     kept = [r for r in es.tail_events if r.event.kind == "requirements"]
@@ -54,7 +59,9 @@ def test_requirements_survive_summarization():
 def test_protected_only_region_is_noop():
     # If the only summarizable-aged content is protected, nothing is collapsed
     # (and it doesn't crash).
-    es = EventStream(llm=_FakeLLM(), summarize_at_tokens=2100, tail_keep_after_summarize_tokens=100)
+    es = EventStream(
+        llm=_FakeLLM(), summarize_at_tokens=2100, tail_keep_after_summarize_tokens=100
+    )
     es.log("requirements", "\n  [ ] x: y\n         done_when: z")
     es.summarize_by_LLM()  # force; region is tiny + protected
     assert any(r.event.kind == "requirements" for r in es.tail_events)

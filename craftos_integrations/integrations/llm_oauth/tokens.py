@@ -46,9 +46,11 @@ def _lock_for(provider: str) -> threading.Lock:
 def _backend_for(provider: str):
     if provider == "openai":
         from . import chatgpt
+
         return chatgpt
     if provider == "grok":
         from . import grok
+
         return grok
     return None
 
@@ -78,9 +80,8 @@ def get_bearer(provider: str) -> Optional[Tuple[str, Optional[str], Dict[str, st
             cred = backend.load_and_refresh()
         except Exception as e:
             from ...logger import get_logger
-            get_logger(__name__).error(
-                f"[LLM-OAUTH] {provider} refresh failed: {e}"
-            )
+
+            get_logger(__name__).error(f"[LLM-OAUTH] {provider} refresh failed: {e}")
             raise RuntimeError(
                 f"{provider} subscription session expired and refresh failed: {e}. "
                 f"Reconnect from Settings."
@@ -155,6 +156,7 @@ async def prepare_connect(provider: str) -> Tuple[bool, Dict[str, Any]]:
         info = await backend.prepare_login()
     except Exception as e:
         from ...logger import get_logger
+
         get_logger(__name__).error(f"[LLM-OAUTH] prepare {provider} failed: {e}")
         return False, {"error": str(e)}
     return True, info

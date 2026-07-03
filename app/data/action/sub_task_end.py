@@ -91,9 +91,7 @@ def sub_task_end(input_data: dict) -> dict:
     if mgr is None:
         return {
             "status": "error",
-            "message": (
-                "SubAgentManager is not initialized — cannot end sub-agent."
-            ),
+            "message": ("SubAgentManager is not initialized — cannot end sub-agent."),
         }
 
     if mgr.get(sub_id) is None:

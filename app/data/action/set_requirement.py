@@ -36,11 +36,11 @@ from agent_core import action
         "requirements": {
             "type": "array",
             "description": (
-                'Array of requirement objects. Each object MUST have these keys: '
+                "Array of requirement objects. Each object MUST have these keys: "
                 '"dimension" (string: which aspect of the deliverable — e.g. "content", "structure", "length", "style", '
                 '"design", "media", "tone", "format", "data_sources", "audience", "constraints"), '
                 '"requirement" (string: the SPECIFIC requirement, written so a critic can check it. '
-                'Concrete and falsifiable. NEVER vague praise.), '
+                "Concrete and falsifiable. NEVER vague praise.), "
                 '"done_when" (string: the concrete test the deliverable must pass to satisfy this requirement). '
                 'Optional: "status" — one of "pending" (default, not yet checked), "satisfied" (Verify confirmed), '
                 '"violated" (Verify found it failing — triggers rework).\n\n'

@@ -127,13 +127,41 @@ _STYLE_DESC = (
         },
     },
     output_schema={
-        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
-        "path": {"type": "string", "example": "C:/path/out.pdf", "description": "Absolute path of the created PDF."},
-        "pages": {"type": "integer", "example": 12, "description": "Page count. Only on success, where the engine reports it."},
-        "size_bytes": {"type": "integer", "example": 48230, "description": "File size. Only on success."},
-        "rows": {"type": "integer", "example": 120, "description": "csv/xlsx only: data rows rendered."},
-        "format": {"type": "string", "example": "markdown", "description": "Detected/used source format."},
-        "message": {"type": "string", "example": "...", "description": "Error detail. Only on error."},
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' or 'error'.",
+        },
+        "path": {
+            "type": "string",
+            "example": "C:/path/out.pdf",
+            "description": "Absolute path of the created PDF.",
+        },
+        "pages": {
+            "type": "integer",
+            "example": 12,
+            "description": "Page count. Only on success, where the engine reports it.",
+        },
+        "size_bytes": {
+            "type": "integer",
+            "example": 48230,
+            "description": "File size. Only on success.",
+        },
+        "rows": {
+            "type": "integer",
+            "example": 120,
+            "description": "csv/xlsx only: data rows rendered.",
+        },
+        "format": {
+            "type": "string",
+            "example": "markdown",
+            "description": "Detected/used source format.",
+        },
+        "message": {
+            "type": "string",
+            "example": "...",
+            "description": "Error detail. Only on error.",
+        },
     },
     requirement=["markdown2", "fpdf2", "pypdf", "openpyxl", "pillow", "playwright"],
     test_payload={
@@ -195,8 +223,17 @@ def convert_to_pdf(input_data: dict) -> dict:
         "pptx": (".pptx", ".ppt"),
     }
     known_formats = {
-        "markdown", "text", "csv", "xlsx", "images", "html", "url",
-        "docx", "odt", "rtf", "pptx",
+        "markdown",
+        "text",
+        "csv",
+        "xlsx",
+        "images",
+        "html",
+        "url",
+        "docx",
+        "odt",
+        "rtf",
+        "pptx",
     }
 
     # ── Resolve format ─────────────────────────────────────────────────────
@@ -232,21 +269,32 @@ def convert_to_pdf(input_data: dict) -> dict:
     if fmt == "markdown":
         if source_path:
             if not os.path.isfile(source_path):
-                return {"status": "error", "message": f"source_path not found: {source_path}"}
+                return {
+                    "status": "error",
+                    "message": f"source_path not found: {source_path}",
+                }
             try:
                 with open(source_path, encoding="utf-8", errors="replace") as f:
                     markdown_text = f.read()
             except OSError as exc:
-                return {"status": "error", "message": f"Could not read source_path: {exc}"}
+                return {
+                    "status": "error",
+                    "message": f"Could not read source_path: {exc}",
+                }
         elif isinstance(content, str) and content.strip():
             markdown_text = content
         else:
-            return {"status": "error", "message": "Provide source_path (.md) or non-empty content."}
+            return {
+                "status": "error",
+                "message": "Provide source_path (.md) or non-empty content.",
+            }
 
         try:
             from app.utils.pdf_render import convert_markdown
 
-            r = convert_markdown(markdown_text, output_path, overrides=style, subtitle=subtitle)
+            r = convert_markdown(
+                markdown_text, output_path, overrides=style, subtitle=subtitle
+            )
             result = {
                 "status": "success",
                 "path": r["path"],
@@ -254,25 +302,40 @@ def convert_to_pdf(input_data: dict) -> dict:
                 "size_bytes": r.get("size_bytes"),
             }
         except PermissionError as exc:
-            return {"status": "error", "message": f"Permission denied writing to '{output_path}': {exc}"}
+            return {
+                "status": "error",
+                "message": f"Permission denied writing to '{output_path}': {exc}",
+            }
         except Exception as exc:
-            return {"status": "error", "message": f"PDF generation failed: {type(exc).__name__}: {exc}"}
+            return {
+                "status": "error",
+                "message": f"PDF generation failed: {type(exc).__name__}: {exc}",
+            }
 
     elif fmt == "text":
         import re
 
         if source_path:
             if not os.path.isfile(source_path):
-                return {"status": "error", "message": f"source_path not found: {source_path}"}
+                return {
+                    "status": "error",
+                    "message": f"source_path not found: {source_path}",
+                }
             try:
                 with open(source_path, encoding="utf-8", errors="replace") as f:
                     text = f.read()
             except OSError as exc:
-                return {"status": "error", "message": f"Could not read source_path: {exc}"}
+                return {
+                    "status": "error",
+                    "message": f"Could not read source_path: {exc}",
+                }
         elif isinstance(content, str) and content.strip():
             text = content
         else:
-            return {"status": "error", "message": "Provide source_path (.txt) or non-empty content."}
+            return {
+                "status": "error",
+                "message": "Provide source_path (.txt) or non-empty content.",
+            }
 
         def _esc(line: str) -> str:
             line = re.sub(r"([\\`*_|])", r"\\\1", line)
@@ -296,15 +359,24 @@ def convert_to_pdf(input_data: dict) -> dict:
                 "size_bytes": r.get("size_bytes"),
             }
         except PermissionError as exc:
-            return {"status": "error", "message": f"Permission denied writing to '{output_path}': {exc}"}
+            return {
+                "status": "error",
+                "message": f"Permission denied writing to '{output_path}': {exc}",
+            }
         except Exception as exc:
-            return {"status": "error", "message": f"PDF generation failed: {type(exc).__name__}: {exc}"}
+            return {
+                "status": "error",
+                "message": f"PDF generation failed: {type(exc).__name__}: {exc}",
+            }
 
     elif fmt == "csv":
         import csv
 
         if not source_path or not os.path.isfile(source_path):
-            return {"status": "error", "message": f"source_path (.csv) not found: {source_path}"}
+            return {
+                "status": "error",
+                "message": f"source_path (.csv) not found: {source_path}",
+            }
 
         try:
             with open(source_path, newline="", encoding="utf-8", errors="replace") as f:
@@ -327,7 +399,10 @@ def convert_to_pdf(input_data: dict) -> dict:
             header = [f"Column {i + 1}" for i in range(ncols)]
             body = rows
 
-        lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(["---"] * ncols) + " |"]
+        lines = [
+            "| " + " | ".join(header) + " |",
+            "| " + " | ".join(["---"] * ncols) + " |",
+        ]
         for r in body:
             cells = [_cell(c) for c in r] + [""] * (ncols - len(r))
             lines.append("| " + " | ".join(cells) + " |")
@@ -347,20 +422,32 @@ def convert_to_pdf(input_data: dict) -> dict:
                 "rows": len(body),
             }
         except PermissionError as exc:
-            return {"status": "error", "message": f"Permission denied writing to '{output_path}': {exc}"}
+            return {
+                "status": "error",
+                "message": f"Permission denied writing to '{output_path}': {exc}",
+            }
         except Exception as exc:
-            return {"status": "error", "message": f"PDF generation failed: {type(exc).__name__}: {exc}"}
+            return {
+                "status": "error",
+                "message": f"PDF generation failed: {type(exc).__name__}: {exc}",
+            }
 
     elif fmt == "xlsx":
         if not source_path or not os.path.isfile(source_path):
-            return {"status": "error", "message": f"source_path (.xlsx) not found: {source_path}"}
+            return {
+                "status": "error",
+                "message": f"source_path (.xlsx) not found: {source_path}",
+            }
 
         try:
             import openpyxl
 
             wb = openpyxl.load_workbook(source_path, read_only=True, data_only=True)
         except Exception as exc:
-            return {"status": "error", "message": f"Could not read xlsx: {type(exc).__name__}: {exc}"}
+            return {
+                "status": "error",
+                "message": f"Could not read xlsx: {type(exc).__name__}: {exc}",
+            }
 
         sheets = list(wb.worksheets)
         if sheet_sel:
@@ -393,7 +480,10 @@ def convert_to_pdf(input_data: dict) -> dict:
                 header = [f"Column {i + 1}" for i in range(ncols)]
                 body = rows
             total_rows += len(body)
-            lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(["---"] * ncols) + " |"]
+            lines = [
+                "| " + " | ".join(header) + " |",
+                "| " + " | ".join(["---"] * ncols) + " |",
+            ]
             for r in body:
                 cells = [_cell(c) for c in r] + [""] * (ncols - len(r))
                 lines.append("| " + " | ".join(cells) + " |")
@@ -420,13 +510,22 @@ def convert_to_pdf(input_data: dict) -> dict:
                 "rows": total_rows,
             }
         except PermissionError as exc:
-            return {"status": "error", "message": f"Permission denied writing to '{output_path}': {exc}"}
+            return {
+                "status": "error",
+                "message": f"Permission denied writing to '{output_path}': {exc}",
+            }
         except Exception as exc:
-            return {"status": "error", "message": f"PDF generation failed: {type(exc).__name__}: {exc}"}
+            return {
+                "status": "error",
+                "message": f"PDF generation failed: {type(exc).__name__}: {exc}",
+            }
 
     elif fmt == "images":
         if not isinstance(image_paths, list) or not image_paths:
-            return {"status": "error", "message": "'image_paths' must be a non-empty list of absolute paths."}
+            return {
+                "status": "error",
+                "message": "'image_paths' must be a non-empty list of absolute paths.",
+            }
         missing = [p for p in image_paths if not os.path.isfile(p)]
         if missing:
             return {"status": "error", "message": f"Image(s) not found: {missing[:5]}"}
@@ -442,27 +541,47 @@ def convert_to_pdf(input_data: dict) -> dict:
                 "size_bytes": r.get("size_bytes"),
             }
         except PermissionError as exc:
-            return {"status": "error", "message": f"Permission denied writing to '{output_path}': {exc}"}
+            return {
+                "status": "error",
+                "message": f"Permission denied writing to '{output_path}': {exc}",
+            }
         except Exception as exc:
-            return {"status": "error", "message": f"PDF generation failed: {type(exc).__name__}: {exc}"}
+            return {
+                "status": "error",
+                "message": f"PDF generation failed: {type(exc).__name__}: {exc}",
+            }
 
     elif fmt == "html":
         if source_path:
             if not os.path.isfile(source_path):
-                return {"status": "error", "message": f"source_path not found: {source_path}"}
+                return {
+                    "status": "error",
+                    "message": f"source_path not found: {source_path}",
+                }
             html_text = None
         elif isinstance(content, str) and content.strip():
             html_text = content
         else:
-            return {"status": "error", "message": "Provide source_path (.html) or non-empty content."}
+            return {
+                "status": "error",
+                "message": "Provide source_path (.html) or non-empty content.",
+            }
 
         from app.utils.pdf_convert import convert_html
 
-        result = convert_html(output_path, source_path=source_path or None, html_text=html_text, style=style)
+        result = convert_html(
+            output_path,
+            source_path=source_path or None,
+            html_text=html_text,
+            style=style,
+        )
 
     elif fmt == "url":
         if not (url.startswith("http://") or url.startswith("https://")):
-            return {"status": "error", "message": "'url' must start with http:// or https://."}
+            return {
+                "status": "error",
+                "message": "'url' must start with http:// or https://.",
+            }
 
         from app.utils.pdf_convert import convert_url
 

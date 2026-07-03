@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 try:
     from rank_bm25 import BM25Okapi
+
     _HAS_BM25 = True
 except ImportError:
     BM25Okapi = None

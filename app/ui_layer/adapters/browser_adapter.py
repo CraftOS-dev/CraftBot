@@ -5547,7 +5547,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             has_active_subscription = False
             if new_provider:
                 try:
-                    from craftos_integrations.integrations.llm_oauth.tokens import has_credential as _sub_has
+                    from craftos_integrations.integrations.llm_oauth.tokens import (
+                        has_credential as _sub_has,
+                    )
 
                     has_active_subscription = _sub_has(new_provider)
                 except Exception:
@@ -5940,9 +5942,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         try:
             update_model_settings(llm_provider=provider)
             self._controller.agent.reinitialize_llm(provider)
-            logger.info(
-                f"[BROWSER] LLM reinitialized with provider: {provider}"
-            )
+            logger.info(f"[BROWSER] LLM reinitialized with provider: {provider}")
             return provider
         except Exception as e:
             logger.warning(

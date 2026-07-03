@@ -448,9 +448,7 @@ class LLMInterface:
             try:
                 ctx = _llm_call_ctx.get() or {}
                 start = ctx.get("start")
-                latency_ms = (
-                    int((time.perf_counter() - start) * 1000) if start else 0
-                )
+                latency_ms = int((time.perf_counter() - start) * 1000) if start else 0
                 self._record_llm_call(
                     LLMCallRecord(
                         provider=self.provider or "",
@@ -701,7 +699,8 @@ class LLMInterface:
             (self.provider == "byteplus" and self._byteplus_cache_manager)
             or (self.provider == "gemini" and self._gemini_cache_manager)
             or (
-                self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
+                self.provider
+                in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
                 and self.client
             )  # OpenAI/DeepSeek/Grok/OpenRouter use automatic caching with prompt_cache_key (and cache_control for Anthropic-routed OpenRouter models)
             or (
@@ -857,7 +856,8 @@ class LLMInterface:
             if self.provider == "gemini" and self._gemini_cache_manager:
                 return True
             if (
-                self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
+                self.provider
+                in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
                 and self.client
             ):
                 return True
@@ -1111,9 +1111,7 @@ class LLMInterface:
                     {"role": "system", "content": effective_system_prompt}
                 ]
                 for msg in history:
-                    oa_messages.append(
-                        {"role": msg["role"], "content": msg["content"]}
-                    )
+                    oa_messages.append({"role": msg["role"], "content": msg["content"]})
                 oa_messages.append({"role": "user", "content": user_prompt})
 
                 logger.debug(
@@ -1131,9 +1129,7 @@ class LLMInterface:
                 assistant_content = response.get("content", "")
                 if assistant_content and not response.get("error"):
                     history.append({"role": "user", "content": user_prompt})
-                    history.append(
-                        {"role": "assistant", "content": assistant_content}
-                    )
+                    history.append({"role": "assistant", "content": assistant_content})
 
             return self._finalize_session_response(response, log_response)
 
@@ -1516,9 +1512,7 @@ class LLMInterface:
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
         """
-        self._begin_call(
-            prompt_name=prompt_name, call_type=call_type, task_id=task_id
-        )
+        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
         return self._generate_response_with_session_sync(
             task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
         )
@@ -1545,9 +1539,7 @@ class LLMInterface:
         """
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
-        self._begin_call(
-            prompt_name=prompt_name, call_type=call_type, task_id=task_id
-        )
+        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
         return await asyncio.to_thread(
             self._generate_response_with_session_sync,
             task_id,
@@ -1871,7 +1863,9 @@ class LLMInterface:
             if prompt_tokens_details:
                 cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
             if not cached_tokens:
-                cached_tokens = getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
+                cached_tokens = (
+                    getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
+                )
 
             # Record cache metrics
             provider_label = self.provider  # "openai", "grok", "deepseek", etc.

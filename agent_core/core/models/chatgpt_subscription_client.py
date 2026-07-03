@@ -106,9 +106,7 @@ class _Usage:
 class _Message:
     __slots__ = ("role", "content", "tool_calls")
 
-    def __init__(
-        self, role: str = "assistant", content: str = "", tool_calls=None
-    ):
+    def __init__(self, role: str = "assistant", content: str = "", tool_calls=None):
         self.role = role
         self.content = content
         self.tool_calls = tool_calls
@@ -319,7 +317,9 @@ def _consume_stream(stream: Any) -> Dict[str, Any]:
         elif etype == "response.failed":
             err_resp = getattr(event, "response", None)
             err = getattr(err_resp, "error", None) if err_resp else None
-            failure_payload = err or f"response.failed (no error attached, event={event!r})"
+            failure_payload = (
+                err or f"response.failed (no error attached, event={event!r})"
+            )
         elif etype == "error":
             failure_payload = getattr(event, "error", None) or repr(event)
         elif etype == "response.output_text.delta":
@@ -522,7 +522,9 @@ def _wrap_response(
         status = getattr(resp, "status", None)
         incomplete = getattr(resp, "incomplete_details", None)
         if embedded_error:
-            raise RuntimeError(f"Codex returned an error in the response body: {embedded_error}")
+            raise RuntimeError(
+                f"Codex returned an error in the response body: {embedded_error}"
+            )
         if status and status != "completed":
             raise RuntimeError(
                 f"Codex response ended with status={status!r}"
@@ -566,6 +568,7 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
     plan = ""
     try:
         from craftos_integrations.integrations.llm_oauth.chatgpt import load as _load
+
         cred = _load()
         if cred is not None:
             plan = (getattr(cred, "plan", "") or "").lower()

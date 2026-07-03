@@ -131,6 +131,7 @@ def _discover() -> Dict[str, str]:
 def _client_id() -> str:
     """Resolve the OAuth client_id: settings.json override → hardcoded default."""
     from ...config import ConfigStore
+
     override = ConfigStore.get_oauth("GROK_OAUTH_CLIENT_ID")
     return (override or DEFAULT_CLIENT_ID).strip()
 
@@ -316,4 +317,7 @@ async def run_login() -> Tuple[bool, str]:
         " Tool-augmented calls (web_search, x_search, code_execution) still"
         " bill your xAI account at $5/1k calls — subscription covers inference only."
     )
-    return True, f"Grok subscription connected{' as ' + cred.email if cred.email else ''}.{note}"
+    return (
+        True,
+        f"Grok subscription connected{' as ' + cred.email if cred.email else ''}.{note}",
+    )

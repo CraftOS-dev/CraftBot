@@ -383,6 +383,7 @@ class TaskManager:
         # tasks it's the trigger description. inject_memory_event no-ops if
         # nothing passes min_relevance, so noise is filtered automatically.
         from agent_core.core.impl.memory.injector import inject_memory_event
+
         inject_memory_event(query=task_instruction, session_id=task_id)
 
         self._set_agent_property("current_task_id", task_id)

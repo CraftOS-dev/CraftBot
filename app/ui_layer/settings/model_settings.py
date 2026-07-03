@@ -82,7 +82,7 @@ PROVIDER_INFO = {
         "settings_key": "grok",
         "requires_api_key": True,
         # Subscription OAuth (SuperGrok / X Premium+). xAI publicly endorsed
-        # this path in May 2026. 
+        # this path in May 2026.
         "supports_subscription_oauth": True,
         "subscription_label": "Sign in with Grok",
         "subscription_models": ["grok-4-0709", "grok-3"],
@@ -320,7 +320,9 @@ def get_model_settings() -> Dict[str, Any]:
         # settings page — keeps cold-start cheap.
         subscription_status: Dict[str, Any] = {}
         try:
-            from craftos_integrations.integrations.llm_oauth.tokens import status as _oauth_status
+            from craftos_integrations.integrations.llm_oauth.tokens import (
+                status as _oauth_status,
+            )
 
             for provider_id, info in PROVIDER_INFO.items():
                 if not info.get("supports_subscription_oauth"):
@@ -711,7 +713,9 @@ def validate_can_save(
         # whole settings page; just falls back to api-key-only validation.
         connected_subscriptions: set[str] = set()
         try:
-            from craftos_integrations.integrations.llm_oauth.tokens import has_credential
+            from craftos_integrations.integrations.llm_oauth.tokens import (
+                has_credential,
+            )
 
             for prov in providers_to_check:
                 info = PROVIDER_INFO.get(prov, {})
@@ -735,7 +739,9 @@ def validate_can_save(
                     has_key = bool(existing)
 
                 if not has_key and provider not in connected_subscriptions:
-                    errors.append(f"API key or subscription connection required for {info['name']}")
+                    errors.append(
+                        f"API key or subscription connection required for {info['name']}"
+                    )
 
         return {
             "success": len(errors) == 0,

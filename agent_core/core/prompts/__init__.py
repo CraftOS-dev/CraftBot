@@ -82,9 +82,7 @@ from agent_core.core.prompts.context import (
 )
 
 # Reasoning prompts
-from agent_core.core.prompts.reasoning import (
-    PROMPT_ENHANCE_REASONING_PROMPT
-)
+from agent_core.core.prompts.reasoning import PROMPT_ENHANCE_REASONING_PROMPT
 
 # Routing prompts
 from agent_core.core.prompts.routing import (

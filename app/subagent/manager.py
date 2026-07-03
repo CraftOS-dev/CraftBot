@@ -113,10 +113,7 @@ class SubAgentManager:
         # The parent stream never sees it.
         self.event_stream_manager.log(
             kind="subagent_start",
-            message=(
-                f"Sub-agent of type '{agent_type}' started.\n"
-                f"Query: {query}"
-            ),
+            message=(f"Sub-agent of type '{agent_type}' started.\nQuery: {query}"),
             display_message=f"subagent[{agent_type}] start",
             task_id=sub_id,
         )
@@ -202,9 +199,7 @@ class SubAgentManager:
 
         self.event_stream_manager.remove_stream(sub_id)
         self.llm_interface.end_all_session_caches(sub_id)
-        logger.debug(
-            f"[SubAgentManager] Released {sub_id} (stream + session caches)"
-        )
+        logger.debug(f"[SubAgentManager] Released {sub_id} (stream + session caches)")
 
     # ------------------------------------------------------------------
     # Test / inspection helpers

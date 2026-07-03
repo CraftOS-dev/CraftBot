@@ -191,7 +191,9 @@ class ApiKeyStep:
     def supports_subscription_oauth(self) -> bool:
         """True when this provider offers a subscription sign-in (ChatGPT
         Plus/Pro, SuperGrok) as an alternative to an API key."""
-        return bool(self._provider_info(self.provider).get("supports_subscription_oauth"))
+        return bool(
+            self._provider_info(self.provider).get("supports_subscription_oauth")
+        )
 
     def subscription_label(self) -> str:
         """Button label for the subscription sign-in (e.g. 'Sign in with ChatGPT')."""

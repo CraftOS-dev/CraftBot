@@ -260,6 +260,7 @@ class StateManager:
         # Inject relevant memories into the same event stream right after the
         # user message. The agent sees them as part of the chronological flow.
         from agent_core.core.impl.memory.injector import inject_memory_event
+
         inject_memory_event(query=content, session_id=task_id)
 
         self.bump_event_stream()

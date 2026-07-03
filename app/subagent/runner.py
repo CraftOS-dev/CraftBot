@@ -207,9 +207,7 @@ class SubAgentRunner:
             # real cause instead of spinning until the iteration cap. Ending
             # makes ``sub.is_terminal()`` true, so the run loop exits cleanly.
             cause = (
-                e.last_error_info.message
-                if e.last_error_info is not None
-                else str(e)
+                e.last_error_info.message if e.last_error_info is not None else str(e)
             )
             logger.error(
                 f"[SubAgentRunner] {sub.id} aborting after consecutive LLM "
@@ -373,9 +371,7 @@ class SubAgentRunner:
 
         for attempt in range(1, _MAX_PARSE_RETRIES + 1):
             try:
-                raw = await self._invoke_llm(
-                    sub, current_user_prompt, system_prompt
-                )
+                raw = await self._invoke_llm(sub, current_user_prompt, system_prompt)
             except LLMConsecutiveFailureError:
                 # Fatal: the LLM is in a broken state (e.g. out-of-credits,
                 # auth). Retrying within this turn can't help — let it

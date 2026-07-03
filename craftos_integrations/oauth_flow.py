@@ -165,9 +165,9 @@ def _make_callback_handler(result_holder: Dict[str, Any]):
             # it's an authorization grant the agent can later exchange.
             try:
                 from .logger import get_logger as _gl
+
                 redacted_params = {
-                    k: ("<redacted>" if k == "code" else v)
-                    for k, v in params.items()
+                    k: ("<redacted>" if k == "code" else v) for k, v in params.items()
                 }
                 _gl(__name__).info(
                     f"[OAUTH] callback received path={path} params={redacted_params}"
@@ -420,9 +420,15 @@ class OAuthFlow:
     @property
     def redirect_uri(self) -> str:
         scheme = "https" if self.use_https else "http"
-        if self.callback_port == 8765 and self.callback_host == "localhost" and not self.callback_path:
+        if (
+            self.callback_port == 8765
+            and self.callback_host == "localhost"
+            and not self.callback_path
+        ):
             return REDIRECT_URI_HTTPS if self.use_https else REDIRECT_URI
-        return f"{scheme}://{self.callback_host}:{self.callback_port}{self.callback_path}"
+        return (
+            f"{scheme}://{self.callback_host}:{self.callback_port}{self.callback_path}"
+        )
 
     def _client_id(self) -> Optional[str]:
         if self.client_id_literal:

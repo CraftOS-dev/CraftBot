@@ -38,6 +38,7 @@ def _is_memory_enabled() -> bool:
     outside the CraftBot app)."""
     try:
         from app.ui_layer.settings.memory_settings import is_memory_enabled
+
         return is_memory_enabled()
     except ImportError:
         return True

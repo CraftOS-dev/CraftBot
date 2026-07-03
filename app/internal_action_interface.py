@@ -1083,9 +1083,7 @@ class InternalActionInterface:
         cls.state_manager.bump_event_stream()
 
     @classmethod
-    def update_requirements(
-        cls, requirements: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def update_requirements(cls, requirements: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Record the deliverable requirement list by emitting a [requirements]
         event into the event stream.
@@ -1105,9 +1103,7 @@ class InternalActionInterface:
         return {"status": "ok", "requirements": requirements}
 
     @classmethod
-    def _emit_requirements_event(
-        cls, requirements: List[Dict[str, Any]]
-    ) -> None:
+    def _emit_requirements_event(cls, requirements: List[Dict[str, Any]]) -> None:
         """
         Emit a [requirements] event to the event stream.
 

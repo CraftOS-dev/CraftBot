@@ -128,17 +128,13 @@ class PastebackRegistry:
             return attempt_id if attempt_id in self._attempts else None
         if not self._attempts:
             return None
-        return max(
-            self._attempts.keys(), key=lambda k: self._attempts[k].created_at
-        )
+        return max(self._attempts.keys(), key=lambda k: self._attempts[k].created_at)
 
     def pop(self, attempt_id: str) -> None:
         self._attempts.pop(attempt_id, None)
 
 
-def exchange_pasted_code(
-    attempt: PastebackAttempt, code: str
-) -> Dict[str, Any]:
+def exchange_pasted_code(attempt: PastebackAttempt, code: str) -> Dict[str, Any]:
     """Run the OAuth token exchange for a paste-back attempt.
 
     Thin wrapper over ``OAuthFlow._exchange_token_sync`` — extracted here

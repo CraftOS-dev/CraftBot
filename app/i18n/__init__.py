@@ -69,6 +69,7 @@ def _load_catalog(lang: str) -> dict[str, str]:
 
 # ── Template lookup ───────────────────────────────────────────────────────────
 
+
 def t(key: str, **kwargs: str) -> str:
     """Render catalog *key* with ``{placeholder}`` substitution.
 
@@ -82,6 +83,7 @@ def t(key: str, **kwargs: str) -> str:
 
 
 # ── Public classifier ─────────────────────────────────────────────────────────
+
 
 def classify_provider_error(
     exc: Exception,

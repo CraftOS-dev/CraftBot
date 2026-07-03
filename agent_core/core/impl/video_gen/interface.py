@@ -524,7 +524,9 @@ class VideoGenInterface:
 
         if not paths:
             raise RuntimeError(
-                _classify_error("openai", first_error or RuntimeError("no result"), self.model)
+                _classify_error(
+                    "openai", first_error or RuntimeError("no result"), self.model
+                )
             )
         return paths
 
@@ -767,7 +769,9 @@ class VideoGenInterface:
                 try:
                     data = self._gemini_client.download_video(uri, timeout=180)
                 except Exception as exc:
-                    raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
+                    raise RuntimeError(
+                        _classify_error("gemini", exc, self.model)
+                    ) from exc
             elif inline:
                 data = base64.b64decode(inline)
             else:
@@ -944,7 +948,9 @@ class VideoGenInterface:
 
         if not paths:
             raise RuntimeError(
-                _classify_error("byteplus", first_error or RuntimeError("no result"), self.model)
+                _classify_error(
+                    "byteplus", first_error or RuntimeError("no result"), self.model
+                )
             )
         return paths
 
@@ -1008,7 +1014,9 @@ class VideoGenInterface:
                 )
                 r.raise_for_status()
             except Exception as exc:
-                raise RuntimeError(_classify_error("byteplus", exc, self.model)) from exc
+                raise RuntimeError(
+                    _classify_error("byteplus", exc, self.model)
+                ) from exc
 
             data = r.json()
             status = (data.get("status") or "").lower()

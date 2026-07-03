@@ -6,7 +6,7 @@ This module contains prompt templates for agent reasoning and thinking.
 Inspired by "Thinking-Claude" repository by richards199999.
 """
 
-PROMPT_ENHANCE_REASONING_PROMPT="""
+PROMPT_ENHANCE_REASONING_PROMPT = """
 You are a prompt enhancer for CraftBot — a proactive autonomous AI agent that
 controls a computer (file system, CLI, browser, MCP tools, external
 integrations, and a task scheduler).
@@ -108,6 +108,4 @@ Required output example:
 </output_format>
 """
 
-__all__ = [
-    "PROMPT_ENHANCE_REASONING_PROMPT"
-]
+__all__ = ["PROMPT_ENHANCE_REASONING_PROMPT"]
