@@ -20,7 +20,7 @@ from agent_core import action
         },
         "timeout": {
             "type": "integer",
-            "example": 60,
+            "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
@@ -55,7 +55,7 @@ from agent_core import action
     test_payload={
         "command": "dir C:\\\\Windows\\\\System32",
         "shell": "auto",
-        "timeout": 60,
+        "timeout": 600,
         "cwd": "/home/user",
         "env": {"MY_VAR": "123"},
         "background": False,
@@ -87,7 +87,7 @@ def shell_exec(input_data: dict) -> dict:
             "pid": None,
         }
 
-    timeout_seconds = float(timeout_val) if timeout_val is not None else 30.0
+    timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
         return {
@@ -218,7 +218,7 @@ def shell_exec(input_data: dict) -> dict:
         },
         "timeout": {
             "type": "integer",
-            "example": 60,
+            "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
@@ -253,7 +253,7 @@ def shell_exec(input_data: dict) -> dict:
     test_payload={
         "command": "dir C:\\\\Windows\\\\System32",
         "shell": "auto",
-        "timeout": 60,
+        "timeout": 600,
         "cwd": "/home/user",
         "env": {"MY_VAR": "123"},
         "background": False,
@@ -306,7 +306,7 @@ def shell_exec_windows(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
-    timeout_seconds = float(timeout_val) if timeout_val is not None else 30.0
+    timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
         return {
@@ -466,7 +466,7 @@ def shell_exec_windows(input_data: dict) -> dict:
         },
         "timeout": {
             "type": "integer",
-            "example": 60,
+            "example": 600,
             "description": "Optional timeout (seconds). If exceeded, the process is terminated.",
         },
         "cwd": {
@@ -501,7 +501,7 @@ def shell_exec_windows(input_data: dict) -> dict:
     test_payload={
         "command": "dir C:\\\\Windows\\\\System32",
         "shell": "auto",
-        "timeout": 60,
+        "timeout": 600,
         "cwd": "/home/user",
         "env": {"MY_VAR": "123"},
         "background": False,
@@ -534,7 +534,7 @@ def shell_exec_darwin(input_data: dict) -> dict:
     env_input = input_data.get("env") or {}
     background = input_data.get("background", False)
 
-    timeout_seconds = float(timeout_val) if timeout_val is not None else 30.0
+    timeout_seconds = float(timeout_val) if timeout_val is not None else 600.0
 
     if not command:
         return {

@@ -22,4 +22,4 @@ auto-injects it as the universal terminator.
 """
 
 from app.subagent.definitions import research_agent  # noqa: F401
-from app.subagent.definitions import validation_agent  # noqa: F401
+# from app.subagent.definitions import validation_agent  # noqa: F401

@@ -71,6 +71,7 @@ Key actions: read_file (with offset/limit), grep_files (search patterns), read_f
 - You have the ability to configure your own MCPs, Skills, LLM provider/model and external apps connection.
 - When you encounter a capability gap, read the "Self-Improvement Protocol" section in AGENT.md for detailed instructions.
 - AGENT.md is your full instruction manual — read it when you need to understand how you work, including file handling, error handling, task execution, and self-improvement workflows.
+- When a certain library is not found when executing code, install them. However. DO NOT upgrade or downgrade library. 
 
 Quick Reference - Config files (all auto-reload on change):
 - MCP servers: `app/config/mcp_config.json`
