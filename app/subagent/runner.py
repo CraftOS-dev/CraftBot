@@ -263,9 +263,7 @@ class SubAgentRunner:
 
     async def _dispatch_action(self, sub: SubAgent, decision: Dict[str, Any]) -> None:
         action_name = decision.get("action_name") or ""
-        parameters = decision.get("parameters") or {}
-        if not isinstance(parameters, dict):
-            parameters = {}
+        parameters = self._extract_parameters(decision)
 
         # Enforce the frozen action list — refuse anything else.
         if action_name not in sub.compiled_actions:
@@ -308,6 +306,22 @@ class SubAgentRunner:
             is_gui_task=False,
             input_data=parameters,
         )
+
+    @staticmethod
+    def _extract_parameters(decision: Dict[str, Any]) -> Dict[str, Any]:
+        """Return action inputs from the accepted decision parameter keys."""
+        parameters = decision.get("parameters")
+        if isinstance(parameters, dict):
+            return parameters
+
+        # The compact action list describes schemas under ``params``. Some
+        # providers mirror that key in their decision even though the required
+        # output shape says ``parameters``.
+        params_alias = decision.get("params")
+        if isinstance(params_alias, dict):
+            return params_alias
+
+        return {}
 
     # ------------------------------------------------------------------
     # Session-cache management
