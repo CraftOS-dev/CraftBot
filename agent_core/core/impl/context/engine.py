@@ -194,9 +194,6 @@ class ContextEngine:
             operating_system=platform.system(),
             os_version=platform.release(),
             os_platform=platform.platform(),
-            vm_operating_system="Linux",
-            vm_os_version="6.12.13",
-            vm_os_platform="Linux a5e39e32118c 6.12.13 #1 SMP Thu Mar 13 11:34:50 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux",
         )
 
     def current_datetime_block(self) -> str:

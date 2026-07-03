@@ -71,7 +71,7 @@ Key actions: read_file (with offset/limit), grep_files (search patterns), read_f
 - You have the ability to configure your own MCPs, Skills, LLM provider/model and external apps connection.
 - When you encounter a capability gap, read the "Self-Improvement Protocol" section in AGENT.md for detailed instructions.
 - AGENT.md is your full instruction manual — read it when you need to understand how you work, including file handling, error handling, task execution, and self-improvement workflows.
-- When a certain library is not found when executing code, install them. However. DO NOT upgrade or downgrade library. 
+- When a certain library is not found during code execution, install them. However. DO NOT upgrade or downgrade library. 
 
 Quick Reference - Config files (all auto-reload on change):
 - MCP servers: `app/config/mcp_config.json`
@@ -170,14 +170,9 @@ ENVIRONMENTAL_CONTEXT_PROMPT = """
 - User Location: {user_location}
 - Current Working Directory: {working_directory}
 - Operating System: {operating_system} {os_version} ({os_platform})
-- VM Operating System: {vm_operating_system} {vm_os_version} ({vm_os_platform})
 </agent_environment>
 """
 
-# Dynamic clock block — injected into the (uncached) user/event-stream tail, NOT
-# the cached system prefix. Keeping the per-second timestamp out of the static
-# system prompt is what lets the prompt prefix stay byte-stable across a task so
-# Gemini implicit caching actually hits (see docs/design/prompt-optimization.md).
 CURRENT_DATETIME_PROMPT = """<current_datetime>
 Current date/time: {current_datetime}
 </current_datetime>"""

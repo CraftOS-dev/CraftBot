@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agent_core.core.action_framework import format_actions_by_name
+from agent_core.core.prompts import ENVIRONMENTAL_CONTEXT_PROMPT
 from app.subagent.registry import get_subagent_definition
 from app.subagent.types import SubAgent
 
@@ -80,6 +81,35 @@ with offset/limit only when you need a specific region in full.
 _RETRIEVAL_ACTIONS = ("grep_files", "read_file")
 
 
+def _render_environment_block() -> str:
+    """Render a static environment + current-DATE block for the sub-agent
+    system prompt. Date only — no time. A date does not change during a
+    short-lived sub-agent's run, so it stays byte-stable across all turns and
+    keeps the system-prompt prefix cacheable (a wall-clock time would move the
+    prefix every turn and break automatic prefix caching).
+    """
+    import platform
+    from datetime import datetime
+
+    from tzlocal import get_localzone
+
+    try:
+        from app.config import AGENT_WORKSPACE_ROOT
+    except ImportError:
+        AGENT_WORKSPACE_ROOT = "."
+
+    local_timezone = get_localzone()
+    environment = ENVIRONMENTAL_CONTEXT_PROMPT.format(
+        user_location=local_timezone,
+        working_directory=AGENT_WORKSPACE_ROOT,
+        operating_system=platform.system(),
+        os_version=platform.release(),
+        os_platform=platform.platform(),
+    )
+    current_date = f"<current_date>\nCurrent date: {datetime.now(local_timezone).strftime('%Y-%m-%d')}\n</current_date>"
+    return f"{environment}\n{current_date}"
+
+
 class SubAgentContextEngine:
     """Builds prompt pieces for sub-agent LLM calls."""
 
@@ -119,6 +149,7 @@ class SubAgentContextEngine:
         )
         if any(a in sub.compiled_actions for a in _RETRIEVAL_ACTIONS):
             prompt += _EXTERNALIZED_OUTPUT_NOTE
+        prompt += f"\n{_render_environment_block()}"
         return prompt
 
     # ------------------------------------------------------------------
