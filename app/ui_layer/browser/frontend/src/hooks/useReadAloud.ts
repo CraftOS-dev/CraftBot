@@ -36,6 +36,7 @@ class ReadAloudController {
   private readonly listeners = new Set<Listener>()
   private readonly voiceListeners = new Set<VoicesListener>()
   private voices: SpeechSynthesisVoice[] = []
+  private keepAlive: ReturnType<typeof setInterval> | null = null
   readonly isSupported =
     typeof window !== 'undefined' && 'speechSynthesis' in window
 
@@ -167,6 +168,28 @@ class ReadAloudController {
 
   // ─── Playback ───────────────────────────────────────────────────────
 
+  // Chromium silently pauses speech synthesis after ~15s of continuous
+  // playback. Nudging pause()/resume() on an interval keeps long messages
+  // (which chat replies often are) playing to the end.
+  private startKeepAlive(): void {
+    this.stopKeepAlive()
+    this.keepAlive = setInterval(() => {
+      if (!window.speechSynthesis.speaking) {
+        this.stopKeepAlive()
+        return
+      }
+      window.speechSynthesis.pause()
+      window.speechSynthesis.resume()
+    }, 10000)
+  }
+
+  private stopKeepAlive(): void {
+    if (this.keepAlive !== null) {
+      clearInterval(this.keepAlive)
+      this.keepAlive = null
+    }
+  }
+
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn)
     return () => {
@@ -185,6 +208,7 @@ class ReadAloudController {
 
   stop(): void {
     if (!this.isSupported) return
+    this.stopKeepAlive()
     window.speechSynthesis.cancel()
     this.setActive(null)
   }
@@ -207,6 +231,7 @@ class ReadAloudController {
     // Guard against a stale utterance clearing a newer selection: only clear
     // when *this* id is still the active one.
     const clearIfActive = () => {
+      this.stopKeepAlive()
       if (this.activeId === id) this.setActive(null)
     }
     utterance.onend = clearIfActive
@@ -214,15 +239,21 @@ class ReadAloudController {
 
     this.setActive(id)
     window.speechSynthesis.speak(utterance)
+    this.startKeepAlive()
   }
 
   /** Speak a one-off sample with the current preferences (settings preview). */
   speakSample(text: string): void {
     if (!this.isSupported) return
+    this.stopKeepAlive()
     window.speechSynthesis.cancel()
     this.setActive(null)
     const utterance = this.makeUtterance(text)
-    if (utterance) window.speechSynthesis.speak(utterance)
+    if (!utterance) return
+    utterance.onend = () => this.stopKeepAlive()
+    utterance.onerror = () => this.stopKeepAlive()
+    window.speechSynthesis.speak(utterance)
+    this.startKeepAlive()
   }
 }
 
