@@ -1,70 +1,38 @@
-/* TopBar Component Styles */
+/* TopBar Component Styles (sidebar bottom toolbar) */
 
 .topBar {
-  height: var(--topbar-height);
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-3);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-primary);
-  flex-shrink: 0;
-}
-
-.left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.logo {
-  display: flex;
-  align-items: center;
   gap: var(--space-2);
-}
-
-.appName {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.logoImage {
-  height: 24px;
-  width: auto;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border-top: 1px solid var(--border-primary);
+  flex-shrink: 0;
 }
 
 .versionBadge {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
   font-weight: var(--font-medium);
-  padding: 0 var(--space-1);
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-full);
-}
-
-.statusText {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  /* Cap at a viewport-relative width so the agent status can show
-     long messages on wide screens while still ellipsis-truncating on
-     narrow windows (preserving space for the version badge and the
-     icon buttons on the right). */
-  max-width: min(60vw, 700px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .right {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+}
+
+/* Collapsed sidebar — stack action icons vertically so they fit
+ * inside the narrow 56px rail. */
+.topBar.collapsed {
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-2) 0;
+  gap: var(--space-1);
+}
+
+.topBar.collapsed .right {
+  flex-direction: column;
 }

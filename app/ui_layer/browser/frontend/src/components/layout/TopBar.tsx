@@ -2,9 +2,6 @@ import React, { useState } from 'react'
 import { Sun, Moon, Github, BookOpen } from 'lucide-react'
 import { IconButton, PlaybookModal } from '../ui'
 import { useTheme } from '../../contexts/ThemeContext'
-import { useWebSocket } from '../../contexts/WebSocketContext'
-import { StatusIndicator } from '../ui/StatusIndicator'
-import { useDerivedAgentStatus } from '../../hooks'
 import { useAppSelector } from '../../store/hooks'
 import { selectVersion } from '../../store/selectors/connection'
 import styles from './TopBar.module.css'
@@ -19,43 +16,19 @@ function DiscordIcon() {
 }
 
 
-export function TopBar() {
+interface TopBarProps {
+  collapsed?: boolean
+}
+
+export function TopBar({ collapsed = false }: TopBarProps) {
   const { theme, toggleTheme } = useTheme()
-  const { connected, actions, messages } = useWebSocket()
   const version = useAppSelector(selectVersion)
   const [playbookOpen, setPlaybookOpen] = useState(false)
 
-  // Derive agent status from actions and messages
-  const derivedStatus = useDerivedAgentStatus({
-    actions,
-    messages,
-    connected,
-  })
-
   return (
-    <header className={styles.topBar}>
-      <div className={styles.left}>
-        <div className={styles.logo}>
-          <img
-            src={theme === 'dark' ? '/craftbot_logo_text_no_border_dark.png' : '/craftbot_logo_text_no_border_light.png'}
-            alt="CraftBot"
-            className={styles.logoImage}
-          />
-        </div>
-        <div className={styles.status}>
-          <StatusIndicator
-            status={derivedStatus.state}
-            size="sm"
-            variant="dot"
-          />
-          <span className={styles.statusText}>
-            {derivedStatus.message}
-          </span>
-        </div>
-      </div>
-
+    <div className={`${styles.topBar} ${collapsed ? styles.collapsed : ''}`}>
+      {version && !collapsed && <span className={styles.versionBadge}>v{version}</span>}
       <div className={styles.right}>
-        {version && <span className={styles.versionBadge}>v{version}</span>}
         <IconButton
           icon={<BookOpen />}
           onClick={() => setPlaybookOpen(true)}
@@ -82,6 +55,6 @@ export function TopBar() {
         />
       </div>
       <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
-    </header>
+    </div>
   )
 }

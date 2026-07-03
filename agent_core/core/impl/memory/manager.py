@@ -21,11 +21,74 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import chromadb
 
 from agent_core.utils.logger import logger
+from agent_core.core.impl.memory.bm25_index import BM25Index
+from agent_core.core.impl.memory.entity_extractor import extract_entities
+
+
+# Files that are flat lists of "[timestamp] [category] content" items.
+# These get per-item chunking so each fact has its own embedding, instead of
+# the whole list collapsing into a single section chunk under "## Memory".
+PER_ITEM_FILES = frozenset({"MEMORY.md", "EVENT_UNPROCESSED.md"})
+
+# Matches a memory item line. Tolerates both "/" and "-" date separators and
+# either "[YYYY-MM-DD HH:MM:SS]" (MEMORY.md) or "[YYYY/MM/DD HH:MM:SS]"
+# (EVENT_UNPROCESSED.md). Captures: timestamp, category, content.
+MEMORY_ITEM_LINE_RE = re.compile(
+    r"^\s*\[(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2})\]\s+\[([\w\-]+)\]\s*:?\s*(.+?)\s*$"
+)
+
+# Hybrid-retrieval weights. Vector is the primary signal, BM25 backstops
+# proper nouns and dates.
+HYBRID_WEIGHTS = {
+    "vector": 0.65,
+    "bm25": 0.35,
+}
+
+# Log-line preview limits. Keep multi-line queries and long summaries from
+# bleeding across log entries.
+_LOG_QUERY_MAX_CHARS = 300
+_LOG_SUMMARY_MAX_CHARS = 120
+
+
+def _log_preview(text: str, max_chars: int) -> str:
+    """Collapse whitespace and truncate text for safe logging."""
+    flat = " ".join((text or "").split())
+    if len(flat) <= max_chars:
+        return flat
+    return flat[: max_chars - 3] + "..."
+
+
+def _is_embedding_function_conflict(err: Exception) -> bool:
+    """Detect ChromaDB's "embedding function mismatch" ValueError by message."""
+    msg = str(err).lower()
+    return "embedding function" in msg and (
+        "conflict" in msg or "already exists" in msg
+    )
+
+# ───────────────────────── Embedding Model ─────────────────────────
+# ChromaDB's default is sentence-transformers/all-MiniLM-L6-v2 (22M params,
+# 2021). Verbatim self-similarity scores ~0.65; topical matches sit at
+# ~0.50; noise floor is ~0.45. That ~0.05 dynamic range can't support
+# accurate retrieval no matter how the downstream scoring is tuned.
+#
+# BGE-small-en-v1.5 (33M params, 384-dim, same dimensionality as MiniLM
+# so we don't break anything else) typically scores ~0.92 on verbatim
+# matches, ~0.75 on topical, and drops below 0.50 for unrelated content.
+# That's the dynamic range hybrid scoring actually needs.
+#
+# Override via the MEMORY_EMBEDDING_MODEL env var if you want to try
+# bge-base-en-v1.5 (better, slower), e5-small-v2, or any other
+# sentence-transformers model. Set to "default" to use ChromaDB's
+# bundled ONNX MiniLM.
+import os as _os
+MEMORY_EMBEDDING_MODEL = _os.environ.get(
+    "MEMORY_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"
+)
 
 
 # ───────────────────────────── Data Classes ─────────────────────────────
@@ -140,8 +203,13 @@ class MemoryManager:
         manager.update()
     """
 
-    COLLECTION_NAME = "agent_memory"
-    FILE_INDEX_COLLECTION = "agent_memory_file_index"
+    # v2 collections use cosine distance and per-item chunking. The "_v2"
+    # suffix forces a clean rebuild on first run with the new code — old
+    # "agent_memory" collections are left intact but unused (so a downgrade
+    # is non-destructive). Drop the old collections manually if disk is
+    # tight; the manager never reads them.
+    COLLECTION_NAME = "agent_memory_v2"
+    FILE_INDEX_COLLECTION = "agent_memory_file_index_v2"
 
     def __init__(
         self,
@@ -164,26 +232,117 @@ class MemoryManager:
         self.chunk_size_limit = chunk_size_limit
         self.chunk_overlap = chunk_overlap
 
-        # Initialize ChromaDB (uses built-in default embeddings)
+        # Initialize ChromaDB.
+        # hnsw:space=cosine — cosine similarity gives well-scaled scores in
+        # [0,1] for the hybrid retriever and behaves better than L2 on the
+        # short factual snippets that dominate MEMORY.md.
         self.chroma_client = chromadb.PersistentClient(path=chroma_path)
-        self.collection = self.chroma_client.get_or_create_collection(
+
+        # Build the embedding function. Default ChromaDB uses MiniLM-L6-v2
+        # (weak — ~0.65 verbatim self-similarity). MEMORY_EMBEDDING_MODEL
+        # points to a stronger sentence-transformers model by default.
+        # Silent fallback to ChromaDB's bundled MiniLM if sentence-transformers
+        # isn't installed, so the system keeps working on minimal installs.
+        embedding_fn = self._build_embedding_function()
+
+        self.collection = self._open_collection(
             name=self.COLLECTION_NAME,
-            metadata={"description": "Agent file system memory chunks"},
+            embedding_fn=embedding_fn,
+            metadata={
+                "description": "Agent file system memory chunks (v2)",
+                "hnsw:space": "cosine",
+                "embedding_model": MEMORY_EMBEDDING_MODEL,
+            },
         )
 
         # File index collection (tracks which files are indexed and their hashes)
-        self.file_index_collection = self.chroma_client.get_or_create_collection(
+        self.file_index_collection = self._open_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates"},
+            embedding_fn=embedding_fn,
+            metadata={"description": "File index for incremental updates (v2)"},
         )
 
         # In-memory cache of file indices
         self._file_index_cache: Dict[str, FileIndex] = {}
         self._load_file_index_cache()
 
+        # BM25 keyword index — mirrors ChromaDB's chunk set. Rebuilt lazily
+        # on first query and after each index mutation.
+        self._bm25 = BM25Index()
+        self._bm25_dirty = True
+
         logger.info(
-            f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, ChromaDB: {chroma_path}"
+            f"MemoryManager initialized. Agent FS: {self.agent_fs_path}, "
+            f"ChromaDB: {chroma_path}, embedding model: {MEMORY_EMBEDDING_MODEL}"
         )
+
+    # ───────────────────────────── Embedding ─────────────────────────────
+
+    def _open_collection(self, name: str, embedding_fn, metadata: Dict[str, Any]):
+        """Open a Chroma collection, auto-rebuilding on embedding mismatch.
+
+        ChromaDB persists the embedding-function name in the collection config
+        and refuses get_or_create with a different one — happens when the
+        collection was first created without sentence-transformers loadable
+        and is reopened later with a real model. The index is a derived cache
+        (source of truth is the markdown files), so dropping and rebuilding
+        is safe; update() repopulates from disk on next call.
+        """
+        try:
+            return self.chroma_client.get_or_create_collection(
+                name=name,
+                embedding_function=embedding_fn,
+                metadata=metadata,
+            )
+        except ValueError as e:
+            if not _is_embedding_function_conflict(e):
+                raise
+
+        logger.warning(
+            f"[MEMORY] Embedding-function mismatch on '{name}' — dropping and "
+            f"rebuilding; index will repopulate from agent_file_system on next update()."
+        )
+        self.chroma_client.delete_collection(name)
+        return self.chroma_client.create_collection(
+            name=name,
+            embedding_function=embedding_fn,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _build_embedding_function():
+        """Construct ChromaDB's embedding function.
+
+        Honours the MEMORY_EMBEDDING_MODEL constant. Falls back to
+        ChromaDB's bundled default (ONNX all-MiniLM-L6-v2) silently when
+        sentence-transformers is missing or the model can't load — so
+        the agent never fails to start because of an embedding-model
+        installation issue.
+        """
+        if MEMORY_EMBEDDING_MODEL == "default":
+            return None  # ChromaDB applies its bundled default
+        try:
+            from chromadb.utils.embedding_functions import (
+                SentenceTransformerEmbeddingFunction,
+            )
+            return SentenceTransformerEmbeddingFunction(
+                model_name=MEMORY_EMBEDDING_MODEL
+            )
+        except ImportError:
+            logger.warning(
+                "[MEMORY] sentence-transformers not installed — falling back "
+                "to ChromaDB's default MiniLM embeddings. Retrieval quality "
+                "will be poor. Install with: conda install -c conda-forge "
+                "sentence-transformers"
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                f"[MEMORY] Failed to load embedding model "
+                f"'{MEMORY_EMBEDDING_MODEL}' ({e}); falling back to ChromaDB "
+                f"default."
+            )
+            return None
 
     # ───────────────────────────── Public API ─────────────────────────────
 
@@ -191,30 +350,33 @@ class MemoryManager:
         self,
         query: str,
         top_k: int = 5,
-        min_relevance: float = 0.0,
+        min_relevance: float = 0.55,
         file_filter: Optional[List[str]] = None,
     ) -> List[MemoryPointer]:
         """
         Retrieve memory pointers relevant to the query.
 
-        This is the primary retrieval method. It returns lightweight pointers
-        that tell the agent where to find relevant information, not the full
-        content. The agent can then decide which chunks to read in full.
+        Uses a hybrid score: vector cosine similarity + BM25 keyword match.
+        Candidate pool is the union of top-K from each channel
+        (Reciprocal-Rank-Fusion style); final ranking is the weighted sum
+        defined by ``HYBRID_WEIGHTS``.
 
         Args:
             query: The search query
             top_k: Maximum number of results to return
-            min_relevance: Minimum relevance score (0-1) to include
+            min_relevance: Minimum hybrid score (0-1) to include.
+                Default 0.55 matches cosine-scaled scores; BM25 lifts
+                keyword-strong matches above the cut.
             file_filter: Optional list of file paths to search within
 
         Returns:
-            List of MemoryPointer objects, sorted by relevance (highest first)
+            List of MemoryPointer objects, sorted by relevance (highest first).
+            Result shape is unchanged from v1 — only the ranking improves.
         """
         if not query or not query.strip():
             logger.warning("Empty query provided to retrieve()")
             return []
 
-        # Check if collection has any documents
         collection_count = self.collection.count()
         if collection_count == 0:
             logger.info(
@@ -222,67 +384,189 @@ class MemoryManager:
             )
             return []
 
-        # Build where filter if file_filter provided
+        # Cast a wider net than top_k so the hybrid re-rank has signal to work
+        # with. ChromaDB and BM25 each return up to candidate_pool items.
+        candidate_pool = max(top_k * 4, 20)
+
         where_filter = None
         if file_filter:
             where_filter = {"file_path": {"$in": file_filter}}
 
-        # Query ChromaDB
-        logger.info(f"[MEMORY QUERY] Query: {query}")
+        # Render single-line so multi-line queries don't bleed into the next
+        # log entry. Full query is still passed to the retriever.
+        logger.info(f"[MEMORY QUERY] {_log_preview(query, _LOG_QUERY_MAX_CHARS)}")
+
+        # ── Channel 1: vector similarity ──
+        vector_hits: Dict[str, Dict[str, Any]] = {}
         try:
             results = self.collection.query(
                 query_texts=[query],
-                n_results=min(top_k, collection_count),
+                n_results=min(candidate_pool, collection_count),
                 where=where_filter,
                 include=["metadatas", "distances", "documents"],
             )
+            ids = (results.get("ids") or [[]])[0]
+            metadatas = (results.get("metadatas") or [[]])[0]
+            distances = (results.get("distances") or [[]])[0]
+            for i, chunk_id in enumerate(ids):
+                meta = metadatas[i] if i < len(metadatas) else {}
+                distance = distances[i] if i < len(distances) else 1.0
+                vector_hits[chunk_id] = {
+                    "score": _cosine_distance_to_similarity(distance),
+                    "metadata": meta,
+                    "rank": i,
+                }
         except Exception as e:
             logger.error(f"Error querying ChromaDB: {e}")
+            # Continue — BM25 alone may still return useful results.
+
+        # ── Channel 2: BM25 keyword search ──
+        self._ensure_bm25_built()
+        bm25_hits: Dict[str, Dict[str, Any]] = {}
+        bm25_raw = self._bm25.search(query, top_k=candidate_pool)
+        if bm25_raw:
+            max_bm25 = max(score for _, score in bm25_raw) or 1.0
+            for rank, (chunk_id, score) in enumerate(bm25_raw):
+                bm25_hits[chunk_id] = {
+                    "score": score / max_bm25,  # min-max normalise to [0,1]
+                    "rank": rank,
+                }
+
+        # Union the candidate ids from both channels (RRF-style fusion).
+        candidate_ids = set(vector_hits) | set(bm25_hits)
+        if not candidate_ids:
             return []
 
-        # Parse results into MemoryPointers
+        # If file_filter was set, BM25 may have returned chunks outside the
+        # filter — drop them by reading metadata for the missing ones.
+        if file_filter:
+            need_meta = [cid for cid in candidate_ids if cid not in vector_hits]
+            if need_meta:
+                missing_meta = self._fetch_metadata(need_meta)
+                candidate_ids = {
+                    cid
+                    for cid in candidate_ids
+                    if (
+                        vector_hits.get(cid, {}).get("metadata", {}).get("file_path")
+                        or missing_meta.get(cid, {}).get("file_path", "")
+                    )
+                    in set(file_filter)
+                }
+
+        # Pull metadata for any BM25-only hits so we can build pointers + age.
+        missing_ids = [cid for cid in candidate_ids if cid not in vector_hits]
+        extra_meta = self._fetch_metadata(missing_ids) if missing_ids else {}
+
         pointers: List[MemoryPointer] = []
 
-        if not results or not results.get("ids") or not results["ids"][0]:
-            return pointers
-
-        ids = results["ids"][0]
-        metadatas = results.get("metadatas", [[]])[0]
-        distances = results.get("distances", [[]])[0]
-
-        for i, chunk_id in enumerate(ids):
-            meta = metadatas[i] if i < len(metadatas) else {}
-
-            # Convert distance to relevance score (ChromaDB uses L2 distance by default)
-            # Lower distance = more relevant, so we invert it
-            distance = distances[i] if i < len(distances) else 1.0
-            relevance = 1.0 / (1.0 + distance)  # Normalize to 0-1 range
-
-            if relevance < min_relevance:
+        w = HYBRID_WEIGHTS
+        for chunk_id in candidate_ids:
+            meta = (
+                vector_hits[chunk_id]["metadata"]
+                if chunk_id in vector_hits
+                else extra_meta.get(chunk_id, {})
+            )
+            if not meta:
                 continue
 
-            pointer = MemoryPointer(
-                chunk_id=chunk_id,
-                file_path=meta.get("file_path", ""),
-                section_path=meta.get("section_path", ""),
-                title=meta.get("title", ""),
-                summary=meta.get("summary", ""),
-                relevance_score=relevance,
-                metadata={
-                    k: v
-                    for k, v in meta.items()
-                    if k not in ("file_path", "section_path", "title", "summary")
-                },
-            )
-            pointers.append(pointer)
+            vector_score = vector_hits.get(chunk_id, {}).get("score", 0.0)
+            bm25_score = bm25_hits.get(chunk_id, {}).get("score", 0.0)
 
-        # Sort by relevance (highest first)
+            final = w["vector"] * vector_score + w["bm25"] * bm25_score
+
+            if final < min_relevance:
+                continue
+
+            pointers.append(
+                MemoryPointer(
+                    chunk_id=chunk_id,
+                    file_path=meta.get("file_path", ""),
+                    section_path=meta.get("section_path", ""),
+                    title=meta.get("title", ""),
+                    summary=meta.get("summary", ""),
+                    relevance_score=final,
+                    metadata={
+                        k: v
+                        for k, v in meta.items()
+                        if k
+                        not in ("file_path", "section_path", "title", "summary")
+                    },
+                )
+            )
+
         pointers.sort(key=lambda p: p.relevance_score, reverse=True)
+        pointers = pointers[:top_k]
 
         logger.info(
-            f"Retrieved {len(pointers)} memory pointers for query: {query[:50]}..."
+            f"[MEMORY RESULT] {len(pointers)} pointer(s) returned "
+            f"(vector candidates={len(vector_hits)}, bm25 candidates={len(bm25_hits)}, "
+            f"min_relevance={min_relevance})"
         )
+        if not pointers:
+            logger.info("[MEMORY RESULT]   (no pointers above min_relevance)")
+        for i, p in enumerate(pointers, start=1):
+            logger.info(
+                f"[MEMORY RESULT]   #{i} score={p.relevance_score:.3f} "
+                f"file={p.file_path} section={p.section_path} "
+                f":: {_log_preview(p.summary, _LOG_SUMMARY_MAX_CHARS)}"
+            )
         return pointers
+
+    # ───────────────────────── Hybrid retrieval helpers ─────────────────────────
+
+    def _ensure_bm25_built(self) -> None:
+        """Rebuild the BM25 index if it's been invalidated since last build."""
+        if not self._bm25_dirty:
+            return
+        try:
+            corpus = self._load_bm25_corpus()
+            self._bm25.rebuild(corpus)
+            self._bm25_dirty = False
+            logger.debug(f"[MEMORY] BM25 index rebuilt: {self._bm25.size} chunks")
+        except Exception as e:
+            logger.warning(f"[MEMORY] Failed to rebuild BM25 index: {e}")
+            # Leave the flag dirty so we retry on the next query.
+
+    def _load_bm25_corpus(self) -> Dict[str, str]:
+        """Pull every chunk's searchable text from ChromaDB.
+
+        We concatenate the document body, summary, and extracted_entities so
+        BM25 has the strongest possible keyword signal — especially proper
+        nouns that vector embeddings often miss.
+        """
+        try:
+            result = self.collection.get(
+                include=["documents", "metadatas"],
+            )
+        except Exception as e:
+            logger.warning(f"[MEMORY] BM25 corpus load failed: {e}")
+            return {}
+
+        ids = result.get("ids") or []
+        docs = result.get("documents") or []
+        metas = result.get("metadatas") or []
+
+        corpus: Dict[str, str] = {}
+        for i, chunk_id in enumerate(ids):
+            body = docs[i] if i < len(docs) else ""
+            meta = metas[i] if i < len(metas) else {}
+            summary = meta.get("summary", "")
+            entities = meta.get("extracted_entities", "")
+            corpus[chunk_id] = f"{body}\n{summary}\n{entities}"
+        return corpus
+
+    def _fetch_metadata(self, chunk_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Fetch metadata for a specific set of chunk ids."""
+        if not chunk_ids:
+            return {}
+        try:
+            result = self.collection.get(ids=chunk_ids, include=["metadatas"])
+            ids = result.get("ids") or []
+            metas = result.get("metadatas") or []
+            return {ids[i]: metas[i] for i in range(len(ids))}
+        except Exception as e:
+            logger.warning(f"[MEMORY] Metadata fetch failed: {e}")
+            return {}
 
     def retrieve_full_content(self, chunk_id: str) -> Optional[str]:
         """
@@ -445,12 +729,17 @@ class MemoryManager:
 
     def _chunk_markdown(self, content: str, file_path: str) -> List[MemoryChunk]:
         """
-        Split markdown content into semantic chunks based on headers.
+        Split markdown content into semantic chunks.
 
-        This uses a hierarchical approach:
-        1. Split by headers (##, ###, etc.)
-        2. Each section becomes a chunk with its header path
-        3. Large sections are further split with overlap
+        Dispatches based on file shape:
+        - Flat per-item logs (MEMORY.md, EVENT_UNPROCESSED.md) → one chunk
+          per "[ts] [cat] content" line via :meth:`_chunk_memory_log`.
+        - Everything else → header-based section chunking (original
+          behaviour, unchanged).
+
+        Per-item chunking is the Phase 1 fix for retrieval accuracy: in the
+        old section-based path, every memory item collapsed into a single
+        chunk under "## Memory" and the embedding represented the whole blob.
 
         Args:
             content: The markdown content to chunk
@@ -458,6 +747,77 @@ class MemoryManager:
 
         Returns:
             List of MemoryChunk objects
+        """
+        filename = Path(file_path).name
+        if filename in PER_ITEM_FILES:
+            return self._chunk_memory_log(content, file_path)
+        return self._chunk_by_sections(content, file_path)
+
+    def _chunk_memory_log(
+        self, content: str, file_path: str
+    ) -> List[MemoryChunk]:
+        """One chunk per ``[ts] [cat] content`` line.
+
+        Each line is short enough on its own (memory items are capped at
+        ~150 words by the memory-processor skill) that no further splitting
+        is needed. Lines that don't match the expected pattern — headers,
+        blank lines, the file's preamble — are skipped here; the file as a
+        whole is still in INDEX_TARGET_FILES so its preamble is captured
+        by the section chunker on other indexed files where appropriate.
+
+        Per-chunk metadata carries timestamp, category, extracted_entities
+        (list of capitalised tokens / quoted strings) and an indexed_at
+        stamp. Timestamp is stored for display / debugging only.
+        """
+        chunks: List[MemoryChunk] = []
+        now = datetime.utcnow().isoformat()
+
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith(">"):
+                continue
+            match = MEMORY_ITEM_LINE_RE.match(line)
+            if not match:
+                continue
+
+            timestamp_str, category, item_text = match.groups()
+            timestamp_iso = _normalize_timestamp(timestamp_str)
+            category = category.lower()
+
+            # Body = the item content. Summary = first ~150 chars cleaned.
+            entities = extract_entities(item_text)
+            summary = self._create_summary(item_text)
+
+            chunks.append(
+                MemoryChunk(
+                    chunk_id=str(uuid.uuid4()),
+                    file_path=file_path,
+                    section_path=f"item:{category}",
+                    title=category,
+                    content=line,  # keep the full bracketed line for grep parity
+                    summary=summary,
+                    content_hash=self._compute_content_hash(line),
+                    file_modified_at="",
+                    indexed_at=now,
+                    metadata={
+                        "timestamp": timestamp_iso,
+                        "category": category,
+                        # ChromaDB metadata values must be primitives; serialise
+                        # the entity list as a comma-joined string. The BM25
+                        # corpus and retrieval consumers parse it back.
+                        "extracted_entities": ", ".join(entities),
+                        "item_kind": "memory_log",
+                    },
+                )
+            )
+
+        return chunks
+
+    def _chunk_by_sections(
+        self, content: str, file_path: str
+    ) -> List[MemoryChunk]:
+        """Original header-based chunker. Preserves existing behaviour for
+        non-list markdown (AGENT.md, USER.md, PROACTIVE.md, ...).
         """
         chunks: List[MemoryChunk] = []
 
@@ -752,6 +1112,8 @@ class MemoryManager:
             logger.error(f"Error adding chunks to ChromaDB: {e}")
             return 0
 
+        self._bm25_dirty = True
+
         # Update file index cache
         file_index = FileIndex(
             file_path=rel_path,
@@ -787,6 +1149,7 @@ class MemoryManager:
 
         # Remove from cache
         del self._file_index_cache[file_path]
+        self._bm25_dirty = True
 
         logger.debug(f"Removed {len(file_index.chunk_ids)} chunks for {file_path}")
 
@@ -805,14 +1168,18 @@ class MemoryManager:
 
         self.collection = self.chroma_client.get_or_create_collection(
             name=self.COLLECTION_NAME,
-            metadata={"description": "Agent file system memory chunks"},
+            metadata={
+                "description": "Agent file system memory chunks (v2)",
+                "hnsw:space": "cosine",
+            },
         )
         self.file_index_collection = self.chroma_client.get_or_create_collection(
             name=self.FILE_INDEX_COLLECTION,
-            metadata={"description": "File index for incremental updates"},
+            metadata={"description": "File index for incremental updates (v2)"},
         )
 
         self._file_index_cache.clear()
+        self._bm25_dirty = True
 
     # ───────────────────────────── File Index Persistence ─────────────────────────────
 
@@ -934,7 +1301,7 @@ def create_memory_processing_task(
         The task ID of the created task
     """
     instruction = (
-        "SILENT BACKGROUND TASK - NEVER use send_message or run_python. "
+        "SILENT BACKGROUND TASK - NEVER use send_message or run_shell. "
         "Read agent_file_system/EVENT_UNPROCESSED.md. "
         "DISTILL (rewrite, don't copy) into agent_file_system/MEMORY.md. "
         "Format: [YYYY-MM-DD HH:MM:SS] [category] Subject predicate object. "
@@ -962,6 +1329,42 @@ def create_memory_processing_task(
         selected_skills=["memory-processor"],
         workflow_id="memory_processing",
     )
+
+
+# ───────────────────── Hybrid Retrieval Scoring Helpers ─────────────────────
+
+
+def _cosine_distance_to_similarity(distance: float) -> float:
+    """Map ChromaDB's cosine distance to a [0,1] similarity score.
+
+    ChromaDB returns ``1 - cosine_similarity`` when the collection is
+    configured with ``hnsw:space=cosine``. Clamp to handle floating-point
+    drift and the L2 fallback case (where distances can exceed 1).
+    """
+    if distance is None:
+        return 0.0
+    sim = 1.0 - float(distance)
+    if sim < 0.0:
+        return 0.0
+    if sim > 1.0:
+        return 1.0
+    return sim
+
+
+def _normalize_timestamp(ts: str) -> str:
+    """Coerce '/' or 'T'-separated timestamps to canonical 'YYYY-MM-DD HH:MM:SS'.
+
+    Returns an empty string when parsing fails — stored as metadata only;
+    not currently used in ranking.
+    """
+    if not ts:
+        return ""
+    cleaned = ts.replace("/", "-").replace("T", " ")
+    try:
+        dt = datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
 
 
 # ───────────────────────────── Testing / Demo ─────────────────────────────

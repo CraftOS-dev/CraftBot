@@ -484,6 +484,40 @@ class ActionStorage:
             conn.commit()
             return cursor.rowcount > 0
 
+    def delete_task_with_actions(self, task_id: str) -> List[str]:
+        """
+        Delete a single task and all of its child actions.
+
+        Mirrors clear_terminal_tasks() but scoped to one task — used when the
+        user explicitly clicks "Delete" on an ended task in the UI.
+
+        Returns:
+            List of removed item IDs (task + child actions).
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id FROM action_items
+                WHERE id = ? OR parent_id = ?
+                """,
+                (task_id, task_id),
+            )
+            removed_ids = [row[0] for row in cursor.fetchall()]
+
+            if not removed_ids:
+                return []
+
+            cursor.execute(
+                """
+                DELETE FROM action_items
+                WHERE id = ? OR parent_id = ?
+                """,
+                (task_id, task_id),
+            )
+            conn.commit()
+            return removed_ids
+
     def mark_running_as_cancelled(self, exclude: Optional[set] = None) -> int:
         """
         Mark running items as cancelled, optionally excluding some.

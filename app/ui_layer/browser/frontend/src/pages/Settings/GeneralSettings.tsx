@@ -20,6 +20,7 @@ import {
   Button,
   Badge,
   ConfirmModal,
+  ResetModal,
   ImportProfileModal,
   type ImportMode,
   type ProfileBundleManifest,
@@ -27,7 +28,7 @@ import {
 } from '../../components/ui'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useConfirmModal } from '../../hooks'
+import { useConfirmModal, useMascotVisibility } from '../../hooks'
 import styles from './SettingsPage.module.css'
 import { useSettingsWebSocket } from './useSettingsWebSocket'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
@@ -77,12 +78,14 @@ export function GeneralSettings() {
   const version = useAppSelector(selectVersion)
   const dispatch = useAppDispatch()
   const { theme: globalTheme, setTheme: setGlobalTheme } = useTheme()
+  const [mascotVisible, setMascotVisible] = useMascotVisibility()
   const [agentName, setAgentName] = useState(getInitialAgentName)
   const [initialAgentName, setInitialAgentName] = useState(getInitialAgentName)
   const [theme, setTheme] = useState(getInitialTheme)
   const [initialTheme, setInitialTheme] = useState(getInitialTheme)
   const [isResetting, setIsResetting] = useState(false)
   const [resetStatus, setResetStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [showResetModal, setShowResetModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
@@ -455,15 +458,14 @@ export function GeneralSettings() {
   }
 
   const handleReset = () => {
-    confirm({
-      title: 'Reset Agent',
-      message: 'Are you sure you want to reset the agent? This will clear all current tasks, conversation history, and restore the agent file system to its default state.',
-      confirmText: 'Reset',
-      variant: 'danger',
-    }, () => {
-      setIsResetting(true)
-      send('reset')
-    })
+    setShowResetModal(true)
+  }
+
+  const handleResetConfirm = (components: string[]) => {
+    setShowResetModal(false)
+    if (components.length === 0) return
+    setIsResetting(true)
+    send('reset', { components })
   }
 
   const handleClearConversation = () => {
@@ -762,6 +764,21 @@ export function GeneralSettings() {
             <option value="light">Light</option>
             <option value="system">System</option>
           </select>
+        </div>
+
+        <div className={styles.toggleGroup}>
+          <div className={styles.toggleInfo}>
+            <span className={styles.toggleLabel}>Show mascot in chat panel</span>
+            <span className={styles.toggleDesc}>
+              Display the animated mascot above the Tasks &amp; Actions sidebar.
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            className={styles.toggle}
+            checked={mascotVisible}
+            onChange={(e) => setMascotVisible(e.target.checked)}
+          />
         </div>
       </div>
 
@@ -1231,6 +1248,13 @@ export function GeneralSettings() {
 
       {/* Confirm Modal */}
       <ConfirmModal {...confirmModalProps} />
+
+      {/* Reset Agent checklist */}
+      <ResetModal
+        isOpen={showResetModal}
+        onConfirm={handleResetConfirm}
+        onCancel={() => setShowResetModal(false)}
+      />
 
       {/* Import Profile Modal */}
       <ImportProfileModal

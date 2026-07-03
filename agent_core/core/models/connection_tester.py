@@ -72,6 +72,12 @@ def test_provider_connection(
         elif provider == "deepseek":
             url = cfg.default_base_url
             return _test_openai_compat(provider, api_key, url, timeout, model)
+        elif provider == "glm":
+            url = cfg.default_base_url
+            return _test_openai_compat(provider, api_key, url, timeout, model)
+        elif provider == "fugu":
+            url = cfg.default_base_url
+            return _test_openai_compat(provider, api_key, url, timeout, model)
         elif provider in ("moonshot", "minimax"):
             return _test_moonshot_minimax(
                 provider, api_key, cfg.default_base_url, timeout, model
@@ -245,6 +251,8 @@ _DISPLAY = {
     "moonshot": "Moonshot",
     "minimax": "MiniMax",
     "grok": "Grok (xAI)",
+    "glm": "Z.ai (GLM)",
+    "fugu": "Sakana (Fugu)",
     "openrouter": "OpenRouter",
     "remote": "Ollama",
     "bedrock": "AWS Bedrock",

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { ChevronRight } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 import { SettingsCategory, categories } from './types'
 import { GeneralSettings } from './GeneralSettings'
@@ -39,11 +38,9 @@ export function SettingsPage() {
 
   return (
     <div className={styles.settingsPage}>
-      {/* Sidebar */}
+      {/* Category rail — sits flush against the content, no separate
+          background/border. Compact icon + label, no description/chevron. */}
       <nav className={styles.sidebar}>
-        <div className={styles.sidebarHeader}>
-          <h2>Settings</h2>
-        </div>
         <div className={styles.categoryList}>
           {categories.map(cat => (
             <button
@@ -52,11 +49,7 @@ export function SettingsPage() {
               onClick={() => setActiveCategory(cat.id)}
             >
               <span className={styles.categoryIcon}>{cat.icon}</span>
-              <div className={styles.categoryInfo}>
-                <span className={styles.categoryLabel}>{cat.label}</span>
-                <span className={styles.categoryDesc}>{cat.description}</span>
-              </div>
-              <ChevronRight size={14} className={styles.chevron} />
+              <span className={styles.categoryLabel}>{cat.label}</span>
             </button>
           ))}
         </div>

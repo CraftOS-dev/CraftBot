@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from agent_core.utils.logger import logger
+from agent_core.core.event_stream.event import EventType
 from app.config import AGENT_WORKSPACE_ROOT, APP_DATA_PATH
 from app.ui_layer.adapters.base import InterfaceAdapter
 from app.ui_layer.settings import (
@@ -58,6 +59,12 @@ from app.ui_layer.settings import (
     test_connection,
     validate_can_save,
     get_ollama_models,
+    # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
+    complete_subscription,
+    connect_subscription_async,
+    disconnect_subscription,
+    get_subscription_status,
+    prepare_subscription_async,
     # MCP settings
     list_mcp_servers,
     add_mcp_server_from_json,
@@ -744,6 +751,53 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             }
         )
 
+    async def delete_terminal_task(self, task_id: str) -> List[str]:
+        """
+        Remove a single ended task (completed/error/cancelled) and its child
+        actions. Running/waiting tasks are refused so the user cannot
+        accidentally drop a live task by clicking the wrong icon.
+
+        Returns:
+            List of removed item IDs (task + child actions). Empty if the
+            task wasn't found or wasn't in a terminal state.
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
+
+        # Locate the task in memory and verify it's terminal
+        task_item = next(
+            (i for i in self._items if i.id == task_id and i.item_type == "task"),
+            None,
+        )
+        if not task_item or task_item.status not in terminal_statuses:
+            return []
+
+        removed_ids = [
+            item.id
+            for item in self._items
+            if item.id == task_id or item.parent_id == task_id
+        ]
+        self._items = [
+            item
+            for item in self._items
+            if item.id != task_id and item.parent_id != task_id
+        ]
+
+        if self._storage:
+            try:
+                self._storage.delete_task_with_actions(task_id)
+            except Exception:
+                pass
+
+        for item_id in removed_ids:
+            await self._adapter._broadcast(
+                {
+                    "type": "action_remove",
+                    "data": {"id": item_id},
+                }
+            )
+
+        return removed_ids
+
     async def clear_terminal_tasks(self) -> int:
         """
         Remove tasks whose status is completed/error/cancelled, along with
@@ -1061,6 +1115,17 @@ class BrowserAdapter(InterfaceAdapter):
             client_id=client_id,
             living_ui_id=living_ui_id,
         )
+
+    async def _handle_enhance_prompt(self, content: str, ws) -> None:
+        """Enhance a user's prompt using the LLM for clarity and precision."""
+        try:
+            enhanced: str = await self._controller.handle_prompt_enhance(
+                user_message=content
+            )
+            await ws.send_json({"type": "prompt_enhanced", "content": enhanced.strip()})
+            return
+        except Exception as e:
+            logger.warning(f"[BROWSER ADAPTER] enhance_prompt failed: {e}")
 
     def _handle_task_start(self, event: UIEvent) -> None:
         """Handle task start event with metrics tracking."""
@@ -1437,6 +1502,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if command:
                 await self.submit_message(command)
 
+        elif msg_type == "enhance_prompt":
+            content = data.get("content", "")
+            if content and ws:
+                await self._handle_enhance_prompt(content, ws)
+
         elif msg_type == "chat_history":
             before_timestamp = data.get("beforeTimestamp")
             limit = data.get("limit", 50)
@@ -1525,6 +1595,10 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             message = data.get("message", "") or ""
             await self._handle_task_resume(task_id, message)
 
+        elif msg_type == "task_delete":
+            task_id = data.get("taskId", "")
+            await self._handle_task_delete(task_id)
+
         elif msg_type == "option_click":
             value = data.get("value", "")
             session_id = data.get("sessionId", "")
@@ -1559,7 +1633,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._handle_agent_profile_picture_remove()
 
         elif msg_type == "reset":
-            await self._handle_reset()
+            await self._handle_reset(data)
 
         elif msg_type == "clear_conversation":
             await self._handle_clear_conversation()
@@ -1687,6 +1761,26 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         elif msg_type == "slow_mode_set":
             await self._handle_slow_mode_set(data)
+
+        # Subscription OAuth (ChatGPT Plus/Pro, SuperGrok)
+        elif msg_type == "model_subscription_connect":
+            await self._handle_model_subscription_connect(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_disconnect":
+            await self._handle_model_subscription_disconnect(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_status":
+            await self._handle_model_subscription_status(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_prepare":
+            await self._handle_model_subscription_prepare(data.get("provider", ""))
+
+        elif msg_type == "model_subscription_complete":
+            await self._handle_model_subscription_complete(
+                data.get("provider", ""),
+                data.get("code", ""),
+                data.get("attemptId"),
+            )
 
         # MCP settings operations
         elif msg_type == "mcp_list":
@@ -2078,6 +2172,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             ],
                             "default": controller.get_step_default(),
                             "provider": getattr(step, "provider", None),
+                            **self._step_subscription_meta(step),
                             "form_fields": self._get_step_form_fields(step),
                         },
                     },
@@ -2094,6 +2189,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    @staticmethod
+    def _step_subscription_meta(step) -> Dict[str, Any]:
+        """Subscription-OAuth hints for a step (empty for non-api_key steps).
+
+        Lets the onboarding UI render a 'Sign in with ChatGPT/Grok' button next
+        to the API-key field for providers that support subscription auth, the
+        same capability the Settings model panel exposes.
+        """
+        supports = getattr(step, "supports_subscription_oauth", None)
+        if callable(supports) and supports():
+            return {
+                "supports_subscription_oauth": True,
+                "subscription_label": step.subscription_label(),
+            }
+        return {"supports_subscription_oauth": False, "subscription_label": ""}
 
     @staticmethod
     def _get_step_form_fields(step) -> Optional[list]:
@@ -2309,6 +2420,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 ],
                                 "default": controller.get_step_default(),
                                 "provider": getattr(step, "provider", None),
+                                **self._step_subscription_meta(step),
                                 "form_fields": self._get_step_form_fields(step),
                             },
                         },
@@ -2400,6 +2512,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                                 ],
                                 "default": controller.get_step_default(),
                                 "provider": getattr(step, "provider", None),
+                                **self._step_subscription_meta(step),
                             },
                         },
                     }
@@ -2462,6 +2575,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             ],
                             "default": controller.get_step_default(),
                             "provider": getattr(step, "provider", None),
+                            **self._step_subscription_meta(step),
                             "form_fields": self._get_step_form_fields(step),
                         },
                     },
@@ -3668,6 +3782,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             agent.event_stream_manager.log(
                 "system",
                 llm_message,
+                event_type=EventType.SYSTEM,
                 display_message=f"Task '{task.name}' resumed by user.",
                 task_id=task_id,
             )
@@ -3786,6 +3901,72 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._broadcast(
                 {
                     "type": "task_complete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": False,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_task_delete(self, task_id: str) -> None:
+        """Delete an ended task and its child actions from the panel and
+        from persistence so it can't be resumed or resurrected on restart.
+        Only completed/error/cancelled tasks are eligible — running tasks
+        must be cancelled or completed first.
+        """
+        try:
+            if not task_id:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Missing taskId",
+                        },
+                    }
+                )
+                return
+
+            removed_ids = await self._action_panel.delete_terminal_task(task_id)
+            if not removed_ids:
+                await self._broadcast(
+                    {
+                        "type": "task_delete_response",
+                        "data": {
+                            "taskId": task_id,
+                            "success": False,
+                            "error": "Task not found or still active",
+                        },
+                    }
+                )
+                return
+
+            # Drop session_storage rows so a restart can't resurrect the
+            # event stream; mirrors clear_task_persistence used by /clear-tasks.
+            try:
+                self._controller.agent.clear_task_persistence([task_id])
+            except Exception as e:
+                logger.warning(
+                    f"[task_delete] Failed to clear task persistence for {task_id}: {e}"
+                )
+
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
+                    "data": {
+                        "taskId": task_id,
+                        "success": True,
+                        "removed": len(removed_ids),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[task_delete] Failed to delete {task_id}: {e}")
+            await self._broadcast(
+                {
+                    "type": "task_delete_response",
                     "data": {
                         "taskId": task_id,
                         "success": False,
@@ -4000,14 +4181,37 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_reset(self) -> None:
-        """Reset agent state (equivalent to /reset command)."""
-        result = await reset_agent_state(self._controller)
+    async def _handle_reset(self, data: dict | None = None) -> None:
+        """Reset agent state.
+
+        If ``data`` carries a ``components`` list (from the settings checklist),
+        only those parts are reset. With no components it's a full reset
+        (equivalent to /reset).
+        """
+        components = None
+        if isinstance(data, dict):
+            raw = data.get("components")
+            if isinstance(raw, list):
+                components = [str(c) for c in raw]
+
+        result = await reset_agent_state(self._controller, components=components)
 
         if result.get("success"):
-            # Clear chat messages and actions in UI
-            await self._chat.clear()
-            await self._action_panel.clear()
+            # Only clear the UI panels whose data was actually reset. A full
+            # reset (components is None) clears both.
+            if components is None or "conversation" in components:
+                await self._chat.clear()
+            if components is None or "tasks" in components:
+                await self._action_panel.clear()
+
+            # If LivingUI apps were deleted, push refreshed (now-empty) lists so
+            # the frontend reflects the deletion. Both the main LivingUI page
+            # (living_ui_list) and the Settings > LivingUI page
+            # (living_ui_settings_get) cache their own project lists and won't
+            # refetch on their own, so we must push to both.
+            if components is not None and "livingui" in components:
+                await self._handle_living_ui_list()
+                await self._handle_living_ui_settings_get()
 
             await self._broadcast(
                 {
@@ -4327,7 +4531,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             # ---- Spawn the workflow task -----------------------------
             # Use absolute paths in the instruction so the agent can pass
-            # them verbatim to read_file / write_file / stream_edit. With
+            # them verbatim to read_file / stream_edit. With
             # relative paths (e.g. "skills/<name>/SKILL.md") the agent has
             # been observed mistakenly prepending the source-file's prefix
             # (`agent_file_system/`), landing the new SKILL.md inside the
@@ -5335,9 +5539,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             # Step 2: Test connection before saving — only when credentials are changing.
             # Mirror the frontend logic: skip the test when only model/provider name
             # changes so that saving works even if the service (e.g. Ollama) is offline.
+            # Also skip when the user has a connected subscription for this provider:
+            # the OAuth token has its own auth flow, and the connection-test path uses
+            # a stored API key shape that wouldn't apply.
             aws_credentials_in = data.get("awsCredentials")
             credentials_changing = bool(api_key or base_url or aws_credentials_in)
-            if new_provider and credentials_changing:
+            has_active_subscription = False
+            if new_provider:
+                try:
+                    from craftos_integrations.integrations.llm_oauth.tokens import has_credential as _sub_has
+
+                    has_active_subscription = _sub_has(new_provider)
+                except Exception:
+                    pass
+            if new_provider and credentials_changing and not has_active_subscription:
                 # Determine the API key to test with
                 test_api_key = api_key
                 if not test_api_key and provider_for_key != new_provider:
@@ -5654,6 +5869,207 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 {
                     "type": "slow_mode_set",
                     "data": {"success": False, "error": str(e)},
+                }
+            )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Subscription OAuth Handlers (ChatGPT Plus/Pro, SuperGrok)
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _handle_model_subscription_connect(self, provider: str) -> None:
+        """Launch the OAuth flow for the given provider — opens the user's
+        browser, waits for the loopback callback, saves the credential.
+
+        We call ``connect_subscription_async`` directly rather than the sync
+        wrapper because we're already inside the adapter's event loop —
+        spinning a new loop with ``run_until_complete`` from inside a running
+        loop raises ``RuntimeError``. Long-running because the user has to
+        complete the browser sign-in; the frontend should show a spinner.
+
+        On success, this handler also makes ``provider`` the active LLM
+        provider using the same ``update_model_settings`` + ``reinitialize_llm``
+        path that the manual Save flow uses — so "Sign in with X"
+        implicitly = "use X" without a separate Save click. The newly-active
+        provider is echoed back in ``active_provider`` so the frontend
+        dropdown updates immediately.
+        """
+        try:
+            success, message = await connect_subscription_async(provider)
+            active_provider = self._activate_provider_via_settings(success, provider)
+            status_payload = get_subscription_status(provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_connect",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": status_payload,
+                        "active_provider": active_provider,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription connect failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_connect",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    def _activate_provider_via_settings(
+        self, connect_success: bool, provider: str
+    ) -> Optional[str]:
+        """Reuse the manual-Save path to make ``provider`` the active LLM.
+
+        Wraps the exact same two calls the model_settings_update handler
+        makes — ``update_model_settings(llm_provider=provider)`` persists
+        the switch to settings.json and clears model overrides, then
+        ``agent.reinitialize_llm(provider)`` rebuilds the live LLM
+        interface. Returns the provider name that was successfully
+        activated so the caller can echo it to the frontend, or ``None``
+        if either the connect itself failed or reinit raised.
+        """
+        if not connect_success:
+            return None
+        try:
+            update_model_settings(llm_provider=provider)
+            self._controller.agent.reinitialize_llm(provider)
+            logger.info(
+                f"[BROWSER] LLM reinitialized with provider: {provider}"
+            )
+            return provider
+        except Exception as e:
+            logger.warning(
+                f"[BROWSER] Failed to activate provider {provider} after "
+                f"subscription connect: {e}"
+            )
+            return None
+
+    async def _handle_model_subscription_disconnect(self, provider: str) -> None:
+        """Remove stored OAuth credentials for the given provider."""
+        try:
+            success, message = disconnect_subscription(provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_disconnect",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": get_subscription_status(provider),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription disconnect failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_disconnect",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_status(self, provider: str) -> None:
+        """Return current connection status for a given provider."""
+        try:
+            status_payload = get_subscription_status(provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_status",
+                    "data": {
+                        "success": True,
+                        "provider": provider,
+                        "status": status_payload,
+                    },
+                }
+            )
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "model_subscription_status",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_prepare(self, provider: str) -> None:
+        """Open the OAuth browser for paste-back flow. Returns auth URL +
+        attempt_id without waiting for loopback — the user will paste the
+        code shown on the provider's page into a textbox to finalize."""
+        try:
+            success, info = await prepare_subscription_async(provider)
+            payload = {
+                "success": success,
+                "provider": provider,
+            }
+            if success:
+                payload["auth_url"] = info.get("auth_url", "")
+                payload["attempt_id"] = info.get("attempt_id", "")
+            else:
+                payload["error"] = info.get("error", "Unknown error")
+            await self._broadcast(
+                {"type": "model_subscription_prepare", "data": payload}
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription prepare failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_prepare",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_model_subscription_complete(
+        self, provider: str, code: str, attempt_id: Optional[str]
+    ) -> None:
+        """Finalize the paste-back flow: exchange the user-pasted code for tokens.
+
+        On success, activates ``provider`` as the current LLM the same way
+        ``_handle_model_subscription_connect`` does — see
+        ``_activate_provider_via_settings``.
+        """
+        try:
+            success, message = complete_subscription(provider, code, attempt_id)
+            active_provider = self._activate_provider_via_settings(success, provider)
+            await self._broadcast(
+                {
+                    "type": "model_subscription_complete",
+                    "data": {
+                        "success": success,
+                        "provider": provider,
+                        "message": message,
+                        "status": get_subscription_status(provider),
+                        "active_provider": active_provider,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[BROWSER] subscription complete failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "model_subscription_complete",
+                    "data": {
+                        "success": False,
+                        "provider": provider,
+                        "error": str(e),
+                    },
                 }
             )
 

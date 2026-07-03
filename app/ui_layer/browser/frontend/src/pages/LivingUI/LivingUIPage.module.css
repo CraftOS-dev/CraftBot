@@ -505,6 +505,136 @@
   border-color: var(--border-hover);
 }
 
+/* ── Theme Picker Modal ──────────────────────────────────────────────────── */
+
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.themeTile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2);
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.themeTile:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+.themeTileActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.themeTileCheck {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.swatchRow {
+  display: flex;
+  gap: 3px;
+}
+
+.swatch {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+}
+
+.themeLabel {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.themeTileActive .themeLabel {
+  color: var(--text-primary);
+}
+
+/* Custom color editor */
+.customColors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.colorRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.colorInput {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.colorInput::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.colorLabel {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.colorValue {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.themeCaption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: center;
+}
+
 /* Not Found */
 .notFound {
   display: flex;

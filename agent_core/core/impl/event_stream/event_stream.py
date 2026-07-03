@@ -20,7 +20,7 @@ import re
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
-from agent_core.core.event_stream.event import Event, EventRecord
+from agent_core.core.event_stream.event import Event, EventRecord, EventType
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.prompts import EVENT_STREAM_SUMMARIZATION_PROMPT
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -30,12 +30,29 @@ from agent_core.utils.token import count_tokens
 import threading
 
 SEVERITIES = ("DEBUG", "INFO", "WARN", "ERROR")
-MAX_EVENT_INLINE_CHARS = 200000
+# Messages longer than this are externalized to a temp file and replaced with a
+# pointer (+keywords) so a single large action output (e.g. get_notion, read_pdf,
+# an http_request body) can't bloat the prompt. ~8000 chars ≈ ~2000 tokens; the
+# agent retrieves the full content with grep_files / read_file when it needs it.
+MAX_EVENT_INLINE_CHARS = 16000
 # Always preserve at least this many most-recent events in tail_events when summarizing.
 # Guards against a single oversized event (e.g. a large read_pdf result) being purged in the
 # same tick it arrives — the UI consumer polls tail_events and would otherwise miss it,
 # leaving the action displayed as "running" forever.
 MIN_KEEP_RECENT_EVENTS = 2
+
+# Event kinds that summarization must NEVER collapse — they are kept verbatim in
+# tail_events forever, so the contract they carry survives any number of
+# summarization passes. `requirements` (from set_requirement) defines the task's
+# scope/definition-of-done and lives ONLY in the event stream, so losing it to a
+# summary would drop the agent's success criteria. Add other kinds here to pin them.
+PROTECTED_SUMMARY_KINDS = frozenset({"requirements"})
+
+# How often to push a fresh `datetime` marker into the stream (minute-precision
+# wall-clock). Kept coarse on purpose: each new marker changes the cached prompt
+# prefix, so we refresh at most every 30 min (plus once right after every
+# summarization, which already invalidates the cache) rather than per minute.
+DATETIME_REFRESH_SECONDS = 30 * 60
 
 
 def get_cached_token_count(rec: "EventRecord") -> int:
@@ -98,10 +115,51 @@ class EventStream:
 
         self._lock = threading.RLock()
         self._total_tokens: int = 0
+        # Wall-clock of the last `datetime` marker pushed into the stream (None
+        # until the first event). Drives the periodic refresh in _maybe_push_datetime.
+        self._last_datetime_ts: Optional[datetime] = None
 
         # Session cache tracking: maps call_type -> event_index of last synced event
         # Used to track which events have been sent to each session cache
         self._session_sync_points: dict[str, int] = {}
+
+    # ───────────────────────────── datetime tag ──────────────────────────
+    def _append_datetime_event(self) -> None:
+        """Append a current date/time marker (minute precision) to the tail. Uses
+        LOCAL time to match the per-event timestamps in compact_line and the
+        context engine's current-datetime block — otherwise the stream shows two
+        disagreeing clocks (UTC events vs local "now"). Cheap, and deliberately
+        NOT in PROTECTED_SUMMARY_KINDS — if it gets summarized away a fresh one
+        is pushed right after each summarization. Caller holds the lock."""
+        now = datetime.now(timezone.utc)
+        local = now.astimezone()
+        try:
+            from tzlocal import get_localzone
+
+            tz_label = str(get_localzone())
+        except Exception:
+            tz_label = local.tzname() or "local"
+        ev = Event(
+            message=f"{local.strftime('%Y-%m-%d %H:%M')} ({tz_label})",
+            kind="datetime",
+            severity="INFO",
+            event_type=EventType.INTERNAL,
+        )
+        rec = EventRecord(event=ev)
+        self.tail_events.append(rec)
+        self._total_tokens += get_cached_token_count(rec)
+        self._last_datetime_ts = now
+
+    def _maybe_push_datetime(self) -> None:
+        """Push a fresh datetime marker on the first event and then at most once
+        every DATETIME_REFRESH_SECONDS, so the stream always carries a recent
+        wall-clock without churning the prompt cache every minute."""
+        last = self._last_datetime_ts
+        if (
+            last is None
+            or (datetime.now(timezone.utc) - last).total_seconds() >= DATETIME_REFRESH_SECONDS
+        ):
+            self._append_datetime_event()
 
     # ────────────────────────────── logging ──────────────────────────────
 
@@ -111,8 +169,15 @@ class EventStream:
         message: str,
         severity: str = "INFO",
         *,
+        event_type: Optional[EventType] = None,
         display_message: str | None = None,
         action_name: str | None = None,
+        action_display_name: str | None = None,
+        action_id: str | None = None,
+        action_input: Optional[dict] = None,
+        action_output: Optional[dict] = None,
+        task_status: Optional[str] = None,
+        platform: Optional[str] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -123,12 +188,27 @@ class EventStream:
         follow-up updates with prior logs.
 
         Args:
-            kind: Category describing the event family (e.g., ``"action_start"``).
+            kind: Human-readable label used in the prompt-facing snapshot
+                (e.g., ``"action_start"``, ``"agent message to platform: X"``).
+                Consumers route on `event_type`, not on this string.
             message: Full event message that may be externalized if too long.
             severity: Importance level; defaults to ``"INFO"`` if unrecognized.
+            event_type: Closed-set category for UI routing. Producers should
+                always pass this; calls without it are accepted only for the
+                small number of internal/legacy paths that don't surface in
+                the UI.
             display_message: Optional alternative string for UI display.
-            action_name: Action identifier used when generating externalized
-                file names and contextual hints.
+            action_name: Canonical action name, set on ACTION_START / ACTION_END.
+            action_id: Stable identifier paired across an action's start and
+                end events. Lets the UI pair a unique ``action_start`` with
+                its matching ``action_end`` even when multiple parallel calls
+                of the same action fire within the same second. Set by
+                ``ActionManager`` (which generates it as ``run_id`` internally).
+            action_input: Structured input dict for ACTION_START events.
+            action_output: Structured output dict for ACTION_END events.
+            task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
+                TASK_END events.
+            platform: Originating/destination platform for chat messages.
 
         Returns:
             The zero-based index of the event within ``tail_events``.
@@ -138,11 +218,26 @@ class EventStream:
         msg = self._externalize_message(message.strip(), action_name=action_name)
         display = display_message.strip() if display_message is not None else None
         ev = Event(
-            message=msg, kind=kind.strip(), severity=severity, display_message=display
+            message=msg,
+            kind=kind.strip(),
+            severity=severity,
+            display_message=display,
+            event_type=event_type,
+            action_name=action_name,
+            action_display_name=action_display_name,
+            action_id=action_id,
+            action_input=action_input,
+            action_output=action_output,
+            task_status=task_status,
+            platform=platform,
         )
         rec = EventRecord(event=ev)
 
         with self._lock:
+            # Pin a recent wall-clock marker ahead of this event (first event, or
+            # every 30 min). Skips datetime markers themselves to avoid recursion.
+            if kind != "datetime":
+                self._maybe_push_datetime()
             self.tail_events.append(rec)
             self._total_tokens += get_cached_token_count(rec)
             # Summarization runs inside the lock - blocks other log() calls
@@ -169,7 +264,12 @@ class EventStream:
         if len(message) <= MAX_EVENT_INLINE_CHARS or self.temp_dir is None:
             return message
 
-        if action_name == "stream read" or action_name == "grep":
+        # Never externalize the retrieval actions' own outputs: they are how
+        # the agent reads externalized content back, so pointering them would
+        # send the agent chasing a pointer to a pointer. ("grep" / "stream
+        # read" are legacy names kept for safety; the live actions are
+        # grep_files / read_file.)
+        if action_name in ("grep_files", "read_file", "grep", "stream read"):
             return message
 
         try:
@@ -185,7 +285,7 @@ class EventStream:
             file_path = self.temp_dir / f"event_{suffix}_{ts}.txt"
             file_path.write_text(message, encoding="utf-8")
             keywords = ", ".join(self._extract_keywords(message)) or "n/a"
-            return f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'stream_read' to read the content line by line in file."
+            return f"Action {action_name} completed. The output is too long therefore is saved in {file_path} to save token. | keywords: {keywords} | To retrieve the content, agent MUST use the 'grep_files' action to extract the context with keywords or use 'read_file' with offset/limit to read the content line by line in file."
         except Exception:
             logger.exception(
                 "[EventStream] Failed to externalize long event message "
@@ -270,12 +370,18 @@ class EventStream:
             # Nothing old enough to summarize
             return
 
-        chunk = list(self.tail_events[:cutoff])
-        first_ts = chunk[0].ts if chunk else None
-        last_ts = chunk[-1].ts if chunk else None
-        window = ""
-        if first_ts and last_ts:
-            window = f"{first_ts.isoformat()} to {last_ts.isoformat()}"
+        # Pull protected events (e.g. requirements) out of the region being
+        # summarized — they stay verbatim in the tail and are never collapsed.
+        region = list(self.tail_events[:cutoff])
+        protected = [r for r in region if r.event.kind in PROTECTED_SUMMARY_KINDS]
+        chunk = [r for r in region if r.event.kind not in PROTECTED_SUMMARY_KINDS]
+        if not chunk:
+            # Everything old enough to summarize is protected — nothing to collapse.
+            return
+
+        first_ts = chunk[0].ts
+        last_ts = chunk[-1].ts
+        window = f"{first_ts.isoformat()} to {last_ts.isoformat()}"
 
         compact_lines = "\n".join(r.compact_line() for r in chunk)
         previous_summary = self.head_summary or "(none)"
@@ -322,7 +428,10 @@ class EventStream:
             # Calculate tokens being removed from the snapshotted chunk
             removed_tokens = sum(get_cached_token_count(r) for r in chunk)
             self._total_tokens -= removed_tokens
-            self.tail_events = self.tail_events[cutoff:]
+            # Keep protected events verbatim at the front of the surviving tail.
+            self.tail_events = protected + self.tail_events[cutoff:]
+            # Summarization breaks the prompt cache anyway, so re-stamp the time.
+            self._append_datetime_event()
 
             # Reset all session sync points - event indices are now invalid
             self._session_sync_points.clear()
@@ -340,7 +449,9 @@ class EventStream:
             # log() call would immediately re-trigger summarization and flood the logs.
             removed_tokens = sum(get_cached_token_count(r) for r in chunk)
             self._total_tokens -= removed_tokens
-            self.tail_events = self.tail_events[cutoff:]
+            # Keep protected events verbatim even on the no-LLM prune fallback.
+            self.tail_events = protected + self.tail_events[cutoff:]
+            self._append_datetime_event()
             self._session_sync_points.clear()
 
     # ───────────────────── utilities ─────────────────────

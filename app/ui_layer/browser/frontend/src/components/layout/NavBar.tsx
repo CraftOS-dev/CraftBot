@@ -8,11 +8,15 @@ import {
   Settings,
   Sparkles,
   Box,
-  Loader2
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { useTheme } from '../../contexts/ThemeContext'
 import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
 import type { LivingUICreateRequest } from '../../types'
+import { TopBar } from './TopBar'
 import styles from './NavBar.module.css'
 
 interface NavItem {
@@ -31,24 +35,26 @@ const leftNavItems: NavItem[] = [
 
 const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' }
 
-const DRAG_THRESHOLD = 5
+interface NavBarProps {
+  collapsed?: boolean
+  onToggleCollapsed?: () => void
+}
 
-export function NavBar() {
+export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { livingUIProjects, createLivingUI } = useWebSocket()
+  const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef({
-    pointerId: -1,
-    startX: 0,
-    startScrollLeft: 0,
-    moved: false,
-  })
+  const logoSrc = theme === 'light'
+    ? '/craftbot_logo_text_no_border_light.png'
+    : '/craftbot_logo_text_no_border_dark.png'
 
-  const [canScrollLeft, setCanScrollLeft] = useState(false)
-  const [canScrollRight, setCanScrollRight] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const [canScrollUp, setCanScrollUp] = useState(false)
+  const [canScrollDown, setCanScrollDown] = useState(false)
 
   const isActive = (path: string) => {
     if (path === '/') {
@@ -65,9 +71,9 @@ export function NavBar() {
   const updateOverflow = () => {
     const el = scrollRef.current
     if (!el) return
-    const maxScroll = el.scrollWidth - el.clientWidth
-    setCanScrollLeft(el.scrollLeft > 1)
-    setCanScrollRight(el.scrollLeft < maxScroll - 1)
+    const maxScroll = el.scrollHeight - el.clientHeight
+    setCanScrollUp(el.scrollTop > 1)
+    setCanScrollDown(el.scrollTop < maxScroll - 1)
   }
 
   useLayoutEffect(() => {
@@ -86,61 +92,39 @@ export function NavBar() {
     }
   }, [])
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!scrollRef.current) return
-    dragRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startScrollLeft: scrollRef.current.scrollLeft,
-      moved: false,
-    }
-  }
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (drag.pointerId !== e.pointerId || !scrollRef.current) return
-    const dx = e.clientX - drag.startX
-    if (!drag.moved && Math.abs(dx) < DRAG_THRESHOLD) return
-    if (!drag.moved) {
-      drag.moved = true
-      scrollRef.current.setPointerCapture?.(e.pointerId)
-    }
-    scrollRef.current.scrollLeft = drag.startScrollLeft - dx
-  }
-
-  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (drag.pointerId !== e.pointerId) return
-    if (drag.moved && scrollRef.current?.hasPointerCapture?.(e.pointerId)) {
-      scrollRef.current.releasePointerCapture(e.pointerId)
-    }
-    drag.pointerId = -1
-    queueMicrotask(() => {
-      drag.moved = false
-    })
-  }
-
-  const onClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (dragRef.current.moved) {
-      e.stopPropagation()
-      e.preventDefault()
-    }
-  }
-
   return (
     <>
-      <nav className={styles.navBar}>
-        {/* Left + middle: draggable / scrollable region with fades */}
+      <nav className={`${styles.navBar} ${collapsed ? styles.collapsed : ''}`}>
+        {/* Top: logo (left) + collapse toggle (right). Hidden on mobile drawer. */}
+        {onToggleCollapsed && (
+          <div className={styles.collapseRow}>
+            {!collapsed && (
+              <img
+                src={logoSrc}
+                alt="CraftBot"
+                className={styles.logo}
+                draggable={false}
+              />
+            )}
+            <button
+              type="button"
+              className={styles.collapseButton}
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-pressed={collapsed}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+          </div>
+        )}
+
+        {/* Scrollable region with fades for left nav + Living UI tabs */}
         <div className={styles.scrollArea}>
           <div
             ref={scrollRef}
             className={styles.scrollContent}
             onScroll={updateOverflow}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-            onClickCapture={onClickCapture}
           >
             {leftNavItems.map(item => (
               <button
@@ -187,18 +171,19 @@ export function NavBar() {
           </div>
 
           <div
-            className={`${styles.fade} ${styles.fadeLeft} ${canScrollLeft ? styles.fadeVisible : ''}`}
+            className={`${styles.fade} ${styles.fadeLeft} ${canScrollUp ? styles.fadeVisible : ''}`}
             aria-hidden="true"
           />
           <div
-            className={`${styles.fade} ${styles.fadeRight} ${canScrollRight ? styles.fadeVisible : ''}`}
+            className={`${styles.fade} ${styles.fadeRight} ${canScrollDown ? styles.fadeVisible : ''}`}
             aria-hidden="true"
           />
         </div>
 
-        <div className={styles.divider} aria-hidden="true" />
+        {/* Bottom toolbar: version + action icons */}
+        <TopBar collapsed={collapsed} />
 
-        {/* Right: Settings, always pinned */}
+        {/* Settings, pinned at very bottom */}
         <div className={styles.navRight}>
           <button
             className={`${styles.navItem} ${isActive(settingsItem.path) ? styles.active : ''}`}

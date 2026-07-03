@@ -29,9 +29,8 @@ def test_pricing_longest_match_avoids_shadowing():
 
 
 def test_estimate_cost_accounts_for_cache():
-    c = estimate_cost(
-        "gemini-2.5-pro", input_tokens=10_000, output_tokens=500, cached_tokens=8_000
-    )
+    c = estimate_cost("gemini-2.5-pro", input_tokens=10_000, output_tokens=500,
+                      cached_tokens=8_000)
     # uncached 2000 @1.25 + cached 8000 @0.125 = 0.0035; output 500 @10 = 0.005
     assert round(c["input_cost"], 6) == 0.0035
     assert round(c["output_cost"], 6) == 0.005
@@ -42,9 +41,8 @@ def test_estimate_cost_accounts_for_cache():
 
 def test_estimate_cost_clamps_cached_to_input():
     # cached can't exceed input; must not produce negative uncached cost
-    c = estimate_cost(
-        "gemini-2.5-pro", input_tokens=100, output_tokens=0, cached_tokens=999
-    )
+    c = estimate_cost("gemini-2.5-pro", input_tokens=100, output_tokens=0,
+                      cached_tokens=999)
     assert c["input_cost"] >= 0
     assert round(c["input_cost"], 8) == round(100 * 0.125 / 1e6, 8)
 
@@ -72,21 +70,10 @@ def _seed():
         ("EVENT_STREAM_SUMMARIZATION", 5000, 4000, 400, 0),
     ]
     for name, lat, inp, out, cached in seed:
-        s.insert(
-            LLMCallRow(
-                provider="gemini",
-                model="gemini-2.5-pro",
-                system_prompt="s",
-                user_prompt="u",
-                response="r",
-                status="success",
-                input_tokens=inp,
-                output_tokens=out,
-                cached_tokens=cached,
-                latency_ms=lat,
-                prompt_name=name,
-            )
-        )
+        s.insert(LLMCallRow(provider="gemini", model="gemini-2.5-pro",
+                            system_prompt="s", user_prompt="u", response="r",
+                            status="success", input_tokens=inp, output_tokens=out,
+                            cached_tokens=cached, latency_ms=lat, prompt_name=name))
     return db
 
 
@@ -115,7 +102,6 @@ def test_load_rows_missing_db_is_empty():
 
 def test_parse_since():
     from datetime import datetime
-
     assert profiler._parse_since(None) is None
     dt = profiler._parse_since("24h")
     assert isinstance(dt, datetime)

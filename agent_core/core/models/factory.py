@@ -74,6 +74,26 @@ def _get_openrouter_key() -> Optional[str]:
         return None
 
 
+def _get_oauth_bearer(provider: str):
+    """Return (access_token, base_url_override, extra_headers) if the user has
+    a subscription connected for this provider; else None.
+
+    Subscription-mode auth (ChatGPT Plus/Pro, SuperGrok) takes precedence
+    over the stored API key when both are present. A RuntimeError here
+    means the credential exists but the refresh failed — surface it so the
+    user sees "reconnect" rather than a silent fallback to the API key.
+    """
+    try:
+        from craftos_integrations.integrations.llm_oauth.tokens import get_bearer
+
+        return get_bearer(provider)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.warning(f"[FACTORY] OAuth bearer lookup for {provider} failed: {e}")
+        return None
+
+
 def _resolve_ollama_model(requested: str, base_url: str) -> str:
     """Return `requested` if Ollama has it, otherwise return the first available model."""
     try:
@@ -121,7 +141,7 @@ class ModelFactory:
             Dictionary with provider context including client instances
         """
         # OpenAI-compatible providers that use OpenAI client with a custom base_url
-        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter"}
+        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter", "glm", "fugu"}
 
         if provider not in PROVIDER_CONFIG:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -167,6 +187,59 @@ class ModelFactory:
 
         # Providers
         if provider == "openai":
+            # Prefer ChatGPT subscription OAuth when connected — the JWT is
+            # audience-locked to chatgpt.com/backend-api/codex, so this path
+            # also rewrites the base_url + injects the required Codex
+            # impersonation headers (Originator, Beta, chatgpt-account-id).
+            # The bare OpenAI client would issue ``/chat/completions`` against
+            # that base URL and 404, so we wrap it in a translator that
+            # re-routes through the Responses API.
+            oauth = _get_oauth_bearer("openai")
+            if oauth is not None:
+                from agent_core.core.models.chatgpt_subscription_client import (
+                    ChatGPTSubscriptionClient,
+                )
+
+                access_token, sub_base_url, extra_headers = oauth
+
+                # Codex's accepted-model list lives in the ChatGPT OAuth
+                # backend module so provider-specific knowledge stays
+                # colocated with the flow that authenticates against it.
+                # See ``llm_oauth.chatgpt.CODEX_ACCEPTED_MODELS`` for the
+                # source-of-truth list and the reasoning behind the fallback.
+                from craftos_integrations.integrations.llm_oauth.chatgpt import (
+                    CODEX_ACCEPTED_MODELS,
+                    effective_model_for_subscription,
+                )
+
+                effective_model, was_substituted = effective_model_for_subscription(model)
+                if was_substituted:
+                    logger.warning(
+                        f"[FACTORY] ChatGPT subscription mode rejects model "
+                        f"{model!r}; substituting {effective_model!r}. "
+                        f"Valid Codex-subscription models: "
+                        f"{sorted(CODEX_ACCEPTED_MODELS)}. Set the model in "
+                        f"Settings to silence this warning."
+                    )
+
+                sdk_client = OpenAI(
+                    api_key=access_token,
+                    base_url=sub_base_url,
+                    default_headers=extra_headers,
+                )
+                return {
+                    "provider": provider,
+                    "model": effective_model,
+                    "client": ChatGPTSubscriptionClient(sdk_client),
+                    "gemini_client": None,
+                    "remote_url": None,
+                    "byteplus": None,
+                    "anthropic_client": None,
+                    "bedrock_client": None,
+                    "initialized": True,
+                    "auth_mode": "subscription",
+                }
+
             if not api_key:
                 if deferred:
                     return empty_context
@@ -258,6 +331,30 @@ class ModelFactory:
             }
 
         if provider in _OPENAI_COMPAT:
+            # Subscription OAuth takes precedence before any API-key/OpenRouter
+            # fallback path. Grok subscription tokens hit the same
+            # api.x.ai/v1 host as API-key mode, so the base_url override may
+            # be None — the backend returns the URL it wants used.
+            oauth = _get_oauth_bearer(provider)
+            if oauth is not None:
+                access_token, sub_base_url, extra_headers = oauth
+                return {
+                    "provider": provider,
+                    "model": model,
+                    "client": OpenAI(
+                        api_key=access_token,
+                        base_url=sub_base_url or resolved_base_url,
+                        default_headers=extra_headers,
+                    ),
+                    "gemini_client": None,
+                    "remote_url": None,
+                    "byteplus": None,
+                    "anthropic_client": None,
+                    "bedrock_client": None,
+                    "initialized": True,
+                    "auth_mode": "subscription",
+                }
+
             # Moonshot and MiniMax are geo-restricted for most international users.
             # Strategy:
             #   1. If a direct API key is provided → use the provider's own endpoint.

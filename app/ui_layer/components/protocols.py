@@ -157,6 +157,16 @@ class ActionPanelProtocol(Protocol):
         """
         ...
 
+    async def delete_terminal_task(self, task_id: str) -> List[str]:
+        """
+        Remove a single ended task (completed/error/cancelled) and its child
+        actions. No-ops if the task is missing or still active.
+
+        Returns:
+            List of removed item IDs (task + child actions).
+        """
+        ...
+
     def select_task(self, task_id: Optional[str]) -> None:
         """
         Select a task for detail view.

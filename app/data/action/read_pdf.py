@@ -6,11 +6,16 @@ from agent_core import action
     description=(
         "Reads a PDF and returns its content. "
         "mode='text' (default): returns plain text and tables — use for summarising, "
-        "Q&A, and content extraction. Fast, minimal tokens. "
+        "Q&A, and content extraction. Fast, minimal tokens. By default the output is "
+        "SIMPLIFIED (just text + tables); set include_metadata=true to also get "
+        "document_metadata (engine, page_count) and per-page dimensions — do this when "
+        "you need the page count or extraction-engine details. "
         "mode='layout': returns per-word bounding boxes (BOTTOMLEFT origin) — use when "
-        "edit_pdf or form-filling needs spatial coordinates. "
+        "edit_pdf or form-filling needs spatial coordinates (always includes metadata). "
         "page_range limits which pages are read (e.g. '1', '1-3', '2,4'). "
-        "Digital PDFs use pdfplumber. Scanned/image PDFs fall back to Docling automatically."
+        "Digital PDFs use pdfplumber. Scanned/image PDFs fall back to Docling automatically. "
+        "NOTE: this returns text/coordinates only, NOT the visual layout — to EDIT a PDF while "
+        "preserving its look, use convert_from_pdf (html target) instead of rebuilding from this text."
     ),
     mode="CLI",
     action_sets=["document_processing"],
@@ -37,6 +42,15 @@ from agent_core import action
                 "Formats: '1' (single), '1-3' (range), '1,3,5' (list)."
             ),
         },
+        "include_metadata": {
+            "type": "boolean",
+            "example": False,
+            "description": (
+                "False (default): text mode returns only {text, tables} — lean, for reading. "
+                "True: also include document_metadata (file name, page_count, engine) and "
+                "per-page width/height. Ignored in layout mode, which always includes them."
+            ),
+        },
     },
     output_schema={
         "status": {
@@ -47,19 +61,13 @@ from agent_core import action
         "content": {
             "type": "object",
             "description": (
-                "Extraction result. Always contains document_metadata and pages. "
-                "text mode adds 'text' (string) and 'tables' (list, if any). "
-                "layout mode adds 'elements' (list of words with bbox_abs, bbox_norm, "
-                "is_form_field_candidate — same shape as v1 for backward compatibility)."
+                "Extraction result. text mode: 'text' (string) and 'tables' (list, if any); "
+                "document_metadata and pages are included only when include_metadata=true. "
+                "layout mode: always contains document_metadata, pages, and 'elements' "
+                "(list of words with bbox_abs, bbox_norm, is_form_field_candidate — same "
+                "shape as v1 for backward compatibility)."
             ),
             "example": {
-                "document_metadata": {
-                    "file_name": "invoice.pdf",
-                    "mimetype": "application/pdf",
-                    "page_count": 2,
-                    "engine": "pdfplumber",
-                },
-                "pages": [{"page_number": 1, "width": 595.28, "height": 841.89}],
                 "text": "Invoice #1042\nBill To: John Smith",
                 "tables": [[["Description", "Amount"], ["Web Dev", "$1,500.00"]]],
             },
@@ -212,9 +220,13 @@ def read_pdf_file(input_data: dict) -> dict:
     file_path = str(input_data.get("file_path", "")).strip()
     mode = str(input_data.get("mode", "text")).strip().lower()
     page_range = str(input_data.get("page_range", "")).strip()
+    include_metadata = bool(input_data.get("include_metadata", False))
 
     if mode not in ("text", "layout"):
         mode = "text"
+    if mode == "layout":
+        # bboxes are the whole point of layout mode — metadata always included
+        include_metadata = True
 
     # ── Simulated mode ────────────────────────────────────────────────────
     if simulated_mode:
@@ -246,6 +258,8 @@ def read_pdf_file(input_data: dict) -> dict:
             ]
         else:
             base_content["text"] = "Test PDF content"
+            if not include_metadata:
+                base_content = {"text": base_content["text"]}
         return _json("success", "", base_content)
 
     # ── Dependency bootstrap (executor pre-installs via requirement=) ─────
@@ -437,13 +451,16 @@ def read_pdf_file(input_data: dict) -> dict:
             meta["engine_warning"] = engine_warning
 
         if mode == "text":
-            content = {
-                "document_metadata": meta,
-                "pages": pages_out,
-                "text": "\n\n".join(text_parts),
-            }
+            content = {"text": "\n\n".join(text_parts)}
             if all_tables:
                 content["tables"] = all_tables
+            if include_metadata:
+                content["document_metadata"] = meta
+                content["pages"] = pages_out
+                return _json("success", "", content)
+            # Lean output drops document_metadata, so surface an OCR/engine
+            # warning through the message field instead of losing it.
+            return _json("success", engine_warning, content)
         else:
             content = {
                 "document_metadata": meta,

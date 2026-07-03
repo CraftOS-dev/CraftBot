@@ -57,6 +57,15 @@ _llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
     "_llm_call_ctx", default={}
 )
 
+# Per-call metadata (prompt identity + start time) propagated from the public
+# entry methods down to the capture chokepoint (_call_log_to_db) without
+# threading it through every provider method. asyncio.to_thread copies the
+# context into the worker thread, so this survives the sync offload, and each
+# asyncio Task / thread gets its own copy so concurrent calls don't clobber.
+_llm_call_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_llm_call_ctx", default={}
+)
+
 
 class _EmptyResponse(Exception):
     """Raised when a provider returns empty/error content and the failure has already been counted.
@@ -181,6 +190,17 @@ class LLMInterface:
         self._anthropic_client = ctx["anthropic_client"]
         self._bedrock_client = ctx.get("bedrock_client")
         self._initialized = ctx.get("initialized", False)
+        # auth_mode is "subscription" when an OAuth bearer is in use, else
+        # unset (treat as "api_key"). The factory wraps the ``client`` in a
+        # ChatGPTSubscriptionClient when auth_mode=="subscription" for
+        # OpenAI, which translates chat.completions calls to the Responses
+        # API on the fly — no behavioral difference at the call sites.
+        self._auth_mode: str = ctx.get("auth_mode", "api_key")
+        if self.provider == "openai" and self._auth_mode == "subscription":
+            logger.info(
+                "[LLM] OpenAI ChatGPT subscription mode active — routing via"
+                " chatgpt.com/backend-api/codex Responses API."
+            )
 
         # Initialize BytePlus-specific attributes
         self._byteplus_cache_manager: Optional[BytePlusCacheManager] = None
@@ -202,6 +222,13 @@ class LLMInterface:
         self._bedrock_session_messages: Dict[str, List[dict]] = {}
         self._openrouter_anthropic_session_messages: Dict[str, List[dict]] = {}
         self._gemini_session_messages: Dict[str, List[dict]] = {}
+        # openai / deepseek / grok / non-Claude openrouter: stateless
+        # chat-completions APIs with no server-side session. We accumulate a
+        # growing [user, assistant, ...] history here and resend it each turn
+        # so the model retains earlier context (the delta-only approach dropped
+        # everything but the newest turn); the stable growing prefix also feeds
+        # prompt_cache_key prefix caching.
+        self._openai_compat_session_messages: Dict[str, List[dict]] = {}
 
         if ctx["byteplus"]:
             self.api_key = ctx["byteplus"]["api_key"]
@@ -291,6 +318,7 @@ class LLMInterface:
             self._anthropic_client = ctx["anthropic_client"]
             self._bedrock_client = ctx.get("bedrock_client")
             self._initialized = ctx.get("initialized", False)
+            self._auth_mode = ctx.get("auth_mode", "api_key")
 
             if ctx["byteplus"]:
                 self.api_key = ctx["byteplus"]["api_key"]
@@ -307,6 +335,7 @@ class LLMInterface:
                 self._bedrock_session_messages = {}
                 self._openrouter_anthropic_session_messages = {}
                 self._gemini_session_messages = {}
+                self._openai_compat_session_messages = {}
             else:
                 self._byteplus_cache_manager = None
                 self._session_system_prompts = {}
@@ -314,6 +343,7 @@ class LLMInterface:
                 self._bedrock_session_messages = {}
                 self._openrouter_anthropic_session_messages = {}
                 self._gemini_session_messages = {}
+                self._openai_compat_session_messages = {}
 
             # Reinitialize Gemini cache manager
             if self._gemini_client:
@@ -418,7 +448,9 @@ class LLMInterface:
             try:
                 ctx = _llm_call_ctx.get() or {}
                 start = ctx.get("start")
-                latency_ms = int((time.perf_counter() - start) * 1000) if start else 0
+                latency_ms = (
+                    int((time.perf_counter() - start) * 1000) if start else 0
+                )
                 self._record_llm_call(
                     LLMCallRecord(
                         provider=self.provider or "",
@@ -493,6 +525,8 @@ class LLMInterface:
                 "moonshot",
                 "grok",
                 "openrouter",
+                "glm",
+                "fugu",
             ):
                 response = self._generate_openai(system_prompt, user_prompt)
             elif self.provider == "remote":
@@ -667,7 +701,7 @@ class LLMInterface:
             (self.provider == "byteplus" and self._byteplus_cache_manager)
             or (self.provider == "gemini" and self._gemini_cache_manager)
             or (
-                self.provider in ("openai", "deepseek", "grok", "openrouter")
+                self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
                 and self.client
             )  # OpenAI/DeepSeek/Grok/OpenRouter use automatic caching with prompt_cache_key (and cache_control for Anthropic-routed OpenRouter models)
             or (
@@ -721,6 +755,7 @@ class LLMInterface:
         self._bedrock_session_messages.pop(session_key, None)
         self._openrouter_anthropic_session_messages.pop(session_key, None)
         self._gemini_session_messages.pop(session_key, None)
+        self._openai_compat_session_messages.pop(session_key, None)
 
         # Clean up provider-specific caches
         if self.provider == "byteplus" and self._byteplus_cache_manager:
@@ -751,12 +786,14 @@ class LLMInterface:
                     prompts_and_types.append((system_prompt, call_type))
 
         # Clean up multi-turn message histories across all providers that
-        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini).
+        # accumulate (anthropic, bedrock, openrouter-via-claude, gemini,
+        # openai-subscription).
         for buffer in (
             self._anthropic_session_messages,
             self._bedrock_session_messages,
             self._openrouter_anthropic_session_messages,
             self._gemini_session_messages,
+            self._openai_compat_session_messages,
         ):
             stale = [k for k in buffer if k.startswith(f"{task_id}:")]
             for key in stale:
@@ -769,6 +806,32 @@ class LLMInterface:
             # Invalidate all explicit caches for this task's prompts
             for system_prompt, call_type in prompts_and_types:
                 self._gemini_cache_manager.invalidate_cache(system_prompt, call_type)
+
+    def _trim_openai_compat_history(self, history: List[dict]) -> None:
+        """Bound an accumulated openai-compat session history IN PLACE.
+
+        Stateless resends grow every turn, so cap the history to keep
+        ``[system + history + new turn + response]`` inside the model's context
+        window. This is a safety backstop — the agent's summarization-driven
+        session reset (which clears the whole buffer via ``end_session_cache``)
+        normally fires first.
+
+        Trimming preserves the FIRST user/assistant pair — the grounding turn
+        carrying the original query / Definition of Done — and drops the oldest
+        MIDDLE pairs, so we never re-introduce the amnesia this fix exists to
+        prevent. Uses a chars≈4*tokens heuristic.
+        """
+        # ~240k chars ≈ ~60k tokens: comfortably inside grok-3's 131k window
+        # after the system prompt, the newest turn, and the response.
+        max_history_chars = 240_000
+
+        def _size() -> int:
+            return sum(len(m.get("content", "") or "") for m in history)
+
+        # Keep index 0/1 (grounding) and the most recent pair; trim from the
+        # oldest middle pair inward.
+        while len(history) > 4 and _size() > max_history_chars:
+            del history[2:4]
 
     def has_session_cache(self, task_id: str, call_type: str) -> bool:
         """Check if a session/explicit cache is available for the given task and call type.
@@ -794,7 +857,7 @@ class LLMInterface:
             if self.provider == "gemini" and self._gemini_cache_manager:
                 return True
             if (
-                self.provider in ("openai", "deepseek", "grok", "openrouter")
+                self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu")
                 and self.client
             ):
                 return True
@@ -824,6 +887,53 @@ class LLMInterface:
         """
         get_cache_metrics().reset()
         logger.info("[CACHE] Cache metrics reset")
+
+    def _finalize_session_response(
+        self, response: Dict[str, Any], log_response: bool
+    ) -> str:
+        """Shared tail for the session-cache provider branches.
+
+        Mirrors the failure handling in `_generate_response_sync`: an empty
+        response is treated as a failure, the consecutive-failure counter is
+        tracked, and the classified cause is surfaced (raising
+        `LLMConsecutiveFailureError` once the threshold is hit so the agent
+        aborts instead of retrying forever). On success the counter resets and
+        the cleaned content is returned.
+        """
+        content = (response.get("content") or "").strip()
+        if not content:
+            error_info = response.get("error_info_obj")
+            error_msg = response.get("error", "")
+            if error_info is not None:
+                error_detail = error_info.message
+            elif error_msg:
+                error_detail = f"LLM provider returned error: {error_msg}"
+            else:
+                error_detail = (
+                    f"LLM returned empty response. "
+                    f"Provider: {self.provider}, Model: {self.model}. "
+                    f"This may indicate an API error or service unavailability."
+                )
+            logger.error(f"[LLM ERROR] {error_detail}")
+            self._consecutive_failures += 1
+            logger.warning(
+                f"[LLM CONSECUTIVE FAILURE] Count: "
+                f"{self._consecutive_failures}/{self._max_consecutive_failures}"
+            )
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                raise LLMConsecutiveFailureError(
+                    self._consecutive_failures, last_error_info=error_info
+                )
+            raise RuntimeError(error_detail)
+
+        # Success - reset consecutive failure counter
+        self._consecutive_failures = 0
+        cleaned = re.sub(self._CODE_BLOCK_RE, "", content)
+        current_count = self._get_token_count()
+        self._set_token_count(current_count + billable_tokens(response))
+        if log_response:
+            logger.info(f"[LLM RECV] {cleaned}")
+        return cleaned
 
     def _generate_response_with_session_sync(
         self,
@@ -855,6 +965,17 @@ class LLMInterface:
         """
         if user_prompt is None:
             raise ValueError("`user_prompt` cannot be None.")
+
+        # Same consecutive-failure backstop as `_generate_response_sync`. The
+        # session path previously had none, so a persistent provider error
+        # (e.g. out-of-credits) retried forever instead of aborting.
+        if self._consecutive_failures >= self._max_consecutive_failures:
+            logger.critical(
+                f"[LLM ABORT] Consecutive failure threshold reached "
+                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+                f"Aborting to prevent infinite retries."
+            )
+            raise LLMConsecutiveFailureError(self._consecutive_failures)
 
         if log_response:
             logger.info(
@@ -907,17 +1028,10 @@ class LLMInterface:
                     {"role": "model", "parts": [{"text": assistant_content}]}
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle OpenAI/DeepSeek/Grok/OpenRouter with call_type-based cache routing
-        if self.provider in ("openai", "deepseek", "grok", "openrouter"):
+        if self.provider in ("openai", "deepseek", "grok", "openrouter", "glm", "fugu"):
             # Get stored system prompt or use provided one
             session_key = f"{task_id}:{call_type}"
             stored_system_prompt = self._session_system_prompts.get(session_key)
@@ -973,22 +1087,55 @@ class LLMInterface:
                     history.append({"role": "user", "content": user_prompt})
                     history.append({"role": "assistant", "content": assistant_content})
             else:
-                # Standard single-turn path. OpenAI/DeepSeek/Grok rely on the
-                # upstream's automatic prefix caching with prompt_cache_key —
-                # they match identical system prefixes across calls without
-                # needing message accumulation client-side.
-                response = self._generate_openai(
-                    effective_system_prompt, user_prompt, call_type=call_type
+                # openai / deepseek / grok / non-Claude openrouter.
+                #
+                # These are STATELESS chat-completions APIs — there is no
+                # server-side session. The old path sent only [system, delta]
+                # each turn and relied on "automatic prefix caching" to carry
+                # context, but prefix caching is a COST optimization, not
+                # memory: it never re-supplies tokens you don't send. So after
+                # the first turn the model saw only the newest delta and lost
+                # the original query and all earlier events (this is what made
+                # validation sub-agents fail with "No Definition of Done").
+                #
+                # Fix: accumulate a growing [user, assistant, ...] history and
+                # resend [system, u1, a1, ..., new_user] every turn. Correctness
+                # aside, the stable growing prefix is exactly what prompt_cache_key
+                # rewards, so most of the resend is served from cache once warm.
+                if session_key not in self._openai_compat_session_messages:
+                    self._openai_compat_session_messages[session_key] = []
+                history = self._openai_compat_session_messages[session_key]
+                self._trim_openai_compat_history(history)
+
+                oa_messages: List[Dict[str, Any]] = [
+                    {"role": "system", "content": effective_system_prompt}
+                ]
+                for msg in history:
+                    oa_messages.append(
+                        {"role": msg["role"], "content": msg["content"]}
+                    )
+                oa_messages.append({"role": "user", "content": user_prompt})
+
+                logger.debug(
+                    f"[OPENAI-COMPAT SESSION] {session_key} ({self.provider}): "
+                    f"{len(history)} history msgs, sending {len(oa_messages)} total"
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+                response = self._generate_openai(
+                    effective_system_prompt,
+                    user_prompt,
+                    call_type=call_type,
+                    messages_override=oa_messages,
+                )
+
+                assistant_content = response.get("content", "")
+                if assistant_content and not response.get("error"):
+                    history.append({"role": "user", "content": user_prompt})
+                    history.append(
+                        {"role": "assistant", "content": assistant_content}
+                    )
+
+            return self._finalize_session_response(response, log_response)
 
         # Handle Anthropic with multi-turn KV caching
         if self.provider == "anthropic" and self._anthropic_client:
@@ -1070,14 +1217,7 @@ class LLMInterface:
                 history.append({"role": "user", "content": user_prompt})
                 history.append({"role": "assistant", "content": assistant_content})
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # Handle Bedrock with multi-turn cachePoint caching.
         # Mirrors the Anthropic-direct pattern: accumulate the user/assistant
@@ -1165,14 +1305,7 @@ class LLMInterface:
                     f"has_error={response_has_error})"
                 )
 
-            cleaned = re.sub(
-                self._CODE_BLOCK_RE, "", response.get("content", "").strip()
-            )
-            current_count = self._get_token_count()
-            self._set_token_count(current_count + billable_tokens(response))
-            if log_response:
-                logger.info(f"[LLM RECV] {cleaned}")
-            return cleaned
+            return self._finalize_session_response(response, log_response)
 
         # If not BytePlus (and not Gemini/OpenAI/Anthropic/Bedrock which are handled above), fall back to standard
         if self.provider != "byteplus" or not self._byteplus_cache_manager:
@@ -1226,13 +1359,7 @@ class LLMInterface:
                 effective_system_prompt, user_prompt, log_response=False
             )
 
-        cleaned = re.sub(self._CODE_BLOCK_RE, "", response.get("content", "").strip())
-
-        current_count = self._get_token_count()
-        self._set_token_count(current_count + billable_tokens(response))
-        if log_response:
-            logger.info(f"[LLM RECV] {cleaned}")
-        return cleaned
+        return self._finalize_session_response(response, log_response)
 
     def _process_session_response(
         self,
@@ -1389,7 +1516,9 @@ class LLMInterface:
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
         """
-        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
+        self._begin_call(
+            prompt_name=prompt_name, call_type=call_type, task_id=task_id
+        )
         return self._generate_response_with_session_sync(
             task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
         )
@@ -1416,7 +1545,9 @@ class LLMInterface:
         """
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
-        self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
+        self._begin_call(
+            prompt_name=prompt_name, call_type=call_type, task_id=task_id
+        )
         return await asyncio.to_thread(
             self._generate_response_with_session_sync,
             task_id,
@@ -1668,9 +1799,12 @@ class LLMInterface:
             request_kwargs["response_format"] = {"type": "json_object"}
 
             # Build provider-specific cache hints in extra_body.
-            # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter): improves prefix-cache routing
-            #   stickiness across alternating call types. Grok ignores it; we skip there
-            #   to avoid noise.
+            # - prompt_cache_key (OpenAI/DeepSeek/OpenRouter/Grok): improves
+            #   prefix-cache routing stickiness across alternating call types.
+            #   Grok DOES honor it — verified empirically: without a key a
+            #   repeated identical prefix intermittently missed (routing bounced
+            #   to a cold node); with prompt_cache_key the same prefix stayed a
+            #   consistent hit. The old code skipped grok on a stale assumption.
             # - cache_control (OpenRouter routing to Anthropic Claude only): Anthropic
             #   prompt caching is opt-in. OpenRouter accepts a top-level cache_control
             #   field and applies it to the last cacheable block automatically. For
@@ -1683,7 +1817,7 @@ class LLMInterface:
                 system_prompt and len(system_prompt) >= config.min_cache_tokens
             )
 
-            if self.provider != "grok" and call_type and long_enough:
+            if call_type and long_enough:
                 prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
                 cache_key = f"{call_type}_{prompt_hash}"
                 extra_body["prompt_cache_key"] = cache_key
@@ -1712,6 +1846,11 @@ class LLMInterface:
             if extra_body:
                 request_kwargs["extra_body"] = extra_body
 
+            # In ChatGPT subscription mode the ``self.client`` is a
+            # ChatGPTSubscriptionClient that re-routes chat.completions
+            # calls through the Responses API (the only surface the
+            # chatgpt.com/backend-api/codex backend exposes). Call-site
+            # stays unchanged.
             response = self.client.chat.completions.create(**request_kwargs)
             if not response.choices:
                 raise ValueError(f"Provider returned no choices (model={self.model!r})")
@@ -1719,21 +1858,20 @@ class LLMInterface:
             token_count_input = response.usage.prompt_tokens
             token_count_output = response.usage.completion_tokens
 
-            # Extract cached tokens — field name differs by provider:
-            # - OpenAI:  response.usage.prompt_tokens_details.cached_tokens
-            # - Grok (xAI): response.usage.prompt_cache_hit_tokens
-            if self.provider == "grok":
-                cached_tokens = (
-                    getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
-                )
-            else:
-                prompt_tokens_details = getattr(
-                    response.usage, "prompt_tokens_details", None
-                )
-                if prompt_tokens_details:
-                    cached_tokens = (
-                        getattr(prompt_tokens_details, "cached_tokens", 0) or 0
-                    )
+            # Extract cached tokens. Empirically ALL the OpenAI-compatible
+            # upstreams we use — including grok (xAI) — report cached tokens
+            # under usage.prompt_tokens_details.cached_tokens. Grok does NOT
+            # return the top-level prompt_cache_hit_tokens field (verified: it
+            # is always absent), so the old grok-specific read reported 0 even
+            # on real cache hits. Read the nested field first, then fall back
+            # to the legacy top-level field for any provider that still uses it.
+            prompt_tokens_details = getattr(
+                response.usage, "prompt_tokens_details", None
+            )
+            if prompt_tokens_details:
+                cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
+            if not cached_tokens:
+                cached_tokens = getattr(response.usage, "prompt_cache_hit_tokens", 0) or 0
 
             # Record cache metrics
             provider_label = self.provider  # "openai", "grok", "deepseek", etc.
@@ -2376,6 +2514,12 @@ class LLMInterface:
         token_count_input = token_count_output = 0
         total_tokens = 0
         cached_tokens = 0
+        # Initialized here (not just inside the try) so the post-`except`
+        # _call_log_to_db below can reference them even when the API call
+        # throws before they're assigned (e.g. out-of-credits). Otherwise the
+        # real provider error is masked by an UnboundLocalError.
+        cache_creation = 0
+        cache_read = 0
         status = "failed"
         content: Optional[str] = None
         exc_obj: Optional[Exception] = None

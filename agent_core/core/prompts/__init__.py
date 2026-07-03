@@ -81,6 +81,11 @@ from agent_core.core.prompts.context import (
     LANGUAGE_INSTRUCTION,
 )
 
+# Reasoning prompts
+from agent_core.core.prompts.reasoning import (
+    PROMPT_ENHANCE_REASONING_PROMPT
+)
+
 # Routing prompts
 from agent_core.core.prompts.routing import (
     ROUTE_TO_SESSION_PROMPT,
@@ -101,6 +106,10 @@ from agent_core.core.prompts.skill import (
     SKILL_SELECTION_PROMPT,
     ACTION_SET_SELECTION_PROMPT,
 )
+
+# Sub-agent prompts now live alongside the sub-agent runtime, in
+# ``app.subagent.definitions`` (per-type system prompts) and
+# ``app.subagent.context_engine`` (shared output-format contract).
 
 __all__ = [
     # Registry
@@ -126,6 +135,8 @@ __all__ = [
     "CURRENT_DATETIME_PROMPT",
     "AGENT_FILE_SYSTEM_CONTEXT_PROMPT",
     "LANGUAGE_INSTRUCTION",
+    # Reasoning prompts
+    "PROMPT_ENHANCE_REASONING_PROMPT",
     # Routing prompts
     "ROUTE_TO_SESSION_PROMPT",
     # GUI prompts
