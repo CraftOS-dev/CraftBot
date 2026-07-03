@@ -30,6 +30,12 @@ import webbrowser
 import atexit
 from typing import Tuple, Optional, Dict, Any, List
 
+from app.runtime_preflight import (
+    ensure_runtime_dependencies,
+    mark_runtime_dependencies_checked,
+)
+from startup_constants import CRAFTBOT_READY_MARKER
+
 multiprocessing.freeze_support()
 
 # Configuration is loaded from settings.json via the agent startup
@@ -795,7 +801,7 @@ def print_ready_banner(url: str):
     W = 62
     print(f"\n{ORANGE}╔{'═' * W}╗{RESET}")
     print(f"{ORANGE}║{' ' * W}║{RESET}")
-    _r1 = "  ▸  CRAFTBOT IS READY"
+    _r1 = f"  ▸  {CRAFTBOT_READY_MARKER}"
     _r2 = f"  ░░ {url}"
     print(f"{ORANGE}║{RESET}{GREEN}{_r1.ljust(W)}{RESET}{ORANGE}║{RESET}")
     print(f"{ORANGE}║{RESET}{ORANGE}{_r2.ljust(W)}{RESET}{ORANGE}║{RESET}")
@@ -1253,6 +1259,13 @@ if __name__ == "__main__":
             print(f"\nEnvironment '{env_name}' not ready.")
             print("Run 'python install.py' or 'python install.py --conda' first.\n")
             sys.exit(1)
+
+    ensure_runtime_dependencies(
+        use_conda=use_conda,
+        env_name=env_name,
+        conda_command=get_conda_command() if use_conda else "conda",
+    )
+    mark_runtime_dependencies_checked()
 
     # Start OmniParser only if GUI mode and it was installed
     if gui_mode and gui_installed:
