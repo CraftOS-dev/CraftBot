@@ -1,6 +1,30 @@
 from agent_core import action
 
 
+def _find_files_impl(base_directory: str, file_pattern: str, recursive: bool) -> dict:
+    import glob
+    import os
+
+    from app.utils import file_index
+
+    if not recursive:
+        matches = []
+        for path in glob.glob(os.path.join(base_directory, file_pattern)):
+            if os.path.isfile(path):
+                matches.append(os.path.abspath(path))
+    else:
+        file_index.start_watcher(base_directory)
+        matches = file_index.search(base_directory, file_pattern)
+
+    return {
+        "status": "success",
+        "matches": matches,
+        "message": ""
+        if matches
+        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
+    }
+
+
 @action(
     name="find_files",
     description="Finds files by name or pattern across the system. Supports wildcards and recursive search. Use absolute paths for base_directory.",
@@ -45,7 +69,6 @@ from agent_core import action
 )
 def find_file_by_name(input_data: dict) -> dict:
     import os
-    import fnmatch
 
     pattern = (input_data.get("pattern") or "").strip()
     recursive = bool(input_data.get("recursive", True))
@@ -85,26 +108,7 @@ def find_file_by_name(input_data: dict) -> dict:
         else pattern
     )
 
-    matches = []
-    for root, dirs, files in os.walk(base_directory):
-        try:
-            for name in files:
-                if fnmatch.fnmatch(name, file_pattern):
-                    matches.append(os.path.abspath(os.path.join(root, name)))
-        except PermissionError:
-            # Skip directories we don't have access to
-            continue
-
-        if not recursive:
-            break
-
-    return {
-        "status": "success",
-        "matches": matches,
-        "message": ""
-        if matches
-        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
-    }
+    return _find_files_impl(base_directory, file_pattern, recursive)
 
 
 @action(
@@ -151,7 +155,6 @@ def find_file_by_name(input_data: dict) -> dict:
 )
 def find_file_by_name_windows(input_data: dict) -> dict:
     import os
-    import fnmatch
 
     pattern = (input_data.get("pattern") or "").strip()
     recursive = bool(input_data.get("recursive", True))
@@ -194,22 +197,4 @@ def find_file_by_name_windows(input_data: dict) -> dict:
         else pattern
     )
 
-    matches = []
-    for root, dirs, files in os.walk(base_directory):
-        try:
-            for name in files:
-                if fnmatch.fnmatch(name, file_pattern):
-                    matches.append(os.path.abspath(os.path.join(root, name)))
-        except PermissionError:
-            continue
-
-        if not recursive:
-            break
-
-    return {
-        "status": "success",
-        "matches": matches,
-        "message": ""
-        if matches
-        else f"No files matching '{file_pattern}' were found in '{base_directory}'.",
-    }
+    return _find_files_impl(base_directory, file_pattern, recursive)
