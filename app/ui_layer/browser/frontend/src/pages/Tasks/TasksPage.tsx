@@ -586,17 +586,21 @@ export function TasksPage() {
   const [, forceTick] = useState(0)
 
   // Split tasks into "in-progress" (running / waiting / paused / pending) and
-  // "ended" (completed / error / cancelled). Each group is sorted newest-first
-  // by createdAt so a freshly-started task appears at the top of its section,
-  // and a task that just ended pops to the top of the ended section. The
+  // "ended" (completed / error / cancelled). The active group is sorted
+  // newest-first by createdAt so a freshly-started task appears at the top of
+  // its section; the ended group is sorted newest-first by completedAt
+  // (falling back to createdAt for rows persisted before that field existed)
+  // so a task that just ended pops to the top of the ended section. The
   // combined `tasks` array keeps active-then-ended order so pagination counts
   // and selection lookups work unchanged.
   const { tasks, activeTasks, endedTasks } = useMemo(() => {
     const taskItems = actions.filter(a => a.itemType === 'task')
     const isEnded = (s: string) => s === 'completed' || s === 'error' || s === 'cancelled'
     const byNewestFirst = (a: ActionItem, b: ActionItem) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+    const byNewestEnded = (a: ActionItem, b: ActionItem) =>
+      (b.completedAt ?? b.createdAt ?? 0) - (a.completedAt ?? a.createdAt ?? 0)
     const active = taskItems.filter(t => !isEnded(t.status)).sort(byNewestFirst)
-    const ended = taskItems.filter(t => isEnded(t.status)).sort(byNewestFirst)
+    const ended = taskItems.filter(t => isEnded(t.status)).sort(byNewestEnded)
     return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
   }, [actions])
 
