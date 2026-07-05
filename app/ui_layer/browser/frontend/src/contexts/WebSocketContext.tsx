@@ -356,9 +356,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     client.connect()
 
     // If the singleton already opened before we subscribed (common: middleware
-    // boots earlier than React mounting), sync the initial state now.
+    // boots earlier than React mounting), sync the initial state now. Our
+    // onOpen handler above never fired for this connection, so also request
+    // the Living UI list here — otherwise the side panel stays empty until
+    // the next reconnect. (The backend also pushes the list on connect; this
+    // covers older backends and doubles as a resync.)
     if (client.isConnected) {
       setState(prev => ({ ...prev, connected: true }))
+      client.sendString(JSON.stringify({ type: 'living_ui_list' }))
     }
 
     return () => {

@@ -1424,6 +1424,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": self._get_skill_meta(),
                 }
             )
+            # Push the Living UI list on connect instead of relying on the
+            # client to request it. The frontend's request is sent from an
+            # onOpen handler registered after React mounts; when the socket
+            # opens before that (middleware connects during store bootstrap),
+            # the request was never sent and the side panel stayed empty
+            # until the next reconnect.
+            await ws.send_json(
+                {
+                    "type": "living_ui_list",
+                    "data": {
+                        "success": True,
+                        "projects": [
+                            p.to_dict()
+                            for p in self._living_ui_manager.list_projects()
+                        ],
+                    },
+                }
+            )
         except (ConnectionResetError, ClientConnectionResetError, RuntimeError):
             # Gracefully handle connection closing
             self._ws_clients.discard(ws)
