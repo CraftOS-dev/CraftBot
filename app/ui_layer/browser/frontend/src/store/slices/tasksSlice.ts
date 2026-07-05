@@ -52,6 +52,7 @@ const tasksSlice = createSlice({
     updateStatus(state, action: PayloadAction<{
       id: string
       status: ActionItem['status']
+      completedAt?: number
       duration?: number
       output?: string
       error?: string
@@ -59,6 +60,7 @@ const tasksSlice = createSlice({
       const entry = state.entities[action.payload.id]
       if (!entry) return
       entry.status = action.payload.status
+      if (action.payload.completedAt != null) entry.completedAt = action.payload.completedAt
       if (action.payload.duration !== undefined) entry.duration = action.payload.duration
       if (action.payload.output !== undefined) entry.output = action.payload.output
       if (action.payload.error !== undefined) entry.error = action.payload.error
@@ -96,7 +98,10 @@ const tasksSlice = createSlice({
     },
     markCancelled(state, action: PayloadAction<{ taskId: string }>) {
       const entry = state.entities[action.payload.taskId]
-      if (entry) entry.status = 'cancelled'
+      if (entry) {
+        entry.status = 'cancelled'
+        entry.completedAt = Date.now()
+      }
       state.cancellingTaskId = null
     },
     setCompletingTaskId(state, action: PayloadAction<string | null>) {
@@ -104,7 +109,10 @@ const tasksSlice = createSlice({
     },
     markCompleted(state, action: PayloadAction<{ taskId: string }>) {
       const entry = state.entities[action.payload.taskId]
-      if (entry) entry.status = 'completed'
+      if (entry) {
+        entry.status = 'completed'
+        entry.completedAt = Date.now()
+      }
       state.completingTaskId = null
     },
     setResumingTaskId(state, action: PayloadAction<string | null>) {
@@ -116,6 +124,7 @@ const tasksSlice = createSlice({
         entry.status = 'running'
         // Clear the completed-at duration so the row stops showing the
         // final elapsed time and ticks live again.
+        entry.completedAt = undefined
         entry.duration = undefined
         entry.error = undefined
       }
@@ -165,6 +174,7 @@ register('action_update', (data, dispatch) => {
   const d = data as {
     id: string
     status: string
+    completedAt?: number
     duration?: number
     output?: string
     error?: string
@@ -172,6 +182,7 @@ register('action_update', (data, dispatch) => {
   dispatch(updateStatus({
     id: d.id,
     status: d.status as ActionItem['status'],
+    completedAt: d.completedAt,
     duration: d.duration,
     output: d.output,
     error: d.error,

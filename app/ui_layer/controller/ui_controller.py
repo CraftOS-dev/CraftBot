@@ -336,7 +336,7 @@ class UIController:
         streams = self._agent.event_stream_manager.get_all_streams_with_ids()
         for task_id, stream in streams:
             for event in stream.as_list():
-                key = (event.iso_ts, event.kind, event.message)
+                key = (task_id, event.iso_ts, event.kind, event.message)
                 self._state_store.dispatch("MARK_EVENT_SEEN", key)
                 # Rebuild UI state from restored events without emitting to UI
                 ui_event = EventTransformer.transform(event, task_id)
@@ -350,8 +350,13 @@ class UIController:
 
                 for task_id, stream in streams:
                     for event in stream.as_list():
-                        # Create deduplication key
-                        key = (event.iso_ts, event.kind, event.message)
+                        # Create deduplication key. task_id must be part of
+                        # the key: iso_ts is seconds-precision and task_end
+                        # messages are generic, so two tasks ending in the
+                        # same second would otherwise collide and the second
+                        # TASK_END would be dropped — leaving that task stuck
+                        # "running" in every UI until restart.
+                        key = (task_id, event.iso_ts, event.kind, event.message)
 
                         # Skip if already seen
                         if key in self._state_store.state.seen_event_keys:
@@ -530,6 +535,29 @@ class UIController:
                     trigger = await self._agent.trigger_service.next()
                     await self._agent.react(trigger)
                     await self._agent.trigger_service.ack(trigger)
+                    # A react cycle can end without a task_end or visible
+                    # action (conversation-mode reply, or the agent ignoring
+                    # the message). Nothing else resets the status in that
+                    # case, so flip WORKING back to IDLE once the cycle
+                    # settles with nothing running. WAITING_FOR_USER is left
+                    # untouched.
+                    if (
+                        self._state_store.state.agent_state
+                        == AgentStateType.WORKING
+                        and not self._state_store.state.has_running_items()
+                    ):
+                        self._state_store.dispatch(
+                            "SET_AGENT_STATE", AgentStateType.IDLE.value
+                        )
+                        self._event_bus.emit(
+                            UIEvent(
+                                type=UIEventType.AGENT_STATE_CHANGED,
+                                data={
+                                    "state": AgentStateType.IDLE.value,
+                                    "status_message": "Agent is idle",
+                                },
+                            )
+                        )
                 except asyncio.CancelledError:
                     # Shutdown: deliberately no ack/nack — the row stays
                     # CLAIMED and is reclaimed (re-delivered) on next boot.

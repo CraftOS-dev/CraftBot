@@ -46,6 +46,7 @@ export interface ActionItem {
   itemType: ItemType
   parentId?: string
   createdAt?: number
+  completedAt?: number
   input?: string
   output?: string
   error?: string

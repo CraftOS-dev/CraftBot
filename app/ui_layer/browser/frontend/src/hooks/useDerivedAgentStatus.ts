@@ -64,14 +64,29 @@ export function useDerivedAgentStatus(
     }
 
     // Priority 3: If the last message is from user, agent is processing it
-    // (no running tasks yet means agent is still thinking/preparing)
+    // (no running tasks yet means agent is still thinking/preparing).
+    //
+    // Escape hatch: the agent may finish the work without ever posting a
+    // chat reply (e.g. the response is the task itself). If any task or
+    // action was started or finished after the user's message — and nothing
+    // is running any more (checked above) — the message has been handled,
+    // so don't report "working" forever.
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1]
       if (lastMessage.style === 'user') {
-        return {
-          state: 'working' as AgentState,
-          message: 'Agent is working',
-          loading: true,
+        // ChatMessage.timestamp is epoch seconds; ActionItem times are ms.
+        const lastMessageMs = lastMessage.timestamp * 1000
+        const agentActedSince = actions.some(
+          a =>
+            (a.createdAt ?? 0) >= lastMessageMs ||
+            (a.completedAt ?? 0) >= lastMessageMs
+        )
+        if (!agentActedSince) {
+          return {
+            state: 'working' as AgentState,
+            message: 'Agent is working',
+            loading: true,
+          }
         }
       }
     }

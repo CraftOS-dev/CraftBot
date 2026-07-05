@@ -520,6 +520,9 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     "itemType": item.item_type,
                     "parentId": item.parent_id,
                     "createdAt": int(item.created_at * 1000),
+                    "completedAt": (
+                        int(item.completed_at * 1000) if item.completed_at else None
+                    ),
                     "duration": item.duration,
                     "input": item.input_data,
                     "output": item.output_data,
@@ -558,6 +561,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     "data": {
                         "id": item_id,
                         "status": status,
+                        "completedAt": (
+                            int(matched_item.completed_at * 1000)
+                            if matched_item.completed_at
+                            else None
+                        ),
                         "duration": matched_item.duration,
                         "output": matched_item.output_data,
                         "error": matched_item.error_message,
@@ -630,6 +638,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     "data": {
                         "id": matched_item.id,
                         "status": status,
+                        "completedAt": (
+                            int(matched_item.completed_at * 1000)
+                            if matched_item.completed_at
+                            else None
+                        ),
                         "duration": matched_item.duration,
                         "output": matched_item.output_data,
                         "error": matched_item.error_message,
@@ -709,6 +722,11 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     "data": {
                         "id": item_id,
                         "status": matched_item.status,
+                        "completedAt": (
+                            int(matched_item.completed_at * 1000)
+                            if matched_item.completed_at
+                            else None
+                        ),
                         "duration": matched_item.duration,
                         "output": matched_item.output_data,
                         "error": matched_item.error_message,
@@ -8050,6 +8068,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "itemType": a.item_type,
                     "parentId": a.parent_id,
                     "createdAt": int(a.created_at * 1000),
+                    "completedAt": (
+                        int(a.completed_at * 1000) if a.completed_at else None
+                    ),
                     "duration": a.duration,
                     "input": a.input_data,
                     "output": a.output_data,
@@ -8720,6 +8741,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "itemType": a.item_type,
                     "parentId": a.parent_id,
                     "createdAt": int(a.created_at * 1000),
+                    "completedAt": (
+                        int(a.completed_at * 1000) if a.completed_at else None
+                    ),
                     "duration": a.duration,
                     "input": a.input_data,
                     "output": a.output_data,
