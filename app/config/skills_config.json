@@ -10,6 +10,7 @@
     "living-ui-creator",
     "living-ui-manager",
     "living-ui-modify",
+    "living-ui-importer",
     "craftbot-skill-creator",
     "craftbot-skill-improve"
   ],

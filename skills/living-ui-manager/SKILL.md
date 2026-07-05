@@ -211,6 +211,5 @@ When creating new endpoints (Step 4b):
 - **Never modify frontend code** for data operations - always use backend APIs
 - **Update LIVING_UI.md** after adding new endpoints
 - **Format results** clearly for the user - tables, lists, summaries
-- **Use `living_ui_restart` action** after code changes - never start servers manually
-- **Verify imports** before restarting: `python -c "from models import *; from routes import *"`
+- **Use `living_ui_restart` action** after code changes - never start servers manually or run verification commands yourself; the restart pipeline runs install, tests, and health checks and reports any import errors (see 4c)
 - **Don't create a Living UI** - this skill is for interacting with existing ones. Use `living-ui-creator` skill to create new Living UIs.

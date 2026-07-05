@@ -150,4 +150,4 @@ Health: http_get on http://localhost:{{PORT}}
 - NEVER modify the original app source code during import (that's for the modify skill later)
 - NEVER skip reading the README — it often has the correct build/run instructions
 - NEVER assume a port — always detect it from the app's configuration
-- NEVER use `living_ui_notify_ready` for external apps — use `living_ui_import_external` instead
+- NEVER use `living_ui_scaffold` for external apps — register them with `living_ui_import_external` (or `living_ui_import_zip` for exported projects). After the import succeeds, `living_ui_notify_ready` is the correct way to launch the project.

@@ -86,18 +86,53 @@ function parseGlobalConfig(content: string): { sections: ParsedSection[]; rawLin
   return { sections, rawLines: lines }
 }
 
-function rebuildConfig(rawLines: string[], changes: Map<number, string>): string {
-  return rawLines.map((line, i) => {
-    if (changes.has(i)) {
-      const newVal = changes.get(i)!
-      if (newVal === 'true' || newVal === 'false') {
-        return line.replace(/^- \[(x| )\]/, newVal === 'true' ? '- [x]' : '- [ ]')
-      }
-      const prefMatch = line.match(/^(- \*\*.+?:\*\*\s*)(.*)/)
-      if (prefMatch) return prefMatch[1] + newVal
-    }
-    return line
-  }).join('\n')
+// All edits below operate on the CURRENT editable content — the same string
+// the UI parsed for display — so line indexes always match what the user sees.
+// (The previous design replayed a change-map onto the ORIGINAL content, which
+// silently discarded adds/deletes and could toggle the wrong line once the
+// two copies diverged.) Each helper re-validates the target line's shape and
+// refuses to touch a line that no longer matches, rather than corrupting it.
+
+function setRuleEnabled(content: string, lineIndex: number, enabled: boolean): string {
+  const lines = content.split('\n')
+  if (lineIndex < 0 || lineIndex >= lines.length) return content
+  const m = lines[lineIndex].match(/^- \[(x| )\](.*)$/)
+  if (!m) return content
+  lines[lineIndex] = `- [${enabled ? 'x' : ' '}]${m[2]}`
+  return lines.join('\n')
+}
+
+function setPrefValue(content: string, lineIndex: number, value: string): string {
+  const lines = content.split('\n')
+  if (lineIndex < 0 || lineIndex >= lines.length) return content
+  const m = lines[lineIndex].match(/^(- \*\*.+?:\*\*\s*)(.*)$/)
+  if (!m) return content
+  lines[lineIndex] = m[1] + value
+  return lines.join('\n')
+}
+
+function deleteLine(content: string, lineIndex: number): string {
+  const lines = content.split('\n')
+  if (lineIndex < 0 || lineIndex >= lines.length) return content
+  lines.splice(lineIndex, 1)
+  return lines.join('\n')
+}
+
+// Append a rule inside the "## Custom Rules" section, creating it if missing.
+function appendCustomRule(content: string, ruleText: string): string {
+  const rule = `- [x] ${ruleText}`
+  const lines = content.trimEnd().split('\n')
+  const sectionIdx = lines.findIndex(l => /^##\s+Custom Rules\s*$/.test(l))
+  if (sectionIdx === -1) {
+    return [...lines, '', '## Custom Rules', '', rule].join('\n') + '\n'
+  }
+  let end = lines.length
+  for (let i = sectionIdx + 1; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i])) { end = i; break }
+  }
+  while (end > sectionIdx + 1 && lines[end - 1].trim() === '') end--
+  lines.splice(end, 0, rule)
+  return lines.join('\n') + '\n'
 }
 
 export function LivingUISettings() {
@@ -121,7 +156,6 @@ export function LivingUISettings() {
   const [newRule, setNewRule] = useState('')
   const [rulesExpanded, setRulesExpanded] = useState(true)
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
-  const [lineChanges, setLineChanges] = useState<Map<number, string>>(new Map())
   const globalConfigRef = useRef(globalConfig)
   globalConfigRef.current = globalConfig
 
@@ -161,13 +195,9 @@ export function LivingUISettings() {
           }
         }
       }),
-      onMessage('agent_file_restore', (data: unknown) => {
-        const d = data as { filename: string; content: string; success: boolean }
-        if (d.filename === 'GLOBAL_LIVING_UI.md' && d.success) {
-          // Slice handler already updated originalConfig; clear local edits.
-          setLineChanges(new Map())
-        }
-      }),
+      // agent_file_restore needs no handler here: the slice updates
+      // originalConfig and the local editable copy re-syncs via the
+      // originalConfig effect above.
     ]
     return () => cleanups.forEach(c => c())
   }, [onMessage, dispatch])
@@ -197,30 +227,21 @@ export function LivingUISettings() {
   }, [send, onMessage])
 
   const handleToggleRule = (lineIndex: number, enabled: boolean) => {
-    const newChanges = new Map<number, string>(lineChanges)
-    newChanges.set(lineIndex, String(enabled))
-    setLineChanges(newChanges)
-    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
+    setLocalGlobalConfig(prev => setRuleEnabled(prev, lineIndex, enabled))
   }
 
   const handlePrefChange = (lineIndex: number, value: string) => {
-    const newChanges = new Map<number, string>(lineChanges)
-    newChanges.set(lineIndex, value)
-    setLineChanges(newChanges)
-    setLocalGlobalConfig(rebuildConfig(parseGlobalConfig(originalConfig).rawLines, newChanges))
+    setLocalGlobalConfig(prev => setPrefValue(prev, lineIndex, value))
   }
 
   const handleAddRule = () => {
     if (!newRule.trim()) return
-    setLocalGlobalConfig(prev => prev.trimEnd() + '\n- [x] ' + newRule.trim() + '\n')
+    setLocalGlobalConfig(prev => appendCustomRule(prev, newRule.trim()))
     setNewRule('')
   }
 
-
   const handleDeleteRule = (lineIndex: number) => {
-    const lines = globalConfig.split('\n')
-    lines.splice(lineIndex, 1)
-    setLocalGlobalConfig(lines.join('\n'))
+    setLocalGlobalConfig(prev => deleteLine(prev, lineIndex))
   }
 
   const handleSaveGlobal = () => {
@@ -283,11 +304,7 @@ export function LivingUISettings() {
   const ruleSections = sections.filter(s => s.rules.length > 0)
   const totalRules = ruleSections.reduce((acc, s) => acc + s.rules.length, 0)
   const activeRules = ruleSections.reduce(
-    (acc, s) =>
-      acc +
-      s.rules.filter(r =>
-        lineChanges.has(r.lineIndex) ? lineChanges.get(r.lineIndex) === 'true' : r.enabled
-      ).length,
+    (acc, s) => acc + s.rules.filter(r => r.enabled).length,
     0
   )
 
@@ -317,9 +334,7 @@ export function LivingUISettings() {
         ) : (
           <div className={styles.settingsForm}>
             {designPrefs.map(pref => {
-              const val = lineChanges.has(pref.lineIndex)
-                ? lineChanges.get(pref.lineIndex)!
-                : pref.value
+              const val = pref.value
               const key = pref.key.toLowerCase()
               const isColor = key.includes('color')
               const isFont = key.includes('font')
@@ -455,9 +470,7 @@ export function LivingUISettings() {
                             {section.title}
                           </div>
                           {section.rules.map((rule, idx) => {
-                            const checked = lineChanges.has(rule.lineIndex)
-                              ? lineChanges.get(rule.lineIndex) === 'true'
-                              : rule.enabled
+                            const checked = rule.enabled
                             return (
                               <div
                                 key={rule.lineIndex}

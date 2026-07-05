@@ -8,7 +8,7 @@
   "features": [],
   "createdAt": "{{CREATED_AT}}",
   "entrypoint": {
-    "frontend": "src/main.tsx",
+    "frontend": "frontend/main.tsx",
     "backend": "backend/main.py"
   },
   "ports": {

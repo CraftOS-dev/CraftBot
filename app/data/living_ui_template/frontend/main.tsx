@@ -8,9 +8,9 @@ import './styles/global.css'
 const backendBase = (window as any).__CRAFTBOT_BACKEND_URL__ || `http://localhost:${import.meta.env.VITE_BACKEND_PORT || '3101'}`
 const backendUrl = `${backendBase}/api`
 
-// Initialize UI capture for agent observation
+// Initialize UI capture for agent observation (event-driven, no polling)
 // This replaces WebSocket-based AgentBridge with HTTP
-uiCapture.initialize(backendUrl, true, 2000) // Auto-capture every 2 seconds
+uiCapture.initialize(backendUrl)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

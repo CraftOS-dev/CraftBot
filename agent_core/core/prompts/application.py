@@ -5,6 +5,10 @@ Application-specific prompt templates.
 Contains prompt templates for Living UI and other application features.
 """
 
+# NOTE: This instruction is a condensed mirror of the canonical workflow in
+# skills/living-ui-creator/SKILL.md (which the task also loads via
+# selected_skills). If you change the workflow, ports, or quality bar in
+# either place, update the other — they drift independently otherwise.
 LIVING_UI_TASK_INSTRUCTION = """Create a Living UI application.
 
 Project ID: {project_id}

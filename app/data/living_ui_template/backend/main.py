@@ -40,11 +40,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration for frontend
+# CORS configuration for frontend.
+# Note: allow_credentials=True is invalid with a "*" origin per the CORS spec
+# (and unnecessary — auth uses Bearer tokens in headers, not cookies).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

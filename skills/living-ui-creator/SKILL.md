@@ -160,7 +160,7 @@ Read `agent_file_system/GLOBAL_LIVING_UI.md` for global design preferences and r
 
 **You MUST apply these settings in your code:**
 
-- **Primary/Secondary/Accent Colors**: Use these hex values in your CSS and component styles. Set them as CSS custom properties in `frontend/styles/global.css` or use them directly in components. Example: if Primary Color is `#6366f1`, use it for primary buttons, active states, links, and accent elements.
+- **Primary/Secondary/Accent Colors**: Use these hex values in your CSS and component styles. Set them as CSS custom properties in `frontend/styles/global.css` or use them directly in components. Example: if Primary Color is `#FF4F18` (the default `--color-primary` token — see references/COMPONENTS.md), use it for primary buttons, active states, links, and accent elements.
 - **Font Family**: Apply as the `font-family` in `global.css` body styles.
 - **Enabled rules `[x]`**: Treat as hard requirements — your code must implement them.
 - **Disabled rules `[ ]`**: Skip these features.

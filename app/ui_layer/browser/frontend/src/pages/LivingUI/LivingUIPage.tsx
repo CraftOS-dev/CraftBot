@@ -24,7 +24,7 @@ import { Chat } from '../../components/Chat'
 import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, getIframeWindow } from './iframePool'
 import { CreationProgress } from './CreationProgress'
 import { CreationQuestionForm } from './CreationQuestionForm'
-import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS } from './LivingUIThemeModal'
+import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS, buildThemeMessage } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
 import { selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
@@ -58,6 +58,16 @@ function saveLivingUICustomColors(projectId: string, colors: LivingUICustomColor
   try { localStorage.setItem(`livingui-custom-colors-${projectId}`, JSON.stringify(colors)) } catch {}
 }
 
+function hasLocalTheme(projectId: string): boolean {
+  try { return localStorage.getItem(`livingui-theme-${projectId}`) !== null } catch { return false }
+}
+
+// Origin of the embedded app, for postMessage target/source verification.
+function projectOrigin(url?: string): string | null {
+  if (!url) return null
+  try { return new URL(url).origin } catch { return null }
+}
+
 export function LivingUIPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
@@ -68,6 +78,7 @@ export function LivingUIPage() {
     stopLivingUI,
     deleteLivingUI,
     setActiveLivingUI,
+    updateLivingUITheme,
     sendMessage,
   } = useWebSocket()
   const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
@@ -176,15 +187,28 @@ export function LivingUIPage() {
     }
   }, [projectId, project?.status, project?.url])
 
-  // Send the selected Living UI theme + current app mode to the iframe
+  // Adopt the server-persisted theme when this browser has no local choice
+  // yet (e.g. a different device/browser than the one that picked it).
+  const adoptedServerTheme = useRef(false)
+  useEffect(() => {
+    if (!projectId || !project?.uiTheme || adoptedServerTheme.current) return
+    adoptedServerTheme.current = true
+    if (!hasLocalTheme(projectId)) {
+      setLivingUITheme(project.uiTheme.themeId as LivingUIThemeId)
+      if (project.uiTheme.customColors) {
+        setLivingUICustomColors(project.uiTheme.customColors)
+      }
+    }
+  }, [projectId, project?.uiTheme])
+
+  // Send the selected Living UI theme to the iframe using the same
+  // 'craftbot-theme' protocol the template's theme-sync script listens for.
   useEffect(() => {
     if (!projectId || project?.status !== 'running') return
-    postMessageToIframe(projectId, {
-      type: 'livingui-theme',
-      themeId: livingUITheme,
-      mode: appTheme,
-      customColors: livingUICustomColors,
-    })
+    postMessageToIframe(
+      projectId,
+      buildThemeMessage(livingUITheme, appTheme, livingUICustomColors),
+    )
   }, [livingUITheme, livingUICustomColors, appTheme, projectId, project?.status])
 
   // When the iframe finishes loading it sends 'craftbot-theme-request'. Reply
@@ -194,16 +218,16 @@ export function LivingUIPage() {
     const onIframeReady = (e: MessageEvent) => {
       if (e.data?.type !== 'craftbot-theme-request' || !e.source) return
       if (e.source !== getIframeWindow(projectId)) return
-      ;(e.source as Window).postMessage({
-        type: 'livingui-theme',
-        themeId: livingUITheme,
-        mode: appTheme,
-        customColors: livingUICustomColors,
-      }, '*')
+      const expectedOrigin = projectOrigin(project?.url)
+      if (expectedOrigin && e.origin !== expectedOrigin) return
+      ;(e.source as Window).postMessage(
+        buildThemeMessage(livingUITheme, appTheme, livingUICustomColors),
+        expectedOrigin ?? e.origin,
+      )
     }
     window.addEventListener('message', onIframeReady)
     return () => window.removeEventListener('message', onIframeReady)
-  }, [projectId, livingUITheme, livingUICustomColors, appTheme])
+  }, [projectId, livingUITheme, livingUICustomColors, appTheme, project?.url])
 
   const handleThemeSelect = (themeId: LivingUIThemeId, colors?: LivingUICustomColors) => {
     if (!projectId) return
@@ -213,6 +237,8 @@ export function LivingUIPage() {
       setLivingUICustomColors(colors)
       saveLivingUICustomColors(projectId, colors)
     }
+    // Persist with the project so the choice survives this browser's storage.
+    updateLivingUITheme(projectId, themeId, colors ?? livingUICustomColors)
   }
 
   const handleLaunch = () => {

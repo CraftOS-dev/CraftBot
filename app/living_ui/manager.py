@@ -11,6 +11,7 @@ Manages the lifecycle of Living UI projects:
 """
 
 import asyncio
+import hmac
 import json
 import os
 import re
@@ -19,6 +20,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 import zipfile
@@ -63,6 +65,9 @@ class LivingUIProject:
     app_runtime: Optional[str] = (
         None  # 'go', 'node', 'python', 'rust', 'docker', 'static'
     )
+    # Per-project display theme chosen in the UI ({"themeId": ..., "customColors": {...}}).
+    # Persisted so the choice survives beyond one browser's localStorage.
+    ui_theme: Optional[Dict[str, Any]] = None
     bridge_token: str = ""  # Ephemeral token for integration bridge (NOT serialized)
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
@@ -91,6 +96,7 @@ class LivingUIProject:
             "projectType": self.project_type,
             "appRuntime": self.app_runtime,
             "tunnelUrl": self.tunnel_url,
+            "uiTheme": self.ui_theme,
         }
 
 
@@ -111,6 +117,10 @@ class LivingUIManager:
         self._next_port = 3100
         self._port_range = (3100, 3199)
         self._used_ports: set = set()
+        # Guards the check-then-add on _used_ports: allocation happens from the
+        # watchdog, auto-launch, WS handlers and agent actions, some of which
+        # run on worker threads.
+        self._ports_lock = threading.Lock()
         self._projects_file = self.workspace_root / "living_ui_projects.json"
 
         # Task and trigger management (set via bind_task_manager)
@@ -336,6 +346,7 @@ class LivingUIManager:
                 stderr=frontend_log_handle,
                 shell=True if os.name == "nt" else False,
             )
+            process._craftbot_log_handle = frontend_log_handle
 
             project.process = process
 
@@ -350,7 +361,7 @@ class LivingUIManager:
                     f"[LIVING_UI] Frontend relaunch failed for {project_id}. Log tail:\n{recent}"
                 )
                 if process.poll() is None:
-                    process.terminate()
+                    self._terminate_process(process)
                 project.process = None
                 frontend_log_handle.close()
                 return False
@@ -518,10 +529,46 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         except Exception as e:
             logger.error(f"[LIVING_UI:WATCHDOG] Failed to create fix task: {e}")
 
+    @staticmethod
+    def _rewrite_ports_in_manifest(node: Any, port_map: Dict[str, str]) -> Any:
+        """Structurally rewrite port numbers inside manifest values.
+
+        Rewrites int values equal to an old port and standalone number tokens
+        inside string values (health URLs, start commands) that are not
+        adjacent to any word character — so ids like "a3100b" are untouched.
+        A single-pass alternation is used so chained mappings like
+        {3100: 3101, 3101: 3102} never double-replace. This replaces the old
+        whole-file str.replace(), which could corrupt ids, versions, or
+        timestamps that happened to contain the port digits.
+        """
+        if not port_map:
+            return node
+        pattern = re.compile(
+            r"(?<!\w)(" + "|".join(re.escape(p) for p in port_map) + r")(?!\w)"
+        )
+
+        def rewrite(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {k: rewrite(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [rewrite(v) for v in value]
+            if isinstance(value, str):
+                return pattern.sub(lambda m: port_map[m.group(1)], value)
+            if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and str(value) in port_map
+            ):
+                return int(port_map[str(value)])
+            return value
+
+        return rewrite(node)
+
     def _load_projects(self) -> None:
         """Load projects from persistent storage."""
         if self._projects_file.exists():
             try:
+                saved_tunnels: List[Tuple[str, str]] = []
                 with open(self._projects_file, "r") as f:
                     data = json.load(f)
                     for project_data in data.get("projects", []):
@@ -543,26 +590,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             log_cleanup=project_data.get("logCleanup", True),
                             project_type=project_data.get("projectType", "native"),
                             app_runtime=project_data.get("appRuntime"),
+                            ui_theme=project_data.get("uiTheme"),
                         )
-                        # Check if saved tunnel URL is still reachable
+                        # Keep the saved tunnel URL optimistically; reachability
+                        # is verified in a background thread below so startup
+                        # doesn't block on a HEAD request per tunneled project.
                         saved_tunnel = project_data.get("tunnelUrl")
                         if saved_tunnel:
-                            try:
-                                import urllib.request
-
-                                req = urllib.request.Request(
-                                    saved_tunnel, method="HEAD"
-                                )
-                                urllib.request.urlopen(req, timeout=3)
-                                project.tunnel_url = saved_tunnel
-                                logger.info(
-                                    f"[LIVING_UI] Tunnel still active for '{project.name}': {saved_tunnel}"
-                                )
-                            except Exception:
-                                logger.info(
-                                    f"[LIVING_UI] Tunnel expired for '{project.name}', clearing"
-                                )
-                                project.tunnel_url = None
+                            project.tunnel_url = saved_tunnel
+                            saved_tunnels.append((project.id, saved_tunnel))
                         # Reset status to stopped for all loaded projects
                         project.status = (
                             "stopped" if project.status == "running" else project.status
@@ -574,8 +610,48 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         if project.backend_port:
                             self._used_ports.add(project.backend_port)
                 logger.info(f"[LIVING_UI] Loaded {len(self.projects)} projects")
+                if saved_tunnels:
+                    threading.Thread(
+                        target=self._validate_saved_tunnels,
+                        args=(saved_tunnels,),
+                        daemon=True,
+                        name="living-ui-tunnel-check",
+                    ).start()
             except Exception as e:
                 logger.error(f"[LIVING_UI] Failed to load projects: {e}")
+
+    def _validate_saved_tunnels(self, entries: List[Tuple[str, str]]) -> None:
+        """Verify saved tunnel URLs are still reachable; clear dead ones.
+
+        Runs on a background thread at startup so the event loop never blocks
+        on network round-trips. Dead tunnels are cleared and persisted.
+        """
+        import urllib.request
+
+        changed = False
+        for project_id, url in entries:
+            alive = False
+            try:
+                req = urllib.request.Request(url, method="HEAD")
+                urllib.request.urlopen(req, timeout=3)
+                alive = True
+            except Exception:
+                pass
+            project = self.projects.get(project_id)
+            if not project or project.tunnel_url != url:
+                continue  # Deleted or re-tunneled while we were checking
+            if alive:
+                logger.info(
+                    f"[LIVING_UI] Tunnel still active for '{project.name}': {url}"
+                )
+            else:
+                logger.info(
+                    f"[LIVING_UI] Tunnel expired for '{project.name}', clearing"
+                )
+                project.tunnel_url = None
+                changed = True
+        if changed:
+            self._save_projects()
 
     def _save_projects(self) -> None:
         """Save projects to persistent storage."""
@@ -592,23 +668,25 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         Checks both the internal tracking set AND actual system port usage
         to avoid conflicts with orphan processes.
         """
-        for port in range(self._port_range[0], self._port_range[1] + 1):
-            # Skip if tracked as used
-            if port in self._used_ports:
-                continue
-            # Skip if actually in use on the system
-            if self._is_port_in_use(port):
-                logger.warning(
-                    f"[LIVING_UI] Port {port} in use by external process, skipping"
-                )
-                continue
-            self._used_ports.add(port)
-            return port
-        raise RuntimeError("No available ports in the Living UI port range")
+        with self._ports_lock:
+            for port in range(self._port_range[0], self._port_range[1] + 1):
+                # Skip if tracked as used
+                if port in self._used_ports:
+                    continue
+                # Skip if actually in use on the system
+                if self._is_port_in_use(port):
+                    logger.warning(
+                        f"[LIVING_UI] Port {port} in use by external process, skipping"
+                    )
+                    continue
+                self._used_ports.add(port)
+                return port
+            raise RuntimeError("No available ports in the Living UI port range")
 
     def _release_port(self, port: int) -> None:
         """Release a port back to the pool."""
-        self._used_ports.discard(port)
+        with self._ports_lock:
+            self._used_ports.discard(port)
 
     def _is_port_in_use(self, port: int) -> bool:
         """Check if a port is actually in use on the system."""
@@ -918,28 +996,22 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
             # Read manifest and resolve ports — always use project's current ports
             # regardless of what's hardcoded in the manifest file
-            manifest_raw = manifest_path.read_text(encoding="utf-8")
-
-            # Extract old ports from manifest to do replacement
-            manifest_tmp = json.loads(manifest_raw)
-            old_ports = manifest_tmp.get("ports", {})
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            old_ports = manifest.get("ports", {})
             old_frontend = str(old_ports.get("frontend", old_ports.get("app", "")))
             old_backend = str(old_ports.get("backend", ""))
 
-            # Replace old ports with current allocated ports in manifest and source files
+            # Map old ports to current allocated ports (single pass, whole
+            # numbers only — see _rewrite_ports_in_manifest)
+            port_map = {}
             if old_frontend and old_frontend != str(project.port):
-                manifest_raw = manifest_raw.replace(old_frontend, str(project.port))
+                port_map[old_frontend] = str(project.port)
             if old_backend and old_backend != str(project.backend_port):
-                manifest_raw = manifest_raw.replace(
-                    old_backend, str(project.backend_port)
-                )
-
-            manifest = json.loads(manifest_raw)
+                port_map[old_backend] = str(project.backend_port)
 
             # Write updated manifest back to disk so frontend can read correct ports
-            if old_frontend != str(project.port) or old_backend != str(
-                project.backend_port
-            ):
+            if port_map:
+                manifest = self._rewrite_ports_in_manifest(manifest, port_map)
                 manifest_path.write_text(
                     json.dumps(manifest, indent=2), encoding="utf-8"
                 )
@@ -981,13 +1053,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.info(
                 "[LIVING_UI:PIPELINE] Killing existing backend process before relaunch"
             )
-            project.backend_process.terminate()
+            self._terminate_process(project.backend_process)
             project.backend_process = None
         if project.process and project.process.poll() is None:
             logger.info(
                 "[LIVING_UI:PIPELINE] Killing existing frontend process before relaunch"
             )
-            project.process.terminate()
+            self._terminate_process(project.process)
             project.process = None
 
         # Check if source files changed since last successful launch
@@ -1110,9 +1182,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     log_tail = self._read_log_tail(log_file, 1000)
                     if backend_process.poll() is not None:
                         err = f"Backend process exited with code {backend_process.returncode}"
+                        self._close_process_log(backend_process)
                     else:
                         err = f"Backend not responding at {health_url}"
-                        backend_process.terminate()
+                        self._terminate_process(backend_process)
                     project.backend_process = None
                     return {
                         "status": "error",
@@ -1188,9 +1261,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 log_tail = self._read_log_tail(frontend_log, 1000)
                 if frontend_process.poll() is not None:
                     err = f"Frontend process exited with code {frontend_process.returncode}"
+                    self._close_process_log(frontend_process)
                 else:
                     err = f"Frontend not responding on port {frontend_port}"
-                    frontend_process.terminate()
+                    self._terminate_process(frontend_process)
                 project.process = None
                 await self.stop_backend(project_id)
                 return {
@@ -1275,9 +1349,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         log_tail = self._read_log_tail(log_file, 1000)
                         if backend_process.poll() is not None:
                             err = f"Backend process exited with code {backend_process.returncode}"
+                            self._close_process_log(backend_process)
                         else:
                             err = f"Backend not responding at {health_url}"
-                            backend_process.terminate()
+                            self._terminate_process(backend_process)
                         project.backend_process = None
                         return {
                             "status": "error",
@@ -1326,9 +1401,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     log_tail = self._read_log_tail(frontend_log, 1000)
                     if frontend_process.poll() is not None:
                         err = f"Frontend process exited with code {frontend_process.returncode}"
+                        self._close_process_log(frontend_process)
                     else:
                         err = f"Frontend not responding on port {frontend_port}"
-                        frontend_process.terminate()
+                        self._terminate_process(frontend_process)
                     project.process = None
                     await self.stop_backend(project_id)
                     return {
@@ -1670,27 +1746,34 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 f"[LIVING_UI] No bridge token for process: project={'yes' if project else 'no'}, token={'yes' if project and project.bridge_token else 'no'}"
             )
 
-        if os.name == "nt":
-            process = subprocess.Popen(
-                command,
-                cwd=str(cwd),
-                env=env,
-                stdout=log_handle,
-                stderr=log_handle,
-                shell=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0,
-            )
-        else:
-            process = subprocess.Popen(
-                command,
-                cwd=str(cwd),
-                env=env,
-                stdout=log_handle,
-                stderr=log_handle,
-                shell=True,
-            )
+        try:
+            if os.name == "nt":
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(cwd),
+                    env=env,
+                    stdout=log_handle,
+                    stderr=log_handle,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
+                )
+            else:
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(cwd),
+                    env=env,
+                    stdout=log_handle,
+                    stderr=log_handle,
+                    shell=True,
+                )
+        except Exception:
+            log_handle.close()
+            raise
+        # Track the handle on the process so _terminate_process / stop paths
+        # can close it — otherwise handles leak across relaunches.
+        process._craftbot_log_handle = log_handle
         return process
 
     def _collect_test_errors(self, project_path: Path, test_name: str) -> List[str]:
@@ -1972,6 +2055,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     stderr=subprocess_log_handle,
                 )
 
+            backend_process._craftbot_log_handle = subprocess_log_handle
             project.backend_process = backend_process
 
             # Wait for health check to pass
@@ -1996,7 +2080,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     logger.error(
                         f"[LIVING_UI] Backend not responding on port {backend_port}. Log tail:\n{recent_output}"
                     )
-                    backend_process.terminate()
+                    self._terminate_process(backend_process)
                 project.backend_process = None
                 subprocess_log_handle.close()
                 return False
@@ -2037,6 +2121,21 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         logger.info(f"[LIVING_UI] Stopped backend for {project_id}")
         return True
 
+    @staticmethod
+    def _close_process_log(process: Optional[subprocess.Popen]) -> None:
+        """Close the log file handle attached to a spawned process, if any.
+
+        Long-lived server processes redirect stdout/stderr to a log handle we
+        open at spawn time; without an explicit close, handles accumulate
+        across watchdog relaunches and restarts.
+        """
+        handle = getattr(process, "_craftbot_log_handle", None) if process else None
+        if handle:
+            try:
+                handle.close()
+            except Exception:
+                pass
+
     def _terminate_process(self, process: subprocess.Popen) -> None:
         """Terminate a subprocess, killing the entire process tree on Windows."""
         try:
@@ -2056,6 +2155,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 process.kill()
             except Exception:
                 pass
+        finally:
+            self._close_process_log(process)
 
     def _kill_process_on_port(self, port: int) -> bool:
         """
@@ -2417,12 +2518,22 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
                 # Extract app files to project path
                 project_path.mkdir(parents=True, exist_ok=True)
+                project_root = project_path.resolve()
                 for member in zf.namelist():
                     if member.startswith(app_prefix) and not member.endswith("/"):
                         # Get the relative path within the app folder
                         rel_path = member[len(app_prefix) :]
                         if rel_path:
-                            target = project_path / rel_path
+                            target = (project_path / rel_path).resolve()
+                            # Zip-slip guard: refuse members that escape the
+                            # project dir via ".." or absolute path segments.
+                            try:
+                                target.relative_to(project_root)
+                            except ValueError:
+                                logger.warning(
+                                    f"[LIVING_UI:MARKETPLACE] Skipping unsafe zip member: {member}"
+                                )
+                                continue
                             target.parent.mkdir(parents=True, exist_ok=True)
                             with zf.open(member) as src, open(target, "wb") as dst:
                                 dst.write(src.read())
@@ -2517,6 +2628,28 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         """Associate a task ID with a project."""
         if project_id in self.projects:
             self.projects[project_id].task_id = task_id
+
+    def set_project_ui_theme(self, project_id: str, theme: Dict[str, Any]) -> bool:
+        """Persist the per-project display theme chosen in the UI.
+
+        Expects {"themeId": str, "customColors": {...}?}. Returns False for an
+        unknown project or malformed payload.
+        """
+        project = self.projects.get(project_id)
+        if not project or not isinstance(theme, dict):
+            return False
+        theme_id = theme.get("themeId")
+        if not isinstance(theme_id, str) or not theme_id:
+            return False
+        stored: Dict[str, Any] = {"themeId": theme_id}
+        custom = theme.get("customColors")
+        if isinstance(custom, dict):
+            stored["customColors"] = {
+                k: v for k, v in custom.items() if isinstance(v, str)
+            }
+        project.ui_theme = stored
+        self._save_projects()
+        return True
 
     def get_project_by_task_id(self, task_id: str) -> Optional["LivingUIProject"]:
         """Return the Living UI project linked to a given task_id, or None."""
@@ -2647,6 +2780,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 logger.warning(
                     f"[LIVING_UI] Frontend process dead for {project_id} (stale status)"
                 )
+                self._close_process_log(project.process)
                 project.process = None
                 actually_alive = False
 
@@ -2657,6 +2791,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 logger.warning(
                     f"[LIVING_UI] Backend process dead for {project_id} (stale status)"
                 )
+                self._close_process_log(project.backend_process)
                 project.backend_process = None
                 actually_alive = False
 
@@ -2802,9 +2937,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             log_tail = self._read_log_tail(log_file, 1000)
             if app_process.poll() is not None:
                 err = f"App process exited with code {app_process.returncode}"
+                self._close_process_log(app_process)
             else:
                 err = f"App not responding on port {app_port}"
-                app_process.terminate()
+                self._terminate_process(app_process)
             project.app_process = None
             return {"status": "error", "step": "app.health", "errors": [err, log_tail]}
 
@@ -3079,8 +3215,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         Returns:
             project_id if token is valid, None otherwise.
         """
+        if not token:
+            return None
         for project_id, project in self.projects.items():
-            if project.bridge_token and project.bridge_token == token:
+            if project.bridge_token and hmac.compare_digest(
+                project.bridge_token, token
+            ):
                 return project_id
         return None
 
@@ -3314,7 +3454,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if manifest_path.exists():
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                old_id = manifest.get("id", "")
                 old_port = str(
                     manifest.get("ports", {}).get(
                         "frontend", manifest.get("ports", {}).get("app", "")
@@ -3322,16 +3461,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 )
                 old_backend = str(manifest.get("ports", {}).get("backend", ""))
 
-                manifest_raw = manifest_path.read_text(encoding="utf-8")
-                if old_id:
-                    manifest_raw = manifest_raw.replace(old_id, project_id)
+                # Set the id field structurally — a whole-file text replace of
+                # the old id can corrupt unrelated strings containing it.
+                manifest["id"] = project_id
+                port_map = {}
                 if old_port and old_port != str(frontend_port):
-                    manifest_raw = manifest_raw.replace(old_port, str(frontend_port))
+                    port_map[old_port] = str(frontend_port)
                 if old_backend and old_backend != str(backend_port):
-                    manifest_raw = manifest_raw.replace(old_backend, str(backend_port))
+                    port_map[old_backend] = str(backend_port)
+                manifest = self._rewrite_ports_in_manifest(manifest, port_map)
 
-                manifest_path.write_text(manifest_raw, encoding="utf-8")
-                manifest = json.loads(manifest_raw)
+                manifest_path.write_text(
+                    json.dumps(manifest, indent=2), encoding="utf-8"
+                )
             except Exception as e:
                 logger.warning(f"[LIVING_UI] Could not update imported manifest: {e}")
 

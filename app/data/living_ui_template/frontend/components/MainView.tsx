@@ -12,7 +12,7 @@ interface MainViewProps {
  */
 export function MainView({ controller }: MainViewProps) {
   // Make this component agent-aware
-  const viewState = useAgentAware('MainView', {
+  useAgentAware('MainView', {
     currentSection: 'main',
   })
 

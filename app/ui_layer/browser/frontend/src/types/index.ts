@@ -722,6 +722,12 @@ export interface LivingUIProject {
   icon?: string
   features?: string[]
   error?: string
+  // Per-project display theme, persisted with the project on the backend so
+  // it survives beyond this browser's localStorage (other devices/browsers).
+  uiTheme?: {
+    themeId: string
+    customColors?: { bg: string; surface: string; text: string; accent: string }
+  }
 }
 
 export interface LivingUICreateRequest {

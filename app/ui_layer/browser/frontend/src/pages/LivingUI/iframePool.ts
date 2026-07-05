@@ -14,6 +14,16 @@ const accessOrder: string[] = []
 
 let container: HTMLDivElement | null = null
 
+// Notified when an iframe is evicted from the pool (LRU overflow), so the
+// host UI can tell the user the app will reload (losing in-page state) the
+// next time they open it — instead of it silently resetting.
+type EvictionListener = (projectId: string) => void
+let evictionListener: EvictionListener | null = null
+
+export function setEvictionListener(listener: EvictionListener | null) {
+  evictionListener = listener
+}
+
 function getContainer(): HTMLDivElement {
   if (!container) {
     container = document.createElement('div')
@@ -25,6 +35,19 @@ function getContainer(): HTMLDivElement {
   return container
 }
 
+// Resolve the target origin for postMessage from the iframe's own src, so
+// messages can't be read by an unexpected document (e.g. after a redirect).
+// Falls back to '*' only when the src is transiently unparseable (blank
+// during a refresh cycle).
+function iframeTargetOrigin(iframe: HTMLIFrameElement): string {
+  try {
+    const origin = new URL(iframe.src, window.location.href).origin
+    return origin && origin !== 'null' ? origin : '*'
+  } catch {
+    return '*'
+  }
+}
+
 function touchAccess(id: string) {
   const idx = accessOrder.indexOf(id)
   if (idx !== -1) accessOrder.splice(idx, 1)
@@ -34,6 +57,9 @@ function touchAccess(id: string) {
   while (accessOrder.length > MAX_POOL_SIZE) {
     const evictId = accessOrder.shift()!
     removeIframe(evictId)
+    try {
+      evictionListener?.(evictId)
+    } catch {}
   }
 }
 
@@ -113,23 +139,15 @@ export function broadcastThemeToIframes(theme: string, cssVars: Record<string, s
   const message = { type: 'craftbot-theme', theme, cssVars }
   pool.forEach(iframe => {
     try {
-      iframe.contentWindow?.postMessage(message, '*')
+      iframe.contentWindow?.postMessage(message, iframeTargetOrigin(iframe))
     } catch (e) {}
   })
-}
-
-export function sendThemeToIframe(id: string, theme: string, cssVars: Record<string, string>) {
-  const iframe = pool.get(id)
-  if (!iframe) return
-  try {
-    iframe.contentWindow?.postMessage({ type: 'craftbot-theme', theme, cssVars }, '*')
-  } catch (e) {}
 }
 
 export function postMessageToIframe(id: string, data: unknown) {
   const iframe = pool.get(id)
   if (!iframe) return
   try {
-    iframe.contentWindow?.postMessage(data, '*')
+    iframe.contentWindow?.postMessage(data, iframeTargetOrigin(iframe))
   } catch (e) {}
 }

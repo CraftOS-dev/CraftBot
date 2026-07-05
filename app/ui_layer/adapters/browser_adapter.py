@@ -2051,6 +2051,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "living_ui_state_update":
             await self._handle_living_ui_state_update(data)
 
+        elif msg_type == "living_ui_theme_update":
+            project_id = data.get("projectId", "")
+            theme = data.get("theme") or {}
+            self._living_ui_manager.set_project_ui_theme(project_id, theme)
+
         elif msg_type == "living_ui_tunnel_start":
             project_id = data.get("projectId", "")
             provider = data.get("provider", "cloudflared")
@@ -3479,10 +3484,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             )
             return False
 
-        # Update project status to "ready" (build complete, about to launch)
-        self._living_ui_manager.update_project_status(project_id, "ready")
-
-        # Launch the project server via manager (centralizes process management)
+        # The notify_ready action has already run launch_and_verify, so the
+        # project is normally "running" here. Don't downgrade the status first:
+        # doing so defeats launch_project's already-running check and forces a
+        # full second launch of the whole stack. launch_project verifies
+        # process/port liveness itself and only relaunches when actually down.
+        if project.status != "running":
+            self._living_ui_manager.update_project_status(project_id, "ready")
         success = await self._living_ui_manager.launch_project(project_id)
 
         if success:

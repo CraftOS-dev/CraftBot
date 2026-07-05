@@ -125,6 +125,24 @@ const livingUiSlice = createSlice({
         p.id === action.payload.projectId ? { ...p, status: 'running' } : p,
       )
     },
+    // Watchdog reverts for the optimistic statuses: only fire if the project
+    // is still stuck in the client-invented state (a late response may have
+    // already resolved it via another path, e.g. living_ui_ready or a list
+    // refresh).
+    launchTimedOut(state, action: PayloadAction<{ projectId: string }>) {
+      state.projects = state.projects.map(p =>
+        p.id === action.payload.projectId && p.status === 'launching'
+          ? { ...p, status: 'stopped', error: 'Launch timed out — no response from the backend.' }
+          : p,
+      )
+    },
+    stopTimedOut(state, action: PayloadAction<{ projectId: string }>) {
+      state.projects = state.projects.map(p =>
+        p.id === action.payload.projectId && p.status === 'stopping'
+          ? { ...p, status: 'running' }
+          : p,
+      )
+    },
     markStopped(state, action: PayloadAction<{ projectId: string }>) {
       state.projects = state.projects.map(p =>
         p.id === action.payload.projectId
@@ -192,9 +210,47 @@ export const {
   markError,
   setPendingQuestion,
   clearPendingQuestion,
+  launchTimedOut,
+  stopTimedOut,
 } = livingUiSlice.actions
 
 export default livingUiSlice.reducer
+
+// --- optimistic-status watchdog --------------------------------------------
+//
+// 'launching'/'stopping' are client-invented statuses. If the backend never
+// answers (dropped socket, crashed handler), nothing would ever resolve them
+// and the tab would spin forever. Arm a timer alongside each optimistic
+// transition; any terminal response clears it, and on expiry the reducers
+// above revert only if the project is still stuck in the optimistic state.
+
+// First launch can run the full pipeline (npm install, tests, build).
+export const LAUNCH_TIMEOUT_MS = 6 * 60 * 1000
+export const STOP_TIMEOUT_MS = 60 * 1000
+
+type Dispatch = (action: { type: string; payload?: unknown }) => unknown
+const optimisticTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export function armOptimisticTimeout(
+  kind: 'launch' | 'stop',
+  projectId: string,
+  dispatch: Dispatch,
+) {
+  clearOptimisticTimeout(projectId)
+  const timer = setTimeout(() => {
+    optimisticTimers.delete(projectId)
+    dispatch(kind === 'launch' ? launchTimedOut({ projectId }) : stopTimedOut({ projectId }))
+  }, kind === 'launch' ? LAUNCH_TIMEOUT_MS : STOP_TIMEOUT_MS)
+  optimisticTimers.set(projectId, timer)
+}
+
+export function clearOptimisticTimeout(projectId: string) {
+  const timer = optimisticTimers.get(projectId)
+  if (timer) {
+    clearTimeout(timer)
+    optimisticTimers.delete(projectId)
+  }
+}
 
 // --- inbound message handlers --------------------------------------------
 
@@ -214,6 +270,7 @@ register('living_ui_status', (data, dispatch) => {
 
 register('living_ui_ready', (data, dispatch, getState) => {
   const ready = data as { projectId: string; url: string; port: number }
+  if (ready.projectId) clearOptimisticTimeout(ready.projectId)
   const exists = getState().livingUi.projects.some(p => p.id === ready.projectId)
   if (exists) {
     dispatch(markReady(ready))
@@ -227,6 +284,7 @@ register('living_ui_ready', (data, dispatch, getState) => {
 register('living_ui_launch', (data, dispatch) => {
   const r = data as LivingUILaunchResponse
   if (!r.projectId) return
+  clearOptimisticTimeout(r.projectId)
   if (r.success) {
     dispatch(markRunning({ projectId: r.projectId, url: r.url, port: r.port }))
   } else {
@@ -238,6 +296,7 @@ register('living_ui_launch', (data, dispatch) => {
 register('living_ui_stop', (data, dispatch) => {
   const r = data as LivingUIStopResponse
   if (!r.projectId) return
+  clearOptimisticTimeout(r.projectId)
   if (r.success) {
     dispatch(markStopped({ projectId: r.projectId }))
   } else {
@@ -249,6 +308,7 @@ register('living_ui_stop', (data, dispatch) => {
 register('living_ui_delete', (data, dispatch) => {
   const r = data as LivingUIDeleteResponse
   if (r.success && r.projectId) {
+    clearOptimisticTimeout(r.projectId)
     dispatch(removeProject({ projectId: r.projectId }))
   }
 })
@@ -272,7 +332,9 @@ register('living_ui_state_update', (data, dispatch) => {
 })
 
 register('living_ui_error', (data, dispatch) => {
-  dispatch(markError(data as { projectId: string; error: string }))
+  const e = data as { projectId: string; error: string }
+  if (e.projectId) clearOptimisticTimeout(e.projectId)
+  dispatch(markError(e))
 })
 
 // `living_ui_data_changed` has no state — it just nudges the iframe pool to

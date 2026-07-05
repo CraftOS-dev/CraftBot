@@ -12,7 +12,8 @@ import type {
   LivingUITodo, LivingUITodosUpdate,
   LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
-import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
+import { scheduleRefreshIframe, setEvictionListener } from '../pages/LivingUI/iframePool'
+import { useToast } from './ToastContext'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import {
@@ -69,6 +70,7 @@ import {
   setActiveId as livingUiSetActiveId,
   markLaunching as livingUiMarkLaunching,
   markStopping as livingUiMarkStopping,
+  armOptimisticTimeout as livingUiArmTimeout,
 } from '../store/slices/livingUiSlice'
 import {
   selectLivingUiProjects,
@@ -229,6 +231,11 @@ interface WebSocketContextType extends WebSocketState {
   stopLivingUI: (projectId: string) => void
   deleteLivingUI: (projectId: string) => void
   setActiveLivingUI: (projectId: string | null) => void
+  updateLivingUITheme: (
+    projectId: string,
+    themeId: string,
+    customColors?: { bg: string; surface: string; text: string; accent: string },
+  ) => void
 }
 
 // Initialize lastSeenMessageId from localStorage
@@ -303,6 +310,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const sendOrQueue = useCallback((payloadStr: string) => {
     client.sendString(payloadStr)
   }, [])
+
+  // Surface iframe-pool LRU evictions: the evicted app keeps running on the
+  // backend, but its iframe (and any in-page state) is discarded and will
+  // fully reload on the next visit — tell the user instead of silently
+  // resetting.
+  const { showToast } = useToast()
+  const livingUIProjectsRef = useRef(livingUIProjects)
+  livingUIProjectsRef.current = livingUIProjects
+  useEffect(() => {
+    setEvictionListener((projectId) => {
+      const name =
+        livingUIProjectsRef.current.find(p => p.id === projectId)?.name ?? projectId
+      showToast('info', `"${name}" was unloaded to free memory — it will reload when you open it again.`)
+    })
+    return () => setEvictionListener(null)
+  }, [showToast])
 
   const handleMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
@@ -670,8 +693,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       // Optimistically flip to 'launching' so the button shows a spinner and
       // the content swaps to the launching screen immediately — launch can
       // take many seconds (install/build/start). The backend response
-      // (living_ui_launch) resolves it to running or error.
+      // (living_ui_launch) resolves it to running or error; the armed timeout
+      // reverts to 'stopped' if no response ever arrives.
       dispatch(livingUiMarkLaunching({ projectId }))
+      livingUiArmTimeout('launch', projectId, dispatch)
       client.sendString(JSON.stringify({
         type: 'living_ui_launch',
         projectId,
@@ -683,7 +708,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (client.isConnected) {
       // Optimistically flip to 'stopping' for immediate feedback; the backend
       // response (living_ui_stop) resolves it to stopped (or reverts on error).
+      // The armed timeout reverts to 'running' if no response ever arrives.
       dispatch(livingUiMarkStopping({ projectId }))
+      livingUiArmTimeout('stop', projectId, dispatch)
       client.sendString(JSON.stringify({
         type: 'living_ui_stop',
         projectId,
@@ -703,6 +730,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const setActiveLivingUI = useCallback((projectId: string | null) => {
     dispatch(livingUiSetActiveId(projectId))
   }, [dispatch])
+
+  const updateLivingUITheme = useCallback((
+    projectId: string,
+    themeId: string,
+    customColors?: { bg: string; surface: string; text: string; accent: string },
+  ) => {
+    if (client.isConnected) {
+      client.sendString(JSON.stringify({
+        type: 'living_ui_theme_update',
+        projectId,
+        theme: { themeId, customColors },
+      }))
+    }
+  }, [])
 
   return (
     <WebSocketContext.Provider
@@ -780,6 +821,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         stopLivingUI,
         deleteLivingUI,
         setActiveLivingUI,
+        updateLivingUITheme,
       }}
     >
       {children}
