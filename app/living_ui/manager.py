@@ -132,6 +132,13 @@ class LivingUIManager:
         self._watchdog_task: Optional[asyncio.Task] = None
         self._watchdog_running: bool = False
 
+        # Per-project launch/stop serialization. Concurrent launch_and_verify
+        # runs on the same project stomp each other's processes (the second
+        # attempt's "kill leftovers" step kills the first attempt's freshly
+        # started backend mid-smoke-test). A queued duplicate waits, then
+        # collapses into a no-op via the already-running check.
+        self._launch_locks: Dict[str, asyncio.Lock] = {}
+
         # Ensure workspace directory exists
         self.living_ui_dir = self.workspace_root / "living_ui"
         self.living_ui_dir.mkdir(parents=True, exist_ok=True)
@@ -945,9 +952,65 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
     # Manifest-driven launch pipeline
     # ========================================================================
 
+    def _get_launch_lock(self, project_id: str) -> asyncio.Lock:
+        """Per-project lock serializing launch/stop (see __init__ note)."""
+        lock = self._launch_locks.get(project_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._launch_locks[project_id] = lock
+        return lock
+
     async def launch_and_verify(self, project_id: str) -> dict:
         """
         Launch and verify a Living UI project using its manifest pipeline.
+
+        Serialized per project: concurrent calls (double-click, Settings page
+        + tab page, retry while a slow first attempt is still testing) wait
+        for the in-flight launch instead of killing its freshly started
+        backend mid-pipeline. Once the lock is acquired, an already-running
+        healthy project returns success immediately.
+
+        Returns:
+            {"status": "success", "url": "...", "backend_url": "...", "port": N}
+            {"status": "error", "step": "validation", "errors": [...all errors...]}
+        """
+        lock = self._get_launch_lock(project_id)
+        if lock.locked():
+            logger.info(
+                f"[LIVING_UI:PIPELINE] Launch already in flight for {project_id}; waiting"
+            )
+        async with lock:
+            project = self.projects.get(project_id)
+            if project and project.status == "running":
+                backend_ok = (
+                    project.backend_process is None
+                    or project.backend_process.poll() is None
+                )
+                serving = (
+                    (project.process is not None and project.process.poll() is None)
+                    or (
+                        project.app_process is not None
+                        and project.app_process.poll() is None
+                    )
+                    or (bool(project.port) and self._is_port_in_use(project.port))
+                )
+                if backend_ok and serving and project.url:
+                    logger.info(
+                        f"[LIVING_UI:PIPELINE] {project_id} already running — skipping duplicate launch"
+                    )
+                    return {
+                        "status": "success",
+                        "url": project.url,
+                        "backend_url": project.backend_url,
+                        "port": project.port,
+                        "note": "already running",
+                    }
+            return await self._launch_and_verify_impl(project_id)
+
+    async def _launch_and_verify_impl(self, project_id: str) -> dict:
+        """
+        The launch pipeline body. Only ever runs under the per-project
+        launch lock — call launch_and_verify, never this directly.
 
         Runs backend and frontend tracks in parallel to collect all errors at once.
         Only starts servers if all pre-start checks pass.
@@ -957,10 +1020,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             npm install ──→ npm run build
             Both tracks run in parallel. If ANY errors, return all without starting servers.
             If clean: start backend → health check → external tests → start frontend.
-
-        Returns:
-            {"status": "success", "url": "...", "backend_url": "...", "port": N}
-            {"status": "error", "step": "validation", "errors": [...all errors...]}
         """
         project = self.projects.get(project_id)
         if not project:
@@ -1046,6 +1105,33 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return await self._launch_single_process(
                 project_id, project, project_path, app_cfg
             )
+
+        # Platform-owned additive schema migration: agents edit models.py, and
+        # bare create_all never adds columns to existing tables — without this
+        # step every model change 500s the routes and blocks the smoke test.
+        # Runs for ALL native projects regardless of their database.py version.
+        try:
+            from .migration import run_migration
+
+            python_exe = ""
+            try:
+                python_exe = self._find_real_python()
+            except Exception:
+                pass
+            migrate_result = await asyncio.to_thread(
+                run_migration, project_path, python_exe
+            )
+            if migrate_result["added"]:
+                logger.info(
+                    f"[LIVING_UI:PIPELINE] Migration added columns: {migrate_result['added']}"
+                )
+            elif migrate_result["status"] == "error":
+                logger.warning(
+                    f"[LIVING_UI:PIPELINE] Migration failed (continuing): "
+                    f"{migrate_result['output'][-300:]}"
+                )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:PIPELINE] Migration step error (continuing): {e}")
 
         # Stop any existing processes from previous launch attempts
         # This prevents orphan uvicorn/vite processes accumulating on repeated calls
@@ -1134,6 +1220,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         # PHASE 2: Start servers (sequential — needs running processes)
         # ================================================================
 
+        ops_warnings: List[str] = []
+
         # --- Start backend ---
         if backend_cfg:
             backend_cwd = project_path / backend_cfg.get("cwd", "backend")
@@ -1215,6 +1303,44 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         "errors": errors,
                     }
 
+            # Validate the operations manifest against the live OpenAPI:
+            # structural errors (dead routes, undeclared path params, broken
+            # templates) block the launch with precise fixes; coverage gaps
+            # are warnings so heuristics can't brick a launch.
+            try:
+                from .ops_analyzer import check_manifest, fetch_openapi
+
+                spec = await asyncio.to_thread(
+                    fetch_openapi, f"http://localhost:{backend_port}"
+                )
+                findings = await asyncio.to_thread(
+                    check_manifest, project_path, spec
+                )
+                ops_errors = [
+                    f"{f['message']} — fix: {f['fix']}"
+                    for f in findings
+                    if f["level"] == "error"
+                ]
+                ops_warnings = [
+                    f"{f['message']} — fix: {f['fix']}"
+                    for f in findings
+                    if f["level"] == "warning"
+                ]
+                if ops_errors:
+                    await self.stop_backend(project_id)
+                    return {
+                        "status": "error",
+                        "step": "operations.check",
+                        "errors": ops_errors,
+                    }
+                for warning in ops_warnings:
+                    logger.warning(f"[LIVING_UI:PIPELINE] ops manifest: {warning}")
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI:PIPELINE] ops manifest check skipped: {e}"
+                )
+                ops_warnings = []
+
         # --- Start frontend ---
         if frontend_cfg:
             frontend_cwd = project_path / frontend_cfg.get("cwd", ".")
@@ -1290,12 +1416,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if project.backend_url:
             logger.info(f"[LIVING_UI:PIPELINE]   Backend: {project.backend_url}")
 
-        return {
+        success_result = {
             "status": "success",
             "url": project.url,
             "backend_url": project.backend_url,
             "port": project.port,
         }
+        if ops_warnings:
+            success_result["ops_warnings"] = ops_warnings
+        return success_result
 
     async def _launch_servers_only(
         self,
@@ -3243,6 +3372,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         """
         Stop a running Living UI project (frontend and optionally backend).
 
+        Serialized with launch_and_verify on the per-project lock so a stop
+        can't tear down a launch pipeline mid-flight (it waits, then stops
+        the fully started stack).
+
         Args:
             project_id: Project ID to stop
             stop_backend: Whether to also stop the backend (default: True)
@@ -3250,36 +3383,37 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         Returns:
             True if stop was successful
         """
-        project = self.projects.get(project_id)
-        if not project:
-            logger.error(f"[LIVING_UI] Project not found: {project_id}")
-            return False
+        async with self._get_launch_lock(project_id):
+            project = self.projects.get(project_id)
+            if not project:
+                logger.error(f"[LIVING_UI] Project not found: {project_id}")
+                return False
 
-        # Stop app process (external/single-process apps)
-        if project.app_process:
-            self._terminate_process(project.app_process)
-            project.app_process = None
+            # Stop app process (external/single-process apps)
+            if project.app_process:
+                self._terminate_process(project.app_process)
+                project.app_process = None
 
-        # Stop frontend process
-        if project.process:
-            self._terminate_process(project.process)
-            project.process = None
+            # Stop frontend process
+            if project.process:
+                self._terminate_process(project.process)
+                project.process = None
 
-        # Also kill by port in case process reference is stale
-        if project.port and self._is_port_in_use(project.port):
-            self._kill_process_on_port(project.port)
+            # Also kill by port in case process reference is stale
+            if project.port and self._is_port_in_use(project.port):
+                self._kill_process_on_port(project.port)
 
-        project.url = None
+            project.url = None
 
-        # Stop backend if requested
-        if stop_backend:
-            await self.stop_backend(project_id)
+            # Stop backend if requested
+            if stop_backend:
+                await self.stop_backend(project_id)
 
-        project.status = "stopped"
-        self._save_projects()
+            project.status = "stopped"
+            self._save_projects()
 
-        logger.info(f"[LIVING_UI] Stopped project: {project_id}")
-        return True
+            logger.info(f"[LIVING_UI] Stopped project: {project_id}")
+            return True
 
     async def delete_project(self, project_id: str) -> bool:
         """

@@ -982,7 +982,7 @@ Editing any of these triggers re-indexing via [agent_core/core/impl/memory/memor
 
 ### Living UI projects (workspace/living_ui/)
 
-Living UI projects live at `agent_file_system/workspace/living_ui/<project_name>_<hash>/`. Internal structure varies project to project depending on what the user asked for (different stacks, frameworks, file layouts). Do NOT assume any particular structure beyond the three required files below. To see what's actually in a specific project, `list_folder` it. For lifecycle (create, modify, restart, inspect), use `living_ui_actions`. See `## Living UI`.
+Living UI projects live at `agent_file_system/workspace/living_ui/<project_name>_<hash>/`. Internal structure varies project to project depending on what the user asked for (different stacks, frameworks, file layouts). Do NOT assume any particular structure beyond the three required files below. To see what's actually in a specific project, `list_folder` it. To OPERATE a project (read/write its data, fire its operations), use the `livingui` CLI via run_shell — `livingui <project> --help` — and never open its `living_ui.db` directly. For lifecycle (create, modify, restart), use `living_ui_actions`. See `## Living UI`.
 
 Required files (every project has these):
 
@@ -1236,11 +1236,37 @@ You do NOT hand-write the project scaffold. The Living UI generator handles file
 ```
 living-ui-creator    start a new project. Walks scaffolding + initial state design.
 living-ui-modify     edit an existing project (add features, change layout, fix bugs).
-living-ui-manager    list, inspect, archive, restart projects.
+living-ui-manager    operate a running project (read/write data, fire its ops).
 ```
 
 Prefer invoking these via slash (`/living-ui-creator`) or via LLM selection. They encode the right read-rules-first protocol and the right action sequence.
 
+### Operating a Living UI (the livingui CLI)
+
+Operate Living UIs like a well-made command-line tool, via run_shell:
+
+```
+livingui <args>        (on PATH inside CraftBot's shell actions — run it bare)
+
+livingui ls                                  list projects
+livingui <project> --help                    capability card: tables, ops, commands
+livingui <project> select <table> --where "id<=10" --limit 20
+livingui <project> insert <table> --file rows.json      (bulk: 100 rows, 1 command)
+livingui <project> update <table> --where ... --set k=v (data never enters context)
+livingui <project> sql "SELECT ..."          aggregates/joins (read-only by default)
+livingui <project> run <op> [--param v]      the app's declared verbs
+livingui <project> api GET /api/...          raw endpoint passthrough
+livingui <project> migrate | restart | start | stop | logs | jobs
+```
+
+Rules: --help level by level (root stays lean — dive only where the task
+needs); errors end with `Try: livingui ...` — run exactly that; always
+batch; prefer a declared op over raw data writes; never write auth tables
+directly; restart before seeding new model columns (restart auto-migrates).
+Param values with spaces/punctuation go via `run <op> --params-file p.json`
+— never inline quotes. If a command fails, fix the invocation; NEVER fall
+back to sqlite3/python against living_ui.db (it is blocked and corrupts
+data). The living-ui-manager skill has the full reference.
 ### Protocol BEFORE creating any Living UI project
 
 ```
@@ -1402,7 +1428,7 @@ clipboard                clipboard_read, clipboard_write
 
 comms                    send_message_with_attachment
 
-living_ui                living_ui_http, living_ui_import_external, living_ui_import_zip,
+living_ui                living_ui_scaffold, living_ui_import_external, living_ui_import_zip,
                          living_ui_notify_ready, living_ui_report_progress, living_ui_restart
 
 per-platform integrations  Discord, Slack, Telegram, Notion, LinkedIn, Jira, GitHub,
@@ -1475,7 +1501,7 @@ Beyond the eight curated sets, these sets exist because actions declare them:
 proactive             schedule_task, scheduled_task_list, recurring_*, schedule_task_toggle, ...
 scheduler             schedule_task, schedule_task_toggle (alongside proactive)
 content_creation      generate_image, ...
-living_ui             living_ui_http, living_ui_restart, ...
+living_ui             living_ui_scaffold, living_ui_restart, ...
 
 per-integration sets (loaded only when the user has the integration connected):
 discord, slack, telegram_bot, telegram_user, whatsapp, twitter,

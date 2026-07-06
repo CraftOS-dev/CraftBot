@@ -241,6 +241,34 @@ def create_item(data: ItemCreate, db: Session = Depends(get_db)) -> Dict[str, An
     return item.to_dict()
 
 
+@router.post("/items/bulk")
+def create_items_bulk(
+    items: List[ItemCreate], db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Create many items in one request (single transaction).
+
+    Every list resource should have a bulk endpoint like this — one request
+    for N records instead of N requests. Keep this pattern when replacing
+    the Item model with real resources.
+    """
+    max_order = db.query(Item).count()
+    created = []
+    for offset, data in enumerate(items):
+        item = Item(
+            title=data.title,
+            description=data.description,
+            extra_data=data.extra_data or {},
+            order=max_order + offset,
+        )
+        db.add(item)
+        created.append(item)
+    db.commit()
+    for item in created:
+        db.refresh(item)
+    logger.info(f"[Routes] Bulk-created {len(created)} items")
+    return {"created": len(created), "items": [i.to_dict() for i in created]}
+
+
 @router.get("/items/{item_id}")
 def get_item(item_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Get a specific item by ID."""

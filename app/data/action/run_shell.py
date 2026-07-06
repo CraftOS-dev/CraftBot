@@ -99,6 +99,27 @@ def shell_exec(input_data: dict) -> dict:
             "pid": None,
         }
 
+    # Guard: Living UI databases are operated ONLY through the livingui CLI.
+    # Direct sqlite3/python access bypasses the app's logic (ordering,
+    # relationships), corrupts data, and skips the automatic pre-write
+    # snapshots. The error teaches the correct path.
+    if "living_ui.db" in command:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": (
+                "Blocked: direct access to a Living UI database is not "
+                "permitted. Operate Living UIs through the livingui CLI "
+                "instead — start with `livingui ls` and "
+                "`livingui <project> --help`. Data commands: "
+                "`livingui <project> select/insert/update/delete/sql ...` "
+                "(insert bulk rows via --file, op params via --params-file)."
+            ),
+            "pid": None,
+        }
+
     if cwd and not os.path.isdir(cwd):
         return {
             "status": "error",
@@ -318,6 +339,27 @@ def shell_exec_windows(input_data: dict) -> dict:
             "pid": None,
         }
 
+    # Guard: Living UI databases are operated ONLY through the livingui CLI.
+    # Direct sqlite3/python access bypasses the app's logic (ordering,
+    # relationships), corrupts data, and skips the automatic pre-write
+    # snapshots. The error teaches the correct path.
+    if "living_ui.db" in command:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": (
+                "Blocked: direct access to a Living UI database is not "
+                "permitted. Operate Living UIs through the livingui CLI "
+                "instead — start with `livingui ls` and "
+                "`livingui <project> --help`. Data commands: "
+                "`livingui <project> select/insert/update/delete/sql ...` "
+                "(insert bulk rows via --file, op params via --params-file)."
+            ),
+            "pid": None,
+        }
+
     if cwd and not os.path.isdir(cwd):
         return {
             "status": "error",
@@ -353,8 +395,13 @@ def shell_exec_windows(input_data: dict) -> dict:
             command,
         ]
     else:
-        # Use /d and /s to ensure quoted commands (e.g., paths with spaces) are handled consistently.
-        args = ["cmd.exe", "/d", "/s", "/c", command]
+        # Pass a single STRING, not a list. With a list, subprocess's
+        # list2cmdline escapes nested double quotes as \" which cmd.exe does
+        # not honor — any quoted argument inside the command gets split into
+        # bare words (e.g. --title "two words" arrives as two arguments).
+        # The /s form ("cmd /d /s /c "<command>"") strips the outer quotes
+        # and passes the command through verbatim, quotes intact.
+        args = 'cmd.exe /d /s /c "' + command + '"'
 
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -543,6 +590,27 @@ def shell_exec_darwin(input_data: dict) -> dict:
             "stderr": "",
             "return_code": -1,
             "message": "command is required.",
+            "pid": None,
+        }
+
+    # Guard: Living UI databases are operated ONLY through the livingui CLI.
+    # Direct sqlite3/python access bypasses the app's logic (ordering,
+    # relationships), corrupts data, and skips the automatic pre-write
+    # snapshots. The error teaches the correct path.
+    if "living_ui.db" in command:
+        return {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+            "message": (
+                "Blocked: direct access to a Living UI database is not "
+                "permitted. Operate Living UIs through the livingui CLI "
+                "instead — start with `livingui ls` and "
+                "`livingui <project> --help`. Data commands: "
+                "`livingui <project> select/insert/update/delete/sql ...` "
+                "(insert bulk rows via --file, op params via --params-file)."
+            ),
             "pid": None,
         }
 

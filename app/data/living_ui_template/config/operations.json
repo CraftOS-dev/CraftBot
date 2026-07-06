@@ -1,0 +1,11 @@
+{
+  "$comment": "Declared operations — the app's verbs, discoverable and callable by the CraftBot agent via the livingui CLI (livingui <project> --help / run <op>). Declare an op for every side-effectful capability (anything beyond plain CRUD). Executor types: http (backend endpoint), sql (parameterized statement), shell (declared command run in the project dir; use mode 'job' for long-running work). See the living-ui-creator skill's OPERATIONS.md reference for the full spec.",
+  "operations": {
+    "reset": {
+      "description": "Reset the application state to empty",
+      "params": {},
+      "executor": {"type": "http", "method": "POST", "path": "/api/action"},
+      "mode": "sync"
+    }
+  }
+}

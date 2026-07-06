@@ -1,5 +1,11 @@
 # {{PROJECT_NAME}}
 
+> **Agent control surface**: operate this app ONLY via the `livingui` CLI —
+> `livingui {{PROJECT_ID}} --help` shows its tables, operations, and commands.
+> Data goes through `select/insert --file/update --where`; behavior through
+> `run <op> --params-file params.json`. Never open `living_ui.db` directly.
+
+
 {{PROJECT_DESCRIPTION}}
 
 ## Overview

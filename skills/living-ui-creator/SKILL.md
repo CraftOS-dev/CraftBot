@@ -346,7 +346,7 @@ After all features are built, review your code:
 **DO NOT run:** `npm run dev`, `npm run build`, `npm run preview`, or `uvicorn` manually.
 The launch pipeline handles all building, testing, and serving automatically.
 
-### Phase 9: Update Documentation (MANDATORY)
+### Phase 9: Update Documentation & Declare Operations (MANDATORY)
 
 **Edit: `LIVING_UI.md`** — you MUST update ALL sections with real implementation details:
 
@@ -357,6 +357,40 @@ The launch pipeline handles all building, testing, and serving automatically.
 - **Key Files table**: Update if you added new files
 - Remove ALL HTML comments (`<!-- ... -->`) and placeholder/example data
 - **DO NOT proceed to Phase 10 if LIVING_UI.md still has placeholder content**
+
+**Make the app CLI-OPERABLE (MANDATORY — mechanical procedure, do not improvise).**
+
+Every Living UI is operated later through the `livingui` CLI: agents run
+`livingui <project> --help` and see the app's tables plus its declared
+operations (`config/operations.json`). **What is declared there IS the app's
+control surface — an undeclared capability does not exist for any future
+agent.** You do NOT hand-author this file from memory; it is generated from
+your code and you curate it:
+
+1. **During development** (Phases 2-7): give EVERY route a one-line
+   docstring saying what it does — docstrings become the generated op
+   descriptions. This is where quality is decided.
+2. **Phase 9**: nothing to author here beyond LIVING_UI.md. Do not
+   hand-write operations.json paths/params — the generator gets them exactly
+   right from your Pydantic schemas; you will get them wrong.
+3. **After Phase 10's successful launch** (backend must be running):
+   ```
+   livingui <project_id> ops-sync --write   # generates ops for every non-CRUD route
+   ```
+   Then EDIT each generated op's description so it says *when* to use it
+   (agents choose ops by reading descriptions), and finish with:
+   ```
+   livingui <project_id> ops-check          # repeat until 0 errors, 0 warnings
+   ```
+   Routes that genuinely should not be ops go in `"ignore_routes"` — an
+   explicit decision, never a silent omission.
+
+The launch pipeline enforces this: manifest errors (dead routes, undeclared
+path params, broken templates) BLOCK the launch with exact fixes; uncovered
+routes surface as warnings. Plain CRUD needs no ops — the CLI's built-in
+data commands cover every table automatically. Also give every list
+resource a bulk-create endpoint (`POST /api/{resource}/bulk` — template's
+`/api/items/bulk` pattern).
 
 ### Phase 10: Launch (MANDATORY)
 
@@ -425,6 +459,7 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - NEVER leave LIVING_UI.md with placeholder content, HTML comments, or example data
 - NEVER skip calling `living_ui_notify_ready`
 - NEVER use the task session ID as the project_id parameter
+- NEVER hand-author operations.json paths/params — use `livingui <id> ops-sync --write` after launch, then curate descriptions and run `ops-check` until clean
 
 ## References
 
@@ -433,6 +468,7 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - [Auth Module](../../data/living_ui_modules/auth/README.md) - Multi-user auth, membership, invites
 - [Requirement Questionnaire](references/QUESTIONNAIRE.md) - Reference questions for Phase 0
 - [MVC-A Architecture](references/MVC-A.md) - When to use each layer, agent data access methods
+- [Operations Manifest](references/OPERATIONS.md) - Declaring the app's verbs (config/operations.json)
 - [Quality Standards](references/STANDARDS.md) - Professional standards for Living UIs
 - [Code Examples](references/EXAMPLES.md) - Complete code examples for each phase
 - [Verification Checklist](references/VERIFY.md) - QA checklist before launch (REQUIRED)

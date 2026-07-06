@@ -12,7 +12,7 @@ import type {
   LivingUITodo, LivingUITodosUpdate,
   LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
-import { scheduleRefreshIframe, setEvictionListener } from '../pages/LivingUI/iframePool'
+import { scheduleRefreshIframe, setEvictionListener, postMessageToIframe } from '../pages/LivingUI/iframePool'
 import { useToast } from './ToastContext'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
@@ -343,6 +343,17 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       case 'living_ui_data_changed': {
         const { projectId } = msg.data as { projectId: string }
         if (projectId) scheduleRefreshIframe(projectId)
+        break
+      }
+
+      case 'living_ui_ui_command': {
+        // Agent → running app: forwarded into the iframe as a
+        // craftbot-agent-command postMessage (handled by the template's
+        // useAgentCommand hook — navigate, refresh a panel, highlight, ...).
+        const { projectId, command } = msg.data as { projectId: string; command: unknown }
+        if (projectId && command) {
+          postMessageToIframe(projectId, { type: 'craftbot-agent-command', command })
+        }
         break
       }
 

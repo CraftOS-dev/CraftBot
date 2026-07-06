@@ -48,7 +48,12 @@ Each entry has: `id`, `name`, `path`, `status`, `port` (frontend), `backendPort`
 
 ### Phase 2: Understand Current Implementation
 
-Read these files **before making any changes**:
+Start with the `livingui` CLI (via run_shell):
+`livingui <project_id> --help` — the capability card
+shows the database schema (ground truth), declared operations, and commands
+in one shot, far cheaper and more accurate than reading files. Dig deeper
+with `livingui <project_id> schema <table>`. Then read only the files you
+actually intend to change:
 
 1. **`{project.path}/LIVING_UI.md`** - overview, data models, API endpoints, components
 2. **Source files relevant to the change:**
@@ -74,6 +79,15 @@ New feature     → models.py → routes.py → types.ts → AppController.ts �
 UI-only change  → Component file(s) only
 Bug fix         → Whichever file has the bug
 ```
+
+If the change adds or removes a side-effectful capability (an endpoint that
+DOES something beyond CRUD), also update `config/operations.json` so the
+capability stays discoverable in `livingui <project> --help` — see the
+living-ui-creator skill's `references/OPERATIONS.md` for the format.
+
+Schema changes: new model columns/tables are migrated automatically when the
+project restarts (`livingui <project_id> restart`, or the `living_ui_restart`
+action). Restart BEFORE seeding data into new columns — never seed first.
 
 ### Phase 4: Make Changes
 

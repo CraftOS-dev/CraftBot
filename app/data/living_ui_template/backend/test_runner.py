@@ -512,7 +512,13 @@ def run_external_tests(port: int) -> Dict[str, Any]:
             path = resolved_path
 
         test_result = _test_endpoint(
-            base_url, method, path, route, definitions, auth_token=auth_token
+            base_url,
+            method,
+            path,
+            route,
+            definitions,
+            auth_token=auth_token,
+            created_resources=created_resources,
         )
         result["tests"].append(test_result)
 
@@ -543,6 +549,35 @@ def run_external_tests(port: int) -> Dict[str, Any]:
     return result
 
 
+def _substitute_fk_ids(
+    payload: Dict[str, Any], created_resources: Dict[str, list]
+) -> Dict[str, Any]:
+    """Replace synthetic values in foreign-key fields with real created ids.
+
+    Generated payloads fill fields like category_id with a placeholder value,
+    which the app rightly rejects with a 400 when no such row exists — a
+    false test failure. For every '<singular>_id' field, look for a matching
+    created-resource collection ('/api/categories' for 'category_id') and
+    substitute an id this test run actually created. Fields with no match
+    are left untouched.
+    """
+    for field in list(payload.keys()):
+        if not field.endswith("_id") or field == "_id":
+            continue
+        singular = field[: -len("_id")]
+        plural_candidates = (
+            singular + "s",
+            singular[:-1] + "ies" if singular.endswith("y") else singular + "es",
+            singular,
+        )
+        for candidate in plural_candidates:
+            ids = created_resources.get(f"/api/{candidate}")
+            if ids:
+                payload[field] = ids[0]
+                break
+    return payload
+
+
 def _test_endpoint(
     base_url: str,
     method: str,
@@ -550,6 +585,7 @@ def _test_endpoint(
     route: Dict[str, Any],
     definitions: Dict[str, Any],
     auth_token: str = None,
+    created_resources: Dict[str, list] = None,
 ) -> Dict[str, Any]:
     """Test a single endpoint and return the result."""
     url = f"{base_url}{path}"
@@ -563,6 +599,8 @@ def _test_endpoint(
         payload = None
         if method in ("POST", "PUT", "PATCH") and route.get("body_schema"):
             payload = generate_payload_from_schema(route["body_schema"], definitions)
+            if payload and created_resources:
+                payload = _substitute_fk_ids(payload, created_resources)
 
         data = json.dumps(payload).encode("utf-8") if payload else None
         headers = {"Content-Type": "application/json"} if data else {}

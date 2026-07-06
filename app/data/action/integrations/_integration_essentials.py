@@ -114,6 +114,89 @@ def _extract_essentials(integration_id: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Living UI essentials — injected whenever the task touches a Living UI.
+#
+# The livingui-CLI knowledge must be IN the prompt before the agent's first
+# action: leaving it to skill selection or AGENT.md retrieval is probabilistic
+# and has failed in practice (agents default to raw sqlite on "populate the
+# kanban" tasks). Same loose-match philosophy as integrations: false
+# positives cost ~250 tokens; false negatives cost a failure spiral.
+# ---------------------------------------------------------------------------
+
+_LIVINGUI_ESSENTIALS = """### living_ui (operating Living UI apps)
+You operate Living UIs ONLY through the `livingui` CLI via run_shell (it is
+on PATH — run it bare). NEVER touch living_ui.db with sqlite3/python, never
+curl the app directly; the CLI is the single supported path.
+
+Loop: `livingui ls` -> `livingui <project> --help` (capability card: tables,
+operations, commands) -> command. Every level supports --help.
+
+- Data (works even when the app is stopped):
+  livingui <project> select <table> --where "id<=10" --columns a,b --limit 20
+  livingui <project> insert <table> --file rows.json      (bulk: N rows, 1 command)
+  livingui <project> update <table> --where "..." --set k=v
+  livingui <project> sql "SELECT ... GROUP BY ..."
+- App verbs (prefer over raw writes — they run the app's real logic):
+  livingui <project> run <op> --params-file params.json
+  (ALWAYS use --params-file when any value has spaces/punctuation — inline
+  quotes get stripped by the shell; write the JSON file first.)
+- Schema/lifecycle: livingui <project> migrate | restart | logs --tail 50
+- Errors end with `Try: livingui ...` — run exactly that. If a command
+  fails, fix the invocation (usually --params-file); NEVER fall back to
+  direct DB access or manual server starts."""
+
+# Cached registry keywords: (mtime, [name/slug/id variants])
+_LIVINGUI_KEYWORDS_CACHE: Optional[tuple] = None
+
+
+def _livingui_keywords() -> List[str]:
+    """Registered project names/ids/slugs so mentioning a project by name
+    (e.g. 'add these to my kanban board') triggers the essentials."""
+    global _LIVINGUI_KEYWORDS_CACHE
+    import json
+    import os
+
+    workspace = os.environ.get("CRAFTBOT_WORKSPACE") or str(
+        Path(__file__).resolve().parents[4] / "agent_file_system" / "workspace"
+    )
+    registry = Path(workspace) / "living_ui_projects.json"
+    try:
+        mtime = registry.stat().st_mtime
+    except OSError:
+        return []
+    if _LIVINGUI_KEYWORDS_CACHE and _LIVINGUI_KEYWORDS_CACHE[0] == mtime:
+        return _LIVINGUI_KEYWORDS_CACHE[1]
+    keywords: List[str] = []
+    try:
+        data = json.loads(registry.read_text(encoding="utf-8"))
+        for project in data.get("projects", []):
+            name = str(project.get("name", "")).strip().lower()
+            if len(name) >= 4:
+                keywords.append(name)
+            project_id = str(project.get("id", "")).strip().lower()
+            if project_id:
+                keywords.append(project_id)
+            folder = Path(str(project.get("path", ""))).name.lower()
+            if folder:
+                keywords.append(folder)
+    except Exception:
+        return []
+    _LIVINGUI_KEYWORDS_CACHE = (mtime, keywords)
+    return keywords
+
+
+def _livingui_block(lower_message: str) -> str:
+    """Return the Living UI essentials when the text references one."""
+    generic = ("living ui", "living_ui", "livingui", "living-ui")
+    if any(k in lower_message for k in generic):
+        return _LIVINGUI_ESSENTIALS
+    for keyword in _livingui_keywords():
+        if keyword in lower_message:
+            return _LIVINGUI_ESSENTIALS
+    return ""
+
+
 def get_essentials_for_message(message: str) -> str:
     """Build the integration-essentials block for the routing prompt.
 
@@ -138,13 +221,20 @@ def get_essentials_for_message(message: str) -> str:
         if key in lower:
             seen.add(integration_id)
             matched_ids.append(integration_id)
-    if not matched_ids:
-        return ""
     blocks: List[str] = []
     for integration_id in matched_ids:
         essentials = _extract_essentials(integration_id)
         if essentials:
             blocks.append(f"### {integration_id}\n{essentials}")
+
+    # Living UI essentials ride the same injection channel.
+    try:
+        livingui_block = _livingui_block(lower)
+    except Exception:
+        livingui_block = ""
+    if livingui_block:
+        blocks.append(livingui_block)
+
     if not blocks:
         return ""
     return (

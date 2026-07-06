@@ -74,10 +74,8 @@ Returns a screenshot of the current UI:
 
 ### Triggering Actions (POST /api/action)
 
-```bash
-curl -X POST http://localhost:PORT/api/action \
-  -H "Content-Type: application/json" \
-  -d '{"action": "refresh"}'
+```
+livingui <project> run <op> --param value
 ```
 
 Built-in actions: `reset`, `increment`, `decrement`
@@ -139,78 +137,37 @@ Custom actions can be added in `routes.py`.
 
 ---
 
-## Agent Data Access Methods
+## Agent Access: the livingui CLI (the ONLY way to operate a Living UI)
 
-### Method 1: UI Observation (GET /api/ui-snapshot)
+Agents operate every Living UI through the `livingui` CLI via run_shell
+(it is on PATH — run `livingui ...` directly). There is no other supported
+path — no direct curl, no direct sqlite, no HTTP actions.
 
-Agent reads what the user sees on the UI.
-
-```bash
-curl http://localhost:PORT/api/ui-snapshot
+```
+livingui <project> --help                     discover: tables, operations, commands
+livingui <project> snapshot                   what the user sees (DOM/text/inputs)
+livingui <project> screenshot --out shot.png  visual check (then describe_image)
+livingui <project> select <table> --where ... read rows (works when stopped)
+livingui <project> insert <table> --file F    bulk write (one command for N rows)
+livingui <project> update <table> --where ... --set k=v
+livingui <project> sql "SELECT ..."           aggregates and joins
+livingui <project> run <op> [--param v]       the app's declared verbs (real logic)
+livingui <project> api GET /api/...           raw endpoint passthrough
+livingui <project> migrate | restart          schema changes / lifecycle
 ```
 
-- **Captures:** DOM structure, visible text, form values, component state
-- **Frequency:** Event-driven (on page load, state changes, user interactions)
-- **Best for:** Monitoring user interactions, form data, navigation
+### Choosing the right command
 
-### Method 2: Visual Observation (GET /api/ui-screenshot)
-
-Agent gets a visual screenshot of the UI.
-
-```bash
-curl http://localhost:PORT/api/ui-screenshot
-```
-
-- **Format:** Base64 encoded PNG
-- **Best for:** Visual verification, debugging, documentation
-
-### Method 3: Data API (GET/PUT /api/state)
-
-Agent reads/writes application state.
-
-```bash
-# Read state
-curl http://localhost:PORT/api/state
-
-# Update state
-curl -X PUT http://localhost:PORT/api/state \
-  -H "Content-Type: application/json" \
-  -d '{"data": {"counter": 5}}'
-```
-
-- **Best for:** Reading/writing structured application data
-
-### Method 4: Direct Database Access
-
-Agent reads/writes SQLite database directly.
-
-```python
-import sqlite3
-conn = sqlite3.connect('backend/living_ui.db')
-cursor = conn.execute('SELECT * FROM items')
-items = cursor.fetchall()
-```
-
-- **Best for:** Bulk operations, complex queries
-- **Caution:** Bypasses API validation
-
-### Method 5: Code Modification
-
-Agent edits Living UI code to add new endpoints/features.
-
-- **Best for:** Adding capabilities that don't exist
-- **Requires:** Rebuild after changes
-
-### Choosing the Right Method
-
-| Need | Method | Endpoint |
-|------|--------|----------|
-| See what user sees | UI Snapshot | GET /api/ui-snapshot |
-| Visual verification | Screenshot | GET /api/ui-screenshot |
-| Read app data | Data API | GET /api/state |
-| Write app data | Data API | PUT /api/state |
-| Trigger action | Action API | POST /api/action |
-| Bulk operations | Direct DB | SQLite file |
+| Need | Command |
+|------|---------|
+| Discover everything (schema, ops, routes) | `livingui <project> --help` |
+| See what the user sees | `snapshot` / `screenshot` |
+| Read/write rows in bulk | `select` / `insert --file` / `update --where` |
+| Complex queries | `sql "SELECT ..."` |
+| Trigger app behavior | `run <op>` (prefer over raw writes — runs real logic) |
+| Call a custom endpoint | `api <METHOD> <path>` |
+| Drive the running UI | `ui --data '{"type": "refresh"}'` |
+| Add a capability that doesn't exist | edit code → declare op → `restart` |
 
 ---
 
@@ -233,11 +190,9 @@ def get_weather():
 
 Agent fetches data and posts to Living UI via API.
 
-```bash
-# Agent fetches external data, then posts to Living UI
-curl -X PUT http://localhost:PORT/api/state \
-  -H "Content-Type: application/json" \
-  -d '{"data": {"weather": {"temp": 72, "condition": "sunny"}}}'
+```
+# Agent fetches external data, then pushes it into the Living UI
+livingui <project> api PUT /api/state --data '{"data": {"weather": {"temp": 72}}}'
 ```
 
 **Best for:** Real-time data, agent-controlled refresh cycles

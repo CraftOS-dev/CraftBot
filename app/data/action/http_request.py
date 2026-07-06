@@ -265,7 +265,7 @@ def send_http_requests(input_data: dict) -> dict:
                         "body": "",
                         "final_url": "",
                         "elapsed_ms": 0,
-                        "message": f"Blocked: requests to loopback addresses ({_hostname}) are only allowed for registered Living UI ports. Use the living_ui_http action with project_id to talk to your Living UI.",
+                        "message": f"Blocked: requests to loopback addresses ({_hostname}) are only allowed for registered Living UI ports. Use the livingui CLI (`livingui <project> api <METHOD> <path>`) to talk to your Living UI.",
                     }
                 if _ip.is_private or _ip.is_link_local:
                     return {

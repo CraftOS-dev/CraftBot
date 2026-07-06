@@ -141,12 +141,43 @@ def get_item(item_id: str, db: Session = Depends(get_db)):
 - Log errors server-side
 - Return user-friendly error messages
 - Handle edge cases (empty inputs, invalid IDs)
+- **Every route gets a one-line docstring** stating what it does — it becomes
+  the OpenAPI summary AND the generated CLI operation description
+  (`ops-sync` reads it). A route without a docstring produces an unusable op.
 
 ### Performance
 
 - Paginate large datasets (50+ items)
 - Don't load unnecessary data
 - Use database indexes for frequent queries
+
+### Bulk Endpoints (REQUIRED)
+
+Every list resource MUST have a bulk-create endpoint so callers (and agents)
+can write N records in one request:
+
+```python
+@router.post("/tasks/bulk")
+def create_tasks_bulk(tasks: List[TaskCreate], db: Session = Depends(get_db)):
+    created = [Task(**t.dict()) for t in tasks]
+    db.add_all(created)
+    db.commit()
+    return {"created": len(created)}
+```
+
+Follow the template's `/api/items/bulk` pattern. One request for 100 records,
+never 100 requests.
+
+### Declared Operations (REQUIRED)
+
+Every side-effectful capability (beyond plain CRUD) MUST be registered in
+`config/operations.json` so agents can discover and fire it via the
+livingui CLI (`livingui <project> run <op>`). Do NOT hand-author it: after
+the first launch run `livingui <id> ops-sync --write` (generates exact
+paths/params from your schemas), curate the descriptions, then
+`livingui <id> ops-check` until clean. An undeclared capability is
+invisible to future agent sessions; the launch pipeline blocks manifest
+errors and warns on uncovered routes.
 
 ---
 

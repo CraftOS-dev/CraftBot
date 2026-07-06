@@ -199,3 +199,25 @@ echo $?  # Should print 0
 ---
 
 **Remember: You are the last line of defense before the user sees this app. Be thorough. Be critical. Ship quality.**
+
+---
+
+## 9. CLI Operability (MANDATORY)
+
+The finished app must be fully operable through the `livingui` CLI — this is
+how every future agent (and scheduled task) will control it.
+
+Run via run_shell: `livingui <project_id> --help`
+
+- [ ] The capability card lists ALL the app's data tables with row counts
+- [ ] Every side-effectful feature appears under OPERATIONS (coverage rule:
+      each feature in LIVING_UI.md = a table OR a declared op)
+- [ ] `livingui <project_id> run <op> --help` shows correct params for each op
+- [ ] Fire ONE representative op end-to-end and confirm the expected effect
+      (e.g. `run complete_habit ...` then `select` the row)
+- [ ] No "schema drift" warning in the card
+- [ ] Op descriptions say when to use them (an agent must be able to choose
+      the right op from descriptions alone)
+
+If any box fails, go back to Phase 9 — do not launch a half-operable app.
+

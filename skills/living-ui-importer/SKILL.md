@@ -18,6 +18,8 @@ Import any external app into CraftBot's Living UI system. The app gets lifecycle
 3. **Import** — Call `living_ui_import_external` to register the project
 4. **Launch** — Call `living_ui_notify_ready` or let the user launch from the UI
 5. **Document** — Create LIVING_UI.md describing the app
+6. **Construct the CLI** — Create config/operations.json (+ wrapper scripts if
+   needed) so the app is fully operable via `livingui`; verify with `--help`
 
 ## Step 1: Detect App Type
 
@@ -104,6 +106,58 @@ After importing, create a `LIVING_UI.md` in the project directory documenting:
 - Key files and their purpose
 - API endpoints (if any)
 - Configuration file format
+
+## Step 6: Construct the App's CLI Interface (MANDATORY)
+
+Every Living UI is operated later through the `livingui` CLI
+(`livingui <project> --help` → tables + operations). Imported third-party
+apps have no managed database, so **the operations you declare in
+`config/operations.json` ARE the app's entire CLI — without them the user
+can see the app but no agent can ever operate it. An import without a
+constructed CLI interface is a FAILED import.**
+
+Build it in three steps:
+
+1. **Enumerate the app's controllable surface.** Read its README, routes,
+   CLI flags, config files. List every function a user of this app would
+   want automated: create/list/export its core objects, rebuild, sync,
+   backup, report.
+2. **Map each function to an executor:**
+   - **FastAPI backend?** Launch it once, then `livingui <project> ops-sync
+     --write` generates the ops from its OpenAPI — curate descriptions and
+     run `ops-check`. Only hand-author what the generator can't see.
+   - **REST API** → `http` executors for its endpoints
+   - **Its own CLI / build tools** → `shell` executors (declared command with
+     `{param}` placeholders; `"mode": "job"` for anything over ~60s). Prefer
+     `cli-anything-<app>` harness commands for desktop apps.
+   - **No API and no CLI?** Write small wrapper scripts into
+     `<project>/scripts/` (like draw.io's `scripts/diagram_tool.py`) and
+     declare shell ops that call them — creating the missing interface is
+     part of the import, not optional polish.
+   - **Config-file driven** → declare a `reload`/`apply` op if the app has one
+3. **Minimum viable CLI** — every import must declare at least:
+   a `status`-style read op (or document the health URL), the app's 2–5 core
+   domain verbs, and any export/backup capability it has.
+
+Format spec: `skills/living-ui-creator/references/OPERATIONS.md`. Example for
+an imported static-site generator:
+
+```json
+{
+  "operations": {
+    "rebuild_site": {
+      "description": "Rebuild the static site after content changes",
+      "params": {},
+      "executor": {"type": "shell", "cmd": "hugo --minify", "timeout": 120}
+    }
+  }
+}
+```
+
+**Verify before finishing**: run
+`livingui <project_id> --help` via run_shell — the
+OPERATIONS section must cover the app's main functions — then fire one safe
+read-style op end-to-end. Only then is the import complete.
 
 ## Examples
 

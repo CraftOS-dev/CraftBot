@@ -1033,6 +1033,10 @@ class BrowserAdapter(InterfaceAdapter):
         # Track active OAuth tasks for cancellation support
         self._oauth_tasks: Dict[str, asyncio.Task] = {}
 
+        # Background tasks for long-running WS handlers (see
+        # _LONG_RUNNING_WS_TYPES). Strong refs prevent GC mid-run.
+        self._bg_ws_tasks: Set[asyncio.Task] = set()
+
         # Staged bundle bytes keyed by short-lived token (inspect → import flow)
         self._staged_bundles: Dict[str, bytes] = {}
 
@@ -1064,7 +1068,6 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_ready=self.broadcast_living_ui_ready,
             broadcast_progress=self.broadcast_living_ui_progress,
             broadcast_todos=self.broadcast_living_ui_todos,
-            broadcast_data_changed=self.broadcast_living_ui_data_changed,
             broadcast_created=self.broadcast_living_ui_created,
             broadcast_question=self.broadcast_living_ui_question,
         )
@@ -1072,6 +1075,11 @@ class BrowserAdapter(InterfaceAdapter):
         # Subscribe the Living UI module to TaskManager todo updates so that
         # the agent's task breakdown streams to the browser automatically.
         agent.task_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
+
+        # livingui CLI support: a control token only local processes can read,
+        # and launcher scripts so the agent can invoke `livingui` via run_shell.
+        self._living_ui_control_token = self._write_living_ui_control_token()
+        self._install_livingui_launchers()
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -1232,6 +1240,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
         self._app.router.add_post(
             "/api/living-ui/import", self._living_ui_import_handler
+        )
+        # Loopback control endpoint for the livingui CLI (token-file guarded).
+        # The server binds localhost, so this is unreachable from the network.
+        self._app.router.add_post(
+            "/api/living-ui/control", self._living_ui_control_handler
         )
 
         # Workspace and chat HTTP upload routes
@@ -1456,7 +1469,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 try:
                     if msg.type == WSMsgType.TEXT:
                         data = json.loads(msg.data)
-                        await self._handle_ws_message(data, ws)
+                        # Long-running handlers (launch pipelines take 60s+)
+                        # run as background tasks: awaiting them inline would
+                        # freeze this receive loop, swallowing every
+                        # subsequent click from the client and stalling
+                        # ping/pong until the browser gives up and reconnects.
+                        if data.get("type") in self._LONG_RUNNING_WS_TYPES:
+                            self._spawn_ws_task(data, ws)
+                        else:
+                            await self._handle_ws_message(data, ws)
                     elif msg.type == WSMsgType.ERROR:
                         break
                     elif msg.type == WSMsgType.CLOSE:
@@ -1492,6 +1513,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             self._metrics_subscribers.discard(ws)
 
         return ws
+
+    # WS message types whose handlers can run for minutes (launch pipelines,
+    # marketplace installs, imports, tunnel setup). Dispatched to background
+    # tasks so the receive loop never blocks. Safe to run concurrently:
+    # per-project launch/stop are serialized inside LivingUIManager.
+    _LONG_RUNNING_WS_TYPES = frozenset(
+        {
+            "living_ui_create",
+            "living_ui_launch",
+            "living_ui_stop",
+            "living_ui_delete",
+            "living_ui_import",
+            "living_ui_marketplace_list",
+            "living_ui_marketplace_install",
+            "living_ui_tunnel_start",
+            "living_ui_tunnel_stop",
+        }
+    )
+
+    def _spawn_ws_task(self, data: Dict[str, Any], ws) -> None:
+        """Run a WS handler as a background task with error logging."""
+        task = asyncio.create_task(self._handle_ws_message(data, ws))
+        self._bg_ws_tasks.add(task)
+
+        def _done(t: asyncio.Task) -> None:
+            self._bg_ws_tasks.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                logger.error(
+                    f"[WS] Background handler for '{data.get('type')}' failed: {t.exception()}"
+                )
+
+        task.add_done_callback(_done)
 
     async def _handle_ws_message(self, data: Dict[str, Any], ws=None) -> None:
         """Handle incoming WebSocket message."""
@@ -3366,6 +3419,124 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         return web.json_response(result)
 
+    def _write_living_ui_control_token(self) -> str:
+        """Write the per-boot token the livingui CLI uses for control calls."""
+        import uuid
+
+        token = uuid.uuid4().hex
+        try:
+            token_dir = AGENT_WORKSPACE_ROOT / "living_ui"
+            token_dir.mkdir(parents=True, exist_ok=True)
+            (token_dir / ".control_token").write_text(token, encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] Could not write control token: {e}")
+        return token
+
+    def _install_livingui_launchers(self) -> None:
+        """Generate `livingui` launcher scripts into <workspace>/bin.
+
+        The launchers pin the current interpreter, repo path, workspace and
+        browser port so `run_shell` can invoke the CLI from any cwd.
+        """
+        import sys
+
+        try:
+            repo_root = Path(__file__).resolve().parents[3]
+            cli_path = repo_root / "app" / "living_ui" / "cli.py"
+            bin_dir = AGENT_WORKSPACE_ROOT / "bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+
+            cmd_launcher = bin_dir / "livingui.cmd"
+            cmd_launcher.write_text(
+                "@echo off\r\n"
+                f'set "CRAFTBOT_WORKSPACE={AGENT_WORKSPACE_ROOT}"\r\n'
+                f'set "BROWSER_PORT={self._port}"\r\n'
+                f'"{sys.executable}" "{cli_path}" %*\r\n',
+                encoding="utf-8",
+            )
+            sh_launcher = bin_dir / "livingui"
+            sh_launcher.write_text(
+                "#!/bin/sh\n"
+                f'export CRAFTBOT_WORKSPACE="{AGENT_WORKSPACE_ROOT}"\n'
+                f"export BROWSER_PORT={self._port}\n"
+                f'exec "{sys.executable}" "{cli_path}" "$@"\n',
+                encoding="utf-8",
+                newline="\n",
+            )
+            try:
+                sh_launcher.chmod(0o755)
+            except Exception:
+                pass
+
+            # Put bin/ on this process's PATH: run_shell children inherit
+            # os.environ, so a bare `livingui ...` resolves in cmd/PowerShell/
+            # sh without the agent having to synthesize the absolute path
+            # (agents copy example commands literally — make that form work).
+            bin_str = str(bin_dir)
+            current_path = os.environ.get("PATH", "")
+            if bin_str not in current_path.split(os.pathsep):
+                os.environ["PATH"] = bin_str + os.pathsep + current_path
+
+            logger.info(
+                f"[LIVING_UI] livingui launchers installed in {bin_dir} (added to PATH)"
+            )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] Could not install livingui launchers: {e}")
+
+    async def _living_ui_control_handler(self, request: "web.Request") -> "web.Response":
+        """Loopback control endpoint for the livingui CLI.
+
+        Body: {token, command: start|stop|restart|data_changed|ui_command,
+               projectId, payload?}. Token comes from the per-boot token file
+        only local processes can read; the server itself binds localhost.
+        """
+        import hmac
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        token = str(body.get("token", ""))
+        if not token or not hmac.compare_digest(token, self._living_ui_control_token):
+            return web.json_response({"error": "invalid control token"}, status=403)
+
+        command = str(body.get("command", ""))
+        project_id = str(body.get("projectId", ""))
+        payload = body.get("payload") or {}
+
+        try:
+            if command == "start":
+                ok = await self._living_ui_manager.launch_project(project_id)
+                project = self._living_ui_manager.get_project(project_id)
+                return web.json_response(
+                    {
+                        "status": "success" if ok else "error",
+                        "url": project.url if project else None,
+                        "backendUrl": project.backend_url if project else None,
+                    }
+                )
+            if command == "stop":
+                ok = await self._living_ui_manager.stop_project(project_id)
+                return web.json_response({"status": "success" if ok else "error"})
+            if command == "restart":
+                from app.living_ui import restart_living_ui
+
+                result = await restart_living_ui(project_id)
+                return web.json_response(result)
+            if command == "data_changed":
+                await self.broadcast_living_ui_data_changed(project_id)
+                return web.json_response({"status": "ok"})
+            if command == "ui_command":
+                await self.broadcast_living_ui_ui_command(
+                    project_id, payload.get("command") or {}
+                )
+                return web.json_response({"status": "ok"})
+            return web.json_response({"error": f"unknown command '{command}'"}, status=400)
+        except Exception as e:
+            logger.error(f"[LIVING_UI] Control command '{command}' failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _handle_living_ui_state_update(self, data: Dict[str, Any]) -> None:
         """Handle state update from a Living UI for agent awareness."""
         try:
@@ -3599,6 +3770,22 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             {
                 "type": "living_ui_data_changed",
                 "data": {"projectId": project_id},
+            }
+        )
+
+    async def broadcast_living_ui_ui_command(
+        self, project_id: str, command: Dict[str, Any]
+    ) -> None:
+        """Forward an agent command to a Living UI's running iframe.
+
+        The host frontend posts it into the iframe as a
+        `craftbot-agent-command` message, which apps handle via the
+        template's useAgentCommand hook (navigate, refresh, highlight, ...).
+        """
+        await self._broadcast(
+            {
+                "type": "living_ui_ui_command",
+                "data": {"projectId": project_id, "command": command},
             }
         )
 

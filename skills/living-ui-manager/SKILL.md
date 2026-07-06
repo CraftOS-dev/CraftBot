@@ -1,6 +1,6 @@
 ---
 name: living-ui-manager
-description: Get, set, update data and manipulate state of running Living UI applications. Reads project registry and LIVING_UI.md for context, uses HTTP APIs or creates new endpoints as needed.
+description: Operate existing Living UI apps - populate/add/update/query their data (kanban cards, tracker entries, CRM records, board lists), fire their operations, run jobs, observe their UI. Everything goes through the livingui CLI in run_shell - discover with --help.
 action-sets:
   - core
   - file_operations
@@ -10,206 +10,146 @@ action-sets:
 
 # Living UI Manager
 
-Interact with existing Living UI applications: read data, write data, update state, and add new capabilities.
-
-## Workflow
-
-Follow these steps **in order** for every Living UI interaction.
-
-### Before You Start: Read and Apply Global Config
-
-Read `agent_file_system/GLOBAL_LIVING_UI.md` for global design preferences and rules. You MUST follow:
-- **Colors**: Use the defined Primary/Secondary/Accent hex values for any new UI elements or endpoints.
-- **Enabled rules `[x]`**: Treat as hard requirements.
-- **Always Enforced rules**: Non-negotiable.
-- Per-project requirements from the project's `LIVING_UI.md` override global settings.
-
-### Step 1: Identify the Living UI
-
-Read the project registry:
+Operate existing Living UI applications **through the `livingui` CLI**, the
+way a human uses a well-made command-line tool: `--help` to discover, then
+navigate. Invoke it with `run_shell` — `livingui` is on PATH inside
+CraftBot's shell actions, so run it directly:
 
 ```
-File: agent_file_system/workspace/living_ui_projects.json
+livingui ls
 ```
 
-This JSON contains all projects. Each entry has:
+(If `livingui` is ever not recognized, the launcher is at
+`<workspace>/bin/livingui.cmd` — but the bare command is the normal form.)
 
-| Field | Purpose |
-|-------|---------|
-| `id` | Unique project identifier |
-| `name` | Display name (use this to match user's request) |
-| `path` | Absolute path to project directory |
-| `status` | running, stopped, creating, error |
-| `port` | Frontend port (DO NOT use for API calls) |
-| `backendPort` | Backend API port (USE THIS for all API calls) |
-
-**Match by name** - if the user says "todo" or "expense", fuzzy-match against project names. If ambiguous, list available projects and ask the user.
-
-### Step 2: Read LIVING_UI.md
+## The operating loop
 
 ```
-File: {project.path}/LIVING_UI.md
+livingui ls                       → find the project (id, name, status)
+livingui <project> --help         → capability card: tables, operations, commands
+livingui <project> <command> ...  → do the work
 ```
 
-This is the **context index** for the Living UI. It documents:
-- **Data Model** - database tables and fields
-- **API Endpoints** - all available routes (method, path, description)
-- **Frontend Components** - UI structure
-- **Ports** - backend and frontend URLs
+**Rule 1 — discover with --help, level by level.** Help exists at every
+level (`<project> --help`, `<command> --help`, `run <op> --help`). Never dump
+everything at once; dive only into what the task needs. Never read
+models.py/routes.py/LIVING_UI.md for data operations — `--help` and `schema`
+are live ground truth.
 
-**Read this file before making any API calls.** It tells you exactly what endpoints exist and what data structures to use.
+**Rule 2 — errors ARE instructions.** When a command fails, the error ends
+with `Try: livingui ...` — run exactly that. Do not guess an alternative
+route or start editing code because one command failed.
 
-If LIVING_UI.md is empty or has only template placeholders (e.g., `<!-- Agent: ... -->`), skip to Step 4 to read the source code directly.
+**Rule 3 — always batch.** One `insert --file` with 100 rows, one filtered
+`update`, one `sql` aggregate. NEVER loop one-record commands.
 
-### Step 3: Execute the Operation
+`<project>` accepts the id (`e1e957e1`), the name (`habit-tracker`), or the
+folder name — all resolve.
 
-**Base URL**: `http://localhost:{backendPort}/api`
+## Command reference (each supports --help)
 
-The project backend must be running (status = "running"). If it's stopped, inform the user that the Living UI needs to be launched first from the browser.
-
-#### Reading Data
-
-Use `http_request` with the appropriate endpoint from LIVING_UI.md:
-
-```
-# Custom resource endpoints (check LIVING_UI.md for exact paths)
-GET http://localhost:{backendPort}/api/todos
-GET http://localhost:{backendPort}/api/todos/{id}
-
-# Generic state endpoint (always available)
-GET http://localhost:{backendPort}/api/state
-
-# Generic items endpoint (always available)
-GET http://localhost:{backendPort}/api/items
-GET http://localhost:{backendPort}/api/items/{id}
-```
-
-#### Writing / Updating Data
+### Read
 
 ```
-# Create - POST with JSON body
-POST http://localhost:{backendPort}/api/todos
-Body: {"title": "New item", "priority": "high"}
-
-# Update - PUT with JSON body
-PUT http://localhost:{backendPort}/api/todos/{id}
-Body: {"completed": true}
-
-# Delete
-DELETE http://localhost:{backendPort}/api/todos/{id}
-
-# Bulk state update (merges with existing)
-PUT http://localhost:{backendPort}/api/state
-Body: {"data": {"key": "value"}}
-
-# Execute named action
-POST http://localhost:{backendPort}/api/action
-Body: {"action": "complete-all", "payload": {}}
+livingui habit-tracker schema                      # tables + row counts
+livingui habit-tracker schema workout_logs         # columns of one table
+livingui habit-tracker select workout_logs --where "date>=2026-07-01" --columns date,exercise --limit 20
+livingui habit-tracker count habits --where "archived=false"
+livingui habit-tracker sql "SELECT exercise, COUNT(*) n FROM workout_logs GROUP BY 1 ORDER BY n DESC"
 ```
 
-#### Observing the UI
+`--where` (repeatable, AND): `"id<=10"`, `"name like %press%"`,
+`"status in todo,doing"`, `"deleted_at is null"`.
+
+### Write (direct DB — works even when the app is stopped)
 
 ```
-GET http://localhost:{backendPort}/api/ui-snapshot    # DOM, text, form values
-GET http://localhost:{backendPort}/api/ui-screenshot  # Base64 PNG image
+# BULK insert: write rows.json (a JSON array) with a file action, then ONE command
+livingui habit-tracker insert workout_logs --file C:\...\rows.json
+
+# Filtered bulk update/delete — the data never enters your context
+livingui habit-tracker update workout_logs --where "id<=10" --set rpe=7.5 --set rest_time_seconds=90
+livingui habit-tracker delete workout_logs --where "id>95"
 ```
 
-**After any operation**, format the results clearly for the user.
+update/delete **require `--where`** (or explicit `--all` for whole-table).
+Destructive commands snapshot the DB first. Mutations auto-refresh the
+user's iframe.
 
-### Step 4: If No Suitable API Exists
-
-When LIVING_UI.md does not list an endpoint for the requested operation, or the endpoint returns 404/405:
-
-#### 4a. Read the Backend Source Code
+### App behavior (the app's verbs — prefer these over raw DB writes)
 
 ```
-{project.path}/backend/routes.py   - existing API endpoints
-{project.path}/backend/models.py   - database models
+livingui habit-tracker run                          # list declared operations
+livingui habit-tracker run complete_habit --help    # params for one op
+livingui habit-tracker run archive_habit --habit_id 3        # bare scalars: inline is fine
+livingui habit-tracker run add_card --params-file params.json # ANY text value: use a file
+livingui habit-tracker api GET /api/dashboard       # raw endpoint passthrough
 ```
 
-Check if the data or functionality already exists but isn't documented in LIVING_UI.md. If you find a usable endpoint, use it and update LIVING_UI.md.
+**Params rule (Windows-proof):** the moment any param value contains spaces
+or punctuation (titles, descriptions, notes), do NOT quote it inline —
+write the params as a JSON object to a file with a file action, then pass
+`--params-file <path>`. Inline `--param value` is only for bare scalars.
 
-#### 4b. Create the Missing Endpoint
+**If an operation exists for the intent, use it** — ops run the app's real
+logic (validation, ordering, side effects). Use raw `update`/`sql --write`
+only for pure data work.
 
-If no suitable endpoint exists:
+### Long-running work
 
-1. **Edit `backend/routes.py`** - add the new route following existing patterns:
-
-```python
-# Follow the existing import style and router pattern
-@router.get("/your-endpoint")
-def get_your_data(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
-    """Description of what this does."""
-    items = db.query(YourModel).all()
-    return [item.to_dict() for item in items]
-```
-
-2. **Edit `backend/models.py`** if a new data model is needed:
-
-```python
-class YourModel(Base):
-    __tablename__ = 'your_table'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False)
-    # ... fields ...
-
-    def to_dict(self):
-        return {"id": self.id, "name": self.name}
-```
-
-3. **Update `LIVING_UI.md` (MANDATORY)** — add the new endpoints to the API Endpoints table and update Data Model table if models changed. Remove any HTML comments or placeholder data. Future interactions depend on this being accurate.
-
-#### 4c. Restart the Backend
-
-After modifying backend code, use the `living_ui_restart` action:
+`mode: job` ops return a job id immediately — never block on them:
 
 ```
-living_ui_restart(project_id="{project.id}")
+livingui video-editor run render_timeline --preset final   → "job 3f2a91c0 started"
+livingui video-editor job 3f2a91c0                         → status + log tail
+livingui video-editor job 3f2a91c0 --cancel
 ```
 
-This action stops the entire project (backend + frontend), runs the launch pipeline (install, tests, build, health checks), and relaunches both on the same ports. If there are import errors or test failures, it will report them.
-
-**DO NOT** run `python -c "from models import *"` or `npm run build` manually — the pipeline handles verification.
-**DO NOT** use `living_ui_notify_ready` for restart — it's for initial launch only.
-
-#### 4d. Call the New Endpoint
-
-Now use `http_request` to call your newly created endpoint.
-
-## Directory Structure Reference
-
-When reading project files (Step 4), this is the layout:
+### Schema changes & lifecycle
 
 ```
-{project.path}/
-├── backend/
-│   ├── main.py          # FastAPI entry point (rarely edit)
-│   ├── models.py        # SQLAlchemy models - edit for new data
-│   ├── routes.py        # API endpoints - edit for new routes
-│   ├── database.py      # DB connection (rarely edit)
-│   └── living_ui.db     # SQLite database (auto-created)
-├── frontend/            # DO NOT edit for data operations
-├── config/manifest.json # Port info (also in projects.json)
-└── LIVING_UI.md         # Context index - ALWAYS update
+livingui habit-tracker migrate      # apply additive schema migration NOW
+livingui habit-tracker restart      # full pipeline (migrates automatically first)
+livingui habit-tracker start | stop
 ```
 
-## Backend Coding Rules
+After ANY models.py edit: `restart` (or `migrate` for the DB alone) BEFORE
+seeding data into new columns/tables. `--help` warns about schema drift and
+prints the fix.
 
-When creating new endpoints (Step 4b):
+### Observe
 
-- **NEVER use `metadata` as a SQLAlchemy column name** (it's reserved)
-- Always include `to_dict()` method on new models for JSON serialization
-- If model name conflicts with Python built-ins, use alias: `from models import List as ListModel`
-- Follow existing import style and router patterns in the file
-- New SQLite tables are auto-created on next backend startup
+```
+livingui habit-tracker status | logs --tail 50 | snapshot
+livingui habit-tracker screenshot --out shot.png    # then describe_image
+livingui habit-tracker ui --data '{"type": "refresh"}'   # drive the live iframe
+```
+
+## If no capability exists
+
+When `--help` shows no operation, no endpoint, and no table that fits, the
+app needs code. Read `backend/routes.py` / `backend/models.py`, add the
+capability following existing patterns (with a one-line docstring — it
+becomes the op description), update `LIVING_UI.md`, then
+`livingui <project> restart`. New model columns are migrated automatically
+at restart. Then register the capability: `livingui <project> ops-sync
+--write`, curate the description, `ops-check` until clean — an undeclared
+capability is invisible.
 
 ## Rules
 
-- **Always read LIVING_UI.md first** before making API calls
-- **Use `backendPort`** from projects.json, never the frontend `port`
-- **Backend must be running** for HTTP requests to work
-- **Never modify frontend code** for data operations - always use backend APIs
-- **Update LIVING_UI.md** after adding new endpoints
-- **Format results** clearly for the user - tables, lists, summaries
-- **Use `living_ui_restart` action** after code changes - never start servers manually or run verification commands yourself; the restart pipeline runs install, tests, and health checks and reports any import errors (see 4c)
-- **Don't create a Living UI** - this skill is for interacting with existing ones. Use `living-ui-creator` skill to create new Living UIs.
+- **Before You Start**: read `agent_file_system/GLOBAL_LIVING_UI.md`; per-project
+  `LIVING_UI.md` overrides it for design decisions.
+- **The CLI is the ONLY way to operate a Living UI** — `--help` → command →
+  follow error hints. No curl, no direct sqlite, no HTTP actions.
+- **If a livingui command fails, fix the invocation — NEVER bypass the CLI.**
+  A quoting failure means switch to `--params-file`; an unknown column means
+  run the suggested `migrate`. Falling back to direct sqlite3/python scripts
+  against living_ui.db is forbidden (and blocked): it corrupts ordering,
+  bypasses app logic, and skips automatic backups.
+- **NEVER write auth tables directly** (`users`, `memberships`, `invites`) —
+  password hashing lives in the app; use `api POST /api/auth/...`.
+- **NEVER start servers manually** (`npm`, `uvicorn`) — use `restart`.
+- **Quote Windows paths**; put bulk payloads in files, not on the command line.
+- **Format results for the user** — tables, lists, summaries; don't paste raw CLI dumps.
+- **Don't create a Living UI here** — use `living-ui-creator`.

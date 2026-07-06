@@ -30,7 +30,6 @@ _broadcast_progress_callback: Optional[
 _broadcast_todos_callback: Optional[
     Callable[[str, List[Dict[str, Any]]], Awaitable[None]]
 ] = None
-_broadcast_data_changed_callback: Optional[Callable[[str], Awaitable[None]]] = None
 _broadcast_question_callback: Optional[Callable[[str, str, str], Awaitable[None]]] = (
     None
 )
@@ -46,7 +45,6 @@ def register_broadcast_callbacks(
     broadcast_todos: Optional[
         Callable[[str, List[Dict[str, Any]]], Awaitable[None]]
     ] = None,
-    broadcast_data_changed: Optional[Callable[[str], Awaitable[None]]] = None,
     broadcast_created: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     broadcast_question: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
 ) -> None:
@@ -59,12 +57,11 @@ def register_broadcast_callbacks(
         _broadcast_created_callback, \
         _broadcast_progress_callback, \
         _broadcast_todos_callback
-    global _broadcast_data_changed_callback, _broadcast_question_callback, _main_loop
+    global _broadcast_question_callback, _main_loop
     _broadcast_ready_callback = broadcast_ready
     _broadcast_created_callback = broadcast_created
     _broadcast_progress_callback = broadcast_progress
     _broadcast_todos_callback = broadcast_todos
-    _broadcast_data_changed_callback = broadcast_data_changed
     _broadcast_question_callback = broadcast_question
     try:
         _main_loop = asyncio.get_running_loop()
@@ -173,44 +170,6 @@ def _dispatch_todos(project_id: str, todos: List[Dict[str, Any]]) -> bool:
 
     coro.close()
     logger.warning("[LIVING_UI] No main loop available; todo broadcast skipped")
-    return False
-
-
-async def _broadcast_data_changed_async(project_id: str) -> bool:
-    """Internal async broadcaster used by the sync dispatcher below."""
-    if _broadcast_data_changed_callback:
-        await _broadcast_data_changed_callback(project_id)
-        return True
-    return False
-
-
-def dispatch_living_ui_data_changed(project_id: str) -> bool:
-    """Thread-safe signal that a Living UI's data was modified by the agent.
-
-    Handles both calling contexts:
-      - Main asyncio loop: schedules via loop.create_task
-      - Worker thread: uses asyncio.run_coroutine_threadsafe against _main_loop
-
-    Returns True if the broadcast was scheduled, False otherwise.
-    """
-    if not _broadcast_data_changed_callback:
-        return False
-
-    coro = _broadcast_data_changed_async(project_id)
-
-    try:
-        running = asyncio.get_running_loop()
-        running.create_task(coro)
-        return True
-    except RuntimeError:
-        pass
-
-    if _main_loop is not None and _main_loop.is_running():
-        asyncio.run_coroutine_threadsafe(coro, _main_loop)
-        return True
-
-    coro.close()
-    logger.warning("[LIVING_UI] No main loop available; data-changed broadcast skipped")
     return False
 
 
