@@ -173,7 +173,7 @@ def build_index(root: str, force: bool = False) -> IndexStats:
                 not force
                 and has_rows
                 and stored_root
-                and stored_root[0] == root
+                and os.path.normcase(stored_root[0]) == os.path.normcase(root)
                 and not _needs_incremental.get(root, False)
             ):
                 total = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
@@ -302,13 +302,19 @@ def _fts_prefilter_sql(pattern: str) -> tuple[str, list[str]] | None:
         return ("f.basename = ?", [pattern])
 
     if pattern.startswith("*"):
+        remainder = pattern[1:]
+        next_star = remainder.find("*")
+        literal = remainder[:next_star] if next_star >= 0 else remainder
+        if len(literal) >= 2 and "?" not in literal and "[" not in literal:
+            return ("files_fts.basename MATCH ?", [literal])
         return None
 
     star = pattern.find("*")
     if star > 0:
         literal = pattern[:star]
-        if len(literal) >= 2 and literal.replace("_", "").isalnum():
-            return ("files_fts.basename MATCH ?", [literal])
+        if len(literal) >= 2 and "?" not in literal and "[" not in literal:
+            quoted = '"' + literal.replace('"', '""') + '"'
+            return ("files_fts.basename MATCH ?", [quoted])
     return None
 
 

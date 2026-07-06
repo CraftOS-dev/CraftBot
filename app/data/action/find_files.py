@@ -2,19 +2,19 @@ from agent_core import action
 
 
 def _find_files_impl(base_directory: str, file_pattern: str, recursive: bool) -> dict:
-    import glob
     import os
 
     from app.utils import file_index
 
+    file_index.start_watcher(base_directory)
+    matches = file_index.search(base_directory, file_pattern)
     if not recursive:
-        matches = []
-        for path in glob.glob(os.path.join(base_directory, file_pattern)):
-            if os.path.isfile(path):
-                matches.append(os.path.abspath(path))
-    else:
-        file_index.start_watcher(base_directory)
-        matches = file_index.search(base_directory, file_pattern)
+        base_abs = os.path.abspath(base_directory)
+        matches = [
+            path
+            for path in matches
+            if os.path.normcase(os.path.dirname(path)) == os.path.normcase(base_abs)
+        ]
 
     return {
         "status": "success",
