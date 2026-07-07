@@ -856,6 +856,16 @@ def _create_desktop_shortcut_windows() -> None:
         print(f"  (Could not create desktop shortcut: {e})")
 
 
+def _shortcut_start_command(extra_args: List[str]) -> Optional[str]:
+    restart_args = _port_args(extra_args)
+    if IS_FROZEN:
+        installed = installed_exe_path()
+        if not installed:
+            return None
+        return shlex.join([installed] + restart_args)
+    return shlex.join([_python_exe(), "craftbot.py", "start"] + restart_args)
+
+
 def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> None:
     """Create a desktop shortcut on Linux or macOS."""
     if extra_args is None:
@@ -869,13 +879,18 @@ def _create_desktop_shortcut_unix(extra_args: Optional[List[str]] = None) -> Non
             # macOS does not support XDG .desktop files — create a double-clickable .command script
             shortcut_path = os.path.join(desktop, "CraftBot.command")
             backend_url = _backend_url(extra_args)
-            restart_args = _port_args(extra_args)
-            start_cmd = shlex.join([_python_exe(), "craftbot.py", "start"] + restart_args)
+            start_cmd = _shortcut_start_command(extra_args)
+            if not start_cmd:
+                print("  (Could not create desktop shortcut: no installed agent found)")
+                return
             content = (
                 "#!/bin/sh\n"
                 f"cd {shlex.quote(BASE_DIR)} || exit 1\n"
+                f"backend_status=$(curl -sS -o /dev/null -w '%{{http_code}}' "
+                f"{shlex.quote(backend_url)} 2>/dev/null || true)\n"
                 f"if curl -fsS {shlex.quote(browser_url)} >/dev/null 2>&1 "
-                f"&& curl -fsS {shlex.quote(backend_url)} >/dev/null 2>&1; then\n"
+                '&& [ "$backend_status" -ge 100 ] 2>/dev/null '
+                '&& [ "$backend_status" -lt 500 ] 2>/dev/null; then\n'
                 f"  open {shlex.quote(browser_url)}\n"
                 "else\n"
                 f"  exec {start_cmd}\n"

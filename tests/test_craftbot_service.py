@@ -87,8 +87,11 @@ def test_macos_source_shortcut_uses_custom_backend_port(
     content = shortcut.read_text()
     assert f"cd {shlex.quote(str(base_dir))}" in content
     assert "curl -fsS http://localhost:7925" in content
-    assert "curl -fsS http://localhost:8123" in content
-    assert "curl -fsS http://localhost:7926" not in content
+    assert "backend_status=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8123" in content
+    assert "[ \"$backend_status\" -ge 100 ]" in content
+    assert "[ \"$backend_status\" -lt 500 ]" in content
+    assert "curl -fsS http://localhost:8123" not in content
+    assert "http://localhost:7926" not in content
     assert "open http://localhost:7925" in content
     assert f"exec {shlex.quote(python_exe)} craftbot.py start --backend-port 8123" in content
 
@@ -111,8 +114,32 @@ def test_macos_source_shortcut_accepts_equals_backend_port(tmp_path, monkeypatch
     craftbot._create_desktop_shortcut_unix(["--backend-port=8123"])
 
     content = (desktop / "CraftBot.command").read_text()
-    assert "curl -fsS http://localhost:8123" in content
+    assert "backend_status=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8123" in content
     assert "craftbot.py start --backend-port=8123" in content
+
+
+def test_macos_frozen_shortcut_starts_installed_agent_executable(
+    tmp_path, monkeypatch
+):
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    base_dir = tmp_path / "CraftBot"
+    base_dir.mkdir()
+    installed_agent = "/Applications/CraftBot/CraftBot Agent"
+
+    monkeypatch.setattr(craftbot, "_PLATFORM", "darwin")
+    monkeypatch.setattr(craftbot, "IS_FROZEN", True)
+    monkeypatch.setattr(craftbot, "BASE_DIR", str(base_dir))
+    monkeypatch.setattr(craftbot, "_find_desktop", lambda: str(desktop))
+    monkeypatch.setattr(craftbot, "_python_exe", lambda: "/bad/python")
+    monkeypatch.setattr(craftbot, "installed_exe_path", lambda: installed_agent)
+
+    craftbot._create_desktop_shortcut_unix(["--frontend-port", "9000"])
+
+    content = (desktop / "CraftBot.command").read_text()
+    assert f"exec {shlex.quote(installed_agent)} --frontend-port 9000" in content
+    assert "craftbot.py start" not in content
+    assert "/bad/python" not in content
 
 
 def test_start_ignores_stale_ready_marker_when_child_exits(
