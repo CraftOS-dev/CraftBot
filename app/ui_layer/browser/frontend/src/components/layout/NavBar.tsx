@@ -1,100 +1,108 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   MessageSquare,
   ListTodo,
   LayoutDashboard,
   FolderOpen,
   Settings,
-  Sparkles,
   Box,
   Loader2,
   PanelLeftClose,
-  PanelLeftOpen
-} from 'lucide-react'
-import { useWebSocket } from '../../contexts/WebSocketContext'
-import { useTheme } from '../../contexts/ThemeContext'
-import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
-import type { LivingUICreateRequest } from '../../types'
-import { TopBar } from './TopBar'
-import styles from './NavBar.module.css'
+  PanelLeftOpen,
+  Store,
+} from "lucide-react";
+import { useWebSocket } from "../../contexts/WebSocketContext";
+import { useTheme } from "../../contexts/ThemeContext";
+import { TopBar } from "./TopBar";
+import styles from "./NavBar.module.css";
 
 interface NavItem {
-  id: string
-  label: string
-  icon: React.ReactNode
-  path: string
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  path: string;
 }
 
 const leftNavItems: NavItem[] = [
-  { id: 'chat', label: 'Chat', icon: <MessageSquare size={16} />, path: '/' },
-  { id: 'tasks', label: 'Tasks', icon: <ListTodo size={16} />, path: '/tasks' },
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard' },
-  { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace' },
-]
+  { id: "chat", label: "Chat", icon: <MessageSquare size={16} />, path: "/" },
+  { id: "tasks", label: "Tasks", icon: <ListTodo size={16} />, path: "/tasks" },
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: <LayoutDashboard size={16} />,
+    path: "/dashboard",
+  },
+  {
+    id: "workspace",
+    label: "Workspace",
+    icon: <FolderOpen size={16} />,
+    path: "/workspace",
+  },
+];
 
-const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: <Settings size={16} />, path: '/settings' }
+const settingsItem: NavItem = {
+  id: "settings",
+  label: "Settings",
+  icon: <Settings size={16} />,
+  path: "/settings",
+};
 
 interface NavBarProps {
-  collapsed?: boolean
-  onToggleCollapsed?: () => void
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const { livingUIProjects, createLivingUI } = useWebSocket()
-  const { theme } = useTheme()
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { livingUIProjects } = useWebSocket();
+  const { theme } = useTheme();
 
-  const logoSrc = theme === 'light'
-    ? '/craftbot_logo_text_no_border_light.png'
-    : '/craftbot_logo_text_no_border_dark.png'
+  const logoSrc =
+    theme === "light"
+      ? "/craftbot_logo_text_no_border_light.png"
+      : "/craftbot_logo_text_no_border_dark.png";
 
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [canScrollUp, setCanScrollUp] = useState(false)
-  const [canScrollDown, setCanScrollDown] = useState(false)
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
 
   const isActive = (path: string) => {
-    if (path === '/') {
-      return location.pathname === '/'
+    if (path === "/") {
+      return location.pathname === "/";
     }
-    return location.pathname.startsWith(path)
-  }
-
-  const handleCreateSubmit = (data: LivingUICreateRequest) => {
-    createLivingUI(data)
-    setShowCreateModal(false)
-  }
+    return location.pathname.startsWith(path);
+  };
 
   const updateOverflow = () => {
-    const el = scrollRef.current
-    if (!el) return
-    const maxScroll = el.scrollHeight - el.clientHeight
-    setCanScrollUp(el.scrollTop > 1)
-    setCanScrollDown(el.scrollTop < maxScroll - 1)
-  }
+    const el = scrollRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    setCanScrollUp(el.scrollTop > 1);
+    setCanScrollDown(el.scrollTop < maxScroll - 1);
+  };
 
   useLayoutEffect(() => {
-    updateOverflow()
-  }, [livingUIProjects.length])
+    updateOverflow();
+  }, [livingUIProjects.length]);
 
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(updateOverflow)
-    ro.observe(el)
-    window.addEventListener('resize', updateOverflow)
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(updateOverflow);
+    ro.observe(el);
+    window.addEventListener("resize", updateOverflow);
     return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', updateOverflow)
-    }
-  }, [])
+      ro.disconnect();
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, []);
 
   return (
     <>
-      <nav className={`${styles.navBar} ${collapsed ? styles.collapsed : ''}`}>
+      <nav className={`${styles.navBar} ${collapsed ? styles.collapsed : ""}`}>
         {/* Top: logo (left) + collapse toggle (right). Hidden on mobile drawer. */}
         {onToggleCollapsed && (
           <div className={styles.collapseRow}>
@@ -110,74 +118,94 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               type="button"
               className={styles.collapseButton}
               onClick={onToggleCollapsed}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-pressed={collapsed}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              {collapsed ? (
+                <PanelLeftOpen size={16} />
+              ) : (
+                <PanelLeftClose size={16} />
+              )}
             </button>
           </div>
         )}
 
-        {/* Scrollable region with fades for left nav + Living UI tabs */}
+        {/* Fixed top nav: main pages never scroll away */}
+        <div className={styles.topNav}>
+          {leftNavItems.map((item) => (
+            <button
+              key={item.id}
+              className={`${styles.navItem} ${isActive(item.path) ? styles.active : ""}`}
+              onClick={() => navigate(item.path)}
+              title={item.label}
+            >
+              <span className={styles.icon}>{item.icon}</span>
+              <span className={styles.label}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.innerDivider} aria-hidden="true" />
+
+        {/* Scrollable middle: Living UI tabs only */}
         <div className={styles.scrollArea}>
           <div
             ref={scrollRef}
             className={styles.scrollContent}
             onScroll={updateOverflow}
           >
-            {leftNavItems.map(item => (
-              <button
-                key={item.id}
-                className={`${styles.navItem} ${isActive(item.path) ? styles.active : ''}`}
-                onClick={() => navigate(item.path)}
-                title={item.label}
-              >
-                <span className={styles.icon}>{item.icon}</span>
-                <span className={styles.label}>{item.label}</span>
-              </button>
-            ))}
-
-            <div className={styles.innerDivider} aria-hidden="true" />
-
-            {livingUIProjects.map(project => {
-              const path = `/living-ui/${project.id}`
-              const active = isActive(path)
+            {livingUIProjects.map((project) => {
+              const path = `/living-ui/${project.id}`;
+              const active = isActive(path);
               return (
                 <button
                   key={project.id}
-                  className={`${styles.livingUITab} ${active ? styles.livingUITabActive : ''}`}
+                  className={`${styles.livingUITab} ${active ? styles.livingUITabActive : ""}`}
                   onClick={() => navigate(path)}
                   title={project.name}
                 >
                   <span className={styles.livingUITabIcon}>
-                    {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
-                      ? <Loader2 size={13} className={styles.spinner} />
-                      : <Box size={13} />}
+                    {project.status === "creating" ||
+                    project.status === "launching" ||
+                    project.status === "stopping" ? (
+                      <Loader2 size={13} className={styles.spinner} />
+                    ) : (
+                      <Box size={13} />
+                    )}
                   </span>
-                  <span className={styles.livingUITabLabel}>{project.name}</span>
+                  <span className={styles.livingUITabLabel}>
+                    {project.name}
+                  </span>
                 </button>
-              )
+              );
             })}
-
-            <button
-              className={styles.addLivingUIButton}
-              onClick={() => setShowCreateModal(true)}
-              title="Add Living UI"
-            >
-              <Sparkles size={14} className={styles.addLivingUIIcon} />
-              <span className={styles.addLivingUILabel}>Add Living UI</span>
-            </button>
           </div>
 
           <div
-            className={`${styles.fade} ${styles.fadeLeft} ${canScrollUp ? styles.fadeVisible : ''}`}
+            className={`${styles.fade} ${styles.fadeLeft} ${canScrollUp ? styles.fadeVisible : ""}`}
             aria-hidden="true"
           />
           <div
-            className={`${styles.fade} ${styles.fadeRight} ${canScrollDown ? styles.fadeVisible : ''}`}
+            className={`${styles.fade} ${styles.fadeRight} ${canScrollDown ? styles.fadeVisible : ""}`}
             aria-hidden="true"
           />
+        </div>
+
+        {/* Marketplace: pinned above the bottom toolbar, brand accent */}
+        <div className={`${styles.marketplaceButtonWrapper}`}>
+          <button
+            className={`${styles.marketplaceButton} ${isActive("/marketplace") ? styles.marketplaceButtonActive : ""}`}
+            onClick={() => navigate("/marketplace")}
+            title="Marketplace"
+          >
+            <div className={`${styles.marketplaceButtonInternal}`}>
+              <span className={styles.icon}>
+                <Store size={16} />
+              </span>
+              <span className={styles.label}>Marketplace</span>
+            </div>
+          </button>
         </div>
 
         {/* Bottom toolbar: version + action icons */}
@@ -186,7 +214,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
         {/* Settings, pinned at very bottom */}
         <div className={styles.navRight}>
           <button
-            className={`${styles.navItem} ${isActive(settingsItem.path) ? styles.active : ''}`}
+            className={`${styles.navItem} ${isActive(settingsItem.path) ? styles.active : ""}`}
             onClick={() => navigate(settingsItem.path)}
             title={settingsItem.label}
           >
@@ -195,14 +223,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
           </button>
         </div>
       </nav>
-
-      <CreateLivingUIModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSubmit={handleCreateSubmit}
-      />
-      {/* No onInstalled/navigate: marketplace installs just spawn a tab in the
-          navbar (like form-create) — the user opens it themselves. */}
     </>
-  )
+  );
 }

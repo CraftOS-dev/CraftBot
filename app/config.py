@@ -128,6 +128,11 @@ def _get_default_settings() -> Dict[str, Any]:
             "use_omniparser": False,
             "omniparser_url": "http://127.0.0.1:7861",
         },
+        # Optional override for the marketplace server. Empty = use the
+        # baked-in production URL (see DEFAULT_MARKETPLACE_SERVER_URL in
+        # app/marketplace/client.py). Set to http://127.0.0.1:3000 for
+        # local development.
+        "marketplace_server_url": "",
     }
 
 

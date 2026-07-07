@@ -1260,6 +1260,45 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post("/api/profile/inspect", self._profile_inspect_handler)
         self._app.router.add_post("/api/profile/import", self._profile_import_handler)
 
+        # Marketplace proxy routes (catalog server with GitHub fallback)
+        from app.marketplace import MarketplaceClient
+
+        self._marketplace_client = MarketplaceClient()
+        self._app.router.add_get(
+            "/api/marketplace/catalog", self._marketplace_catalog_handler
+        )
+        self._app.router.add_get(
+            "/api/marketplace/products/{slug}", self._marketplace_product_handler
+        )
+        self._app.router.add_get(
+            "/api/marketplace/banners", self._marketplace_banners_handler
+        )
+        self._app.router.add_post(
+            "/api/marketplace/events", self._marketplace_events_handler
+        )
+        self._app.router.add_get(
+            "/api/marketplace/products/{slug}/rating",
+            self._marketplace_rating_handler,
+        )
+        self._app.router.add_put(
+            "/api/marketplace/products/{slug}/rating",
+            self._marketplace_rating_handler,
+        )
+        self._app.router.add_get(
+            "/api/marketplace/products/{slug}/comments",
+            self._marketplace_comments_handler,
+        )
+        self._app.router.add_post(
+            "/api/marketplace/products/{slug}/comments",
+            self._marketplace_comments_handler,
+        )
+        self._app.router.add_post(
+            "/api/marketplace/skills/install", self._marketplace_skill_install_handler
+        )
+        self._app.router.add_post(
+            "/api/marketplace/bundles/stage", self._marketplace_bundle_stage_handler
+        )
+
         # Integration bridge routes (Living UI → external APIs)
         from app.living_ui.integration_bridge import IntegrationBridge
 
@@ -2012,10 +2051,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             app_name = data.get("appName", "")
             app_description = data.get("appDescription", "")
             custom_fields = data.get("customFields", {})
+            # Pinned-version metadata from the marketplace server (optional —
+            # absent for legacy frontends and degraded/GitHub-only mode).
+            pinned = {
+                "download_url": data.get("downloadUrl"),
+                "version": data.get("version"),
+                "git_commit_sha": data.get("gitCommitSha"),
+                "marketplace_slug": data.get("slug"),
+            }
             # Run as background task so the WS loop stays unblocked for concurrent installs
             asyncio.create_task(
                 self._handle_marketplace_install(
-                    app_id, app_name, app_description, custom_fields
+                    app_id, app_name, app_description, custom_fields, **pinned
                 )
             )
 
@@ -3416,6 +3463,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     Path(tmp_path).unlink(missing_ok=True)
                 except Exception:
                     pass
+
+        # Bundles staged from the marketplace carry a slug for the downloads stat.
+        marketplace_slug = payload.get("marketplace_slug") or ""
+        if marketplace_slug:
+            self._report_marketplace_install(
+                marketplace_slug, bool(result.get("success", True))
+            )
 
         return web.json_response(result)
 
@@ -7303,26 +7357,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # =====================
 
     async def _handle_marketplace_list(self) -> None:
-        """Fetch marketplace catalogue from GitHub."""
-        import urllib.request
-        import json as _json
-        import re as _re
+        """Fetch marketplace catalogue from GitHub (legacy WS path).
 
-        CATALOGUE_URL = "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
+        Kept for older frontends; the Marketplace page uses the
+        /api/marketplace/* proxy routes instead.
+        """
+        from app.marketplace import github_fallback
 
         try:
-            import ssl
-            import certifi
-
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            req = urllib.request.Request(
-                CATALOGUE_URL, headers={"User-Agent": "CraftBot"}
-            )
-            response = urllib.request.urlopen(req, timeout=15, context=ssl_ctx)
-            raw = response.read().decode()
-            # Strip trailing commas before ] or } (tolerant of hand-edited JSON)
-            raw = _re.sub(r",\s*([}\]])", r"\1", raw)
-            catalogue = _json.loads(raw)
+            catalogue = await github_fallback.fetch_catalogue()
             await self._broadcast(
                 {
                     "type": "living_ui_marketplace_list",
@@ -7337,12 +7380,216 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
+    async def _marketplace_catalog_handler(self, request: web.Request) -> web.Response:
+        """Proxy: catalog list/search from the marketplace server (or fallback)."""
+        from aiohttp import web
+
+        try:
+            data = await self._marketplace_client.get_catalog(
+                product_type=request.query.get("type", ""),
+                tag=request.query.get("tag", ""),
+                q=request.query.get("q", ""),
+                featured=request.query.get("featured", ""),
+                sort=request.query.get("sort", ""),
+                page=request.query.get("page", ""),
+                page_size=request.query.get("pageSize", ""),
+            )
+            return web.json_response(data)
+        except Exception as e:
+            logger.error(f"[MARKETPLACE] Catalog unavailable (server and fallback): {e}")
+            return web.json_response(
+                {"error": str(e), "products": [], "total": 0, "degraded": True},
+                status=502,
+            )
+
+    async def _marketplace_product_handler(self, request: web.Request) -> web.Response:
+        """Proxy: single product detail."""
+        from aiohttp import web
+
+        slug = request.match_info["slug"]
+        try:
+            data = await self._marketplace_client.get_product(slug)
+            if data is None:
+                return web.json_response({"error": "Product not found"}, status=404)
+            return web.json_response(data)
+        except Exception as e:
+            logger.error(f"[MARKETPLACE] Product '{slug}' unavailable: {e}")
+            return web.json_response({"error": str(e)}, status=502)
+
+    async def _marketplace_banners_handler(self, request: web.Request) -> web.Response:
+        """Proxy: hero/shelf banners (empty in degraded mode)."""
+        from aiohttp import web
+
+        try:
+            data = await self._marketplace_client.get_banners()
+            return web.json_response(data)
+        except Exception as e:
+            logger.error(f"[MARKETPLACE] Banners unavailable: {e}")
+            return web.json_response({"banners": [], "degraded": True}, status=200)
+
+    async def _marketplace_events_handler(self, request: web.Request) -> web.Response:
+        """Proxy: engagement events (view/click/install). Fire-and-forget —
+        respond immediately and forward in the background; events are
+        best-effort and dropped when the server is unreachable."""
+        from aiohttp import web
+        from app.config import get_settings
+
+        if not get_settings().get("marketplace_telemetry_enabled", True):
+            return web.json_response({"ok": True, "disabled": True}, status=202)
+
+        try:
+            body = await request.json()
+            events = body.get("events", [])
+            if isinstance(events, list) and events:
+                asyncio.create_task(self._marketplace_client.post_events(events))
+        except Exception as e:
+            logger.debug(f"[MARKETPLACE] Bad events payload: {e}")
+        return web.json_response({"ok": True}, status=202)
+
+    async def _marketplace_proxy_passthrough(
+        self, request: web.Request, path: str
+    ) -> web.Response:
+        """Forward an interactive marketplace request (ratings/comments).
+        These are server-only features — 503 in degraded/offline mode."""
+        from aiohttp import web
+
+        try:
+            body = None
+            if request.method in ("POST", "PUT"):
+                body = await request.json()
+            status, data = await self._marketplace_client.proxy_json(
+                request.method, path, json_body=body, params=dict(request.query)
+            )
+            return web.json_response(data, status=status)
+        except Exception as e:
+            logger.warning(f"[MARKETPLACE] {request.method} {path} failed: {e}")
+            return web.json_response(
+                {"error": "Marketplace server unavailable"}, status=503
+            )
+
+    def _report_marketplace_install(self, slug: str, success: bool) -> None:
+        """Best-effort install telemetry (downloads stat), fire-and-forget."""
+        from app.config import get_settings
+
+        if not slug or not get_settings().get("marketplace_telemetry_enabled", True):
+            return
+        outcome = "install" if success else "install_failed"
+        asyncio.create_task(
+            self._marketplace_client.post_events([{"slug": slug, "type": outcome}])
+        )
+
+    async def _marketplace_skill_install_handler(
+        self, request: web.Request
+    ) -> web.Response:
+        """Install a skill product: git-clone via the existing skill installer."""
+        from aiohttp import web
+        from app.ui_layer.settings.skill_settings import install_skill_from_git
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        git_url = (payload.get("gitUrl") or "").strip()
+        slug = payload.get("slug") or ""
+        if not git_url.startswith(("https://", "http://", "git@")):
+            return web.json_response(
+                {"error": "A git URL is required to install this skill"}, status=400
+            )
+
+        # install_skill_from_git shells out to git clone — keep it off the loop.
+        success, message = await asyncio.to_thread(install_skill_from_git, git_url)
+        self._report_marketplace_install(slug, success)
+        return web.json_response(
+            {"success": success, "message": message},
+            status=200 if success else 422,
+        )
+
+    async def _marketplace_bundle_stage_handler(
+        self, request: web.Request
+    ) -> web.Response:
+        """Download a .craftbot bundle from the marketplace and stage it for
+        import. Returns the same inspect payload + bundle_token as
+        /api/profile/inspect, so the existing /api/profile/import applies it."""
+        from aiohttp import web
+        from app.ui_layer.settings.profile_bundle import inspect_bundle
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        url = (payload.get("downloadUrl") or "").strip()
+        if not url.startswith(("https://", "http://")):
+            return web.json_response(
+                {"error": "This bundle has no download URL"}, status=400
+            )
+
+        MAX_BUNDLE_BYTES = 100 * 1024 * 1024
+
+        def download() -> bytes:
+            import ssl
+            import urllib.request
+
+            import certifi
+
+            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+            req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
+            with urllib.request.urlopen(req, timeout=60, context=ssl_ctx) as resp:
+                data = resp.read(MAX_BUNDLE_BYTES + 1)
+            if len(data) > MAX_BUNDLE_BYTES:
+                raise ValueError("Bundle exceeds the 100MB size limit")
+            return data
+
+        import tempfile
+
+        tmp_path = None
+        try:
+            bundle_bytes = await asyncio.to_thread(download)
+            with tempfile.NamedTemporaryFile(
+                suffix=".craftbot", prefix="craftbot_mkt_bundle_", delete=False
+            ) as tmp:
+                tmp.write(bundle_bytes)
+                tmp_path = tmp.name
+            result = inspect_bundle(tmp_path)
+            if not result.get("success", False):
+                return web.json_response(result, status=422)
+            token = str(uuid.uuid4())
+            self._staged_bundles[token] = bundle_bytes
+            result["bundle_token"] = token
+            return web.json_response(result)
+        except Exception as exc:
+            logger.error(f"[MARKETPLACE] Bundle stage failed: {exc}")
+            return web.json_response({"error": str(exc)}, status=502)
+        finally:
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    async def _marketplace_rating_handler(self, request: web.Request) -> web.Response:
+        slug = request.match_info["slug"]
+        return await self._marketplace_proxy_passthrough(
+            request, f"/api/v1/products/{slug}/rating"
+        )
+
+    async def _marketplace_comments_handler(self, request: web.Request) -> web.Response:
+        slug = request.match_info["slug"]
+        return await self._marketplace_proxy_passthrough(
+            request, f"/api/v1/products/{slug}/comments"
+        )
+
     async def _handle_marketplace_install(
         self,
         app_id: str,
         app_name: str,
         app_description: str,
         custom_fields: dict = None,
+        download_url: str = None,
+        version: str = None,
+        git_commit_sha: str = None,
+        marketplace_slug: str = None,
     ) -> None:
         """Install a marketplace app."""
         if not app_id or not app_name:
@@ -7385,6 +7632,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             app_description=app_description,
             custom_fields=custom_fields,
             project_id=project_id,
+            download_url=download_url,
+            version=version,
+            git_commit_sha=git_commit_sha,
+            marketplace_slug=marketplace_slug,
+        )
+
+        # Report the install outcome to the marketplace server (downloads
+        # stat). Backend-side because installs outlive the marketplace page:
+        # the user usually navigates to the new tab before the install
+        # finishes, so a frontend listener would miss the result.
+        self._report_marketplace_install(
+            marketplace_slug or app_id, result.get("status") == "success"
         )
 
         if result.get("status") == "success":

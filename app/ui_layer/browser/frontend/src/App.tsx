@@ -9,6 +9,7 @@ import { WorkspacePage } from './pages/Workspace'
 import { SettingsPage } from './pages/Settings'
 import { OnboardingPage } from './pages/Onboarding'
 import { LivingUIPage } from './pages/LivingUI'
+import { MarketplacePage, ProductDetailPage } from './pages/Marketplace'
 import { useWebSocket } from './contexts/WebSocketContext'
 
 // Forces LivingUIPage to remount per-project so useState initializers
@@ -71,6 +72,8 @@ function App() {
         <Route path="/screen" element={<ScreenPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/marketplace" element={<MarketplacePage />} />
+        <Route path="/marketplace/:type/:slug" element={<ProductDetailPage />} />
         <Route path="/living-ui/:projectId" element={<LivingUIPageRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -46,6 +46,7 @@ debug_images
 **/*wwebjs*
 app/data/.usage/*
 app/config/settings.json
+app/config/instance.json
 **/CONVERSATION_HISTORY.md
 **/EVENT_UNPROCESSED.md
 **/EVENT.md

@@ -728,6 +728,11 @@ export interface LivingUIProject {
     themeId: string
     customColors?: { bg: string; surface: string; text: string; accent: string }
   }
+  // Marketplace provenance (marketplace installs only) — the store compares
+  // the installed commit against the catalog's latest for update detection.
+  marketplaceSlug?: string | null
+  marketplaceVersion?: string | null
+  marketplaceCommitSha?: string | null
 }
 
 export interface LivingUICreateRequest {

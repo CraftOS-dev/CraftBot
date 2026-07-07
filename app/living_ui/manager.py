@@ -68,6 +68,11 @@ class LivingUIProject:
     # Per-project display theme chosen in the UI ({"themeId": ..., "customColors": {...}}).
     # Persisted so the choice survives beyond one browser's localStorage.
     ui_theme: Optional[Dict[str, Any]] = None
+    # Marketplace provenance (installs only) — lets the UI detect updates by
+    # comparing the installed commit against the catalog's latest version.
+    marketplace_slug: Optional[str] = None
+    marketplace_version: Optional[str] = None
+    marketplace_commit_sha: Optional[str] = None
     bridge_token: str = ""  # Ephemeral token for integration bridge (NOT serialized)
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
@@ -97,6 +102,9 @@ class LivingUIProject:
             "appRuntime": self.app_runtime,
             "tunnelUrl": self.tunnel_url,
             "uiTheme": self.ui_theme,
+            "marketplaceSlug": self.marketplace_slug,
+            "marketplaceVersion": self.marketplace_version,
+            "marketplaceCommitSha": self.marketplace_commit_sha,
         }
 
 
@@ -598,6 +606,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             project_type=project_data.get("projectType", "native"),
                             app_runtime=project_data.get("appRuntime"),
                             ui_theme=project_data.get("uiTheme"),
+                            marketplace_slug=project_data.get("marketplaceSlug"),
+                            marketplace_version=project_data.get("marketplaceVersion"),
+                            marketplace_commit_sha=project_data.get(
+                                "marketplaceCommitSha"
+                            ),
                         )
                         # Keep the saved tunnel URL optimistically; reachability
                         # is verified in a background thread below so startup
@@ -2577,6 +2590,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         custom_fields: Optional[Dict[str, str]] = None,
         repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace",
         project_id: Optional[str] = None,
+        download_url: Optional[str] = None,
+        version: Optional[str] = None,
+        git_commit_sha: Optional[str] = None,
+        marketplace_slug: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Install a pre-built Living UI app from the marketplace.
@@ -2590,6 +2607,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             app_name: Display name for the project
             app_description: App description
             repo_url: GitHub repo URL
+            download_url: Optional pinned zip URL (e.g. codeload .../zip/<sha>)
+                from the marketplace server; falls back to the repo's main branch
+            version: Marketplace version string recorded on the project
+            git_commit_sha: Commit the download is pinned to (update detection)
+            marketplace_slug: Catalog slug recorded on the project
 
         Returns:
             Dict with status, project info, or error
@@ -2605,12 +2627,17 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
 
         try:
-            # Download the repo as a zip
-            # GitHub API: /{owner}/{repo}/zipball/main
-            parts = repo_url.rstrip("/").split("/")
-            owner = parts[-2]
-            repo = parts[-1]
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+            # Download the repo as a zip — pinned URL from the marketplace
+            # server when available, else the repo's main branch.
+            if download_url:
+                zip_url = download_url
+            else:
+                parts = repo_url.rstrip("/").split("/")
+                owner = parts[-2]
+                repo = parts[-1]
+                zip_url = (
+                    f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+                )
 
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
@@ -2701,6 +2728,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 status="created",
                 port=frontend_port,
                 backend_port=backend_port,
+                marketplace_slug=marketplace_slug or app_id,
+                marketplace_version=version,
+                marketplace_commit_sha=git_commit_sha,
             )
 
             self.projects[project_id] = project

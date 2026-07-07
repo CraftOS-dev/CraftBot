@@ -47,7 +47,9 @@
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .collapseButton:hover {
@@ -73,23 +75,23 @@
   padding-left: 0;
 }
 
+.collapsed .navItem,
+.collapsed .livingUITab,
+.collapsed .navRight {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Collapsed rail is icon-only: hide labels, center every icon */
 .collapsed .label,
-.collapsed .livingUITabLabel,
-.collapsed .addLivingUILabel {
+.collapsed .livingUITabLabel {
   display: none;
 }
 
 .collapsed .navItem,
-.collapsed .livingUITab,
-.collapsed .addLivingUIButton {
+.collapsed .livingUITab {
   justify-content: center;
   gap: 0;
-  padding: var(--space-2) 0;
-}
-
-.collapsed .navRight {
-  padding-left: 0;
-  padding-right: 0;
 }
 
 /* Scroll area wrapper holds the scrollable content + fade overlays */
@@ -165,12 +167,20 @@
 
 .fadeLeft {
   top: 0;
-  background: linear-gradient(to bottom, var(--sidebar-bg) 0%, var(--sidebar-bg-transparent) 100%);
+  background: linear-gradient(
+    to bottom,
+    var(--sidebar-bg) 0%,
+    var(--sidebar-bg-transparent) 100%
+  );
 }
 
 .fadeRight {
   bottom: 0;
-  background: linear-gradient(to top, var(--sidebar-bg) 0%, var(--sidebar-bg-transparent) 100%);
+  background: linear-gradient(
+    to top,
+    var(--sidebar-bg) 0%,
+    var(--sidebar-bg-transparent) 100%
+  );
 }
 
 .fadeVisible {
@@ -240,7 +250,9 @@
   font-weight: var(--font-medium);
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
   flex-shrink: 0;
   width: 100%;
   text-align: left;
@@ -275,44 +287,87 @@
 }
 
 /* Add Living UI button — subtle, looks like a muted nav item */
-.addLivingUIButton {
+/* Fixed block above the Living UI scroll region */
+.topNav {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* Marketplace: brand-accent button pinned above the bottom toolbar */
+.marketplaceButtonWrapper {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+}
+
+.marketplaceButton {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
+  margin: var(--space-2) var(--space-2);
   border: none;
   border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-tertiary);
+  background: var(--color-primary);
+  color: #fff;
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: filter var(--transition-fast);
   flex-shrink: 0;
-  width: 100%;
+  width: 80%;
+  align-self: stretch;
   text-align: left;
 }
 
-.addLivingUIButton:hover {
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
+.marketplaceButton:hover {
+  filter: brightness(1.08);
 }
 
-.addLivingUIIcon {
-  flex-shrink: 0;
-  transition: transform 0.3s ease;
+.marketplaceButtonActive {
+  filter: brightness(0.92);
 }
 
-.addLivingUIButton:hover .addLivingUIIcon {
-  transform: rotate(20deg) scale(1.15);
-}
-
-.addLivingUILabel {
-  white-space: nowrap;
+.marketplaceButtonInternal {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.marketplaceButtonInternal .icon {
+  flex-shrink: 0;
+}
+
+/* Collapsed: icon-only orange square, centered */
+.collapsed .marketplaceButtonWrapper {
+  margin: 0;
+}
+
+.collapsed .marketplaceButton {
+  width: auto;
+  align-self: center;
+  justify-content: center;
+  padding: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.collapsed .marketplaceButtonInternal {
+  flex: 0 0 auto;
+  gap: 0;
+  justify-content: center;
+}
+
+.collapsed .marketplaceButton .label {
+  display: none;
 }
 
 /* Spinner animation */
