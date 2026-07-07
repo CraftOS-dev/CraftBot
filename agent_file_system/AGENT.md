@@ -1,5 +1,5 @@
 ---
-version: 3
+version: 5
 purpose: agent operations manual
 ---
 
@@ -782,6 +782,8 @@ comfortably within one response's output-token budget.
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
 - `find_files`: recursive name pattern search across a tree.
+- Searching for several related name variants (e.g. "craftbot" or "craftos")? Combine them into ONE `find_files` call with `|` or `OR` in `pattern` (e.g. `*craftbot*|*craftos*`) instead of issuing multiple parallel `find_files` calls for the same base_directory.
+- Searching multiple drives/roots (e.g. C: and D:)? Same rule applies: join them with `|` in `base_directory` (e.g. `C:/|D:/`), or pass `all_drives=true` to search every local fixed drive in one call — do not fire one `find_files` call per drive.
 
 ### convert_to_markdown vs read_pdf
 - `read_pdf`: direct PDF reading with page support.
