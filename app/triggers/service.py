@@ -119,6 +119,28 @@ class TriggerService:
         loses nothing. A dedup_key collision with an active row means this
         work is already queued or in flight: no enqueue, no double-fire.
         """
+        try:
+            from opentelemetry.propagate import inject
+            from opentelemetry.trace import set_span_in_context
+            from app.agent_base import AgentBase
+
+            parent_span = None
+            if spec.source != TriggerSource.USER_MESSAGE and spec.session_id:
+                entry = AgentBase.GLOBAL_OPEN_SPANS.get(spec.session_id)
+                if entry:
+                    parent_span = entry.get("parent_span") if isinstance(entry, dict) else entry
+
+            if parent_span:
+                # Use the parent span's context to avoid deeply nested/recursive spans
+                # that violate timeline invariants (child span starting after parent ends)
+                ctx = set_span_in_context(parent_span._otel_span)
+                inject(spec.payload, context=ctx)
+                logger.debug(f"[TriggerService] Injected parent span context for session {spec.session_id}")
+            else:
+                inject(spec.payload)
+        except Exception as e:
+            logger.debug(f"[TriggerService] Failed to inject trace context: {e}")
+            
         fire_at = spec.fire_at if spec.fire_at is not None else time.time()
         source = (
             spec.source.value
@@ -165,6 +187,12 @@ class TriggerService:
         message reaches its destination (``settle_parked``); if it never
         does, rehydration re-delivers the row as a fresh session.
         """
+        try:
+            from opentelemetry.propagate import inject
+            inject(spec.payload)
+        except ImportError:
+            pass
+            
         fire_at = spec.fire_at if spec.fire_at is not None else time.time()
         source = (
             spec.source.value
@@ -282,6 +310,27 @@ class TriggerService:
                 patch["pending_platform"] = platform
         if living_ui_id:
             patch["living_ui_id"] = living_ui_id
+            
+        try:
+            from opentelemetry.propagate import inject
+            from opentelemetry.trace import set_span_in_context
+            from app.agent_base import AgentBase
+
+            parent_span = None
+            if not message:
+                entry = AgentBase.GLOBAL_OPEN_SPANS.get(session_id)
+                if entry:
+                    parent_span = entry.get("parent_span") if isinstance(entry, dict) else entry
+
+            if parent_span:
+                ctx = set_span_in_context(parent_span._otel_span)
+                inject(patch, context=ctx)
+                logger.debug(f"[TriggerService] Injected parent span context in fire() for session {session_id}")
+            else:
+                inject(patch)
+        except Exception as e:
+            logger.debug(f"[TriggerService] Failed to inject trace context in fire: {e}")
+            
         try:
             self._store.update_for_fire(session_id, time.time(), patch)
         except Exception as e:
@@ -291,6 +340,7 @@ class TriggerService:
             message=message,
             platform=platform,
             living_ui_id=living_ui_id,
+            extra_payload=patch,
         )
 
     # ─────────────────────── Boot recovery ──────────────────────────────────

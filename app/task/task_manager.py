@@ -24,6 +24,7 @@ from app.state.state_manager import StateManager
 from app.state.agent_state import STATE
 from app.config import AGENT_WORKSPACE_ROOT, AGENT_FILE_SYSTEM_PATH
 from app.logger import logger
+from traccia import span
 
 if TYPE_CHECKING:
     from app.llm import LLMInterface

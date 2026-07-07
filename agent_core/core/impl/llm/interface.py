@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 
 from agent_core.decorators import profile, OperationCategory
+from traccia.instrumentation.decorator import observe
 from agent_core.core.impl.llm.cache import (
     BytePlusCacheManager,
     BytePlusContextOverflowError,
@@ -440,6 +441,25 @@ class LLMInterface:
             except Exception as e:
                 logger.warning(f"[LLM] Failed to capture LLM call: {e}")
 
+        # ── Update the active Traccia LLM span with token usage ─────────────
+        # Every provider path calls _call_log_to_db with exact input/output
+        # token counts, making this the single reliable chokepoint. Traccia's
+        # CostAnnotatingProcessor reads llm.model + llm.usage.* to compute
+        # total tokens and cost shown in the dashboard.
+        try:
+            from opentelemetry import trace
+            _active_span = trace.get_current_span()
+            if _active_span:
+                _active_span.set_attribute("llm.model", self.model or "unknown")
+                _active_span.set_attribute("llm.usage.prompt_tokens", token_count_input)
+                _active_span.set_attribute("llm.usage.input_tokens", token_count_input)
+                _active_span.set_attribute("llm.usage.completion_tokens", token_count_output)
+                _active_span.set_attribute("llm.usage.output_tokens", token_count_output)
+                _active_span.set_attribute("llm.usage.total_tokens", token_count_input + token_count_output)
+                _active_span.set_attribute("llm.usage.source", "provider")
+        except Exception:
+            pass  # Never block a real LLM call over telemetry
+
     def _begin_call(
         self,
         prompt_name: Optional[str] = None,
@@ -557,6 +577,27 @@ class LLMInterface:
             current_count = self._get_token_count()
             self._set_token_count(current_count + billable_tokens(response))
 
+            # ── Report token usage on the active Traccia LLM span ──────────────
+            # _call_log_to_db (called by every provider) is the primary path for
+            # setting span token attributes. This fallback fires only if the
+            # provider response dict carries tokens_used but _call_log_to_db
+            # was somehow not invoked (e.g. Ollama/remote paths).
+            try:
+                from opentelemetry import trace
+                _span = trace.get_current_span()
+                if _span and not _span.attributes.get("llm.usage.total_tokens"):
+                    total_toks = int(response.get("tokens_used") or 0)
+                    if total_toks:
+                        _span.set_attribute("llm.model", self.model or "unknown")
+                        _span.set_attribute("llm.usage.prompt_tokens", total_toks)
+                        _span.set_attribute("llm.usage.input_tokens", total_toks)
+                        _span.set_attribute("llm.usage.completion_tokens", 0)
+                        _span.set_attribute("llm.usage.output_tokens", 0)
+                        _span.set_attribute("llm.usage.total_tokens", total_toks)
+                        _span.set_attribute("llm.usage.source", "provider_fallback")
+            except Exception:
+                pass  # Never break a real LLM call over telemetry failures
+
             if log_response:
                 logger.info(f"[LLM RECV] {cleaned}")
             return cleaned
@@ -590,6 +631,7 @@ class LLMInterface:
             raise
 
     @profile("llm_generate_response", OperationCategory.LLM)
+    @observe(name="LLMInterface.generate_response", as_type="llm")
     def generate_response(
         self,
         system_prompt: Optional[str] = None,
@@ -598,10 +640,18 @@ class LLMInterface:
         prompt_name: Optional[str] = None,
     ) -> str:
         """Generate a single response from the configured provider."""
+        from opentelemetry import trace
+        span = trace.get_current_span()
+        if span:
+            span.set_attribute("gen_ai.system", self.provider or "unknown")
+            span.set_attribute("gen_ai.request.model", self.model or "unknown")
+            span.set_attribute("gen_ai.response.model", self.model or "unknown")
+            
         self._begin_call(prompt_name=prompt_name)
         return self._generate_response_sync(system_prompt, user_prompt, log_response)
 
     @profile("llm_generate_response_async", OperationCategory.LLM)
+    @observe(name="LLMInterface.generate_response_async", as_type="llm")
     async def generate_response_async(
         self,
         system_prompt: Optional[str] = None,
@@ -610,6 +660,13 @@ class LLMInterface:
         prompt_name: Optional[str] = None,
     ) -> str:
         """Async wrapper that defers the blocking call to a worker thread."""
+        from opentelemetry import trace
+        span = trace.get_current_span()
+        if span:
+            span.set_attribute("gen_ai.system", self.provider or "unknown")
+            span.set_attribute("gen_ai.request.model", self.model or "unknown")
+            span.set_attribute("gen_ai.response.model", self.model or "unknown")
+            
         # Stamp the context here, in the caller's context, so asyncio.to_thread
         # copies it into the worker thread where the capture runs.
         self._begin_call(prompt_name=prompt_name)
@@ -1389,12 +1446,20 @@ class LLMInterface:
             log_response: Whether to log the response.
             prompt_name: Identity of the named prompt, for capture/profiling.
         """
+        from opentelemetry import trace
+        span = trace.get_current_span()
+        if span:
+            span.set_attribute("gen_ai.system", self.provider or "unknown")
+            span.set_attribute("gen_ai.request.model", self.model or "unknown")
+            span.set_attribute("gen_ai.response.model", self.model or "unknown")
+
         self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
         return self._generate_response_with_session_sync(
             task_id, call_type, user_prompt, system_prompt_for_new_session, log_response
         )
 
     @profile("llm_generate_response_with_session_async", OperationCategory.LLM)
+    @observe(name="LLMInterface.generate_response_async", as_type="llm")
     async def generate_response_with_session_async(
         self,
         task_id: str,
@@ -1416,6 +1481,13 @@ class LLMInterface:
         """
         # Stamp here (caller's context) so asyncio.to_thread copies it into the
         # worker thread where capture runs.
+        from opentelemetry import trace
+        span = trace.get_current_span()
+        if span:
+            span.set_attribute("gen_ai.system", self.provider or "unknown")
+            span.set_attribute("gen_ai.request.model", self.model or "unknown")
+            span.set_attribute("gen_ai.response.model", self.model or "unknown")
+
         self._begin_call(prompt_name=prompt_name, call_type=call_type, task_id=task_id)
         return await asyncio.to_thread(
             self._generate_response_with_session_sync,

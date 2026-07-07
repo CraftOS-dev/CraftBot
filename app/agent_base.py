@@ -34,6 +34,7 @@ from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
 from agent_core import settings_manager, config_watcher
+from traccia.instrumentation.decorator import observe
 
 from app.config import (
     AGENT_FILE_SYSTEM_PATH,
@@ -473,104 +474,120 @@ class AgentBase:
         """
         session_id = trigger.session_id
 
-        try:
-            logger.debug("[REACT] starting...")
+        import traccia
+        tracer = traccia.get_tracer()
+        with tracer.start_as_current_span(
+            "AgentBase.react",
+            attributes={
+                "span.type": "workflow",
+                "trigger.source": str(trigger.source) if hasattr(trigger, "source") else "unknown",
+                "session_id": session_id or "",
+                "traccia.guardrail.suppress_missing": "tool_permission,input_validation,output_validation,prompt_injection,moderation"
+            }
+        ) as span:
+            try:
+                from traccia.tracer.span import SpanStatus
+                span.set_status(SpanStatus.OK)
+            except ImportError:
+                pass
+            try:
+                logger.debug("[REACT] starting...")
 
-            # ----- WORKFLOW 0: Consolidated restart notice (issue #280) -----
-            # Recorded here, inside the running agent loop, so it reaches the UI
-            # (a boot-time record would be marked "seen" before the UI watcher
-            # starts). No LLM involved — just emit the prebuilt message.
-            if self._is_restart_notice_trigger(trigger):
-                message = trigger.payload.get("message", "")
-                if message:
-                    self.state_manager.record_agent_message(message)
-                # Drop the sentinel session from active tracking since we return
-                # before the normal session cleanup runs.
-                if trigger.session_id:
-                    self.triggers.mark_session_inactive(trigger.session_id)
-                return
-
-            # ----- WORKFLOW 1A: Memory Processing -----
-            if self._is_memory_trigger(trigger):
-                task_created = await self._handle_memory_workflow(trigger)
-                if not task_created:
-                    return  # No events to process
-                # Task was created - return to avoid falling through to conversation mode
-                # which would cause the LLM to create a duplicate task
-                return
-
-            # ----- WORKFLOW 1B: Proactive Processing (heartbeats, planners) -----
-            if self._is_proactive_trigger(trigger):
-                task_created = await self._handle_proactive_workflow(trigger)
-                if not task_created:
-                    return  # No tasks to process
-                # Task was created - return to avoid falling through to conversation mode
-                return
-
-            # Initialize session for all other workflows
-            trigger_data: TriggerData = self._extract_trigger_data(trigger)
-            await self._initialize_session(trigger_data.gui_mode, session_id)
-
-            # Record user message if routed from existing session via triggers.fire()
-            # This ensures the LLM sees the user message in the event stream
-            user_message = self._extract_user_message_from_trigger(trigger)
-            if user_message:
-                logger.info(
-                    f"[REACT] Recording routed user message: {user_message[:50]}..."
-                )
-                # Use platform from trigger_data (already formatted by _extract_trigger_data)
-                self.state_manager.record_user_message(
-                    user_message, platform=trigger_data.platform
-                )
-
-            # Check if task is waiting for user reply but no message was received
-            # In this case, re-schedule the wait trigger instead of executing actions
-            if session_id and self.task_manager and not user_message:
-                task = self.task_manager.tasks.get(session_id)
-                if task and task.waiting_for_user_reply:
-                    logger.info(
-                        f"[REACT] Task {session_id} is waiting for user reply but no message received. Re-scheduling wait trigger."
-                    )
-                    # Re-schedule the wait trigger with another 3-hour delay
-                    await self._create_new_trigger(
-                        session_id,
-                        {
-                            "fire_at_delay": 10800,
-                            "wait_for_user_reply": True,
-                        },  # 3 hours
-                        STATE,
-                    )
+                # ----- WORKFLOW 0: Consolidated restart notice (issue #280) -----
+                # Recorded here, inside the running agent loop, so it reaches the UI
+                # (a boot-time record would be marked "seen" before the UI watcher
+                # starts). No LLM involved — just emit the prebuilt message.
+                if self._is_restart_notice_trigger(trigger):
+                    message = trigger.payload.get("message", "")
+                    if message:
+                        self.state_manager.record_agent_message(message)
+                    # Drop the sentinel session from active tracking since we return
+                    # before the normal session cleanup runs.
+                    if trigger.session_id:
+                        self.triggers.mark_session_inactive(trigger.session_id)
                     return
 
-            # Debug: Log state after session initialization
-            logger.debug(
-                f"[STATE] session_id={session_id} | "
-                f"current_task_id={STATE.get_agent_property('current_task_id')} | "
-                f"current_task={STATE.current_task.id if STATE.current_task else None}"
-            )
+                # ----- WORKFLOW 1A: Memory Processing -----
+                if self._is_memory_trigger(trigger):
+                    task_created = await self._handle_memory_workflow(trigger)
+                    if not task_created:
+                        return  # No events to process
+                    # Task was created - return to avoid falling through to conversation mode
+                    # which would cause the LLM to create a duplicate task
+                    return
 
-            # ----- WORKFLOW 2: GUI Task Mode -----
-            if self._is_gui_task_mode(session_id):
-                await self._handle_gui_task_workflow(trigger_data, session_id)
-                return
+                # ----- WORKFLOW 1B: Proactive Processing (heartbeats, planners) -----
+                if self._is_proactive_trigger(trigger):
+                    task_created = await self._handle_proactive_workflow(trigger)
+                    if not task_created:
+                        return  # No tasks to process
+                    # Task was created - return to avoid falling through to conversation mode
+                    return
 
-            # ----- WORKFLOW 3: Complex Task Mode -----
-            if self._is_complex_task_mode(session_id):
-                await self._handle_complex_task_workflow(trigger_data, session_id)
-                return
+                # Initialize session for all other workflows
+                trigger_data: TriggerData = self._extract_trigger_data(trigger)
+                await self._initialize_session(trigger_data.gui_mode, session_id)
 
-            # ----- WORKFLOW 4: Simple Task Mode -----
-            if self._is_simple_task_mode(session_id):
-                await self._handle_simple_task_workflow(trigger_data, session_id)
-                return
+                # Record user message if routed from existing session via triggers.fire()
+                # This ensures the LLM sees the user message in the event stream
+                user_message = self._extract_user_message_from_trigger(trigger)
+                if user_message:
+                    logger.info(
+                        f"[REACT] Recording routed user message: {user_message[:50]}..."
+                    )
+                    # Use platform from trigger_data (already formatted by _extract_trigger_data)
+                    self.state_manager.record_user_message(
+                        user_message, platform=trigger_data.platform
+                    )
 
-            # ----- WORKFLOW 5: Conversation Mode (default) -----
-            await self._handle_conversation_workflow(trigger_data, session_id)
+                # Check if task is waiting for user reply but no message was received
+                # In this case, re-schedule the wait trigger instead of executing actions
+                if session_id and self.task_manager and not user_message:
+                    task = self.task_manager.tasks.get(session_id)
+                    if task and task.waiting_for_user_reply:
+                        logger.info(
+                            f"[REACT] Task {session_id} is waiting for user reply but no message received. Re-scheduling wait trigger."
+                        )
+                        # Re-schedule the wait trigger with another 3-hour delay
+                        await self._create_new_trigger(
+                            session_id,
+                            {
+                                "fire_at_delay": 10800,
+                                "wait_for_user_reply": True,
+                            },  # 3 hours
+                            STATE,
+                        )
+                        return
 
-        except Exception as e:
-            await self._handle_react_error(e, None, session_id, {})
-        finally:
-            self._cleanup_session()
+                # Debug: Log state after session initialization
+                logger.debug(
+                    f"[STATE] session_id={session_id} | "
+                    f"current_task_id={STATE.get_agent_property('current_task_id')} | "
+                    f"current_task={STATE.current_task.id if STATE.current_task else None}"
+                )
+
+                # ----- WORKFLOW 2: GUI Task Mode -----
+                if self._is_gui_task_mode(session_id):
+                    await self._handle_gui_task_workflow(trigger_data, session_id)
+                    return
+
+                # ----- WORKFLOW 3: Complex Task Mode -----
+                if self._is_complex_task_mode(session_id):
+                    await self._handle_complex_task_workflow(trigger_data, session_id)
+                    return
+
+                # ----- WORKFLOW 4: Simple Task Mode -----
+                if self._is_simple_task_mode(session_id):
+                    await self._handle_simple_task_workflow(trigger_data, session_id)
+                    return
+
+                # ----- WORKFLOW 5: Conversation Mode (default) -----
+                await self._handle_conversation_workflow(trigger_data, session_id)
+
+            except Exception as e:
+                await self._handle_react_error(e, None, session_id, {})
+            finally:
+                self._cleanup_session()
 
     # =====================================
     # Memory Processing
@@ -1440,42 +1457,80 @@ class AgentBase:
         self, new_session_id: str, action_output: dict, session_id: str
     ) -> None:
         """Handle post-action cleanup and trigger scheduling."""
-        self.state_manager.bump_event_stream()
-        if not await self._check_agent_limits():
-            return
+        import traccia
+        tracer = traccia.get_tracer()
+        with tracer.start_as_current_span(
+            "AgentBase.finalize_action_and_schedule",
+            attributes={"span.type": "task"}
+        ) as span:
+            try:
+                from traccia.tracer.span import SpanStatus
+                span.set_status(SpanStatus.OK)
+            except ImportError:
+                pass
+            if session_id in AgentBase.GLOBAL_OPEN_SPANS and new_session_id != session_id:
+                AgentBase.GLOBAL_OPEN_SPANS[new_session_id] = AgentBase.GLOBAL_OPEN_SPANS.pop(session_id)
+                logger.info(f"[TRACE] Propagated trace context from {session_id} to {new_session_id}")
 
-        # Update task's waiting_for_user_reply flag based on action output
-        wait_for_reply = action_output.get("wait_for_user_reply", False)
-        task_id = new_session_id or session_id
-        if task_id and self.task_manager:
-            task = self.task_manager.tasks.get(task_id)
-            if task:
-                task.waiting_for_user_reply = wait_for_reply
-                if wait_for_reply:
-                    logger.info(f"[TASK] Task {task_id} is now waiting for user reply")
-                # Persist immediately so a restart can't restore a stale flag and
-                # resume a waiting task in the background (issue #281).
-                self._persist_task_state(task)
+            self.state_manager.bump_event_stream()
+            if not await self._check_agent_limits():
+                return
 
-        # Check if parallel actions created multiple tasks
-        parallel_results = action_output.get("parallel_results")
-        if parallel_results:
-            # Collect all task_ids from parallel task_start results
-            new_task_ids = [
-                r.get("task_id")
-                for r in parallel_results
-                if r.get("task_id") and r.get("status") == "success"
-            ]
-            # Create a trigger for each newly created task
-            for task_id in new_task_ids:
-                await self._create_new_trigger(task_id, action_output, STATE)
+            # Update task's waiting_for_user_reply flag based on action output
+            wait_for_reply = action_output.get("wait_for_user_reply", False)
+            task_id = new_session_id or session_id
+            if task_id and self.task_manager:
+                task = self.task_manager.tasks.get(task_id)
+                if task:
+                    task.waiting_for_user_reply = wait_for_reply
+                    if wait_for_reply:
+                        logger.info(f"[TASK] Task {task_id} is now waiting for user reply")
+                        # [Option B] End the chat turn span since we are now idle.
+                        if task_id in AgentBase.GLOBAL_OPEN_SPANS:
+                            entry = AgentBase.GLOBAL_OPEN_SPANS.pop(task_id)
+                            root_span = entry.get("root_span") if isinstance(entry, dict) else entry
+                            parent_span = entry.get("parent_span") if isinstance(entry, dict) else None
+                            if parent_span and parent_span is not root_span:
+                                try:
+                                    from traccia.tracer.span import SpanStatus
+                                    parent_span.set_status(SpanStatus.OK)
+                                except ImportError:
+                                    pass
+                                parent_span.end()
+                                logger.info(f"[TRACE] Closed routing span for turn end session={task_id}")
+                            if root_span:
+                                root_span.set_attribute("status", "ok")
+                                root_span.set_attribute("error", False)
+                                try:
+                                    from traccia.tracer.span import SpanStatus
+                                    root_span.set_status(SpanStatus.OK)
+                                except ImportError:
+                                    pass
+                                root_span.end()
+                                logger.info(f"[TRACE] Closed mother span for turn end session={task_id}")
+                    # Persist immediately so a restart can't restore a stale flag and
+                    # resume a waiting task in the background (issue #281).
+                    self._persist_task_state(task)
 
-            # Always create trigger for the original session to continue current task
-            # This ensures the task keeps running regardless of what parallel actions did
-            await self._create_new_trigger(session_id, action_output, STATE)
-        else:
-            # Single action - use existing logic
-            await self._create_new_trigger(new_session_id, action_output, STATE)
+            # Check if parallel actions created multiple tasks
+            parallel_results = action_output.get("parallel_results")
+            if parallel_results:
+                # Collect all task_ids from parallel task_start results
+                new_task_ids = [
+                    r.get("task_id")
+                    for r in parallel_results
+                    if r.get("task_id") and r.get("status") == "success"
+                ]
+                # Create a trigger for each newly created task
+                for task_id in new_task_ids:
+                    await self._create_new_trigger(task_id, action_output, STATE)
+
+                # Always create trigger for the original session to continue current task
+                # This ensures the task keeps running regardless of what parallel actions did
+                await self._create_new_trigger(session_id, action_output, STATE)
+            else:
+                # Single action - use existing logic
+                await self._create_new_trigger(new_session_id, action_output, STATE)
 
     # ----- Error Handling -----
 
@@ -1588,7 +1643,33 @@ class AgentBase:
     def _cleanup_session(self) -> None:
         """Safely cleanup session state."""
         try:
+            session_id = STATE.get_agent_property("current_task_id", "")
             self.state_manager.clean_state()
+            
+            # [Option B] Close mother span for sessions with no continuing task.
+            # Tasks that continue (complex/GUI) keep their span open until
+            # _cleanup_session_triggers fires when the task truly ends.
+            if session_id and session_id in AgentBase.GLOBAL_OPEN_SPANS:
+                if not self.state_manager.is_running_task(session_id=session_id):
+                    entry = AgentBase.GLOBAL_OPEN_SPANS.pop(session_id)
+                    root_span = entry.get("root_span") if isinstance(entry, dict) else entry
+                    parent_span = entry.get("parent_span") if isinstance(entry, dict) else None
+                    if parent_span and parent_span is not root_span:
+                        try:
+                            from traccia.tracer.span import SpanStatus
+                            parent_span.set_status(SpanStatus.OK)
+                        except ImportError:
+                            pass
+                        parent_span.end()
+                        logger.info(f"[TRACE] Closed routing span for completed session={session_id}")
+                    if root_span:
+                        try:
+                            from traccia.tracer.span import SpanStatus
+                            root_span.set_status(SpanStatus.OK)
+                        except ImportError:
+                            pass
+                        root_span.end()
+                        logger.info(f"[TRACE] Closed mother span for completed session={session_id}")
         except Exception as e:
             logger.warning(f"[REACT] Failed to end session safely: {e}")
 
@@ -1873,6 +1954,30 @@ class AgentBase:
         try:
             await self.triggers.remove_sessions([session_id])
             logger.debug(f"[TRIGGER] Cleaned up triggers for session={session_id}")
+            
+            # [Option B] Close the mother span when the task completely finishes
+            if session_id in AgentBase.GLOBAL_OPEN_SPANS:
+                entry = AgentBase.GLOBAL_OPEN_SPANS.pop(session_id)
+                root_span = entry.get("root_span") if isinstance(entry, dict) else entry
+                parent_span = entry.get("parent_span") if isinstance(entry, dict) else None
+                if parent_span and parent_span is not root_span:
+                    try:
+                        from traccia.tracer.span import SpanStatus
+                        parent_span.set_status(SpanStatus.OK)
+                    except ImportError:
+                        pass
+                    parent_span.end()
+                    logger.info(f"[TRACE] Closed routing span for session={session_id}")
+                if root_span:
+                    root_span.set_attribute("status", "ok")
+                    root_span.set_attribute("error", False)
+                    try:
+                        from traccia.tracer.span import SpanStatus
+                        root_span.set_status(SpanStatus.OK)
+                    except ImportError:
+                        pass
+                    root_span.end()
+                    logger.info(f"[TRACE] Closed mother span for session={session_id}")
         except Exception as e:
             logger.warning(
                 f"[TRIGGER] Failed to cleanup triggers for session={session_id}: {e}"
@@ -1937,6 +2042,9 @@ class AgentBase:
                 trigger_payload["pending_user_message"] = pending_message
             if pending_platform:
                 trigger_payload["pending_platform"] = pending_platform
+
+            # TriggerService.emit now automatically injects the active trace context
+
 
             # Determine priority based on task mode:
             # simple task = 5, complex task = 7
@@ -2149,13 +2257,16 @@ class AgentBase:
         platform: str,
         gui_mode: Optional[bool],
         parked_row_id: Optional[int] = None,
-    ) -> None:
+    ) -> Optional[str]:
         """Start a new session and queue a trigger to handle this message.
 
         Args:
             parked_row_id: The durably-parked copy of this message (written
                 before routing); settled here once the new session's own
                 trigger row exists.
+                
+        Returns:
+            The session_id of the newly created session.
         """
         await self.state_manager.start_session(gui_mode)
 
@@ -2205,6 +2316,7 @@ class AgentBase:
         if platform and platform.lower() != "craftbot interface":
             platform_hint = f" from {platform} (reply on {platform}, NOT send_message)"
 
+        session_id = await self._generate_unique_session_id()
         result = await self.trigger_service.emit(
             TriggerSpec(
                 source=TriggerSource.USER_MESSAGE,
@@ -2213,7 +2325,7 @@ class AgentBase:
                     f"you just received{platform_hint}: {chat_content}"
                 ),
                 priority=3,
-                session_id=await self._generate_unique_session_id(),
+                session_id=session_id,
                 payload=trigger_payload,
             )
         )
@@ -2222,10 +2334,17 @@ class AgentBase:
         self.trigger_service.settle_parked(
             parked_row_id, delivered_as=result.trigger_id
         )
+        return session_id
 
     # ─────────────────────────────────────────────────────────────────────
     # Chat message entry point
     # ─────────────────────────────────────────────────────────────────────
+
+    from traccia import observe
+    
+    # [Option B] Keep the mother span open across the entire session lifecycle.
+    # Key: session_id → (traccia_span, otel_context_token)
+    GLOBAL_OPEN_SPANS = {}
 
     async def _handle_chat_message(self, payload: Dict):
         """Decide where an incoming chat message goes.
@@ -2242,7 +2361,7 @@ class AgentBase:
              "reply" on a specific task's message): fire that session. If the
              session no longer exists, fall through.
 
-          3. The message text carries the "[REPLYING TO PREVIOUS AGENT MESSAGE]:"
+          3. The message text carries the \"[REPLYING TO PREVIOUS AGENT MESSAGE]:\"
              marker but no valid target session: open a new session. The reply
              context is already embedded in the message body.
 
@@ -2250,12 +2369,12 @@ class AgentBase:
              message clearly continues, modifies, cancels, or answers one of
              them. The LLM sees each session's instruction, todo progress,
              recent activity, waiting_for_user_reply status, and Living UI
-             binding, and defaults to "new" when in doubt. Living UI
-             cross-references are resolved here too — chat is global, so a
+             binding, and defaults to \"new\" when in doubt. Living UI
+             cross-references are resolved here too \u2014 chat is global, so a
              message about Living UI B while viewing Living UI A still routes
              to B's task.
 
-          5. No active tasks (or the LLM chose "new"): open a new session.
+          5. No active tasks (or the LLM chose \"new\"): open a new session.
 
         Routing only decides *where* the message goes. Once it lands, the
         target session's own action-selection LLM picks the next action
@@ -2269,133 +2388,211 @@ class AgentBase:
 
             logger.info(f"[CHAT RECEIVED] {chat_content}")
 
-            # Clear any stuck consecutive-failure state from a prior aborted task.
+            # [Option B] Start the mother span manually using traccia's tracer,
+            # but activate it in OTel context using the RAW otel span
+            # (exactly how traccia's Span.__aenter__ does it).
+            import traccia
+            from opentelemetry.trace import set_span_in_context
+            from opentelemetry import context as context_api
+            
+            import json
             try:
-                self.llm.reset_failure_counter()
-            except Exception as e:
-                logger.debug(f"[CHAT] Could not reset LLM failure counter: {e}")
-
-            gui_mode = payload.get("gui_mode")
-            platform = (
-                payload["platform"].capitalize()
-                if payload.get("platform")
-                else "CraftBot Interface"
-            )
-            target_session_id = payload.get("target_session_id")
-            living_ui_id = payload.get("living_ui_id")
-
-            # ── Rule 1: Third-party external message → notification only.
-            if payload.get("external_event") is True and not payload.get(
-                "is_self_message", False
-            ):
-                logger.info(
-                    f"[CHAT] Third-party external from {platform} — posting notification, no session"
-                )
-                self._post_third_party_notification(payload, platform)
-                return
-
-            # ── Durable parking: record the message in the
-            # trigger store BEFORE any routing work. Routing below may take
-            # an LLM call (seconds) — with the row parked, a crash anywhere
-            # in this method no longer loses the message; the next boot's
-            # rehydration re-delivers it as a fresh session. Every delivery
-            # path below settles the row once the message lands.
-            parked_id = None
-            try:
-                parked_payload = {
-                    "gui_mode": gui_mode,
-                    "platform": platform,
-                    "user_message": chat_content,
+                # Capture serializable parts of the payload to avoid OTel export errors
+                safe_payload = {
+                    k: v for k, v in payload.items()
+                    if isinstance(v, (str, int, float, bool, list, dict)) and not k.startswith("_")
                 }
-                if living_ui_id:
-                    parked_payload["living_ui_id"] = living_ui_id
-                parked_id = self.trigger_service.park(
-                    TriggerSpec(
-                        source=TriggerSource.USER_MESSAGE,
-                        description=(
-                            "Please perform action that best suit this user chat "
-                            f"you just received: {chat_content}"
-                        ),
-                        priority=3,
-                        payload=parked_payload,
-                    )
+                payload_str = json.dumps(safe_payload, default=str)[:2000]
+            except Exception:
+                payload_str = str(payload)[:2000]
+
+            tracer = traccia.get_tracer()
+            root_span = tracer.start_span(
+                "AgentBase.handle_chat_message",
+                attributes={
+                    "span.type": "workflow",
+                    "payload": payload_str,
+                    "user.prompt": chat_content,
+                    "traccia.guardrail.suppress_missing": "tool_permission,input_validation,output_validation,prompt_injection,moderation"
+                }
+            )
+            # CRITICAL: use ._otel_span, NOT the wrapper, for OTel context
+            ctx = set_span_in_context(root_span._otel_span)
+            token = context_api.attach(ctx)
+            payload["_root_span"] = root_span
+            payload["_otel_token"] = token
+
+            try:
+                # Clear any stuck consecutive-failure state from a prior aborted task.
+                try:
+                    self.llm.reset_failure_counter()
+                except Exception as e:
+                    logger.debug(f"[CHAT] Could not reset LLM failure counter: {e}")
+
+                gui_mode = payload.get("gui_mode")
+                platform = (
+                    payload["platform"].capitalize()
+                    if payload.get("platform")
+                    else "CraftBot Interface"
                 )
-            except Exception as e:
-                logger.warning(f"[CHAT] Failed to park message durably: {e}")
+                target_session_id = payload.get("target_session_id")
+                living_ui_id = payload.get("living_ui_id")
 
-            active_task_ids = self.state_manager.get_main_state().active_task_ids
-
-            # ── Rule 2: Explicit UI reply with valid target_session_id.
-            if target_session_id:
-                logger.info(f"[CHAT] UI reply targeting session {target_session_id}")
-                if await self._fire_session(
-                    target_session_id, chat_content, platform, living_ui_id
+                # ── Rule 1: Third-party external message → notification only.
+                if payload.get("external_event") is True and not payload.get(
+                    "is_self_message", False
                 ):
-                    # Message durably attached to the session's trigger row
-                    # by trigger_service.fire() — the parked copy is settled.
-                    self.trigger_service.settle_parked(parked_id)
+                    logger.info(
+                        f"[CHAT] Third-party external from {platform} — posting notification, no session"
+                    )
+                    self._post_third_party_notification(payload, platform)
+                    if root_span:
+                        try:
+                            from traccia.tracer.span import SpanStatus
+                            root_span.set_status(SpanStatus.OK)
+                        except ImportError:
+                            pass
+                        root_span.end()
                     return
-                logger.warning(
-                    f"[CHAT] target_session_id {target_session_id} not found — falling through to next rule"
-                )
 
-            # ── Rule 3: UI reply marker present but no valid target → new session.
-            # User replied to a main-stream message (notification, conversation reply, etc).
-            # The reply context stays embedded in chat_content via the marker block.
-            if "[REPLYING TO PREVIOUS AGENT MESSAGE]:" in chat_content:
-                logger.info(
-                    "[CHAT] UI reply marker without valid target — creating new session"
-                )
-                await self._create_new_session_trigger(
+                # ── Durable parking: record the message in the
+                # trigger store BEFORE any routing work. Routing below may take
+                # an LLM call (seconds) — with the row parked, a crash anywhere
+                # in this method no longer loses the message; the next boot's
+                # rehydration re-delivers it as a fresh session. Every delivery
+                # path below settles the row once the message lands.
+                parked_id = None
+                try:
+                    parked_payload = {
+                        "gui_mode": gui_mode,
+                        "platform": platform,
+                        "user_message": chat_content,
+                    }
+                    if living_ui_id:
+                        parked_payload["living_ui_id"] = living_ui_id
+                    parked_id = self.trigger_service.park(
+                        TriggerSpec(
+                            source=TriggerSource.USER_MESSAGE,
+                            description=(
+                                "Please perform action that best suit this user chat "
+                                f"you just received: {chat_content}"
+                            ),
+                            priority=3,
+                            payload=parked_payload,
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"[CHAT] Failed to park message durably: {e}")
+
+                active_task_ids = self.state_manager.get_main_state().active_task_ids
+
+                # ── Rule 2: Explicit UI reply with valid target_session_id.
+                if target_session_id:
+                    logger.info(f"[CHAT] UI reply targeting session {target_session_id}")
+                    if await self._fire_session(
+                        target_session_id, chat_content, platform, living_ui_id
+                    ):
+                        # Message durably attached to the session's trigger row
+                        # by trigger_service.fire() — the parked copy is settled.
+                        self.trigger_service.settle_parked(parked_id)
+                        # Store mother span for this session
+                        root_span = payload.get("_root_span")
+                        if root_span:
+                            AgentBase.GLOBAL_OPEN_SPANS[target_session_id] = {"root_span": root_span, "parent_span": root_span}
+                        return
+                    logger.warning(
+                        f"[CHAT] target_session_id {target_session_id} not found — falling through to next rule"
+                    )
+
+                # ── Rule 3: UI reply marker present but no valid target → new session.
+                # User replied to a main-stream message (notification, conversation reply, etc).
+                # The reply context stays embedded in chat_content via the marker block.
+                if "[REPLYING TO PREVIOUS AGENT MESSAGE]:" in chat_content:
+                    logger.info(
+                        "[CHAT] UI reply marker without valid target — creating new session"
+                    )
+                    sid = await self._create_new_session_trigger(
+                        chat_content, payload, platform, gui_mode, parked_row_id=parked_id
+                    )
+                    root_span = payload.get("_root_span")
+                    if root_span and sid:
+                        AgentBase.GLOBAL_OPEN_SPANS[sid] = {"root_span": root_span, "parent_span": root_span}
+                    else:
+                        if root_span:
+                            root_span.end()
+                    return
+
+                # ── Rule 4: Active tasks exist → conservative routing LLM.
+                # The LLM sees each session's waiting_for_user_reply status, Living UI
+                # binding, and recent activity, and defaults to "new" when in doubt.
+                # We intentionally do NOT short-circuit on "single waiting task":
+                # tasks often park on a final "anything else?" question, and the
+                # next user message may be a completely unrelated request that
+                # deserves its own session.
+                if active_task_ids:
+                    active_triggers = await self.triggers.list_triggers()
+                    existing_sessions = self.session_router.format_sessions_for_routing(
+                        active_task_ids, active_triggers
+                    )
+                    recent_conversation = self.session_router.format_recent_conversation(
+                        limit=10
+                    )
+                    routing_result = await self.session_router.route(
+                        item_type="message",
+                        item_content=chat_content,
+                        existing_sessions=existing_sessions,
+                        source_platform=platform,
+                        current_living_ui_id=living_ui_id,
+                        recent_conversation=recent_conversation,
+                    )
+                    if routing_result.get("action") == "route":
+                        matched = routing_result.get("session_id", "new")
+                        if matched != "new":
+                            logger.info(
+                                f"[CHAT] LLM routed to {matched}: {routing_result.get('reason', 'N/A')}"
+                            )
+                            if await self._fire_session(
+                                matched, chat_content, platform, living_ui_id
+                            ):
+                                self.trigger_service.settle_parked(parked_id)
+                                # Store mother span for routed session
+                                root_span = payload.get("_root_span")
+                                if root_span:
+                                    AgentBase.GLOBAL_OPEN_SPANS[matched] = {"root_span": root_span, "parent_span": root_span}
+                                return
+                            logger.warning(
+                                f"[CHAT] LLM routed to {matched} but trigger not found — creating new session"
+                            )
+
+                # ── Rule 5: Default — create a new session.
+                session_id = await self._create_new_session_trigger(
                     chat_content, payload, platform, gui_mode, parked_row_id=parked_id
                 )
-                return
+                # Store the mother span so the background worker can close it
+                root_span = payload.get("_root_span")
+                if root_span and session_id:
+                    AgentBase.GLOBAL_OPEN_SPANS[session_id] = {"root_span": root_span, "parent_span": root_span}
+                else:
+                    if root_span:
+                        root_span.end()
 
-            # ── Rule 4: Active tasks exist → conservative routing LLM.
-            # The LLM sees each session's waiting_for_user_reply status, Living UI
-            # binding, and recent activity, and defaults to "new" when in doubt.
-            # We intentionally do NOT short-circuit on "single waiting task":
-            # tasks often park on a final "anything else?" question, and the
-            # next user message may be a completely unrelated request that
-            # deserves its own session.
-            if active_task_ids:
-                active_triggers = await self.triggers.list_triggers()
-                existing_sessions = self.session_router.format_sessions_for_routing(
-                    active_task_ids, active_triggers
-                )
-                recent_conversation = self.session_router.format_recent_conversation(
-                    limit=10
-                )
-                routing_result = await self.session_router.route(
-                    item_type="message",
-                    item_content=chat_content,
-                    existing_sessions=existing_sessions,
-                    source_platform=platform,
-                    current_living_ui_id=living_ui_id,
-                    recent_conversation=recent_conversation,
-                )
-                if routing_result.get("action") == "route":
-                    matched = routing_result.get("session_id", "new")
-                    if matched != "new":
-                        logger.info(
-                            f"[CHAT] LLM routed to {matched}: {routing_result.get('reason', 'N/A')}"
-                        )
-                        if await self._fire_session(
-                            matched, chat_content, platform, living_ui_id
-                        ):
-                            self.trigger_service.settle_parked(parked_id)
-                            return
-                        logger.warning(
-                            f"[CHAT] LLM routed to {matched} but trigger not found — creating new session"
-                        )
-
-            # ── Rule 5: Default — create a new session.
-            await self._create_new_session_trigger(
-                chat_content, payload, platform, gui_mode, parked_row_id=parked_id
-            )
-
-        except Exception as e:
-            logger.error(f"Error handling incoming message: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"Error handling incoming message: {e}", exc_info=True)
+                # End spans immediately on error to avoid leaks
+                root_span = payload.get("_root_span")
+                if root_span:
+                    root_span.record_exception(e)
+                    try:
+                        from traccia.tracer.span import SpanStatus
+                        root_span.set_status(SpanStatus.ERROR, str(e))
+                    except ImportError:
+                        pass
+                    root_span.end()
+        finally:
+            token = payload.get("_otel_token")
+            if token:
+                from opentelemetry import context as context_api
+                context_api.detach(token)
 
     async def _handle_external_event(self, payload: Dict) -> None:
         """

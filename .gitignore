@@ -29,6 +29,7 @@ build/
 *.egg-info/
 debug_images
 .vscode/
+.venv/
 .idea/
 # PyInstaller auto-generates a <name>.spec when run without one — those are
 # build artifacts. Our hand-written CraftBotInstaller.spec and

@@ -254,38 +254,49 @@ class ActionRouter:
         )
 
         # Build the instruction prompt for the LLM
-        task_state = self.context_engine.get_task_state(session_id=session_id)
-        memory_context = self.context_engine.get_memory_context(
-            query, session_id=session_id
-        )
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
-
-        # Pull integration essentials the same way conversation-mode does
-        # (see select_action). Without this, the task-mode LLM loses sight
-        # of integration-specific shortcuts (e.g. WhatsApp's `to: "user"`
-        # self-send) once the agent enters task mode and starts asking the
-        # user for info the integration could look up itself.
-        # Match against both the current step's query and the task state so
-        # the platform name from the original user request still triggers a
-        # match even after the per-step query is generic ("Perform the next
-        # best action...").
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
+        import traccia
+        tracer = traccia.get_tracer()
+        with tracer.start_as_current_span(
+            "ContextEngine.retrieve_memory_and_state",
+            attributes={"span.type": "task"}
+        ) as span:
+            try:
+                from traccia.tracer.span import SpanStatus
+                span.set_status(SpanStatus.OK)
+            except ImportError:
+                pass
+            task_state = self.context_engine.get_task_state(session_id=session_id)
+            memory_context = self.context_engine.get_memory_context(
+                query, session_id=session_id
+            )
+            event_stream_content = self.context_engine.get_event_stream(
+                session_id=session_id
             )
 
-            integration_essentials = get_essentials_for_message(
-                f"{query}\n{task_state}"
-            )
-            logger.info(
-                f"[ACTION] task-mode integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
-            integration_essentials = ""
+            # Pull integration essentials the same way conversation-mode does
+            # (see select_action). Without this, the task-mode LLM loses sight
+            # of integration-specific shortcuts (e.g. WhatsApp's `to: "user"`
+            # self-send) once the agent enters task mode and starts asking the
+            # user for info the integration could look up itself.
+            # Match against both the current step's query and the task state so
+            # the platform name from the original user request still triggers a
+            # match even after the per-step query is generic ("Perform the next
+            # best action...").
+            try:
+                from app.data.action.integrations._integration_essentials import (
+                    get_essentials_for_message,
+                )
+
+                integration_essentials = get_essentials_for_message(
+                    f"{query}\n{task_state}"
+                )
+                logger.info(
+                    f"[ACTION] task-mode integration essentials: "
+                    f"{len(integration_essentials)} chars injected"
+                )
+            except Exception as e:
+                logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
+                integration_essentials = ""
 
         decision_prompt_name = "SELECT_ACTION_IN_TASK"
         static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(

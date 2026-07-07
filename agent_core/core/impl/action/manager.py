@@ -19,6 +19,8 @@ import sys
 import re
 import uuid
 
+from traccia import span
+
 from agent_core.core.action import Action
 from agent_core.core.state import get_state_or_none
 from agent_core.decorators import profile, OperationCategory
@@ -345,66 +347,104 @@ class ActionManager:
             status = ""
             outputs = {}
 
-            logger.debug(f"Action type: {action.action_type}")
+            with span(f"Action.{action.name}") as s:
+                if session_id:
+                    s.set_attribute("session.id", session_id)
+                s.set_attribute("span.type", "tool")
+                s.set_attribute("action.type", action.action_type)
+                s.set_attribute("action.input", _to_pretty_json(input_data))
 
-            if action.action_type == "atomic":
-                try:
-                    outputs = await self.execute_atomic_action(action, input_data)
-                except Exception as e:
-                    logger.error(
-                        f"[ERROR] Failed to execute atomic action {action.name}: {e}",
-                        exc_info=True,
+                logger.debug(f"Action type: {action.action_type}")
+
+                if action.action_type == "atomic":
+                    try:
+                        outputs = await self.execute_atomic_action(action, input_data)
+                    except Exception as e:
+                        logger.error(
+                            f"[ERROR] Failed to execute atomic action {action.name}: {e}",
+                            exc_info=True,
+                        )
+                        raise e
+
+                    logger.debug(
+                        f"[OUTPUT DATA] Completed execute_atomic_action: {outputs}"
                     )
-                    raise e
+
+                    # Observation step
+                    if action.observer:
+                        obs_result = await self.run_observe_step(action, outputs)
+                        if not obs_result["success"]:
+                            status = "error"
+                            outputs["observation"] = {
+                                "success": False,
+                                "message": obs_result.get("message"),
+                            }
+                        else:
+                            outputs["observation"] = {
+                                "success": True,
+                                "message": obs_result.get("message"),
+                            }
+
+                else:
+                    logger.debug(f"Executing divisible action: {action.name}")
+                    try:
+                        outputs = await self.execute_divisible_action(
+                            action, input_data, run_id
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[ERROR] Failed to execute divisible action {action.name}: {e}",
+                            exc_info=True,
+                        )
+                        raise e
+
+                # Auto-save large base64 strings in action output to temp files
+                # This prevents LLMs from truncating binary data when it appears in context
+                outputs = self._extract_base64_to_files(outputs, action.name)
+                s.set_attribute("action.output", _to_pretty_json(outputs))
 
                 logger.debug(
-                    f"[OUTPUT DATA] Completed execute_atomic_action: {outputs}"
+                    f"[OUTPUT DATA] Final outputs for action {action.name}: {outputs}"
                 )
 
-                # Observation step
-                if action.observer:
-                    obs_result = await self.run_observe_step(action, outputs)
-                    if not obs_result["success"]:
+                if status != "error":
+                    # If the action returned an error dict (either via exception path in
+                    # execute_atomic_action or an explicit failure from the action body),
+                    # treat the run as an error so on_action_end and runtime logs reflect it.
+                    
+                    is_error = False
+                    if outputs and outputs.get("status") == "error":
+                        is_error = True
+                    elif outputs and isinstance(outputs.get("result"), str):
+                        # Catch MCP tools that return success but embed the error in the result text
+                        result_str = outputs.get("result", "").strip()
+                        if result_str.startswith("### Error") or result_str.startswith("Error:"):
+                            is_error = True
+
+                    if is_error:
                         status = "error"
-                        outputs["observation"] = {
-                            "success": False,
-                            "message": obs_result.get("message"),
-                        }
+                        # Record the error details as a span attribute for visibility,
+                        # but do NOT set SpanStatus.ERROR — graceful action failures
+                        # (e.g. file not found, permission denied) are expected and
+                        # handled by the agent. Setting ERROR here causes the Traccia
+                        # backend to roll up this recoverable failure into an
+                        # Outcome: Error on the parent trace, which is misleading.
+                        error_msg = str(outputs.get("error", "") or outputs.get("message", ""))
+                        if not error_msg and isinstance(outputs.get("result"), str):
+                            error_msg = outputs.get("result", "")
+                        s.set_attribute("action.error", error_msg[:256] if error_msg else "Action failed gracefully")
+                        try:
+                            from traccia.tracer.span import SpanStatus
+                            s.set_status(SpanStatus.OK)
+                        except ImportError:
+                            pass
                     else:
-                        outputs["observation"] = {
-                            "success": True,
-                            "message": obs_result.get("message"),
-                        }
-
-            else:
-                logger.debug(f"Executing divisible action: {action.name}")
-                try:
-                    outputs = await self.execute_divisible_action(
-                        action, input_data, run_id
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[ERROR] Failed to execute divisible action {action.name}: {e}",
-                        exc_info=True,
-                    )
-                    raise e
-
-            # Auto-save large base64 strings in action output to temp files
-            # This prevents LLMs from truncating binary data when it appears in context
-            outputs = self._extract_base64_to_files(outputs, action.name)
-
-            logger.debug(
-                f"[OUTPUT DATA] Final outputs for action {action.name}: {outputs}"
-            )
-
-            if status != "error":
-                # If the action returned an error dict (either via exception path in
-                # execute_atomic_action or an explicit failure from the action body),
-                # treat the run as an error so on_action_end and runtime logs reflect it.
-                if outputs and outputs.get("status") == "error":
-                    status = "error"
-                else:
-                    status = "success"
+                        status = "success"
+                        try:
+                            from traccia.tracer.span import SpanStatus
+                            s.set_status(SpanStatus.OK)
+                        except ImportError:
+                            pass
 
         except asyncio.CancelledError:
             status = "error"

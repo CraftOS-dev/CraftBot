@@ -525,7 +525,17 @@ class UIController:
                 trigger = None
                 try:
                     trigger = await self._agent.trigger_service.next()
-                    await self._agent.react(trigger)
+                    
+                    import opentelemetry.context as otel_context
+                    from opentelemetry.propagate import extract
+                    
+                    ctx = extract(trigger.payload)
+                    token = otel_context.attach(ctx)
+                    try:
+                        await self._agent.react(trigger)
+                    finally:
+                        otel_context.detach(token)
+                        
                     await self._agent.trigger_service.ack(trigger)
                 except asyncio.CancelledError:
                     # Shutdown: deliberately no ack/nack — the row stays

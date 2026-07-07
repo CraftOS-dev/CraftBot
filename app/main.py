@@ -14,6 +14,8 @@ Run this before the app directory, using 'python -m app.main'
 # ============================================================================
 import os as _os
 import warnings as _warnings
+from dotenv import load_dotenv
+load_dotenv()
 
 # Suppress all Python warnings during startup (DeprecationWarning, RuntimeWarning, etc.)
 _warnings.filterwarnings("ignore")
@@ -214,6 +216,17 @@ async def main_async() -> None:
 
 
 def main() -> None:
+    import traccia
+    import os
+    # Initialize Traccia Observability
+    traccia.init(
+        service_name="CraftBot",
+        agent_id="craftbot",
+        agent_name="CraftBot",
+        auto_start_trace=False,
+        api_key=os.environ.get("TRACCIA_API_KEY"),
+        enable_patching=False
+    )
     asyncio.run(main_async())
 
 

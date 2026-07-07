@@ -594,13 +594,21 @@ async def _atomic_action_internal_async(
         # GUI mode - delegate to GUI handler hook (sync, run in executor)
         if mode == "GUI" and action_name != "switch to CLI mode" and _gui_execute_hook:
             loop = asyncio.get_running_loop()
+            import contextvars
+            ctx = contextvars.copy_context()
+            
+            def gui_thread_wrapper():
+                return ctx.run(
+                    _gui_execute_hook,
+                    _get_gui_target(),
+                    action_code,
+                    input_data,
+                    mode,
+                )
+            
             return await loop.run_in_executor(
                 THREAD_POOL,
-                _gui_execute_hook,
-                _get_gui_target(),
-                action_code,
-                input_data,
-                mode,
+                gui_thread_wrapper,
             )
 
         import inspect
@@ -639,11 +647,16 @@ async def _atomic_action_internal_async(
             logger.debug(
                 f"[SYNC] Action '{action_name}' is sync, running in thread pool"
             )
+            import contextvars
+            ctx = contextvars.copy_context()
+            
+            def thread_wrapper():
+                return ctx.run(function_to_call, input_data)
+                
             loop = asyncio.get_running_loop()
             execution_result = await loop.run_in_executor(
                 THREAD_POOL,
-                function_to_call,
-                input_data,
+                thread_wrapper,
             )
 
         return execution_result
