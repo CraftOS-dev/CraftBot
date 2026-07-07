@@ -12,7 +12,7 @@ from agent_core import action
         "message": {
             "type": "string",
             "example": "Hello, user!",
-            "description": "The chat message to send. Send message in terminal friendly format and DO NOT include mark down.",
+            "description": "The chat message to send. Send message in terminal friendly format and DO NOT include mark down. State only actions and results that actually happened per the event stream. If something can't be done, say so plainly (\"there's no way I can do that\" / \"this can't be done\") — never fabricate a setting, parameter, or effect you did not actually perform, and never invent a new explanation on retry if the user pushes back.",
         },
         "wait_for_user_reply": {
             "type": "boolean",

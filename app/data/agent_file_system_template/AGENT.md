@@ -303,6 +303,12 @@ Call `set_requirement` as the very first action of a complex task, before acknow
 
 Then, in your Verify phase, call `set_requirement` again with each item marked `satisfied` or `violated` (a `violated` item means rework before you Confirm). Always pass the COMPLETE current list — it replaces the previous one, it does not append. The requirement list is pinned into your context every turn and survives event-stream summarization, so it is your durable checklist for "am I actually done".
 
+**Before locking in a requirement, check it's actually achievable.** Don't transcribe the user's ask into a `requirement`/`done_when` pair without checking whether the underlying action or integration can actually do it (check `input_schema`, the INTEGRATION.md, or `## Configs`/`## Integrations`). A dimension the system cannot satisfy (e.g. "email signature must be included" when no send action has a signature parameter) must NOT be silently added as if achievable — either flag it back to the user before locking requirements, or set it up front with a note that it may end up `violated` for a documented reason, not silently marked `satisfied` later.
+
+**Marking a requirement `satisfied` requires the same grounding as any other claim.** Only set `status: satisfied` when a real action's actual input/result in this task demonstrates it — not because an earlier, unrelated action succeeded, and not because the requirement "should" be true by now. If the check you'd use to verify a dimension (e.g. a search/list action) itself errors or is unavailable, that dimension is NOT satisfied — mark it `violated` (or leave `pending`) and tell the user verification couldn't be completed, rather than falling back on a different, less specific action's success as a substitute justification.
+
+**If the user disputes a `satisfied` requirement, flip it to `violated` immediately — do not just retry silently.** Call `set_requirement` again with that dimension marked `violated` before attempting anything else. If the underlying capability genuinely doesn't exist (check the action's `input_schema` / the integration's INTEGRATION.md), say so plainly and stop — repeated user insistence does not make an impossible dimension possible. Do NOT respond to pushback by inventing a new explanation for why it supposedly worked this time (e.g. a different claimed mechanism each retry) — that pattern is worse than the original miss, because it looks like progress while still being false. The honest answer stays the same across retries unless something actually changed.
+
 ### Todo phase prefixes (mandatory in complex mode)
 
 Every todo must begin with one of these prefixes:
@@ -409,6 +415,7 @@ Hard rules:
 - Never end a complex task without explicit approval.
 - Never end any task silently.
 - Never claim success when an action failed — see `## Errors`.
+- **Never describe an effect you didn't actually cause.** Before you write a confirmation message, check the actual input parameters you passed to the action (not what you intended to pass, not what "should" have happened). If you're about to say you added a signature, CC'd someone, toggled a setting, attached a file, or included anything else specific — that claim is only true if an input parameter you actually sent produced it. If the feature doesn't exist on the action at all (check its `input_schema`) or you never set that parameter, say so plainly instead: "there's no signature feature on this action" / "I sent the email but did not add a signature — no such option exists." A vague truthful answer beats a specific false one.
 
 ---
 
@@ -1674,7 +1681,9 @@ If a user types a slash command and you receive the resulting task or message:
 
 ## Configs
 
-The agent's behavior is shaped by JSON config files under [app/config/](app/config/). When you need to change settings about yourself (model, API keys, MCP servers, skills, schedules, integrations), you edit one of these files. The harness watches them and reloads automatically.
+The agent's behavior is shaped by JSON config files under [app/config/](app/config/). When you need to change settings about yourself (model, API keys, MCP servers, skills, schedules), you edit one of these files. The harness watches them and reloads automatically.
+
+NOTE: "integrations" here means only the telegram/whatsapp listener configs in `external_comms_config.json` below. Per-integration runtime settings (e.g. Gmail's "Auto-process incoming emails" toggle, or any field under an integration's Manage → Configure panel in Settings) are NOT in these six files — they live in their own `.credentials/<name>_config.json` file per integration, with no dedicated action. See "Per-integration runtime config" in the Integrations section below for how to read/edit them safely. Do not tell the user you changed one of these unless you actually wrote and verified the file.
 
 This section is the source of truth for: every config file's full schema, what each key controls, the hot-reload mechanism, what does and does NOT take effect without restart, and the edit-and-verify workflow.
 
@@ -2584,6 +2593,17 @@ disconnect_integration(integration_id)         → remove connection
 
 `connect_integration` is the workhorse for token-based flows. The exact required fields depend on the integration. Read [app/data/action/integration_management.py](app/data/action/integration_management.py) for the action's input_schema.
 
+### Per-integration runtime config (no dedicated action — edit the file directly)
+
+Each connected integration can have its own runtime settings (e.g. Gmail's "Auto-process incoming emails" toggle), also shown in Settings → Integrations → [integration] → Manage → Configure. There is NO dedicated action for this — but you CAN change it yourself by editing its config file directly with `read_file`/`write_file`/`stream_edit`, since it's just JSON on disk:
+
+- File: `.credentials/<cred_file_stem>_config.json` (e.g. `gmail.json` → `gmail_config.json`). The fields for each integration are declared in `craftos_integrations/integrations/<name>/__init__.py` (`config_class` dataclass + `config_fields` list) — read that file if you're unsure of the exact key name or type.
+- **Read before you write.** Several integrations (github, jira, line, hubspot, stripe, discord) have MULTIPLE config fields in one file. Read the existing file first (it may not exist yet — treat a missing file as all-defaults) and only change the specific key(s) requested, preserving every other key untouched. Never blindly overwrite the whole file with just the one field you care about — that silently deletes the integration's other saved settings.
+- **Verify before you claim success.** After writing, read the file back and confirm the key actually holds the new value before telling the user it's done. The config takes effect on the integration's next read (no restart needed for most; Gmail's poller re-reads it every cycle) — but confirm the write itself succeeded, don't assume it.
+- If the integration has no `config_class` at all (check its `__init__.py`) — currently: linkedin, notion, slack, outlook, whatsapp_business — there is genuinely no runtime config to change. Say so plainly and point to Settings → Integrations → [that integration] instead of inventing a file to edit.
+
+Similarly, some commonly-assumed features simply do not exist as agent capabilities at all, config or otherwise — for example, there is no email signature feature anywhere in this codebase (no parameter on `send_gmail`/`send_outlook_email`, no `sendAs` support). If asked to include a signature, say so plainly instead of claiming one was added.
+
 ### Auth-type playbook
 
 The user just asked you to connect an integration. Here's what you do for each `auth_type`:
@@ -2901,6 +2921,7 @@ Other times to grep an INTEGRATION.md:
 - An action returns an error you don't understand.
 - A workflow needs more than one action and you're unsure of the order or which fields to pass between them.
 - A field value looks unfamiliar (e.g. ends in `@lid`, `@c.us`, `@g.us`) and you're tempted to "clean it up" — these are real identity formats; pass them verbatim.
+- Before confirming you applied a feature or setting the user asked for (signature, CC, a toggle, etc.) that isn't an obvious parameter you just filled in — check the INTEGRATION.md and the action's `input_schema` first. Several assumed features don't exist at all (e.g. no email signature support anywhere in this codebase); claiming one was applied when it wasn't is a hard failure, not a minor inaccuracy.
 
 If the file is missing for an integration you need, fall back to grepping the integration's source directory.
 
