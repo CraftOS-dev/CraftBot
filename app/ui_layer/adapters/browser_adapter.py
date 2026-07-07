@@ -1241,6 +1241,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self._app.router.add_post(
             "/api/living-ui/import", self._living_ui_import_handler
         )
+        self._app.router.add_get(
+            "/api/living-ui/{project_id}/favicon", self._living_ui_favicon_handler
+        )
         # Loopback control endpoint for the livingui CLI (token-file guarded).
         # The server binds localhost, so this is unreachable from the network.
         self._app.router.add_post(
@@ -3115,6 +3118,114 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+
+    # Favicon files a project might ship, most-built-first. Parsed
+    # index.html <link rel="icon"> takes precedence over this list.
+    _FAVICON_CANDIDATES = (
+        "dist/favicon.ico",
+        "dist/favicon.svg",
+        "dist/favicon.png",
+        "public/favicon.ico",
+        "public/favicon.svg",
+        "public/favicon.png",
+        "frontend/dist/favicon.ico",
+        "frontend/public/favicon.ico",
+        "frontend/public/favicon.svg",
+        "favicon.ico",
+        "static/favicon.ico",
+    )
+    _FAVICON_CONTENT_TYPES = {
+        ".ico": "image/x-icon",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+    }
+
+    def _resolve_living_ui_favicon(self, project_path: Path) -> Optional[Path]:
+        """Find a favicon file inside a project dir, on disk (works when the
+        app is stopped). Tries the <link rel="icon"> in index.html first,
+        then a list of common paths. Returns None if none exist."""
+        import re as _re
+
+        root = project_path.resolve()
+
+        # 1) Honor an explicit <link rel="icon" href="..."> if it points at a
+        #    local file within the project (not an absolute URL or a traversal).
+        for html_rel in ("dist/index.html", "index.html", "frontend/index.html"):
+            html_path = root / html_rel
+            if not html_path.is_file():
+                continue
+            try:
+                html = html_path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for m in _re.finditer(
+                r'<link[^>]+rel=["\'][^"\']*icon[^"\']*["\'][^>]*>', html, _re.I
+            ):
+                href_m = _re.search(r'href=["\']([^"\']+)["\']', m.group(0), _re.I)
+                if not href_m:
+                    continue
+                href = href_m.group(1)
+                if href.startswith(("http://", "https://", "//", "data:")):
+                    continue
+                candidate = (html_path.parent / href.lstrip("/")).resolve()
+                try:
+                    candidate.relative_to(root)  # containment guard
+                except ValueError:
+                    continue
+                if candidate.is_file():
+                    return candidate
+
+        # 2) Fall back to conventional locations.
+        for rel in self._FAVICON_CANDIDATES:
+            candidate = (root / rel).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                return candidate
+        return None
+
+    async def _living_ui_favicon_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
+        """Serve a Living UI's favicon from its files on disk (so it shows
+        even when the app is stopped), falling back to a default icon when
+        the project ships none."""
+        from aiohttp import web
+        from app.config import APP_DATA_PATH
+
+        default_favicon = (
+            APP_DATA_PATH / "living_ui_template" / "public" / "favicon.svg"
+        )
+
+        project_id = request.match_info["project_id"]
+        favicon_path = None
+        try:
+            project = self._living_ui_manager.get_project(project_id)
+            if project and project.path:
+                favicon_path = self._resolve_living_ui_favicon(Path(project.path))
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] Favicon lookup failed for {project_id}: {e}")
+
+        served = favicon_path if favicon_path is not None else default_favicon
+        if not served.is_file():
+            return web.Response(status=404)
+
+        content_type = self._FAVICON_CONTENT_TYPES.get(
+            served.suffix.lower(), "application/octet-stream"
+        )
+        return web.FileResponse(
+            served,
+            headers={
+                "Content-Type": content_type,
+                # Short cache: a rebuilt app can change its favicon.
+                "Cache-Control": "public, max-age=300",
+            },
+        )
 
     async def _living_ui_export_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: download a Living UI project as a ZIP file."""

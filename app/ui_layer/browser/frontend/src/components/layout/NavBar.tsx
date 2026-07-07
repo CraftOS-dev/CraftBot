@@ -15,7 +15,27 @@ import {
 import { useWebSocket } from "../../contexts/WebSocketContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { TopBar } from "./TopBar";
+import type { LivingUIProject } from "../../types";
 import styles from "./NavBar.module.css";
+
+/**
+ * Sidebar tab icon for a Living UI: the app's own favicon, served by the
+ * backend from the project's files on disk (so it shows even when the app
+ * is stopped). The backend falls back to a default icon when the project
+ * ships none; the box icon here is only a last resort if the request fails.
+ */
+function LivingUITabFavicon({ project }: { project: LivingUIProject }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <Box size={13} />;
+  return (
+    <img
+      src={`/api/living-ui/${project.id}/favicon`}
+      alt=""
+      className={styles.livingUITabFavicon}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 interface NavItem {
   id: string;
@@ -171,7 +191,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                     project.status === "stopping" ? (
                       <Loader2 size={13} className={styles.spinner} />
                     ) : (
-                      <Box size={13} />
+                      <LivingUITabFavicon project={project} />
                     )}
                   </span>
                   <span className={styles.livingUITabLabel}>
