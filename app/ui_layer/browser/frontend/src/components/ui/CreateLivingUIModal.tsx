@@ -2,14 +2,15 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Sparkles, Download, Loader2, Package, Store, FolderInput, Upload, Check, Search } from 'lucide-react'
 import { Button } from './Button'
 import { Modal } from './Modal'
+import { CreateCustomWizard } from './CreateCustomWizard'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
-import type { LivingUICreateRequest } from '../../types'
 import styles from './CreateLivingUIModal.module.css'
 
 export interface CreateLivingUIModalProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (data: LivingUICreateRequest) => void
+  /** Wizard finished — the build task is running; navigate to the project. */
+  onCreated?: (projectId: string) => void
   onInstalled?: (projectId: string) => void
 }
 
@@ -32,19 +33,10 @@ interface MarketplaceApp {
   customizable?: CustomField[]
 }
 
-const MAX_WORDS = 5000
-
-function countWords(text: string): number {
-  const trimmed = text.trim()
-  if (!trimmed) return 0
-  return trimmed.split(/\s+/).length
-}
-
-export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: CreateLivingUIModalProps) {
+export function CreateLivingUIModal({ isOpen, onClose, onCreated, onInstalled }: CreateLivingUIModalProps) {
   const [activeTab, setActiveTab] = useState<'marketplace' | 'custom' | 'import'>('marketplace')
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [errors, setErrors] = useState<{ name?: string; description?: string }>({})
+  // Remount the custom wizard each time the modal opens (fresh wizardId/state)
+  const [wizardKey, setWizardKey] = useState(0)
 
   // Import tab state
   const [importSource, setImportSource] = useState('')
@@ -67,9 +59,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
   const [thumbFailures, setThumbFailures] = useState<Set<string>>(new Set())
   const [tagsExpanded, setTagsExpanded] = useState(false)
-
-  const nameInputRef = useRef<HTMLInputElement>(null)
-  const wordCount = useMemo(() => countWords(description), [description])
 
   const onCloseRef = useRef(onClose)
   const onInstalledRef = useRef(onInstalled)
@@ -106,18 +95,13 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   // so ongoing installs remain visible when user closes and reopens the modal
   useEffect(() => {
     if (isOpen) {
-      setName('')
-      setDescription('')
-      setErrors({})
+      setWizardKey(k => k + 1)
       setConfiguringApp(null)
       setCustomValues({})
       setSearchQuery('')
       setSelectedTags(new Set())
       if (activeTab === 'marketplace' && apps.length === 0) {
         fetchMarketplace()
-      }
-      if (activeTab === 'custom') {
-        setTimeout(() => nameInputRef.current?.focus(), 100)
       }
     }
   }, [isOpen])
@@ -126,9 +110,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   useEffect(() => {
     if (isOpen && activeTab === 'marketplace' && apps.length === 0 && isConnected) {
       fetchMarketplace()
-    }
-    if (activeTab === 'custom') {
-      setTimeout(() => nameInputRef.current?.focus(), 100)
     }
   }, [activeTab, isConnected])
 
@@ -274,23 +255,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
 
   // Escape key intentionally does NOT close this modal — user must use the X button
 
-  const validate = (): boolean => {
-    const newErrors: { name?: string; description?: string } = {}
-    if (!name.trim()) newErrors.name = 'Name is required'
-    else if (name.length > 50) newErrors.name = 'Name must be 50 characters or less'
-    if (!description.trim()) newErrors.description = 'Description is required'
-    else if (description.length < 10) newErrors.description = 'Please provide more detail (at least 10 characters)'
-    else if (wordCount > MAX_WORDS) newErrors.description = `Description exceeds ${MAX_WORDS} word limit`
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!validate()) return
-    onSubmit({ name: name.trim(), description: description.trim() })
-  }
-
   // Fully unmount when closed and no installs pending; stay mounted (invisible) while installs run
   if (!isOpen && installingIds.size === 0) return null
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
@@ -305,7 +269,8 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
     <Modal
       isOpen={true}
       onClose={onClose}
-      size="full"
+      size="lg"
+      contentClassName={styles.creationModal}
       closeOnOverlayClick={false}
       closeOnEsc={false}
       title={
@@ -482,62 +447,15 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
           </div>
         )}
 
-        {/* Custom Tab */}
+        {/* Custom Tab — configuration + interview wizard */}
         {activeTab === 'custom' && (
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-            <div className={styles.modalBody}>
-              <div className={styles.centeredForm}>
-                <div className={styles.formGroup}>
-                  <label htmlFor="living-ui-name" className={styles.label}>
-                    Project Name <span className={styles.required}>*</span>
-                  </label>
-                  <input
-                    ref={nameInputRef}
-                    id="living-ui-name"
-                    type="text"
-                    className={`${styles.input} ${errors.name ? styles.inputError : ''}`}
-                    placeholder="e.g., World News Dashboard"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    maxLength={50}
-                  />
-                  {errors.name && <span className={styles.errorText}>{errors.name}</span>}
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label htmlFor="living-ui-description" className={styles.label}>
-                    What should this UI do? <span className={styles.required}>*</span>
-                  </label>
-                  <textarea
-                    id="living-ui-description"
-                    className={`${styles.textareaLarge} ${errors.description ? styles.inputError : ''}`}
-                    placeholder="Describe what you want the Living UI to display and do. Be specific about the data, layout, interactions, styling preferences, and any external APIs or data sources to use..."
-                    value={description}
-                    onChange={e => setDescription(e.target.value)}
-                    rows={12}
-                  />
-                  <div className={styles.descriptionFooter}>
-                    <span className={styles.hint}>
-                      The clearer and more detailed your requirements, the more accurate the Living UI will be.
-                    </span>
-                    <span className={`${styles.wordCount} ${wordCount > MAX_WORDS ? styles.wordCountError : ''}`}>
-                      {wordCount.toLocaleString()} / {MAX_WORDS.toLocaleString()} words
-                    </span>
-                  </div>
-                  {errors.description && <span className={styles.errorText}>{errors.description}</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.modalFooter}>
-              <Button variant="secondary" type="button" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" icon={<Sparkles size={16} />}>
-                Create Living UI
-              </Button>
-            </div>
-          </form>
+          <CreateCustomWizard
+            key={wizardKey}
+            send={send}
+            onMessage={onMessage}
+            onClose={onClose}
+            onCreated={onCreated}
+          />
         )}
 
         {/* Import Tab — URL/path + ZIP upload */}

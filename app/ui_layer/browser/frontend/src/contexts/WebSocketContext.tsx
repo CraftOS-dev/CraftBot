@@ -8,7 +8,7 @@ import type {
   LocalLLMProgressResponse, LocalLLMPullProgressResponse, SuggestedModel,
   SkillMeta,
   // Living UI types
-  LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
+  LivingUIProject, LivingUIStatusUpdate, LivingUIStateUpdate,
   LivingUITodo, LivingUITodosUpdate,
   LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
@@ -225,7 +225,6 @@ interface WebSocketContextType extends WebSocketState {
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
   // Living UI methods
-  createLivingUI: (data: LivingUICreateRequest) => void
   requestLivingUIList: () => void
   launchLivingUI: (projectId: string) => void
   stopLivingUI: (projectId: string) => void
@@ -684,15 +683,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [dispatch])
 
   // Living UI methods
-  const createLivingUI = useCallback((data: LivingUICreateRequest) => {
-    if (client.isConnected) {
-      client.sendString(JSON.stringify({
-        type: 'living_ui_create',
-        ...data,
-      }))
-    }
-  }, [])
-
   const requestLivingUIList = useCallback(() => {
     if (client.isConnected) {
       client.sendString(JSON.stringify({ type: 'living_ui_list' }))
@@ -826,7 +816,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         uploadAgentProfilePicture,
         removeAgentProfilePicture,
         // Living UI methods
-        createLivingUI,
         requestLivingUIList,
         launchLivingUI,
         stopLivingUI,

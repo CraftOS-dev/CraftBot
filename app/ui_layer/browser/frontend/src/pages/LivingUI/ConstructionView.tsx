@@ -183,46 +183,10 @@ const NARRATION_TTL_MS = 4000
 export function ConstructionView({ project, todos, events }: Props) {
   const displayed = usePacedEvents(events)
 
-  // The todo list drives the step label ("Step N of M") across planning,
-  // execution, and validation.
-  const todoView = useMemo(() => deriveProgress(todos), [todos])
-
-  // Latest requirement-ledger counts (LIVING_UI.md), read from the raw
-  // event list so a refresh doesn't regress the count.
-  const reqProgress = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const r = events[i].requirements
-      if (r && r.total > 0) return r
-    }
-    return null
-  }, [events])
-
-  // The bar FILL pools todos and requirements — each is one unit of work.
-  // Todos alone overstate progress badly (step 7 of 11 reads ~64% while
-  // 5/58 requirements are done); once the ledger exists, the remaining
-  // requirements weigh the bar down until they're genuinely ticked.
-  const view = useMemo(() => {
-    if (!reqProgress) return todoView
-    const list = todos ?? []
-    const done = list.filter(t => t.status === 'completed').length + reqProgress.done
-    const total = list.length + reqProgress.total
-    return {
-      ...todoView,
-      progress: total > 0 ? (done / total) * 100 : todoView.progress,
-      indeterminate: false,
-    }
-  }, [todos, todoView, reqProgress])
-
-  // The requirements COUNT is intra-step detail for the LONG execution
-  // stretch only, shown while the ledger is in play (exists, not fully
-  // ticked). A frozen count is never shown: during planning the ledger
-  // doesn't exist yet, and once every box is ticked the readout disappears
-  // (an N/N hanging around reads as "done" while validation still runs).
-  const reqLabel =
-    reqProgress && reqProgress.done < reqProgress.total
-      ? `${reqProgress.done}/${reqProgress.total} requirements`
-      : null
-  const stepLabel = reqLabel ? `${view.stepLabel} · ${reqLabel}` : view.stepLabel
+  // The todo list is THE progress display: bar fill and "Step N of M" —
+  // requirements live in the task instruction now, not in a tracked ledger.
+  const view = useMemo(() => deriveProgress(todos), [todos])
+  const stepLabel = view.stepLabel
   const previewRef = useRef<HTMLDivElement>(null)
   const [hmrStatus, setHmrStatus] = useState<'ok' | 'updating' | 'error'>('ok')
   const [narration, setNarration] = useState<{ label: string; at: number } | null>(null)

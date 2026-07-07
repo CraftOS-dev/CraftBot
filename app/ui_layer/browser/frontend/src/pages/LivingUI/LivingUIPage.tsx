@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Box,
   RefreshCw,
   Trash2,
   Play,
@@ -20,6 +19,7 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { Button } from '../../components/ui/Button'
 import { IconButton } from '../../components/ui/IconButton'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
+import { LivingUIIcon } from '../../components/ui/LivingUIIcon'
 import { Chat } from '../../components/Chat'
 import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, getIframeWindow } from './iframePool'
 import { ConstructionView, devIframeKey } from './ConstructionView'
@@ -343,7 +343,7 @@ export function LivingUIPage() {
       {/* Menu Bar */}
       <div className={styles.menuBar}>
         <div className={styles.menuLeft}>
-          <Box size={14} className={styles.projectIcon} />
+          <LivingUIIcon icon={project.icon} projectId={project.id} size={14} className={styles.projectIcon} />
           <h1 className={styles.projectName}>{project.name}</h1>
           <span className={`${styles.status} ${styles[project.status]}`}>
             {project.status}

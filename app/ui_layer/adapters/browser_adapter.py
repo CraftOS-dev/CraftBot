@@ -1047,6 +1047,9 @@ class BrowserAdapter(InterfaceAdapter):
         self._living_ui_manager = LivingUIManager(
             workspace_root=AGENT_WORKSPACE_ROOT, template_path=template_path
         )
+        # Creation-wizard state: reference-image descriptions computed at the
+        # interview step, reused at finalize (keyed by wizardId).
+        self._wizard_image_notes: Dict[str, list] = {}
         # Bind task_manager and trigger_queue for task creation
         agent = self._controller.agent
         self._living_ui_manager.bind_task_manager(
@@ -1255,6 +1258,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
         self._app.router.add_post(
             "/api/chat-attachments/upload", self._chat_attachment_upload_handler
+        )
+
+        # Living UI creation wizard: attachment/icon staging + icon serving
+        self._app.router.add_post(
+            "/api/living-ui/wizard-upload", self._wizard_upload_handler
+        )
+        self._app.router.add_get(
+            "/api/living-ui/icon/{project_id}", self._living_ui_icon_handler
         )
 
         # Agent profile bundle import/export routes
@@ -1554,7 +1565,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # per-project launch/stop are serialized inside LivingUIManager.
     _LONG_RUNNING_WS_TYPES = frozenset(
         {
-            "living_ui_create",
+            "living_ui_wizard_interview",
+            "living_ui_wizard_finalize",
             "living_ui_launch",
             "living_ui_stop",
             "living_ui_delete",
@@ -2128,8 +2140,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             base_url = data.get("baseUrl")
             await self._handle_local_llm_pull_model(model, base_url)
         # Living UI handlers
-        elif msg_type == "living_ui_create":
-            await self._handle_living_ui_create(data)
+        elif msg_type == "living_ui_wizard_interview":
+            await self._handle_living_ui_wizard_interview(data)
+
+        elif msg_type == "living_ui_wizard_finalize":
+            await self._handle_living_ui_wizard_finalize(data)
 
         elif msg_type == "living_ui_list":
             await self._handle_living_ui_list()
@@ -2894,37 +2909,104 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Living UI Handlers
     # -------------------------------------------------------------------------
 
-    async def _handle_living_ui_create(self, data: Dict[str, Any]) -> None:
-        """Create a new Living UI project."""
+    async def _handle_living_ui_wizard_interview(self, data: Dict[str, Any]) -> None:
+        """Wizard step 2: generate interview questions from the Step-1
+        configuration via a direct LLM call (no task exists yet)."""
+        from app.living_ui import wizard
+
+        wizard_id = str(data.get("wizardId", ""))
         try:
-            name = data.get("name", "")
-            description = data.get("description", "")
-            features = data.get("features", [])
-            data_source = data.get("dataSource")
-            theme = data.get("theme", "system")
+            config = data.get("config") or {}
+            workspace_root = self._living_ui_manager.workspace_root
+            wizard.sweep_stale_staging(workspace_root)
 
+            # Reference images are described once and reused at finalize.
+            image_notes = await wizard.describe_staged_images(
+                workspace_root, wizard_id
+            )
+            self._wizard_image_notes[wizard_id] = image_notes
+
+            questions = await wizard.generate_interview(config, image_notes)
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_interview",
+                    "data": {
+                        "success": True,
+                        "wizardId": wizard_id,
+                        "questions": questions,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] interview failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_interview",
+                    "data": {
+                        "success": False,
+                        "wizardId": wizard_id,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_living_ui_wizard_finalize(self, data: Dict[str, Any]) -> None:
+        """Wizard step 3: synthesize the requirements document, create the
+        project, move staged attachments in, start the build task, and hand
+        the frontend its projectId to navigate to."""
+        from app.living_ui import wizard
+
+        wizard_id = str(data.get("wizardId", ""))
+        try:
+            config = data.get("config") or {}
+            answers = data.get("answers") or []
+            name = str(config.get("name", "")).strip()
+            description = str(config.get("description", "")).strip()
             if not name or not description:
-                await self._broadcast(
-                    {
-                        "type": "living_ui_error",
-                        "data": {
-                            "projectId": "",
-                            "error": "Name and description are required",
-                        },
-                    }
-                )
-                return
+                raise ValueError("Name and description are required")
 
-            # Create the project (directory/template)
+            workspace_root = self._living_ui_manager.workspace_root
+            image_notes = self._wizard_image_notes.pop(wizard_id, None)
+            if image_notes is None:
+                image_notes = await wizard.describe_staged_images(
+                    workspace_root, wizard_id
+                )
+
+            requirements_doc = await wizard.synthesize_requirements(
+                config, answers, image_notes
+            )
+
+            options = config.get("options") or {}
+            color_mode = options.get("colorMode")
+            theme = color_mode if color_mode in ("dark", "light", "system") else "system"
+            icon = config.get("icon") if str(config.get("icon", "")).startswith(
+                "lucide:"
+            ) else None
+
             project = await self._living_ui_manager.create_project(
                 name=name,
                 description=description,
-                features=features,
-                data_source=data_source,
                 theme=theme,
+                icon=icon,
             )
 
-            # Broadcast project created
+            # Staged files: uploaded icon → project root, references →
+            # <project>/reference/. An uploaded icon wins over a lucide pick.
+            moved = wizard.move_staging_into_project(
+                workspace_root, wizard_id, Path(project.path)
+            )
+            if moved["icon"]:
+                project.icon = moved["icon"]
+                self._living_ui_manager._save_projects()
+
+            reference_dir = Path(project.path) / "reference"
+            reference_dir.mkdir(parents=True, exist_ok=True)
+            (reference_dir / "requirements.md").write_text(
+                requirements_doc, encoding="utf-8"
+            )
+
+            # Same broadcast the old create path used — the store's
+            # living_ui_create handler adds the project tab.
             await self._broadcast(
                 {
                     "type": "living_ui_create",
@@ -2936,8 +3018,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-            # Mirror the new project into chat as a system message so the
-            # request is visible in the conversation (not just the new tab).
             try:
                 await self._display_chat_message(
                     "System",
@@ -2948,7 +3028,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             except Exception as e:
                 logger.debug(f"[LIVING_UI] create chat message failed: {e}")
 
-            # Broadcast initial status update
+            task_id = await self._living_ui_manager.create_development_task(project.id)
+            if not task_id:
+                raise RuntimeError("Failed to create development task")
+
+            # create_development_task flips the project to "creating" in
+            # memory only; the frontend still holds "created" from the
+            # living_ui_create broadcast above. This status event is what
+            # applyStatus() maps to project.status="creating", which is what
+            # the LivingUIPage keys on to show the Construction View instead
+            # of the "not running / Launch" screen. (Old create/marketplace/
+            # import paths send the same event.)
             await self._broadcast(
                 {
                     "type": "living_ui_status",
@@ -2961,40 +3051,28 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-            # Create task and fire trigger via manager
-            # The manager handles: task creation, status update, trigger firing
-            task_id = await self._living_ui_manager.create_development_task(project.id)
+            # Live Construction dev preview: npm install + Vite dev server
+            # in the background so the user watches the app being built.
+            asyncio.create_task(self._living_ui_manager.start_dev_preview(project.id))
 
-            if task_id:
-                logger.info(
-                    f"[LIVING_UI] Created and triggered task {task_id} for project {project.id}"
-                )
-                # Live Construction dev preview: npm install + Vite dev server
-                # in the background so the user watches the app being built.
-                asyncio.create_task(
-                    self._living_ui_manager.start_dev_preview(project.id)
-                )
-            else:
-                logger.error(
-                    f"[LIVING_UI] Failed to create task for project {project.id}"
-                )
-                await self._broadcast(
-                    {
-                        "type": "living_ui_error",
-                        "data": {
-                            "projectId": project.id,
-                            "error": "Failed to create development task",
-                        },
-                    }
-                )
-
-        except Exception as e:
-            logger.error(f"[LIVING_UI] Error creating project: {e}")
             await self._broadcast(
                 {
-                    "type": "living_ui_error",
+                    "type": "living_ui_wizard_finalize",
                     "data": {
-                        "projectId": "",
+                        "success": True,
+                        "wizardId": wizard_id,
+                        "projectId": project.id,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] finalize failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_finalize",
+                    "data": {
+                        "success": False,
+                        "wizardId": wizard_id,
                         "error": str(e),
                     },
                 }
@@ -3260,6 +3338,103 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(f"[WORKSPACE] Upload error: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def _wizard_upload_handler(self, request: "web.Request") -> "web.Response":
+        """HTTP handler: stage a creation-wizard file (reference attachment
+        or icon) under workspace/tmp/living_ui_wizard/<wizardId>/.
+
+        multipart/form-data with a 'file' field. Query params: wizardId
+        (required), name (original filename), kind ('reference'|'icon').
+        Icons are stored as icon.<ext> so finalize can identify them.
+        """
+        from aiohttp import web
+
+        from app.living_ui import wizard
+
+        try:
+            wizard_id = request.rel_url.query.get("wizardId", "").strip()
+            name = request.rel_url.query.get("name", "file").strip() or "file"
+            kind = request.rel_url.query.get("kind", "reference").strip()
+
+            # Filename hygiene: basename only, no traversal.
+            name = Path(name).name
+            suffix = Path(name).suffix.lower()
+            if kind == "icon":
+                if suffix not in wizard.ICON_EXTS:
+                    return web.json_response(
+                        {"success": False, "error": f"Unsupported icon type: {suffix}"},
+                        status=400,
+                    )
+                name = f"icon{suffix}"
+
+            staging = wizard.staging_dir(
+                self._living_ui_manager.workspace_root, wizard_id
+            )
+            # One icon per wizard: replace any previous upload.
+            if kind == "icon":
+                for old in staging.glob("icon.*"):
+                    old.unlink(missing_ok=True)
+            target = staging / name
+
+            reader = await request.multipart()
+            written = False
+            async for part in reader:
+                if part.name == "file":
+                    with open(target, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    written = True
+                    break
+            if not written:
+                return web.json_response(
+                    {"success": False, "error": "No file field in request"},
+                    status=400,
+                )
+            return web.json_response({"success": True, "name": target.name})
+        except ValueError as e:
+            return web.json_response({"success": False, "error": str(e)}, status=400)
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] Upload error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def _living_ui_icon_handler(self, request: "web.Request") -> "web.Response":
+        """HTTP handler: serve a project's uploaded icon file."""
+        from aiohttp import web
+
+        project_id = request.match_info.get("project_id", "")
+        project = self._living_ui_manager.projects.get(project_id)
+        if not project or not (project.icon or "").startswith("file:"):
+            return web.Response(status=404)
+        # icon value is a project-relative path (e.g. "public/favicon.png");
+        # resolve and refuse anything escaping the project directory.
+        project_root = Path(project.path).resolve()
+        icon_file = (project_root / project.icon[5:].replace("\\", "/")).resolve()
+        try:
+            icon_file.relative_to(project_root)
+        except ValueError:
+            return web.Response(status=404)
+        if not icon_file.is_file():
+            return web.Response(status=404)
+        content_types = {
+            ".png": "image/png",
+            ".svg": "image/svg+xml",
+            ".ico": "image/x-icon",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+        }
+        return web.FileResponse(
+            icon_file,
+            headers={
+                "Content-Type": content_types.get(
+                    icon_file.suffix.lower(), "application/octet-stream"
+                ),
+                "Cache-Control": "max-age=300",
+            },
+        )
 
     async def _chat_attachment_upload_handler(
         self, request: "web.Request"

@@ -62,7 +62,7 @@ If the app needs multiple users, login, teams, or shared data:
 1. Read `app/data/living_ui_modules/auth/README.md` for the full integration guide
 2. Copy the module files into your project and wire them up as documented
 
-**When to add auth:** user mentioned "multiple users", "team", "sharing", "login", or the app manages per-user data (task tracker, CRM, project manager). If unsure, ask during Phase 0.
+**When to add auth:** the REQUIREMENTS mention multiple users, teams, sharing, login, or per-user data (task tracker, CRM, project manager).
 
 ## Directory Structure
 
@@ -195,158 +195,68 @@ Read `agent_file_system/GLOBAL_LIVING_UI.md` for global design preferences and r
 - **Enabled rules `[x]`**: Treat as hard requirements — your code must implement them.
 - **Disabled rules `[ ]`**: Skip these features.
 - **Always Enforced rules**: These are non-negotiable — always follow them.
-- Per-project requirements from Phase 0 Q&A override global settings when they conflict.
+- Per-project REQUIREMENTS (from the task instruction) override global settings when they conflict.
 
-### Create the Todo List FIRST (before Phase 0 — before ANY question)
+### Requirements Arrive Complete (NEVER interview the user)
 
-Immediately after reading the global config — and BEFORE any `send_message`,
-including the Phase 0 question batches — call `task_update_todos` with the
-full plan (the EXACT pattern in Phase 1, prefixed with the Phase 0 lines:
-question batches, requirement ledger; feature names can be provisional
-until the answers arrive). The todo list is the user's progress display
-from the first second; a task that asks questions before it has a visible
-plan looks dead. When Phase 0 answers change the features, update the
-list — but it exists first.
+Your task instruction contains the REQUIREMENTS section: the complete,
+binding specification for this app, synthesized from the user's creation
+wizard (configuration, reference files, and interview) BEFORE this task
+started. A copy lives at `{project_path}/reference/requirements.md`.
 
-### Phase 0: Requirement Gathering (MANDATORY — minimum 2 batches)
+- Do NOT call `set_requirement` — the REQUIREMENTS section is the
+  requirement record.
+- NEVER ask the user questions (`send_message` is not part of this
+  workflow) — requirement gathering already happened. Where the spec is
+  silent, decide and build.
+- The REQUIREMENTS are a COMMITMENT: build all of them. Never ask
+  permission to skip, defer, or descope anything; scope shrinks only if
+  the USER, unprompted, orders it.
+- Study the reference files listed in the task instruction BEFORE the
+  wireframe — view images with `describe_image`; they carry the user's
+  design intent.
 
-Before coding, gather requirements from the user through a conversational interview.
-Use `send_message` with `wait_for_user_reply=True` to ask questions and wait for answers.
+### Create the Todo List FIRST
 
-**Reference:** Read [QUESTIONNAIRE.md](references/QUESTIONNAIRE.md) for question categories and examples.
+Immediately after reading the global config and reference files, call
+`task_update_todos` with the full plan (the EXACT pattern in Phase 1),
+with feature names derived from the REQUIREMENTS. The todo list is the
+user's progress display from the first second; nothing else happens
+before it exists.
 
-**CRITICAL RULES:**
-- You MUST ask at least 2 batches of questions. Never skip to coding after just 1 batch.
-- Batch 1 MUST cover data/features. Batch 2 MUST cover design/visual preferences.
-- If the user gives short or vague answers, DO NOT skip Batch 2. Instead, offer specific choices (e.g., "Would you prefer a card grid or a kanban column layout?").
-- If the user explicitly says "just build it" or "skip the questions" — then and ONLY then can you stop early. A short answer to one question is NOT "skip."
-- **EXPAND VAGUE ANSWERS**: When a user gives a brief or vague reply (e.g., "basic user stuff", "normal layout", "simple dashboard"), you MUST expand it into specific features, then confirm with the user before proceeding. See "Expanding Vague Answers" in [QUESTIONNAIRE.md](references/QUESTIONNAIRE.md) for common mappings.
+### Phase 1: Plan the Build
 
-**Process:**
+Think in **USER-FACING capabilities** (e.g. "Column CRUD", "Task Cards",
+"Search/Filter"), NOT layers and NOT visual regions. A capability is DONE
+only when its user flow works END TO END in the running app: the control
+opens a real form/modal (never a browser prompt/confirm), submits to the
+backend, and the view updates. Renders-but-does-nothing is NOT done.
 
-1. **Analyze the project description** — identify what's clear and what's ambiguous
-2. **Batch 1: Data & Features (REQUIRED)** — ask 2-4 questions:
-   - Open with a warm acknowledgment of the project idea
-   - Focus on: what entities/items exist, how they relate, what operations are needed
-   - Use `send_message` with `wait_for_user_reply=True`
-3. **Batch 2: Design & Layout (REQUIRED)** — always ask this, even if Batch 1 answers were short:
-   - Acknowledge Batch 1 answers briefly
-   - Focus on: layout style (grid/kanban/list/freeform), visual style, color preferences, detail views vs modals
-   - Offer concrete choices rather than open-ended questions (e.g., "Card grid like Pinterest, or columns like Trello?")
-   - Use `send_message` with `wait_for_user_reply=True`
-4. **Batch 3 (optional)** — only if significant gaps remain after Batch 2
-5. **Expand vague answers** — after each batch, review the user's responses:
-   - If any answer is vague ("basic", "normal", "simple", "standard", "the usual"), expand it into concrete features using the mappings in QUESTIONNAIRE.md
-   - Confirm your expansion: "By 'basic user stuff' I'll include: login/signup, user profiles, member list, and role-based access (admin/member). Does that sound right?"
-   - Wait for user to confirm or correct before proceeding
-   - Document the **expanded** version in LIVING_UI.md, not the vague original
-6. **Fill gaps with assumptions** — after gathering answers:
-   - State your assumptions explicitly to the user
-   - See "Safe Assumptions" in QUESTIONNAIRE.md for defaults
-6. **Write the REQUIREMENT LEDGER in LIVING_UI.md (MANDATORY — the most
-   important 5 minutes of the build).** LIVING_UI.md IS this task's
-   requirement document and progress tracker. Do NOT call `set_requirement`
-   — this ledger replaces it entirely.
-
-   Fill the `<!-- REQ:BEGIN --> ... <!-- REQ:END -->` block with FIVE
-   sections of ID'd checkboxes (`- [ ] F1: ...`), SUPER-DETAILED, covering
-   the app's ENTIRE scope:
-
-   - **Features (F1..)** — every core capability the app must have
-   - **Data (D1..)** — every model, its fields, schema and persistence rules
-   - **Design (V1..)** — the visual contract, item by item: which icons and
-     imagery appear where, alignment and hierarchy, pages/tabs/panels,
-     color usage, empty states, loading states — the app must NEVER be
-     text-only
-   - **CLI (C1..)** — every operation CraftBot needs to operate this app via
-     `livingui` (these become config/operations.json)
-   - **Quality of Life (Q1..)** — scope-specific power-UX invented for THIS
-     app: keyboard shortcuts, drag & drop, multi-select (shift-click),
-     context menus, mobile layout, inline editing, undo, filters that
-     combine, ... these are EXAMPLES — do not copy them, derive what fits
-
-   Rules:
-   - There is NO item quota: the depth of every section follows from THIS
-     app's scope. Comprehensive means you covered EVERYTHING the app needs
-     in each aspect — a rich app produces a long ledger, a focused tool a
-     shorter one. Ask yourself per section: "what did I not write down?"
-     until the honest answer is nothing. A lazy, sparse ledger produces a
-     weak app; validation refuses missing/empty sections, and the design
-     review exposes shallow coverage.
-   - Every item is one concrete, checkable statement — no vague filler.
-   - As you build, tick fulfilled items with
-     `living_ui_tick_requirements(project_id, ids=["F3", "V6", ...])` —
-     ticking is BY ID, never by editing checkbox text (stream_edit on a
-     checkbox fails on exact-string mismatch and is forbidden for ticks;
-     it remains valid for REWORDING a requirement). Validation REFUSES
-     unfinished ledgers.
-   - The ledger is a COMMITMENT: every item gets built. NEVER ask the user
-     for permission to skip, defer, or descope items — proposing to shrink
-     the scope of your own work is a violation. Validation failing on
-     unfulfilled items means KEEP BUILDING, not negotiate. Items leave the
-     ledger only if the USER, unprompted, tells you to cut them.
-   - Also replace the other HTML comments (Overview, Assumptions) with real
-     content. **DO NOT proceed to Phase 1 until the ledger is complete.**
-
-**When to stop asking:**
-- After Batch 2, unless there are major gaps (then do Batch 3)
-- If user explicitly says "just build it" or "skip" — stop and assume the rest
-- Never ask more than 3 batches total
-
-**Tone:** Warm and conversational. Offer concrete choices, not just open-ended questions. Acknowledge answers before asking more.
-
-**Example Batch 1 (Data & Features):**
-> "Love the idea! Before I start building, a few quick questions about what goes on the board:
-> 1. What kinds of items will you add? (notes, images, videos, links, docs — all of these?)
-> 2. What info should each item have? (just the content, or also title, description, tags, status?)
-> 3. Do you need to organize items into categories or groups?"
-
-**Example Batch 2 (Design & Layout):**
-> "Thanks! Now a couple questions about how it should look:
-> 1. Layout preference — card grid (like Pinterest), columns (like Trello), or a list view?
-> 2. When you click an item, should it open in a detail panel on the side, a full modal, or expand in place?
-> 3. Any color/visual preference? (dark theme, light, colorful, minimal — or I'll use a clean modern default)"
-
-### Phase 1: Plan Features (todo-list shape is MANDATED)
-
-The unit of work is a **FEATURE — a user-facing capability** (e.g. "Column
-CRUD", "Task Cards", "Search/Filter"), NOT a visual region and NOT a
-layer. A feature is DONE only when its user flow works END TO END in the
-running app: the control opens a real form/modal (never a browser
-prompt/confirm), submits to the backend, and the view updates. A feature
-that renders but does nothing is NOT done.
-
-Read the requirements from LIVING_UI.md, break the app into features, and
-create your todo list in this EXACT pattern — do NOT add extra sub-steps:
+Read the REQUIREMENTS from the task instruction, break the app into
+capabilities, and create your todo list. **Shape it to the app** — this is
+a sensible DEFAULT, adapt it (one coarse line per capability so updates
+stay cheap; you choose granularity and order):
 
 ```
 1. Layout wireframe — page frame + placeholder regions (Phase 1.5)
-2. Feature 1 - [name]: Backend (tests + model + routes + pytest)
-3. Feature 1 - [name]: Frontend (types + components + controller, mounted + ticked)
-4. Feature 2 - [name]: Backend (tests + model + routes + pytest)
-5. Feature 2 - [name]: Frontend (types + components + controller, mounted + ticked)
-   ... repeat for each feature ...
-6. Docs + operations (Phase 9)
-7. Design self-review: describe_image on logs/design_preview.png until PASS
-8. Validate: living_ui_validate until it passes
-9. Launch: living_ui_notify_ready (refuses without a validation pass)
+2. Build <capability A> (data + API + UI, mounted)
+3. Build <capability B> (data + API + UI, mounted)
+   ... one line per capability ...
+4. Docs + operations (Phase 9)
+5. Design self-review: describe_image on logs/design_preview.png until PASS
+6. Validate: living_ui_validate until it passes
+7. Launch: living_ui_notify_ready (refuses without a validation pass)
 ```
 
-Exactly 2 todos per feature (backend + frontend); a feature with no new
-backend keeps only its frontend todo — never invent filler backend work.
-Finer-grained progress lives in the LIVING_UI.md ledger (tick boxes by ID
-with living_ui_tick_requirements at the end of each feature's frontend
-step), never as extra todos.
+There is NO forced backend-then-frontend split and no fixed number of
+todos per capability — work the way you would in any codebase (read the
+existing code first, follow its conventions). The ONE constraint: build
+INCREMENTALLY so the preview keeps changing — keep each capability's data,
+endpoints, and UI close together, mounting components as you go.
 
-FORBIDDEN todo shapes: whole-app layers — "Backend (all features)" then
-"Frontend (all features)". Layer-shaped todos leave the preview dead for
-20+ minutes and ship apps whose frontend was never wired to its backend.
-Features complete ONE AT A TIME, backend then frontend, so the preview
-changes every few minutes and every capability works before the next
-starts.
-
-If Phase 0 was skipped (requirements are very detailed in the description),
-document them in LIVING_UI.md now before proceeding.
+FORBIDDEN: whole-app layers — "Backend (all features)" then "Frontend (all
+features)". Layer-shaped work leaves the preview dead for 20+ minutes and
+ships apps whose frontend was never wired to its backend.
 
 ### Phase 1.5: Layout Wireframe (MANDATORY FIRST BUILD STEP — before ANY backend work)
 
@@ -394,73 +304,60 @@ Sections — no title band.
    state. Hardcode nothing that looks like real data; empty states are the
    content.
 
-### Phase 2-7: Build Features (backend step, then frontend step, per feature)
+### Phase 2-7: Build the Capabilities
 
-Build ONE FEATURE at a time: its backend todo (actions 1-4 below, ONE
-batched step), then its frontend todo (actions 5-9, ONE batched step).
-Batch each step's actions into a SINGLE decision — the executor runs them
-sequentially in order, and if one fails the rest are skipped and reported.
-Do not move to the next feature until this one's user flow works end to
-end. **Every file is written ONCE, in its final form — no drafts, no
-static stubs, no "wire it later".** A control with an empty handler
-(`onClick={() => {}}`) must never exist at any point, and interactive
-flows use real Modal/form components — never `prompt()`/`confirm()`
-browser dialogs.
+Build the app to fulfill the REQUIREMENTS, one capability at a time, the
+way you would in any codebase. There is **NO forced backend-then-frontend
+order** and no fixed action list — you decide how to sequence the work.
+What matters:
 
-The actions, in order (design the whole feature FIRST, then emit each step
-as one batch):
+- **READ before you write.** Read the files you're about to change
+  (`backend/models.py`, `backend/routes.py`, `frontend/AppController.ts`,
+  the component files) and `LIVING_UI.md` for project-specific notes;
+  follow the conventions already there.
+- **Build INCREMENTALLY so the preview keeps changing.** Take one
+  capability all the way to working — its data, endpoints, and UI —
+  mounting each component as you write it, before moving to the next.
+  Don't do all backend then all frontend.
+- **RUN tests / lint / the build when it helps you** catch a problem early
+  (find the project's commands first). You're not required to per
+  capability — `living_ui_validate` runs the full suite at the end, so
+  don't re-run after every small change.
+- **Every capability WORKS END TO END** in the running app: real control →
+  real `Modal`/form (never `prompt()`/`confirm()`) → API call → view
+  updates. Renders-but-does-nothing is not done.
 
-**Backend step (actions 1-4):**
+The pieces a capability typically needs (adapt — a capability reusing
+existing models touches only the frontend ones):
 
-1. **Write `backend/tests/test_{feature}.py`** — tests for THIS
-   feature's endpoints:
-   - Routes declare paths WITHOUT `/api`; tests call WITH `/api`
-   - Assert the API's real key style: `to_dict()` returns camelCase keys —
-     write assertions against camelCase
-   - Tests MUST NOT depend on live internet. Endpoints that fetch external
-     data (RSS, APIs) must handle fetch failure gracefully (return
-     `{"fetched": 0}`-style results, never 500) — test the logic and the
-     graceful path, not the live fetch. NEVER seed fake/sample data to make
-     a test pass.
-2. **Rewrite `backend/models.py`** — read it first, then `write_file` the
-   COMPLETE updated file with your model added. NEVER append to models.py
-   or routes.py with stream_edit anchors — end-of-file anchor edits have
-   corrupted these files repeatedly.
-   - NEVER use `metadata` as column name; always include `to_dict()` with
-     ALL fields (camelCase keys)
-3. **Rewrite `backend/routes.py`** — same whole-file approach; routes that
-   satisfy each test assertion (absolute imports, one-line docstrings)
-4. **run_shell**: `cd backend && python -m pytest tests/ -v --tb=short`
+- **`backend/tests/test_*.py`** — tests for the endpoints. Routes declare
+  paths WITHOUT `/api`; tests call WITH `/api`. Assert camelCase (matching
+  `to_dict()`). Tests MUST NOT depend on live internet — external-fetch
+  endpoints degrade gracefully (return `{"fetched": 0}`-style, never 500);
+  test the graceful path. NEVER seed fake/sample data to pass a test.
+- **`backend/models.py`** — read it first, then `write_file` the COMPLETE
+  updated file with your model added. NEVER append with `stream_edit`
+  anchors — end-of-file edits corrupt this file. No `metadata` column;
+  always a `to_dict()` returning ALL fields (camelCase).
+- **`backend/routes.py`** — same whole-file approach; absolute imports,
+  one-line docstrings, no `/api` prefix.
+- **`frontend/types.ts`** — interfaces matching `to_dict()` exactly.
+- **`frontend/AppController.ts`** — methods for the endpoints. Backend URL:
+  `const BACKEND_URL = (window as any).__CRAFTBOT_BACKEND_URL__ || 'http://localhost:3101'`
+- **`frontend/components/<Component>.tsx`** — FINAL form: real fetch calls
+  through the controller, real handlers on every control, empty states,
+  preset controls (real `Modal`/form — never `prompt()`/`confirm()`),
+  scoped `<style>` block. The full flow ships WIRED; a capability spanning
+  several components wires them together here.
+- **`frontend/components/MainView.tsx`** — import and mount the
+  component(s), replacing that region's `Skeleton*` placeholders and
+  finalizing the Section's title/meta/actions.
 
-**Frontend step (actions 5-9):**
-
-5. **Edit `frontend/types.ts`** — interfaces matching `to_dict()` exactly
-6. **Edit `frontend/AppController.ts`** — methods for this feature's endpoints
-   - Backend URL: `const BACKEND_URL = (window as any).__CRAFTBOT_BACKEND_URL__ || 'http://localhost:3101'`
-7. **Write the feature's component file(s)** — FINAL form: real fetch
-   calls through the controller, real handlers for every control, empty
-   states, preset controls (real `Modal`/form components — never
-   `prompt()`/`confirm()`), scoped `<style>` block. The full flow —
-   control → form → API call → view update — ships WIRED in this step;
-   a feature that spans several components wires them together here
-8. **Edit `frontend/components/MainView.tsx`** — import the feature's
-   components and replace their Sections' `Skeleton*` placeholders (and
-   finalize those Sections' title/meta/actions)
-9. **Tick the fulfilled requirements** — ONE
-   `living_ui_tick_requirements(project_id, ids=[...])` call with every ID
-   this feature fulfilled, as the batch's last action (ticking is BY ID —
-   never flip checkbox text with stream_edit). This is the build's progress
-   tracking; the user's progress bar reads it
-
-Because a batch stops on failure, a red pytest in the backend step
-automatically protects later actions: fix ALL reported errors in one
-batched step and re-run. **NEVER proceed with failing tests** — there is
-no attempt limit and no "validation will catch it later": validation
-refuses red tests, skeleton sections, and unmounted components, so debts
-always come back to you with interest.
-
-A feature with NO new backend (reuses existing models/routes): it has
-only the frontend todo (actions 5-9).
+**Every file is written ONCE, in its final form — no drafts, no static
+stubs, no "wire it later".** A control with an empty handler
+(`onClick={() => {}}`) must never exist at any point. When `living_ui_validate`
+reports failures, fix them all — validation refuses red tests, skeleton
+sections, and unmounted components, so debts always come back with interest.
 
 The mount is the moment the user's wireframe section fills in with the
 real, working UI. **An unmounted component does not exist** — the platform
@@ -469,13 +366,13 @@ apps with unmounted components or leftover Skeletons in MainView.
 
 ### Phase 8: Final Review
 
-After all features are live, review your code:
+After all features are live, review your code (by reading, NOT by running
+pytest — validation runs the suite):
 - Backend routes use **absolute imports** (`from models import ...` NOT `from . import ...`)
 - Backend `routes.py` does NOT add `/api` prefix to route paths
 - All `to_dict()` methods return all fields
 - TypeScript types match backend model output
 - Components import correctly from relative paths
-- All tests pass: `cd backend && python -m pytest tests/ -v`
 
 **DO NOT run:** `npm run dev`, `npm run build`, `npm run preview`, or `uvicorn` manually.
 The launch pipeline handles all building, testing, and serving automatically.
@@ -571,11 +468,11 @@ the platform's design gate still applies.
 
 **Step 2 — `living_ui_validate(project_id=...)` until it PASSES.**
 
-Call it only when the work is DONE — every ledger box ticked, every
+Call it only when the work is DONE — every feature's flow working, every
 component mounted. Validation verifies finished work; it is not a probe
-for what's left, and calling it early just refuses on the first gate. When
-it reports unfulfilled requirements, the only response is to build them —
-never to negotiate them away.
+for what's left, and calling it early just refuses on the first gate.
+Whatever it reports, the only response is to fix and build — never to
+negotiate scope away.
 
 Validation runs the full launch pipeline:
 - Completeness check (an unbuilt app is refused outright)
@@ -650,13 +547,13 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - NEVER store important state only in React (use backend)
 - NEVER use raw HTML elements (`<button>`, `<input>`, `<select>`) — use preset components (`<Button>`, `<Input>`, `<Select>`)
 - NEVER write custom CSS for buttons, cards, inputs, modals, or alerts — use the preset component props
-- NEVER create layer-shaped todos ("all backend" then "all frontend") — todos must follow the Phase 1 feature template (wireframe, then Backend + Frontend todo per feature)
+- NEVER create whole-app layer todos ("Backend: all features" then "Frontend: all features") — build one capability at a time (data + API + UI together) so the preview keeps changing; you choose the order, but never freeze the screen behind an all-backend phase
 - NEVER put interactive controls in the wireframe, and NEVER ship an empty stub handler (`onClick={() => {}}`) — controls arrive wired, in the feature that owns them
 - NEVER use browser dialogs (`prompt()`, `confirm()`, `alert()`) for user input or confirmation — use the preset `Modal` and form components; a native dialog is an unfinished feature
 - NEVER seed fake/sample/demo data to make tests pass or to showcase UI — empty states are the no-data content
 - NEVER make tests depend on live internet — external fetches degrade gracefully and tests cover the non-network paths
 - NEVER append to models.py/routes.py with stream_edit — read the file, then write_file the complete updated file
-- NEVER proceed past failing tests ("validation will catch it" is a violation — it refuses and sends you back)
+- NEVER ignore a test you ran that came back red, and NEVER seed fake data to make one pass — validation runs the full suite and refuses red tests, sending you back
 - NEVER write a static stub or draft version of a component — every component is written ONCE, in its final live form (real fetch calls, real handlers). Placeholder handlers like `onClick={() => {}}` are a violation
 - NEVER use `stream_edit` for new files or large rewrites — `write_file` with the complete final content; `stream_edit` is only for small local changes (a few lines)
 - NEVER write backend code before the Phase 1.5 UI skeleton exists — the platform flags such writes with a warning note
@@ -667,14 +564,13 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - NEVER place the same action (e.g. Refresh) in more than one spot — one action, one `actions` slot
 - NEVER edit `frontend/components/ui/index.tsx` (preset component library — import from it, never modify it)
 - NEVER pick arbitrary colors — use design tokens from `global.css` (e.g., `var(--color-primary)`)
-- NEVER skip Phase 0 Batch 2 (design questions) — minimum 2 batches required
-- ONLY use `send_message` during Phase 0 (Requirement Gathering) with `wait_for_user_reply=True`. NEVER use it during development phases (Phase 1-10).
+- NEVER use `send_message` in a Living UI creation task — requirement gathering happened in the creation wizard before the task started; never ask the user questions
 - NEVER edit `config/manifest.json` (managed by the system, contains pipeline config)
 - NEVER edit `backend/main.py` (managed by the system, contains server setup)
 - NEVER edit `frontend/main.tsx` (managed by the system, contains service initialization)
 - NEVER leave LIVING_UI.md with placeholder content, HTML comments, or example data
-- NEVER call `set_requirement` in a Living UI task — the LIVING_UI.md ledger replaces it
-- NEVER track per-component progress in the todo list — tick the LIVING_UI.md ledger instead (todos stay coarse; adapt the example shape to the task)
+- NEVER call `set_requirement` in a Living UI task — the REQUIREMENTS section of the task instruction is the requirement record
+- NEVER track per-component progress in the todo list — todos stay at the feature level (the EXACT pattern in Phase 1)
 - NEVER skip calling `living_ui_notify_ready`
 - NEVER call `living_ui_notify_ready` before `living_ui_validate` has PASSED — it refuses with `validation_not_passed`; fix the reported errors and validate again
 - NEVER use the task session ID as the project_id parameter
@@ -685,7 +581,6 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - [UI Components](references/COMPONENTS.md) - Preset components, icons, toasts
 - [External Integrations](references/INTEGRATIONS.md) - Integration bridge (Google, Discord, etc.)
 - [Auth Module](../../data/living_ui_modules/auth/README.md) - Multi-user auth, membership, invites
-- [Requirement Questionnaire](references/QUESTIONNAIRE.md) - Reference questions for Phase 0
 - [MVC-A Architecture](references/MVC-A.md) - When to use each layer, agent data access methods
 - [Operations Manifest](references/OPERATIONS.md) - Declaring the app's verbs (config/operations.json)
 - [Quality Standards](references/STANDARDS.md) - Professional standards for Living UIs

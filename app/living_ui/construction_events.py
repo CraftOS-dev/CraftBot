@@ -30,13 +30,7 @@ from ._state import get_living_ui_manager
 # Actions we derive build events from. Everything else is ignored at the
 # hook's first line, so the per-action overhead is one set lookup.
 _WATCHED_ACTIONS = frozenset(
-    {
-        "write_file",
-        "stream_edit",
-        "run_shell",
-        "living_ui_scaffold",
-        "living_ui_tick_requirements",
-    }
+    {"write_file", "stream_edit", "run_shell", "living_ui_scaffold"}
 )
 
 # run_id -> recorded start info, popped on action end. Bounded as a
@@ -260,16 +254,6 @@ def _classify_file_action(
     kind = "file_write" if action_name == "write_file" else "file_edit"
     entities = _extract_entities(rel, content)
     label = _label_for_file(action_name, rel, area, entities)
-    requirements: Optional[Dict[str, int]] = None
-    # The requirement ledger doubles as the build's progress source: every
-    # LIVING_UI.md write refreshes the dock's "N/M requirements" bar.
-    if rel.replace("\\", "/").lower() == "living_ui.md":
-        requirements = _requirements_progress(project.path)
-        if requirements:
-            label = (
-                f"Requirements: {requirements['done']}/{requirements['total']} "
-                f"fulfilled"
-            )
     event = _build_event(
         run_id,
         kind,
@@ -279,46 +263,7 @@ def _classify_file_action(
         entities=entities,
         snippet=_snippet_of(content),
     )
-    if requirements:
-        event["requirements"] = requirements
     return project.id, event
-
-
-def _classify_tick_end(
-    run_id: str, inputs: Dict[str, Any]
-) -> Optional[Tuple[str, Dict[str, Any]]]:
-    """living_ui_tick_requirements succeeded — refresh the dock's
-    requirements progress exactly like a LIVING_UI.md write would."""
-    project_id = str(inputs.get("project_id", ""))
-    manager = get_living_ui_manager()
-    project = manager.projects.get(project_id) if manager else None
-    if not project:
-        return None
-    requirements = _requirements_progress(project.path)
-    if not requirements:
-        return None
-    event = _build_event(
-        run_id,
-        "file_edit",
-        f"Requirements: {requirements['done']}/{requirements['total']} fulfilled",
-        area="docs",
-        file="LIVING_UI.md",
-    )
-    event["requirements"] = requirements
-    return project.id, event
-
-
-def _requirements_progress(project_path: str) -> Optional[Dict[str, int]]:
-    """Current ledger counts read from disk (post-write). None when absent."""
-    try:
-        from .requirements import requirements_status
-
-        status = requirements_status(project_path)
-        if status and status["total"] > 0:
-            return {"done": status["done"], "total": status["total"]}
-        return None
-    except Exception:
-        return None
 
 
 def _classify_shell_end(
@@ -409,9 +354,6 @@ def make_action_hooks():
                 result = _classify_shell_end(run_id, inputs, out)
             elif name == "living_ui_scaffold":
                 result = _classify_scaffold_end(run_id, out)
-            elif name == "living_ui_tick_requirements":
-                if not failed:
-                    result = _classify_tick_end(run_id, inputs)
 
             if result:
                 project_id, event = result

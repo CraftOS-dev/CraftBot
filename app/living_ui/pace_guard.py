@@ -325,15 +325,6 @@ def review_note_for(file_path: str) -> Optional[str]:
         if rel.startswith("backend/"):
             if not _skeleton_built(root):
                 notes.append(PACE_NOTE)
-            # Phase 0 before code: the requirement ledger must exist first.
-            try:
-                from .requirements import requirements_note
-
-                req_note = requirements_note(root)
-                if req_note:
-                    notes.append(req_note)
-            except Exception:
-                pass
         try:
             content = Path(file_path).read_text(encoding="utf-8", errors="replace")
         except OSError:

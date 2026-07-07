@@ -57,6 +57,11 @@ class LivingUIProject:
     created_at: float = field(default_factory=lambda: datetime.now().timestamp())
     features: List[str] = field(default_factory=list)
     theme: str = "system"
+    # Display icon: "lucide:<IconName>" (predefined picker) or
+    # "file:<project-relative path>" (uploaded — lives at public/favicon.*
+    # so it doubles as the app's browser-tab favicon; served to the host UI
+    # via GET /api/living-ui/icon/<id>). None -> the UI's default cube.
+    icon: Optional[str] = None
     error: Optional[str] = None
     task_id: Optional[str] = None
     auto_launch: bool = False  # Auto-launch on CraftBot startup
@@ -106,6 +111,7 @@ class LivingUIProject:
             "createdAt": int(self.created_at * 1000),  # Convert to JS timestamp
             "features": self.features,
             "theme": self.theme,
+            "icon": self.icon,
             "error": self.error,
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
@@ -611,6 +617,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             / 1000,
                             features=project_data.get("features", []),
                             theme=project_data.get("theme", "system"),
+                            icon=project_data.get("icon"),
                             auto_launch=project_data.get("autoLaunch", False),
                             log_cleanup=project_data.get("logCleanup", True),
                             project_type=project_data.get("projectType", "native"),
@@ -1090,20 +1097,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         "through backend + wiring (Phase 2-7), then run "
                         "living_ui_validate until it passes."
                     ],
-                }
-            # Requirement ledger gate FIRST: LIVING_UI.md's REQ block must
-            # exist, cover all five sections, and be fully checked — planned
-            # means built, and the ledger IS the plan. This is the cheapest
-            # and most fundamental "you are not done" signal, so an early
-            # validate call refuses immediately instead of running anything.
-            from .requirements import requirements_errors
-
-            req_errors = requirements_errors(project_path)
-            if req_errors:
-                return {
-                    "status": "error",
-                    "step": "requirements.check",
-                    "errors": req_errors,
                 }
             # The wireframe exists — but is the built UI actually ON SCREEN?
             # A wireframe-only app, or components that exist on disk but are
@@ -2696,6 +2689,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         features: List[str] = None,
         data_source: Optional[str] = None,
         theme: str = "system",
+        icon: Optional[str] = None,
     ) -> LivingUIProject:
         """
         Create a new Living UI project from template.
@@ -2706,6 +2700,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             features: List of requested features
             data_source: Optional API URL or data source description
             theme: UI theme (light, dark, system)
+            icon: Display icon ("lucide:<Name>" or "file:<filename>")
 
         Returns:
             Created LivingUIProject instance
@@ -2753,6 +2748,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             backend_port=backend_port,
             features=features or [],
             theme=theme,
+            icon=icon,
         )
 
         self.projects[project_id] = project
@@ -3206,17 +3202,48 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.error("[LIVING_UI] Trigger queue not bound")
             return None
 
-        # Build the task instruction
-        features_str = (
-            ", ".join(project.features) if project.features else "None specified"
-        )
+        # Build the task instruction. The requirements document is the
+        # complete specification: the creation wizard writes it to
+        # reference/requirements.md (synthesized from the user's config +
+        # interview BEFORE the task exists). Projects created without the
+        # wizard (living_ui_scaffold from chat) specify via description +
+        # features instead.
         from agent_core.core.prompts.application import LIVING_UI_TASK_INSTRUCTION
+
+        reference_dir = Path(project.path) / "reference"
+        requirements_file = reference_dir / "requirements.md"
+        if requirements_file.exists():
+            requirements = requirements_file.read_text(
+                encoding="utf-8", errors="replace"
+            )
+        else:
+            features_str = (
+                ", ".join(project.features) if project.features else "None specified"
+            )
+            requirements = (
+                f"{project.description}\n\nRequested features: {features_str}"
+            )
+
+        reference_files = []
+        if reference_dir.is_dir():
+            reference_files = sorted(
+                f.name
+                for f in reference_dir.iterdir()
+                if f.is_file() and f.name != "requirements.md"
+            )
+        reference_files_str = (
+            "\n".join(
+                f"- {project.path}/reference/{name}" for name in reference_files
+            )
+            if reference_files
+            else "None"
+        )
 
         task_instruction = LIVING_UI_TASK_INSTRUCTION.format(
             project_id=project.id,
             project_name=project.name,
-            description=project.description,
-            features=features_str,
+            requirements=requirements,
+            reference_files=reference_files_str,
             theme=project.theme,
             project_path=project.path,
         )

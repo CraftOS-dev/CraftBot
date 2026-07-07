@@ -7,7 +7,6 @@ import {
   FolderOpen,
   Settings,
   Sparkles,
-  Box,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen
@@ -15,7 +14,7 @@ import {
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
-import type { LivingUICreateRequest } from '../../types'
+import { LivingUIIcon } from '../ui/LivingUIIcon'
 import { TopBar } from './TopBar'
 import styles from './NavBar.module.css'
 
@@ -43,7 +42,7 @@ interface NavBarProps {
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const { livingUIProjects, createLivingUI } = useWebSocket()
+  const { livingUIProjects } = useWebSocket()
   const { theme } = useTheme()
   const [showCreateModal, setShowCreateModal] = useState(false)
 
@@ -63,10 +62,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return location.pathname.startsWith(path)
   }
 
-  const handleCreateSubmit = (data: LivingUICreateRequest) => {
-    createLivingUI(data)
-    setShowCreateModal(false)
-  }
 
   const updateOverflow = () => {
     const el = scrollRef.current
@@ -153,7 +148,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   <span className={styles.livingUITabIcon}>
                     {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                       ? <Loader2 size={13} className={styles.spinner} />
-                      : <Box size={13} />}
+                      : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
                   </span>
                   <span className={styles.livingUITabLabel}>{project.name}</span>
                 </button>
@@ -199,10 +194,14 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       <CreateLivingUIModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSubmit={handleCreateSubmit}
+        onCreated={projectId => {
+          setShowCreateModal(false)
+          navigate(`/living-ui/${projectId}`)
+        }}
       />
-      {/* No onInstalled/navigate: marketplace installs just spawn a tab in the
-          navbar (like form-create) — the user opens it themselves. */}
+      {/* No onInstalled/navigate for MARKETPLACE installs — they just spawn a
+          tab in the navbar; the user opens it themselves. The custom wizard's
+          onCreated DOES navigate: the user watches the build live. */}
     </>
   )
 }

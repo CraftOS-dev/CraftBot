@@ -750,16 +750,6 @@ export interface LivingUIBuildEvent {
   }
   snippet?: string
   tests?: { passed: number; failed: number }
-  // Ledger progress from LIVING_UI.md (drives the dock's progress bar)
-  requirements?: { done: number; total: number }
-}
-
-export interface LivingUICreateRequest {
-  name: string
-  description: string
-  features?: string[]  // Optional, defaults to empty array
-  dataSource?: string
-  theme?: 'light' | 'dark' | 'system'
 }
 
 export interface LivingUIStatusUpdate {
