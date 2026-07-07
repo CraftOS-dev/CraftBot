@@ -16,6 +16,11 @@ from agent_core import action
             "description": "Google Drive folder ID. Use 'root' for the user's My Drive.",
             "example": "root",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -25,6 +30,7 @@ def list_drive_files(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "list_drive_files",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list files.",
         folder_id=input_data["folder_id"],
@@ -46,6 +52,11 @@ def list_drive_files(input_data: dict) -> dict:
             "description": "Max results.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -55,6 +66,7 @@ def search_drive_files(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "search_drive",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to search files.",
         query=input_data["query"],
@@ -73,6 +85,11 @@ def search_drive_files(input_data: dict) -> dict:
             "description": "Comma-separated field list (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -82,6 +99,7 @@ def get_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "get_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get file.",
         file_id=input_data["file_id"],
@@ -104,6 +122,11 @@ def get_drive_file(input_data: dict) -> dict:
             "description": "Optional parent folder ID.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -114,6 +137,7 @@ def create_drive_folder(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "create_drive_folder",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create folder.",
         name=input_data["name"],
@@ -146,6 +170,11 @@ def create_drive_folder(input_data: dict) -> dict:
             "description": "Target folder ID (defaults to root).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -156,6 +185,7 @@ def upload_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "upload_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to upload file.",
         file_path=input_data["file_path"],
@@ -185,6 +215,11 @@ def upload_drive_file(input_data: dict) -> dict:
             "description": "MIME type (defaults to autodetect).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -195,6 +230,7 @@ def update_drive_file_content(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "update_drive_file_content",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to update file content.",
         file_id=input_data["file_id"],
@@ -214,6 +250,11 @@ def update_drive_file_content(input_data: dict) -> dict:
             "description": "Local path to save to. Parent directories will be created.",
             "example": "C:/Users/me/downloads/report.pdf",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -224,6 +265,7 @@ def download_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "download_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to download file.",
         file_id=input_data["file_id"],
@@ -251,6 +293,11 @@ def download_drive_file(input_data: dict) -> dict:
             "description": "Target export MIME type.",
             "example": "application/pdf",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -261,6 +308,7 @@ def export_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "export_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to export file.",
         file_id=input_data["file_id"],
@@ -285,6 +333,11 @@ def export_drive_file(input_data: dict) -> dict:
             "description": "Target folder ID (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -295,6 +348,7 @@ def copy_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "copy_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to copy file.",
         file_id=input_data["file_id"],
@@ -323,6 +377,11 @@ def copy_drive_file(input_data: dict) -> dict:
             "description": "Current parent folder ID.",
             "example": "root",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -333,6 +392,7 @@ def move_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "move_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to move file.",
         file_id=input_data["file_id"],
@@ -367,6 +427,11 @@ def move_drive_file(input_data: dict) -> dict:
             "description": "Send to trash without deleting (optional).",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -377,6 +442,7 @@ def update_drive_file_metadata(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "update_drive_file_metadata",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to update file.",
         file_id=input_data["file_id"],
@@ -393,6 +459,11 @@ def update_drive_file_metadata(input_data: dict) -> dict:
     action_sets=["google_drive_files", "google_drive"],
     input_schema={
         "file_id": {"type": "string", "description": "File ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -403,6 +474,7 @@ def delete_drive_file(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "delete_drive_file",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete file.",
         file_id=input_data["file_id"],
@@ -432,7 +504,13 @@ def empty_drive_trash(input_data: dict) -> dict:
     name="get_drive_about",
     description="Get Drive account info: storage quota, max upload size, supported export/import formats, root folder ID.",
     action_sets=["google_drive_files", "google_drive"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_drive_about(input_data: dict) -> dict:
@@ -441,6 +519,7 @@ def get_drive_about(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "get_drive_about",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get Drive info.",
     )
@@ -462,6 +541,11 @@ def get_drive_about(input_data: dict) -> dict:
             "description": "Email.",
             "example": "me@example.com",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -471,6 +555,7 @@ def find_drive_folder_by_name(input_data: dict) -> dict:
     return run_client_sync(
         "google_drive",
         "find_drive_folder_by_name",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to find folder.",
         name=input_data["name"],
@@ -489,6 +574,11 @@ def find_drive_folder_by_name(input_data: dict) -> dict:
             "description": "Email.",
             "example": "me@example.com",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -505,6 +595,7 @@ def resolve_drive_folder_path(input_data: dict) -> dict:
         result = run_client_sync(
             "google_drive",
             "find_drive_folder_by_name",
+            account=input_data.get("account"),
             unwrap_envelope=True,
             fail_message=f"Failed to look up '{part}'",
             name=part,

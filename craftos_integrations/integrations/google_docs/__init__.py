@@ -35,8 +35,11 @@ from .._google_common import (
     GoogleApiClientMixin,
     GoogleCredential,
     make_google_oauth,
+    run_google_list_accounts,
     run_google_login,
     run_google_logout,
+    run_google_set_alias,
+    run_google_set_primary,
     run_google_status,
 )
 
@@ -82,10 +85,19 @@ class GoogleDocsHandler(IntegrationHandler):
         return await run_google_login(self.spec, self.oauth, "Google Docs")
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        return await run_google_logout(self.spec, "Google Docs")
+        return await run_google_logout(self.spec, "Google Docs", args[0] if args else None)
 
     async def status(self) -> Tuple[bool, str]:
         return await run_google_status(self.spec, "Google Docs")
+
+    def list_accounts(self):
+        return run_google_list_accounts(self.spec)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        return await run_google_set_primary(self.spec, "Google Docs", account_id)
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        return run_google_set_alias(self.spec, account_id, alias)
 
 
 # -----------------------------------------------------------------

@@ -20,13 +20,21 @@ def _person_urn(client) -> str:
     name="get_linkedin_profile",
     description="Get the authenticated user's LinkedIn profile.",
     action_sets=["linkedin"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_profile(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("linkedin", "get_user_profile")
+    return run_client_sync(
+        "linkedin", "get_user_profile", account=input_data.get("account")
+    )
 
 
 # ------------------------------------------------------------------
@@ -49,6 +57,11 @@ def get_linkedin_profile(input_data: dict) -> dict:
             "description": "Visibility: PUBLIC, CONNECTIONS, or LOGGED_IN.",
             "example": "PUBLIC",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -62,6 +75,7 @@ async def create_linkedin_post(input_data: dict) -> dict:
             input_data["text"],
             visibility=input_data.get("visibility", "PUBLIC"),
         ),
+        account=input_data.get("account"),
     )
 
 
@@ -74,14 +88,24 @@ async def create_linkedin_post(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def delete_linkedin_post(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("linkedin", "delete_post", post_urn=input_data["post_urn"])
+    return run_client_sync(
+        "linkedin",
+        "delete_post",
+        account=input_data.get("account"),
+        post_urn=input_data["post_urn"],
+    )
 
 
 @action(
@@ -93,21 +117,38 @@ def delete_linkedin_post(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_post(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("linkedin", "get_post", post_urn=input_data["post_urn"])
+    return run_client_sync(
+        "linkedin",
+        "get_post",
+        account=input_data.get("account"),
+        post_urn=input_data["post_urn"],
+    )
 
 
 @action(
     name="get_my_linkedin_posts",
     description="Get my posts.",
     action_sets=["linkedin"],
-    input_schema={"count": {"type": "integer", "description": "Count.", "example": 50}},
+    input_schema={
+        "count": {"type": "integer", "description": "Count.", "example": 50},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_my_linkedin_posts(input_data: dict) -> dict:
@@ -118,6 +159,7 @@ async def get_my_linkedin_posts(input_data: dict) -> dict:
         lambda c: c.get_posts_by_author(
             _person_urn(c), count=input_data.get("count", 50)
         ),
+        account=input_data.get("account"),
     )
 
 
@@ -130,7 +172,12 @@ async def get_my_linkedin_posts(input_data: dict) -> dict:
             "type": "string",
             "description": "Org URN.",
             "example": "urn:li:organization:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -140,6 +187,7 @@ def get_linkedin_organization_posts(input_data: dict) -> dict:
     return run_client_sync(
         "linkedin",
         "get_posts_by_author",
+        account=input_data.get("account"),
         author_urn=input_data["organization_urn"],
     )
 
@@ -159,6 +207,11 @@ def get_linkedin_organization_posts(input_data: dict) -> dict:
             "description": "Commentary.",
             "example": "Interesting!",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -172,6 +225,7 @@ async def reshare_linkedin_post(input_data: dict) -> dict:
             input_data["original_post_urn"],
             commentary=input_data.get("commentary", ""),
         ),
+        account=input_data.get("account"),
     )
 
 
@@ -189,7 +243,12 @@ async def reshare_linkedin_post(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -199,6 +258,7 @@ async def like_linkedin_post(input_data: dict) -> dict:
     return await with_client(
         "linkedin",
         lambda c: c.like_post(_person_urn(c), input_data["post_urn"]),
+        account=input_data.get("account"),
     )
 
 
@@ -211,7 +271,12 @@ async def like_linkedin_post(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -221,6 +286,7 @@ async def unlike_linkedin_post(input_data: dict) -> dict:
     return await with_client(
         "linkedin",
         lambda c: c.unlike_post(_person_urn(c), input_data["post_urn"]),
+        account=input_data.get("account"),
     )
 
 
@@ -233,7 +299,12 @@ async def unlike_linkedin_post(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -241,7 +312,10 @@ def get_linkedin_post_likes(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_post_reactions", post_urn=input_data["post_urn"]
+        "linkedin",
+        "get_post_reactions",
+        account=input_data.get("account"),
+        post_urn=input_data["post_urn"],
     )
 
 
@@ -260,6 +334,11 @@ def get_linkedin_post_likes(input_data: dict) -> dict:
             "description": "Comment text.",
             "example": "Great post!",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -271,6 +350,7 @@ async def comment_on_linkedin_post(input_data: dict) -> dict:
         lambda c: c.comment_on_post(
             _person_urn(c), input_data["post_urn"], input_data["text"]
         ),
+        account=input_data.get("account"),
     )
 
 
@@ -283,7 +363,12 @@ async def comment_on_linkedin_post(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -291,7 +376,10 @@ def get_linkedin_post_comments(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_post_comments", post_urn=input_data["post_urn"]
+        "linkedin",
+        "get_post_comments",
+        account=input_data.get("account"),
+        post_urn=input_data["post_urn"],
     )
 
 
@@ -310,6 +398,11 @@ def get_linkedin_post_comments(input_data: dict) -> dict:
             "description": "Comment URN.",
             "example": "urn:li:comment:123",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -321,6 +414,7 @@ async def delete_linkedin_comment(input_data: dict) -> dict:
         lambda c: c.delete_comment(
             _person_urn(c), input_data["post_urn"], input_data["comment_urn"]
         ),
+        account=input_data.get("account"),
     )
 
 
@@ -339,6 +433,11 @@ async def delete_linkedin_comment(input_data: dict) -> dict:
             "description": "Number of connections to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -346,7 +445,10 @@ def get_linkedin_connections(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_connections", count=input_data.get("count", 50)
+        "linkedin",
+        "get_connections",
+        account=input_data.get("account"),
+        count=input_data.get("count", 50),
     )
 
 
@@ -371,6 +473,11 @@ def get_linkedin_connections(input_data: dict) -> dict:
             "description": "Message body.",
             "example": "Hi, I wanted to connect...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -385,6 +492,7 @@ async def send_linkedin_message(input_data: dict) -> dict:
             input_data["subject"],
             input_data["body"],
         ),
+        account=input_data.get("account"),
     )
 
 
@@ -400,6 +508,11 @@ async def send_linkedin_message(input_data: dict) -> dict:
             "example": "urn:li:person:123",
         },
         "message": {"type": "string", "description": "Message.", "example": "Hi"},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -409,6 +522,7 @@ def send_linkedin_connection_request(input_data: dict) -> dict:
     return run_client_sync(
         "linkedin",
         "send_connection_request",
+        account=input_data.get("account"),
         invitee_profile_urn=input_data["invitee_profile_urn"],
         message=input_data.get("message"),
     )
@@ -418,14 +532,24 @@ def send_linkedin_connection_request(input_data: dict) -> dict:
     name="get_linkedin_sent_invitations",
     description="Get sent invitations.",
     action_sets=["linkedin"],
-    input_schema={"count": {"type": "integer", "description": "Count.", "example": 50}},
+    input_schema={
+        "count": {"type": "integer", "description": "Count.", "example": 50},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_sent_invitations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_sent_invitations", count=input_data.get("count", 50)
+        "linkedin",
+        "get_sent_invitations",
+        account=input_data.get("account"),
+        count=input_data.get("count", 50),
     )
 
 
@@ -433,14 +557,24 @@ def get_linkedin_sent_invitations(input_data: dict) -> dict:
     name="get_linkedin_received_invitations",
     description="Get received invitations.",
     action_sets=["linkedin"],
-    input_schema={"count": {"type": "integer", "description": "Count.", "example": 50}},
+    input_schema={
+        "count": {"type": "integer", "description": "Count.", "example": 50},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_received_invitations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_received_invitations", count=input_data.get("count", 50)
+        "linkedin",
+        "get_received_invitations",
+        account=input_data.get("account"),
+        count=input_data.get("count", 50),
     )
 
 
@@ -459,6 +593,11 @@ def get_linkedin_received_invitations(input_data: dict) -> dict:
             "description": "accept/ignore.",
             "example": "accept",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -468,6 +607,7 @@ def respond_to_linkedin_invitation(input_data: dict) -> dict:
     return run_client_sync(
         "linkedin",
         "respond_to_invitation",
+        account=input_data.get("account"),
         invitation_urn=input_data["invitation_urn"],
         action=input_data["action"],
     )
@@ -477,14 +617,24 @@ def respond_to_linkedin_invitation(input_data: dict) -> dict:
     name="get_linkedin_conversations",
     description="Get conversations.",
     action_sets=["linkedin"],
-    input_schema={"count": {"type": "integer", "description": "Count.", "example": 20}},
+    input_schema={
+        "count": {"type": "integer", "description": "Count.", "example": 20},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_conversations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_conversations", count=input_data.get("count", 20)
+        "linkedin",
+        "get_conversations",
+        account=input_data.get("account"),
+        count=input_data.get("count", 20),
     )
 
 
@@ -513,6 +663,11 @@ def get_linkedin_conversations(input_data: dict) -> dict:
             "description": "Number of results.",
             "example": 25,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -522,6 +677,7 @@ def search_linkedin_jobs(input_data: dict) -> dict:
     return run_client_sync(
         "linkedin",
         "search_jobs",
+        account=input_data.get("account"),
         keywords=input_data["keywords"],
         location=input_data.get("location"),
         count=input_data.get("count", 25),
@@ -533,14 +689,24 @@ def search_linkedin_jobs(input_data: dict) -> dict:
     description="Get job details.",
     action_sets=["linkedin"],
     input_schema={
-        "job_id": {"type": "string", "description": "Job ID.", "example": "123"}
+        "job_id": {"type": "string", "description": "Job ID.", "example": "123"},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_job_details(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("linkedin", "get_job_details", job_id=input_data["job_id"])
+    return run_client_sync(
+        "linkedin",
+        "get_job_details",
+        account=input_data.get("account"),
+        job_id=input_data["job_id"],
+    )
 
 
 @action(
@@ -548,7 +714,12 @@ def get_linkedin_job_details(input_data: dict) -> dict:
     description="Search companies.",
     action_sets=["linkedin"],
     input_schema={
-        "keywords": {"type": "string", "description": "Keywords.", "example": "tech"}
+        "keywords": {"type": "string", "description": "Keywords.", "example": "tech"},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -556,7 +727,10 @@ def search_linkedin_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "search_companies", keywords=input_data["keywords"]
+        "linkedin",
+        "search_companies",
+        account=input_data.get("account"),
+        keywords=input_data["keywords"],
     )
 
 
@@ -569,7 +743,12 @@ def search_linkedin_companies(input_data: dict) -> dict:
             "type": "string",
             "description": "Vanity name.",
             "example": "microsoft",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -577,7 +756,10 @@ def lookup_linkedin_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_company_by_vanity_name", vanity_name=input_data["vanity_name"]
+        "linkedin",
+        "get_company_by_vanity_name",
+        account=input_data.get("account"),
+        vanity_name=input_data["vanity_name"],
     )
 
 
@@ -586,14 +768,24 @@ def lookup_linkedin_company(input_data: dict) -> dict:
     description="Get person profile by ID.",
     action_sets=["linkedin"],
     input_schema={
-        "person_id": {"type": "string", "description": "Person ID.", "example": "123"}
+        "person_id": {"type": "string", "description": "Person ID.", "example": "123"},
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_person(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("linkedin", "get_person", person_id=input_data["person_id"])
+    return run_client_sync(
+        "linkedin",
+        "get_person",
+        account=input_data.get("account"),
+        person_id=input_data["person_id"],
+    )
 
 
 # ------------------------------------------------------------------
@@ -605,13 +797,21 @@ def get_linkedin_person(input_data: dict) -> dict:
     name="get_linkedin_organizations",
     description="Get user's organizations.",
     action_sets=["linkedin"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_organizations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("linkedin", "get_my_organizations")
+    return run_client_sync(
+        "linkedin", "get_my_organizations", account=input_data.get("account")
+    )
 
 
 @action(
@@ -623,7 +823,12 @@ def get_linkedin_organizations(input_data: dict) -> dict:
             "type": "string",
             "description": "Org ID.",
             "example": "123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -631,7 +836,10 @@ def get_linkedin_organization_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_organization", organization_id=input_data["organization_id"]
+        "linkedin",
+        "get_organization",
+        account=input_data.get("account"),
+        organization_id=input_data["organization_id"],
     )
 
 
@@ -644,7 +852,12 @@ def get_linkedin_organization_info(input_data: dict) -> dict:
             "type": "string",
             "description": "Org URN.",
             "example": "urn:li:organization:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -654,6 +867,7 @@ def get_linkedin_organization_analytics(input_data: dict) -> dict:
     return run_client_sync(
         "linkedin",
         "get_organization_analytics",
+        account=input_data.get("account"),
         organization_urn=input_data["organization_urn"],
     )
 
@@ -667,7 +881,12 @@ def get_linkedin_organization_analytics(input_data: dict) -> dict:
             "type": "string",
             "description": "Post URN.",
             "example": "urn:li:share:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -675,7 +894,10 @@ def get_linkedin_post_analytics(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "linkedin", "get_post_analytics", share_urns=[input_data["post_urn"]]
+        "linkedin",
+        "get_post_analytics",
+        account=input_data.get("account"),
+        share_urns=[input_data["post_urn"]],
     )
 
 
@@ -688,7 +910,12 @@ def get_linkedin_post_analytics(input_data: dict) -> dict:
             "type": "string",
             "description": "Org URN.",
             "example": "urn:li:organization:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -698,6 +925,7 @@ async def follow_linkedin_organization(input_data: dict) -> dict:
     return await with_client(
         "linkedin",
         lambda c: c.follow_organization(_person_urn(c), input_data["organization_urn"]),
+        account=input_data.get("account"),
     )
 
 
@@ -710,7 +938,12 @@ async def follow_linkedin_organization(input_data: dict) -> dict:
             "type": "string",
             "description": "Org URN.",
             "example": "urn:li:organization:123",
-        }
+        },
+        "account": {
+            "type": "string",
+            "description": "Optional LinkedIn account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -722,4 +955,5 @@ async def unfollow_linkedin_organization(input_data: dict) -> dict:
         lambda c: c.unfollow_organization(
             _person_urn(c), input_data["organization_urn"]
         ),
+        account=input_data.get("account"),
     )

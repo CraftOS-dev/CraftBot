@@ -2831,6 +2831,16 @@ disconnect_integration(integration_id, account_id?)
 
 The user can also `/<platform> disconnect [account_id]`.
 
+### Multiple accounts per integration
+
+Gmail, Google Calendar, Google Drive, Google Docs, YouTube, Outlook, LinkedIn, Notion, HubSpot, and Slack support more than one connected account. Each account can have a user-given nickname ("work", "personal") and one account is always the *primary*.
+
+- Most actions on these integrations take an optional `account` param: an email/workspace-id/hub-domain, a unique substring of one, or the nickname. **If the user's phrasing names or qualifies an account at all** ("my school calendar", "post from my work LinkedIn", "check the beta Slack"), extract that qualifier and pass it as `account` — resolution is safe against a wrong/fuzzy guess (it errors with a clear account list instead of silently succeeding on the wrong account). Only omit `account` / default to primary when the user's message gives no such qualifier.
+- The five Google services (Gmail/Calendar/Drive/Docs/YouTube) share ONE alias namespace per underlying Google account — a nickname set on one applies to all of them automatically.
+- If `account` doesn't resolve (typo, ambiguous substring, wrong integration), the action's error lists every connected account for that integration — read it back to the user and let them clarify; don't guess.
+- To see what's connected (including each account's alias and which is primary), call `check_integration_status(integration_id)` — its `accounts` array has `{id, display, alias, is_primary}` per account. There's no separate "list accounts" action.
+- **You cannot set an alias or change the primary account yourself** — no agent action exists for that. Direct the user to Settings → Integrations → Manage → set the nickname / click "Set primary" → "Save changes".
+
 ### Common failure modes
 
 ```

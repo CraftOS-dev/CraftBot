@@ -12,13 +12,12 @@ from ... import (
     IntegrationHandler,
     IntegrationSpec,
     OAuthFlow,
-    has_credential,
     load_credential,
     register_client,
     register_handler,
-    remove_credential,
     save_credential,
 )
+from ... import accounts as acc
 from ...helpers import request as http_request
 from ...logger import get_logger
 
@@ -57,6 +56,14 @@ def _notion_call(
 @dataclass
 class NotionCredential:
     token: str = ""
+    workspace_name: str = ""
+    # Stable per-integration identifier (OAuth: bot_id from the token
+    # response; token login: the bot user's own `id` from /users/me).
+    # workspace_name is a mutable human label Notion can omit/duplicate, so
+    # it's not safe as the sole resolver key on its own — bot_id guarantees
+    # two genuinely distinct workspaces never collide into "identical
+    # identity" and silently overwrite one another.
+    bot_id: str = ""
 
 
 NOTION = IntegrationSpec(
@@ -65,6 +72,23 @@ NOTION = IntegrationSpec(
     cred_file="notion.json",
     platform_id="notion",
 )
+
+# Multi-account: the bare "notion.json" is always the primary account (no
+# migration needed for existing single-account installs); additional
+# workspaces get "notion__<workspace-name-or-bot-id>.json" — see accounts.py.
+# Notion's OAuth authorize screen always shows a workspace picker/
+# confirmation on every run (unlike Google, it never silently reuses a
+# prior grant), so no prompt=select_account-equivalent is needed here.
+_STEM = "notion"
+
+
+def _identity(cred: "NotionCredential") -> str:
+    # bot_id is guaranteed unique per connected workspace; workspace_name
+    # alone is not (two workspaces can share a display name, which would
+    # make resolve_save_target wrongly treat them as "the same account" and
+    # overwrite one). Only credentials saved before bot_id existed fall
+    # back to workspace_name.
+    return cred.bot_id or cred.workspace_name or "default"
 
 
 # -----------------------------------------------------------------
@@ -116,8 +140,10 @@ class NotionHandler(IntegrationHandler):
             return False, f"Notion OAuth failed: {result['error']}"
 
         token = result.get("access_token", "")
-        ws_name = result.get("raw", {}).get("workspace_name", "default")
-        save_credential(self.spec.cred_file, NotionCredential(token=token))
+        raw = result.get("raw", {})
+        ws_name = raw.get("workspace_name", "default")
+        bot_id = raw.get("bot_id", "")
+        self._save_account(token, ws_name, bot_id)
         return True, f"Notion connected via CraftOS integration: {ws_name}"
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -134,19 +160,70 @@ class NotionHandler(IntegrationHandler):
             return False, f"Notion auth failed: {data['error']}"
 
         ws_name = data.get("bot", {}).get("workspace_name", "default")
-        save_credential(self.spec.cred_file, NotionCredential(token=token))
+        bot_id = data.get("id", "")
+        self._save_account(token, ws_name, bot_id)
         return True, f"Notion connected: {ws_name}"
 
+    def _save_account(self, token: str, ws_name: str, bot_id: str) -> None:
+        cred = NotionCredential(token=token, workspace_name=ws_name, bot_id=bot_id)
+        identity = _identity(cred)
+        target_file = acc.resolve_save_target(_STEM, NotionCredential, _identity, identity)
+        save_credential(target_file, cred)
+        # Pre-fill a friendly alias from the workspace name so a freshly
+        # connected account doesn't display as an opaque bot id — the user
+        # can still rename it later.
+        if ws_name and ws_name != "default" and not acc.get_alias(NOTION.platform_id, identity):
+            acc.set_alias(NOTION.platform_id, identity, ws_name)
+
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        account = args[0] if args else None
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, NotionCredential, _identity)
+        if not accounts:
             return False, "No Notion credentials found."
-        remove_credential(self.spec.cred_file)
-        return True, "Removed Notion credential."
+        if not account:
+            acc.remove_all_accounts(_STEM)
+            return True, "Removed Notion credential."
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, NotionCredential, _identity, account, "Notion"
+        )
+        if err:
+            return False, err
+        acc.remove_account(_STEM, fname)
+        return True, "Removed Notion account."
 
     async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, NotionCredential, _identity)
+        if not accounts:
             return True, "Notion: Not connected"
-        return True, "Notion: Connected"
+        lines = ["Notion: Connected"]
+        lines.extend(f"  - {a.display} ({a.identity})" for a in accounts)
+        return True, "\n".join(lines)
+
+    def list_accounts(self):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, NotionCredential, _identity)
+        return acc.accounts_to_dicts(accounts)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, NotionCredential, _identity, account_id, "Notion"
+        )
+        if err:
+            return False, err
+        if not acc.promote_to_primary(_STEM, fname):
+            return False, f"{account_id} is already the primary Notion account."
+        return True, f"{account_id} is now the primary Notion account."
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, NotionCredential, _identity, account_id, "Notion"
+        )
+        if err:
+            return False, err
+        cred = load_credential(fname, NotionCredential)
+        if not cred:
+            return False, f"Could not load credential for {account_id}."
+        acc.set_alias(self.spec.platform_id, _identity(cred), alias)
+        return True, f"Alias {'set' if alias.strip() else 'cleared'} for {_identity(cred)}."
 
 
 # -----------------------------------------------------------------
@@ -162,13 +239,27 @@ class NotionClient(BasePlatformClient):
     def __init__(self):
         super().__init__()
         self._cred: Optional[NotionCredential] = None
+        self._cred_file: Optional[str] = None
 
     def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
+        """True if *any* account is connected. Deliberately does not resolve
+        self._account here — see GoogleApiClientMixin.has_credentials for why."""
+        return bool(acc.list_accounts(self.spec.platform_id, _STEM, NotionCredential, _identity))
 
     def _load(self) -> NotionCredential:
         if self._cred is None:
-            self._cred = load_credential(self.spec.cred_file, NotionCredential)
+            fname, err = acc.resolve_account(
+                self.spec.platform_id,
+                _STEM,
+                NotionCredential,
+                _identity,
+                getattr(self, "_account", None),
+                "Notion",
+            )
+            if err:
+                raise RuntimeError(err)
+            self._cred_file = fname
+            self._cred = load_credential(fname, NotionCredential)
         if self._cred is None:
             raise RuntimeError("No Notion credentials. Use /notion login first.")
         return self._cred

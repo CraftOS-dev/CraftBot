@@ -34,6 +34,8 @@ from craftos_integrations import (
     connect_oauth as connect_integration_oauth,
     connect_interactive as connect_integration_interactive,
     disconnect as disconnect_integration,
+    set_primary_account as set_primary_integration_account,
+    set_account_alias as set_integration_account_alias,
     get_integration_accounts,
     get_integration_auth_type,
     get_integration_fields,
@@ -151,6 +153,8 @@ __all__ = [
     "connect_integration_oauth",
     "connect_integration_interactive",
     "disconnect_integration",
+    "set_primary_integration_account",
+    "set_integration_account_alias",
     "get_integration_auth_type",
     "get_integration_fields",
     # WhatsApp QR code flow

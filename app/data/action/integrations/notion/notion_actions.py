@@ -21,6 +21,11 @@ from agent_core import action
             "description": "Optional: 'page' or 'database'.",
             "example": "page",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -30,6 +35,7 @@ def search_notion(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "search",
+        account=input_data.get("account"),
         query=input_data["query"],
         filter_type=input_data.get("filter_type"),
     )
@@ -50,13 +56,23 @@ def search_notion(input_data: dict) -> dict:
             "description": "Notion page ID.",
             "example": "abc123",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_notion_page(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "get_page", page_id=input_data["page_id"])
+    return run_client_sync(
+        "notion",
+        "get_page",
+        account=input_data.get("account"),
+        page_id=input_data["page_id"],
+    )
 
 
 @action(
@@ -84,6 +100,11 @@ def get_notion_page(input_data: dict) -> dict:
             "description": "Optional content blocks.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -94,6 +115,7 @@ def create_notion_page(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "create_page",
+        account=input_data.get("account"),
         parent_id=input_data["parent_id"],
         parent_type=input_data["parent_type"],
         properties=input_data["properties"],
@@ -116,6 +138,11 @@ def create_notion_page(input_data: dict) -> dict:
             "description": "Properties to update.",
             "example": {},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -126,6 +153,7 @@ def update_notion_page(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "update_page",
+        account=input_data.get("account"),
         page_id=input_data["page_id"],
         properties=input_data["properties"],
     )
@@ -137,6 +165,11 @@ def update_notion_page(input_data: dict) -> dict:
     action_sets=["notion_pages", "notion"],
     input_schema={
         "page_id": {"type": "string", "description": "Page ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -144,7 +177,12 @@ def update_notion_page(input_data: dict) -> dict:
 def archive_notion_page(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "archive_page", page_id=input_data["page_id"])
+    return run_client_sync(
+        "notion",
+        "archive_page",
+        account=input_data.get("account"),
+        page_id=input_data["page_id"],
+    )
 
 
 @action(
@@ -153,6 +191,11 @@ def archive_notion_page(input_data: dict) -> dict:
     action_sets=["notion_pages"],
     input_schema={
         "page_id": {"type": "string", "description": "Page ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -160,7 +203,12 @@ def archive_notion_page(input_data: dict) -> dict:
 def restore_notion_page(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "restore_page", page_id=input_data["page_id"])
+    return run_client_sync(
+        "notion",
+        "restore_page",
+        account=input_data.get("account"),
+        page_id=input_data["page_id"],
+    )
 
 
 @action(
@@ -179,6 +227,11 @@ def restore_notion_page(input_data: dict) -> dict:
             "description": "Pagination size.",
             "example": 100,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -188,6 +241,7 @@ def get_notion_page_property(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "get_page_property",
+        account=input_data.get("account"),
         page_id=input_data["page_id"],
         property_id=input_data["property_id"],
         page_size=input_data.get("page_size", 100),
@@ -209,6 +263,11 @@ def get_notion_page_property(input_data: dict) -> dict:
             "description": "Database ID.",
             "example": "abc123",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -219,7 +278,10 @@ def get_notion_database_schema(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "notion", "get_database", database_id=input_data["database_id"]
+        "notion",
+        "get_database",
+        account=input_data.get("account"),
+        database_id=input_data["database_id"],
     )
 
 
@@ -243,6 +305,11 @@ def get_notion_database_schema(input_data: dict) -> dict:
             "description": "Optional sort array.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -252,6 +319,7 @@ def query_notion_database(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "query_database",
+        account=input_data.get("account"),
         database_id=input_data["database_id"],
         filter_obj=input_data.get("filter"),
         sorts=input_data.get("sorts"),
@@ -294,6 +362,11 @@ def query_notion_database(input_data: dict) -> dict:
             "example": {},
         },
         "cover": {"type": "object", "description": "Cover (optional).", "example": {}},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -304,6 +377,7 @@ def create_notion_database(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "create_database",
+        account=input_data.get("account"),
         parent_page_id=input_data["parent_page_id"],
         title=input_data.get("title"),
         description=input_data.get("description"),
@@ -340,6 +414,11 @@ def create_notion_database(input_data: dict) -> dict:
             "description": "Set inline (optional).",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -350,6 +429,7 @@ def update_notion_database(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "update_database",
+        account=input_data.get("account"),
         database_id=input_data["database_id"],
         title=input_data.get("title"),
         description=input_data.get("description"),
@@ -364,6 +444,11 @@ def update_notion_database(input_data: dict) -> dict:
     action_sets=["notion_databases"],
     input_schema={
         "database_id": {"type": "string", "description": "Database ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -372,7 +457,10 @@ def archive_notion_database(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "notion", "archive_database", database_id=input_data["database_id"]
+        "notion",
+        "archive_database",
+        account=input_data.get("account"),
+        database_id=input_data["database_id"],
     )
 
 
@@ -382,6 +470,11 @@ def archive_notion_database(input_data: dict) -> dict:
     action_sets=["notion_databases"],
     input_schema={
         "database_id": {"type": "string", "description": "Database ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -390,7 +483,10 @@ def restore_notion_database(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "notion", "restore_database", database_id=input_data["database_id"]
+        "notion",
+        "restore_database",
+        account=input_data.get("account"),
+        database_id=input_data["database_id"],
     )
 
 
@@ -424,6 +520,11 @@ def restore_notion_database(input_data: dict) -> dict:
             ),
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -438,7 +539,10 @@ def get_notion_page_content(input_data: dict) -> dict:
 
     include_metadata = bool(input_data.get("include_metadata", False))
     result = run_client_sync(
-        "notion", "get_block_children", block_id=input_data["page_id"]
+        "notion",
+        "get_block_children",
+        account=input_data.get("account"),
+        block_id=input_data["page_id"],
     )
     if include_metadata or result.get("status") == "error":
         return result
@@ -484,6 +588,11 @@ def get_notion_page_content(input_data: dict) -> dict:
             "description": "List of block objects.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -494,6 +603,7 @@ def append_notion_page_content(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "append_block_children",
+        account=input_data.get("account"),
         block_id=input_data["page_id"],
         children=input_data["children"],
     )
@@ -505,13 +615,23 @@ def append_notion_page_content(input_data: dict) -> dict:
     action_sets=["notion_blocks", "notion"],
     input_schema={
         "block_id": {"type": "string", "description": "Block ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_notion_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "get_block", block_id=input_data["block_id"])
+    return run_client_sync(
+        "notion",
+        "get_block",
+        account=input_data.get("account"),
+        block_id=input_data["block_id"],
+    )
 
 
 @action(
@@ -525,6 +645,11 @@ def get_notion_block(input_data: dict) -> dict:
             "description": "Per-block-type update object.",
             "example": {"paragraph": {"rich_text": [{"text": {"content": "Updated"}}]}},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -535,6 +660,7 @@ def update_notion_block(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "update_block",
+        account=input_data.get("account"),
         block_id=input_data["block_id"],
         block_update=input_data["block_update"],
     )
@@ -546,6 +672,11 @@ def update_notion_block(input_data: dict) -> dict:
     action_sets=["notion_blocks", "notion"],
     input_schema={
         "block_id": {"type": "string", "description": "Block ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -553,7 +684,12 @@ def update_notion_block(input_data: dict) -> dict:
 def delete_notion_block(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "delete_block", block_id=input_data["block_id"])
+    return run_client_sync(
+        "notion",
+        "delete_block",
+        account=input_data.get("account"),
+        block_id=input_data["block_id"],
+    )
 
 
 # ------------------------------------------------------------------
@@ -577,6 +713,11 @@ def delete_notion_block(input_data: dict) -> dict:
             "description": "Pagination cursor (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -586,6 +727,7 @@ def list_notion_comments(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "list_comments",
+        account=input_data.get("account"),
         block_id=input_data["block_id"],
         page_size=input_data.get("page_size", 100),
         start_cursor=input_data.get("start_cursor") or None,
@@ -617,6 +759,11 @@ def list_notion_comments(input_data: dict) -> dict:
             "description": "Discussion ID to reply to (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -627,6 +774,7 @@ def create_notion_comment(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "create_comment",
+        account=input_data.get("account"),
         rich_text=input_data["rich_text"],
         parent_page_id=input_data.get("parent_page_id") or None,
         parent_block_id=input_data.get("parent_block_id") or None,
@@ -650,6 +798,11 @@ def create_notion_comment(input_data: dict) -> dict:
             "description": "Pagination cursor (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -659,6 +812,7 @@ def list_notion_users(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "list_users",
+        account=input_data.get("account"),
         page_size=input_data.get("page_size", 100),
         start_cursor=input_data.get("start_cursor") or None,
     )
@@ -670,26 +824,46 @@ def list_notion_users(input_data: dict) -> dict:
     action_sets=["notion_users", "notion"],
     input_schema={
         "user_id": {"type": "string", "description": "User ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_notion_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "get_user", user_id=input_data["user_id"])
+    return run_client_sync(
+        "notion",
+        "get_user",
+        account=input_data.get("account"),
+        user_id=input_data["user_id"],
+    )
 
 
 @action(
     name="get_notion_bot_info",
     description="Get info about the authenticated Notion bot (workspace_name, owner, capabilities).",
     action_sets=["notion_users", "notion"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_notion_bot_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("notion", "get_bot_info")
+    return run_client_sync(
+        "notion",
+        "get_bot_info",
+        account=input_data.get("account"),
+    )
 
 
 # ------------------------------------------------------------------
@@ -712,6 +886,11 @@ def get_notion_bot_info(input_data: dict) -> dict:
             "description": "MIME type (autodetect if omitted).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -722,6 +901,7 @@ def upload_notion_file(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "upload_local_file",
+        account=input_data.get("account"),
         file_path=input_data["file_path"],
         content_type=input_data.get("content_type") or None,
     )
@@ -757,6 +937,11 @@ def upload_notion_file(input_data: dict) -> dict:
             "description": "Required for external_url mode.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -768,6 +953,7 @@ def create_notion_file_upload(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "create_file_upload",
+        account=input_data.get("account"),
         mode=input_data.get("mode", "single_part"),
         filename=input_data.get("filename") or None,
         content_type=input_data.get("content_type") or None,
@@ -796,6 +982,11 @@ def create_notion_file_upload(input_data: dict) -> dict:
             "description": "1..1000, only for multi_part.",
             "example": 0,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -807,6 +998,7 @@ def send_notion_file_upload(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "send_file_upload",
+        account=input_data.get("account"),
         file_upload_id=input_data["file_upload_id"],
         file_path=input_data["file_path"],
         part_number=pn if pn else None,
@@ -823,6 +1015,11 @@ def send_notion_file_upload(input_data: dict) -> dict:
             "description": "File upload ID.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -833,6 +1030,7 @@ def complete_notion_file_upload(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "complete_file_upload",
+        account=input_data.get("account"),
         file_upload_id=input_data["file_upload_id"],
     )
 
@@ -847,6 +1045,11 @@ def complete_notion_file_upload(input_data: dict) -> dict:
             "description": "File upload ID.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -856,6 +1059,7 @@ def get_notion_file_upload(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "get_file_upload",
+        account=input_data.get("account"),
         file_upload_id=input_data["file_upload_id"],
     )
 
@@ -876,6 +1080,11 @@ def get_notion_file_upload(input_data: dict) -> dict:
             "description": "Pagination cursor (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Notion workspace name (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -885,6 +1094,7 @@ def list_notion_file_uploads(input_data: dict) -> dict:
     return run_client_sync(
         "notion",
         "list_file_uploads",
+        account=input_data.get("account"),
         status=input_data.get("status") or None,
         page_size=input_data.get("page_size", 100),
         start_cursor=input_data.get("start_cursor") or None,

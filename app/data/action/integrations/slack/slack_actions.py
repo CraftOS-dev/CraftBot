@@ -27,6 +27,11 @@ from agent_core import action
             "description": "Optional thread timestamp for replies.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -37,6 +42,7 @@ async def send_slack_message(input_data: dict) -> dict:
     return await run_client(
         "slack",
         "send_message",
+        account=input_data.get("account"),
         recipient=input_data["channel"],
         text=input_data["text"],
         thread_ts=input_data.get("thread_ts"),
@@ -68,6 +74,11 @@ async def send_slack_message(input_data: dict) -> dict:
             "description": "New Block Kit blocks (optional).",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -78,6 +89,7 @@ def update_slack_message(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "update_message",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         ts=input_data["ts"],
         text=input_data["text"] if "text" in input_data else None,
@@ -96,6 +108,11 @@ def update_slack_message(input_data: dict) -> dict:
             "example": "C01234567",
         },
         "ts": {"type": "string", "description": "Message timestamp.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -106,6 +123,7 @@ def delete_slack_message(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "delete_message",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         ts=input_data["ts"],
     )
@@ -138,6 +156,11 @@ def delete_slack_message(input_data: dict) -> dict:
             "description": "Reply in a thread (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -148,6 +171,7 @@ def send_slack_ephemeral(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "post_ephemeral",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         user=input_data["user"],
         text=input_data["text"],
@@ -182,6 +206,11 @@ def send_slack_ephemeral(input_data: dict) -> dict:
             "description": "Optional thread reply.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -192,6 +221,7 @@ def schedule_slack_message(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "schedule_message",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         post_at=input_data["post_at"],
         text=input_data["text"],
@@ -211,6 +241,11 @@ def schedule_slack_message(input_data: dict) -> dict:
             "description": "Scheduled message ID (from schedule_slack_message response).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -221,6 +256,7 @@ def delete_scheduled_slack_message(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "delete_scheduled_message",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         scheduled_message_id=input_data["scheduled_message_id"],
     )
@@ -237,6 +273,11 @@ def delete_scheduled_slack_message(input_data: dict) -> dict:
             "example": "",
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 100},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -246,6 +287,7 @@ def list_scheduled_slack_messages(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "list_scheduled_messages",
+        account=input_data.get("account"),
         channel=input_data.get("channel") or None,
         limit=input_data.get("limit", 100),
     )
@@ -266,6 +308,11 @@ def list_scheduled_slack_messages(input_data: dict) -> dict:
             "description": "Message timestamp.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -275,6 +322,7 @@ def get_slack_message_permalink(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "get_permalink",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         message_ts=input_data["message_ts"],
     )
@@ -296,6 +344,11 @@ def get_slack_message_permalink(input_data: dict) -> dict:
             "example": "",
         },
         "limit": {"type": "integer", "description": "Max messages.", "example": 100},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -305,6 +358,7 @@ def get_slack_thread_replies(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "get_thread_replies",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         ts=input_data["ts"],
         limit=input_data.get("limit", 100),
@@ -334,6 +388,11 @@ def get_slack_thread_replies(input_data: dict) -> dict:
             "description": "Emoji name without colons.",
             "example": "thumbsup",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -344,6 +403,7 @@ def add_slack_reaction(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "add_reaction",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         timestamp=input_data["timestamp"],
         name=input_data["name"],
@@ -366,6 +426,11 @@ def add_slack_reaction(input_data: dict) -> dict:
             "description": "Emoji name without colons.",
             "example": "thumbsup",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -376,6 +441,7 @@ def remove_slack_reaction(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "remove_reaction",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         timestamp=input_data["timestamp"],
         name=input_data["name"],
@@ -393,6 +459,11 @@ def remove_slack_reaction(input_data: dict) -> dict:
             "description": "Message timestamp.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -402,6 +473,7 @@ def get_slack_reactions(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "get_reactions",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         timestamp=input_data["timestamp"],
     )
@@ -418,6 +490,11 @@ def get_slack_reactions(input_data: dict) -> dict:
             "example": "",
         },
         "count": {"type": "integer", "description": "Max results.", "example": 100},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -427,6 +504,7 @@ def list_slack_user_reactions(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "list_user_reactions",
+        account=input_data.get("account"),
         user=input_data.get("user") or None,
         count=input_data.get("count", 100),
     )
@@ -446,6 +524,11 @@ def list_slack_user_reactions(input_data: dict) -> dict:
             "description": "Message timestamp.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -456,6 +539,7 @@ def pin_slack_message(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "pin_message",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         timestamp=input_data["timestamp"],
     )
@@ -472,6 +556,11 @@ def pin_slack_message(input_data: dict) -> dict:
             "description": "Message timestamp.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -482,6 +571,7 @@ def unpin_slack_message(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "unpin_message",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         timestamp=input_data["timestamp"],
     )
@@ -493,13 +583,21 @@ def unpin_slack_message(input_data: dict) -> dict:
     action_sets=["slack_messages"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_pins(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "list_pins", channel=input_data["channel"])
+    return run_client_sync("slack", "list_pins",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 # ------------------------------------------------------------------
@@ -517,6 +615,11 @@ def list_slack_pins(input_data: dict) -> dict:
             "description": "Max channels to return.",
             "example": 100,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -526,7 +629,10 @@ def list_slack_pins(input_data: dict) -> dict:
 def list_slack_channels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "list_channels", limit=input_data.get("limit", 100))
+    return run_client_sync("slack", "list_channels",
+        account=input_data.get("account"),
+        limit=input_data.get("limit", 100),
+    )
 
 
 @action(
@@ -539,13 +645,21 @@ def list_slack_channels(input_data: dict) -> dict:
             "description": "Channel ID.",
             "example": "C1234567",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_channel_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "get_channel_info", channel=input_data["channel"])
+    return run_client_sync("slack", "get_channel_info",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 @action(
@@ -559,6 +673,11 @@ def get_slack_channel_info(input_data: dict) -> dict:
             "example": "C01234567",
         },
         "limit": {"type": "integer", "description": "Max messages.", "example": 50},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -571,6 +690,7 @@ def get_slack_channel_history(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "get_channel_history",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         limit=input_data.get("limit", 50),
     )
@@ -588,6 +708,11 @@ def get_slack_channel_history(input_data: dict) -> dict:
             "description": "Pagination cursor.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -597,6 +722,7 @@ def list_slack_channel_members(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "list_channel_members",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         limit=input_data.get("limit", 100),
         cursor=input_data.get("cursor") or None,
@@ -618,6 +744,11 @@ def list_slack_channel_members(input_data: dict) -> dict:
             "description": "Is private?",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -628,6 +759,7 @@ def create_slack_channel(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "create_channel",
+        account=input_data.get("account"),
         name=input_data["name"],
         is_private=input_data.get("is_private", False),
     )
@@ -648,6 +780,11 @@ def create_slack_channel(input_data: dict) -> dict:
             "description": "List of user IDs.",
             "example": ["U123"],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -658,6 +795,7 @@ def invite_to_slack_channel(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "invite_to_channel",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         users=input_data["users"],
     )
@@ -673,6 +811,11 @@ def invite_to_slack_channel(input_data: dict) -> dict:
             "description": "List of user IDs.",
             "example": ["U123"],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -680,7 +823,10 @@ def invite_to_slack_channel(input_data: dict) -> dict:
 def open_slack_dm(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "open_dm", users=input_data["users"])
+    return run_client_sync("slack", "open_dm",
+        account=input_data.get("account"),
+        users=input_data["users"],
+    )
 
 
 @action(
@@ -689,6 +835,11 @@ def open_slack_dm(input_data: dict) -> dict:
     action_sets=["slack_conversations", "slack"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -696,7 +847,10 @@ def open_slack_dm(input_data: dict) -> dict:
 def archive_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "archive_channel", channel=input_data["channel"])
+    return run_client_sync("slack", "archive_channel",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 @action(
@@ -705,6 +859,11 @@ def archive_slack_channel(input_data: dict) -> dict:
     action_sets=["slack_conversations"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -712,7 +871,10 @@ def archive_slack_channel(input_data: dict) -> dict:
 def unarchive_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "unarchive_channel", channel=input_data["channel"])
+    return run_client_sync("slack", "unarchive_channel",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 @action(
@@ -722,6 +884,11 @@ def unarchive_slack_channel(input_data: dict) -> dict:
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
         "name": {"type": "string", "description": "New channel name.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -732,6 +899,7 @@ def rename_slack_channel(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "rename_channel",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         name=input_data["name"],
     )
@@ -744,6 +912,11 @@ def rename_slack_channel(input_data: dict) -> dict:
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
         "topic": {"type": "string", "description": "New topic.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -754,6 +927,7 @@ def set_slack_channel_topic(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "set_channel_topic",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         topic=input_data["topic"],
     )
@@ -766,6 +940,11 @@ def set_slack_channel_topic(input_data: dict) -> dict:
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
         "purpose": {"type": "string", "description": "New purpose.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -776,6 +955,7 @@ def set_slack_channel_purpose(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "set_channel_purpose",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         purpose=input_data["purpose"],
     )
@@ -787,6 +967,11 @@ def set_slack_channel_purpose(input_data: dict) -> dict:
     action_sets=["slack_conversations", "slack"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -794,7 +979,10 @@ def set_slack_channel_purpose(input_data: dict) -> dict:
 def join_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "join_channel", channel=input_data["channel"])
+    return run_client_sync("slack", "join_channel",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 @action(
@@ -803,6 +991,11 @@ def join_slack_channel(input_data: dict) -> dict:
     action_sets=["slack_conversations"],
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -810,7 +1003,10 @@ def join_slack_channel(input_data: dict) -> dict:
 def leave_slack_channel(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "leave_channel", channel=input_data["channel"])
+    return run_client_sync("slack", "leave_channel",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 @action(
@@ -820,6 +1016,11 @@ def leave_slack_channel(input_data: dict) -> dict:
     input_schema={
         "channel": {"type": "string", "description": "Channel ID.", "example": ""},
         "user": {"type": "string", "description": "User ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -830,6 +1031,7 @@ def kick_user_from_slack_channel(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "kick_user",
+        account=input_data.get("account"),
         channel=input_data["channel"],
         user=input_data["user"],
     )
@@ -841,6 +1043,11 @@ def kick_user_from_slack_channel(input_data: dict) -> dict:
     action_sets=["slack_conversations"],
     input_schema={
         "channel": {"type": "string", "description": "Conversation ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -848,7 +1055,10 @@ def kick_user_from_slack_channel(input_data: dict) -> dict:
 def close_slack_conversation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "close_conversation", channel=input_data["channel"])
+    return run_client_sync("slack", "close_conversation",
+        account=input_data.get("account"),
+        channel=input_data["channel"],
+    )
 
 
 # ------------------------------------------------------------------
@@ -891,6 +1101,11 @@ def close_slack_conversation(input_data: dict) -> dict:
             "description": "Override filename (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -901,6 +1116,7 @@ def upload_slack_file(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "upload_file_v2",
+        account=input_data.get("account"),
         file_path=input_data["file_path"],
         channel_id=input_data.get("channel_id") or None,
         initial_comment=input_data.get("initial_comment") or None,
@@ -932,6 +1148,11 @@ def upload_slack_file(input_data: dict) -> dict:
         },
         "count": {"type": "integer", "description": "Max results.", "example": 100},
         "page": {"type": "integer", "description": "Page number.", "example": 1},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -941,6 +1162,7 @@ def list_slack_files(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "list_files",
+        account=input_data.get("account"),
         channel=input_data.get("channel") or None,
         user=input_data.get("user") or None,
         types=input_data.get("types") or None,
@@ -955,13 +1177,21 @@ def list_slack_files(input_data: dict) -> dict:
     action_sets=["slack_files", "slack"],
     input_schema={
         "file_id": {"type": "string", "description": "File ID.", "example": "F0123ABC"},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_file_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "get_file_info", file_id=input_data["file_id"])
+    return run_client_sync("slack", "get_file_info",
+        account=input_data.get("account"),
+        file_id=input_data["file_id"],
+    )
 
 
 @action(
@@ -970,6 +1200,11 @@ def get_slack_file_info(input_data: dict) -> dict:
     action_sets=["slack_files"],
     input_schema={
         "file_id": {"type": "string", "description": "File ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -977,7 +1212,10 @@ def get_slack_file_info(input_data: dict) -> dict:
 def delete_slack_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "delete_file", file_id=input_data["file_id"])
+    return run_client_sync("slack", "delete_file",
+        account=input_data.get("account"),
+        file_id=input_data["file_id"],
+    )
 
 
 # ------------------------------------------------------------------
@@ -995,6 +1233,11 @@ def delete_slack_file(input_data: dict) -> dict:
             "description": "Max users to return.",
             "example": 100,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -1004,7 +1247,10 @@ def delete_slack_file(input_data: dict) -> dict:
 def list_slack_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "list_users", limit=input_data.get("limit", 100))
+    return run_client_sync("slack", "list_users",
+        account=input_data.get("account"),
+        limit=input_data.get("limit", 100),
+    )
 
 
 @action(
@@ -1017,6 +1263,11 @@ def list_slack_users(input_data: dict) -> dict:
             "description": "User ID.",
             "example": "U1234567",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1024,7 +1275,9 @@ def get_slack_user_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "get_user_info", user_id=input_data["slack_user_id"]
+        "slack", "get_user_info",
+        account=input_data.get("account"),
+        user_id=input_data["slack_user_id"],
     )
 
 
@@ -1038,13 +1291,21 @@ def get_slack_user_info(input_data: dict) -> dict:
             "description": "Email address.",
             "example": "alice@example.com",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def lookup_slack_user_by_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "lookup_user_by_email", email=input_data["email"])
+    return run_client_sync("slack", "lookup_user_by_email",
+        account=input_data.get("account"),
+        email=input_data["email"],
+    )
 
 
 @action(
@@ -1053,13 +1314,21 @@ def lookup_slack_user_by_email(input_data: dict) -> dict:
     action_sets=["slack_users"],
     input_schema={
         "user": {"type": "string", "description": "User ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_user_presence(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "get_user_presence", user=input_data["user"])
+    return run_client_sync("slack", "get_user_presence",
+        account=input_data.get("account"),
+        user=input_data["user"],
+    )
 
 
 @action(
@@ -1072,6 +1341,11 @@ def get_slack_user_presence(input_data: dict) -> dict:
             "description": "auto or away.",
             "example": "auto",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1080,7 +1354,9 @@ def set_slack_user_presence(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "set_user_presence", presence=input_data["presence"]
+        "slack", "set_user_presence",
+        account=input_data.get("account"),
+        presence=input_data["presence"],
     )
 
 
@@ -1104,6 +1380,11 @@ def set_slack_user_presence(input_data: dict) -> dict:
             "description": "Include user list per group.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1113,6 +1394,7 @@ def list_slack_usergroups(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "list_usergroups",
+        account=input_data.get("account"),
         include_disabled=bool(input_data.get("include_disabled", False)),
         include_count=bool(input_data.get("include_count", False)),
         include_users=bool(input_data.get("include_users", False)),
@@ -1144,6 +1426,11 @@ def list_slack_usergroups(input_data: dict) -> dict:
             "description": "Default channels (optional).",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1154,6 +1441,7 @@ def create_slack_usergroup(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "create_usergroup",
+        account=input_data.get("account"),
         name=input_data["name"],
         handle=input_data.get("handle") or None,
         description=input_data.get("description") or None,
@@ -1187,6 +1475,11 @@ def create_slack_usergroup(input_data: dict) -> dict:
             "description": "New default channels (optional).",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1197,6 +1490,7 @@ def update_slack_usergroup(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "update_usergroup",
+        account=input_data.get("account"),
         usergroup=input_data["usergroup"],
         name=input_data["name"] if "name" in input_data else None,
         handle=input_data["handle"] if "handle" in input_data else None,
@@ -1216,6 +1510,11 @@ def update_slack_usergroup(input_data: dict) -> dict:
             "description": "Include disabled users.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1225,6 +1524,7 @@ def list_slack_usergroup_users(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "list_usergroup_users",
+        account=input_data.get("account"),
         usergroup=input_data["usergroup"],
         include_disabled=bool(input_data.get("include_disabled", False)),
     )
@@ -1241,6 +1541,11 @@ def list_slack_usergroup_users(input_data: dict) -> dict:
             "description": "List of user IDs to set as members.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1251,6 +1556,7 @@ def set_slack_usergroup_users(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "update_usergroup_users",
+        account=input_data.get("account"),
         usergroup=input_data["usergroup"],
         users=input_data["users"],
     )
@@ -1262,6 +1568,11 @@ def set_slack_usergroup_users(input_data: dict) -> dict:
     action_sets=["slack_users"],
     input_schema={
         "usergroup": {"type": "string", "description": "Usergroup ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1270,7 +1581,9 @@ def enable_slack_usergroup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "enable_usergroup", usergroup=input_data["usergroup"]
+        "slack", "enable_usergroup",
+        account=input_data.get("account"),
+        usergroup=input_data["usergroup"],
     )
 
 
@@ -1280,6 +1593,11 @@ def enable_slack_usergroup(input_data: dict) -> dict:
     action_sets=["slack_users"],
     input_schema={
         "usergroup": {"type": "string", "description": "Usergroup ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1288,7 +1606,9 @@ def disable_slack_usergroup(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "disable_usergroup", usergroup=input_data["usergroup"]
+        "slack", "disable_usergroup",
+        account=input_data.get("account"),
+        usergroup=input_data["usergroup"],
     )
 
 
@@ -1301,13 +1621,19 @@ def disable_slack_usergroup(input_data: dict) -> dict:
     name="get_slack_auth_info",
     description="Get info about the authenticated Slack bot/user (team, user, bot_id).",
     action_sets=["slack_workspace", "slack"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_auth_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "auth_test")
+    return run_client_sync("slack", "auth_test", account=input_data.get("account"))
 
 
 @action(
@@ -1320,6 +1646,11 @@ def get_slack_auth_info(input_data: dict) -> dict:
             "description": "Team ID (optional, defaults to current).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1327,7 +1658,9 @@ def get_slack_team_info(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "get_team_info", team=input_data.get("team") or None
+        "slack", "get_team_info",
+        account=input_data.get("account"),
+        team=input_data.get("team") or None,
     )
 
 
@@ -1342,6 +1675,11 @@ def get_slack_team_info(input_data: dict) -> dict:
             "example": "project update",
         },
         "count": {"type": "integer", "description": "Max results.", "example": 20},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1351,6 +1689,7 @@ def search_slack_messages(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "search_messages",
+        account=input_data.get("account"),
         query=input_data["query"],
         count=input_data.get("count", 20),
     )
@@ -1362,6 +1701,11 @@ def search_slack_messages(input_data: dict) -> dict:
     action_sets=["slack_workspace", "slack"],
     input_schema={
         "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1369,7 +1713,9 @@ def list_slack_bookmarks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "list_bookmarks", channel_id=input_data["channel_id"]
+        "slack", "list_bookmarks",
+        account=input_data.get("account"),
+        channel_id=input_data["channel_id"],
     )
 
 
@@ -1399,6 +1745,11 @@ def list_slack_bookmarks(input_data: dict) -> dict:
             "description": "Emoji shortcode (optional).",
             "example": ":bookmark:",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1409,6 +1760,7 @@ def add_slack_bookmark(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "add_bookmark",
+        account=input_data.get("account"),
         channel_id=input_data["channel_id"],
         title=input_data["title"],
         type=input_data.get("type", "link"),
@@ -1435,6 +1787,11 @@ def add_slack_bookmark(input_data: dict) -> dict:
             "description": "New emoji (optional).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1445,6 +1802,7 @@ def edit_slack_bookmark(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "edit_bookmark",
+        account=input_data.get("account"),
         channel_id=input_data["channel_id"],
         bookmark_id=input_data["bookmark_id"],
         title=input_data["title"] if "title" in input_data else None,
@@ -1460,6 +1818,11 @@ def edit_slack_bookmark(input_data: dict) -> dict:
     input_schema={
         "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
         "bookmark_id": {"type": "string", "description": "Bookmark ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1470,6 +1833,7 @@ def remove_slack_bookmark(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "remove_bookmark",
+        account=input_data.get("account"),
         channel_id=input_data["channel_id"],
         bookmark_id=input_data["bookmark_id"],
     )
@@ -1495,6 +1859,11 @@ def remove_slack_bookmark(input_data: dict) -> dict:
             "description": "User ID (optional, defaults to self).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1505,6 +1874,7 @@ def add_slack_reminder(input_data: dict) -> dict:
     return run_client_sync(
         "slack",
         "add_reminder",
+        account=input_data.get("account"),
         text=input_data["text"],
         time=input_data["time"],
         user=input_data.get("user") or None,
@@ -1515,13 +1885,19 @@ def add_slack_reminder(input_data: dict) -> dict:
     name="list_slack_reminders",
     description="List the authenticated user's Slack reminders.",
     action_sets=["slack_workspace"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_reminders(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "list_reminders")
+    return run_client_sync("slack", "list_reminders", account=input_data.get("account"))
 
 
 @action(
@@ -1530,6 +1906,11 @@ def list_slack_reminders(input_data: dict) -> dict:
     action_sets=["slack_workspace"],
     input_schema={
         "reminder": {"type": "string", "description": "Reminder ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1537,7 +1918,9 @@ def get_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "get_reminder_info", reminder=input_data["reminder"]
+        "slack", "get_reminder_info",
+        account=input_data.get("account"),
+        reminder=input_data["reminder"],
     )
 
 
@@ -1547,6 +1930,11 @@ def get_slack_reminder(input_data: dict) -> dict:
     action_sets=["slack_workspace"],
     input_schema={
         "reminder": {"type": "string", "description": "Reminder ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1555,7 +1943,9 @@ def complete_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     return run_client_sync(
-        "slack", "complete_reminder", reminder=input_data["reminder"]
+        "slack", "complete_reminder",
+        account=input_data.get("account"),
+        reminder=input_data["reminder"],
     )
 
 
@@ -1565,6 +1955,11 @@ def complete_slack_reminder(input_data: dict) -> dict:
     action_sets=["slack_workspace"],
     input_schema={
         "reminder": {"type": "string", "description": "Reminder ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1572,7 +1967,10 @@ def complete_slack_reminder(input_data: dict) -> dict:
 def delete_slack_reminder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "delete_reminder", reminder=input_data["reminder"])
+    return run_client_sync("slack", "delete_reminder",
+        account=input_data.get("account"),
+        reminder=input_data["reminder"],
+    )
 
 
 # ==================================================================

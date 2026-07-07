@@ -45,6 +45,11 @@ class BasePlatformClient(ABC):
         self._connected = False
         self._listening = False
         self._message_callback: Optional[MessageCallback] = None
+        # Which connected account (email or unique fragment) this instance
+        # talks to; None means "primary". Set by the registry right after
+        # construction (see registry.get_client). Only integrations that
+        # support multiple accounts (currently the Google ones) read this.
+        self._account: Optional[str] = None
 
     @property
     def is_connected(self) -> bool:
@@ -135,6 +140,29 @@ class IntegrationHandler(ABC):
 
     async def invite(self, args: List[str]) -> Tuple[bool, str]:
         return False, "Invite not available for this integration. Use 'login' instead."
+
+    # ----- Optional multi-account support -----
+    # Override these three on handlers whose credential storage supports
+    # more than one connected account (see craftos_integrations/accounts.py
+    # for the shared implementation each override delegates to). Handlers
+    # that don't override keep the default "not supported" behavior below,
+    # and service.get_integration_info() falls back to parsing status()'s
+    # text for a single account, exactly as before this existed.
+
+    def list_accounts(self) -> Optional[List[Dict[str, Any]]]:
+        """Structured per-account info: ``[{id, display, alias, is_primary}, ...]``.
+
+        Return ``None`` (the default) to signal "this integration doesn't
+        support multiple accounts" — callers fall back to text-parsing
+        ``status()``. Multi-account handlers return the real list instead.
+        """
+        return None
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        return False, "This integration does not support multiple accounts."
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        return False, "This integration does not support multiple accounts."
 
     @property
     def subcommands(self) -> List[str]:

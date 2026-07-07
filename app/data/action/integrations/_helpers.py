@@ -174,6 +174,7 @@ async def run_client(
     integration: str,
     method_name: str,
     *,
+    account: Optional[str] = None,
     unwrap_envelope: bool = False,
     success_message: Optional[str] = None,
     fail_message: str = "Operation failed",
@@ -182,10 +183,15 @@ async def run_client(
     """Resolve client by integration, check creds, call method, wrap result.
 
     The named method may be sync or async; coroutines are awaited.
+
+    ``account`` selects which connected account to use for integrations that
+    support multiple (currently the Google services) — an email or unique
+    fragment. ``None`` uses the primary account; unrelated integrations
+    ignore it (their client's ``__init__`` doesn't look at ``_account``).
     """
     from craftos_integrations import get_client
 
-    client = get_client(integration)
+    client = get_client(integration, account)
     if client is None:
         return {"status": "error", "message": f"Unknown integration: {integration}"}
     if not client.has_credentials():
@@ -224,15 +230,19 @@ def run_client_sync(
     integration: str,
     method_name: str,
     *,
+    account: Optional[str] = None,
     unwrap_envelope: bool = False,
     success_message: Optional[str] = None,
     fail_message: str = "Operation failed",
     **kwargs,
 ) -> Dict[str, Any]:
-    """Sync flavor of ``run_client`` for sync actions calling sync methods."""
+    """Sync flavor of ``run_client`` for sync actions calling sync methods.
+
+    See ``run_client`` for what ``account`` does.
+    """
     from craftos_integrations import get_client
 
-    client = get_client(integration)
+    client = get_client(integration, account)
     if client is None:
         return {"status": "error", "message": f"Unknown integration: {integration}"}
     if not client.has_credentials():
@@ -270,25 +280,27 @@ def run_client_sync(
         return {"status": "error", "message": str(e)}
 
 
-def get_client_or_error(integration: str):
+def get_client_or_error(integration: str, account: Optional[str] = None):
     """Resolve a client + run the credential check.
 
     Returns a tuple ``(client, error_dict)``:
       - on success: ``(client, None)``
       - on failure: ``(None, {"status": "error", "message": ...})``
 
+    ``account`` selects which connected account (see ``run_client``).
+
     Use this in actions that return bespoke result shapes / do multi-step
     logic and can't use ``run_client`` or ``with_client``::
 
         def my_action(input_data):
-            client, err = get_client_or_error("google_workspace")
+            client, err = get_client_or_error("gmail", input_data.get("account"))
             if err:
                 return err
             ...
     """
     from craftos_integrations import get_client
 
-    client = get_client(integration)
+    client = get_client(integration, account)
     if client is None:
         return None, {
             "status": "error",
@@ -300,7 +312,7 @@ def get_client_or_error(integration: str):
 
 
 async def with_client(
-    integration: str, fn: Callable, *args, **kwargs
+    integration: str, fn: Callable, *args, account: Optional[str] = None, **kwargs
 ) -> Dict[str, Any]:
     """Call ``fn(client, *args, **kwargs)`` after credential check.
 
@@ -308,8 +320,10 @@ async def with_client(
     multiple calls in sequence, payload building, etc. ``fn`` may be
     sync or async. Wraps the return as ``{"status": "success", "result": ...}``;
     for bespoke result shapes use ``get_client_or_error`` instead.
+
+    ``account`` selects which connected account (see ``run_client``).
     """
-    client, err = get_client_or_error(integration)
+    client, err = get_client_or_error(integration, account)
     if err:
         return err
     try:

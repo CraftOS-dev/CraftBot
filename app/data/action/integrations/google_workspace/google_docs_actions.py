@@ -17,6 +17,11 @@ from agent_core import action
             "description": "Title for the new document.",
             "example": "Meeting Notes",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -26,6 +31,7 @@ def create_google_doc(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "create_document",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create Google Doc.",
         title=input_data["title"],
@@ -42,6 +48,11 @@ def create_google_doc(input_data: dict) -> dict:
             "description": "The Google Doc's document ID.",
             "example": "1abcDEF...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -51,6 +62,7 @@ def get_google_doc(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "get_document",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to fetch document.",
         document_id=input_data["document_id"],
@@ -67,6 +79,11 @@ def get_google_doc(input_data: dict) -> dict:
             "description": "The Google Doc's document ID.",
             "example": "1abcDEF...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -76,6 +93,7 @@ def get_google_doc_text(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "get_document_text",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to read document.",
         document_id=input_data["document_id"],
@@ -92,6 +110,11 @@ def get_google_doc_text(input_data: dict) -> dict:
             "description": "Max number of docs to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -101,6 +124,7 @@ def list_google_docs(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "list_documents",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list docs.",
         max_results=input_data.get("max_results", 50),
@@ -122,6 +146,11 @@ def list_google_docs(input_data: dict) -> dict:
             "description": "Max number of docs to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -131,6 +160,7 @@ def search_google_docs(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "search_documents",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to search docs.",
         query=input_data["query"],
@@ -148,6 +178,11 @@ def search_google_docs(input_data: dict) -> dict:
             "description": "The Google Doc's document ID.",
             "example": "1abcDEF...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -158,6 +193,7 @@ def delete_google_doc(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "delete_document",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Document deleted.",
         fail_message="Failed to delete document.",
@@ -180,6 +216,11 @@ def delete_google_doc(input_data: dict) -> dict:
             "description": "Title for the copy.",
             "example": "Meeting Notes (copy)",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -190,6 +231,7 @@ def copy_google_doc(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "copy_document",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to copy document.",
         document_id=input_data["document_id"],
@@ -217,6 +259,11 @@ def copy_google_doc(input_data: dict) -> dict:
             "description": "Local file path to write to.",
             "example": "/tmp/doc.pdf",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -226,6 +273,7 @@ def export_google_doc(input_data: dict) -> dict:
     return run_client_sync(
         "google_docs",
         "export_document",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to export document.",
         document_id=input_data["document_id"],

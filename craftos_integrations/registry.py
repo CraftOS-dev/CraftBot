@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from .base import BasePlatformClient, IntegrationHandler
 from .logger import get_logger
@@ -26,7 +26,10 @@ logger = get_logger(__name__)
 # ════════════════════════════════════════════════════════════════════════
 
 _client_classes: Dict[str, Type[BasePlatformClient]] = {}
-_client_instances: Dict[str, BasePlatformClient] = {}
+# Keyed by (platform_id, account_key). account_key is "" for the primary/
+# single-account case, so existing single-arg get_client(pid) callers land on
+# the same instance they always did.
+_client_instances: Dict[Tuple[str, str], BasePlatformClient] = {}
 
 
 def register_client(cls: Type[BasePlatformClient]) -> Type[BasePlatformClient]:
@@ -37,36 +40,50 @@ def register_client(cls: Type[BasePlatformClient]) -> Type[BasePlatformClient]:
     return cls
 
 
-def get_client(platform_id: str) -> Optional[BasePlatformClient]:
-    if platform_id in _client_instances:
-        return _client_instances[platform_id]
+def get_client(
+    platform_id: str, account: Optional[str] = None
+) -> Optional[BasePlatformClient]:
+    """Get (or build) the client singleton for ``platform_id``.
+
+    ``account`` selects which connected account this client instance talks to
+    (an email or unique fragment — see ``_google_common.resolve_account``).
+    ``None``/omitted means the primary account, cached under key ``""`` —
+    identical behavior to before multi-account support existed.
+    """
+    key = (platform_id, account or "")
+    if key in _client_instances:
+        return _client_instances[key]
     cls = _client_classes.get(platform_id)
     if cls is None:
         return None
     instance = cls()
-    _client_instances[platform_id] = instance
+    instance._account = account
+    _client_instances[key] = instance
     return instance
 
 
 def get_all_clients() -> Dict[str, BasePlatformClient]:
+    """One (primary-account) client per registered platform."""
     for pid in _client_classes:
-        if pid not in _client_instances:
-            _client_instances[pid] = _client_classes[pid]()
-    return dict(_client_instances)
+        key = (pid, "")
+        if key not in _client_instances:
+            _client_instances[key] = _client_classes[pid]()
+    return {pid: _client_instances[(pid, "")] for pid in _client_classes}
 
 
 def invalidate_client(platform_id: str) -> None:
-    """Drop the cached client singleton so the next get_client() rebuilds it.
+    """Drop every cached client instance for ``platform_id`` (all accounts).
 
     Client instances cache the account credential in memory (e.g. the Google
     mixin's ``_cred``). When an account is connected/disconnected at runtime the
     credential file on disk changes, but the live instance keeps serving the old
     account — so integration actions hit the wrong account until the agent is
-    restarted. Dropping the instance here forces a fresh build (and a fresh
-    credential read from disk) on next use, mirroring what a restart does.
-    See issue #314.
+    restarted. Dropping every cached instance for this platform forces a fresh
+    build (and a fresh credential read from disk) on next use, mirroring what a
+    restart does. See issue #314.
     """
-    _client_instances.pop(platform_id, None)
+    for key in [k for k in _client_instances if k[0] == platform_id]:
+        _client_instances.pop(key, None)
 
 
 def get_registered_platforms() -> List[str]:

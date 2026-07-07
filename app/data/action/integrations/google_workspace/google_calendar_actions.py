@@ -21,6 +21,11 @@ from agent_core import action
             "description": "Calendar ID (default: primary).",
             "example": "primary",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -30,6 +35,7 @@ def create_google_meet(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "create_meet_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create event.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -57,6 +63,11 @@ def create_google_meet(input_data: dict) -> dict:
             "description": "Calendar ID (default: primary).",
             "example": "primary",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -66,6 +77,7 @@ def check_calendar_availability(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "check_availability",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to check availability.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -105,6 +117,11 @@ def check_calendar_availability(input_data: dict) -> dict:
             "description": "Sender.",
             "example": "me@example.com",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -119,9 +136,11 @@ def check_availability_and_schedule(input_data: dict) -> dict:
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+    account = input_data.get("account")
     avail = run_client_sync(
         "google_calendar",
         "check_availability",
+        account=account,
         unwrap_envelope=True,
         fail_message="Google Calendar FreeBusy API error",
         calendar_id="primary",
@@ -162,6 +181,7 @@ def check_availability_and_schedule(input_data: dict) -> dict:
     result = run_client_sync(
         "google_calendar",
         "create_meet_event",
+        account=account,
         unwrap_envelope=True,
         fail_message="Google Calendar API error",
         calendar_id="primary",
@@ -210,6 +230,11 @@ def check_availability_and_schedule(input_data: dict) -> dict:
             "description": "Max events to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -219,6 +244,7 @@ def list_google_calendar_events(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "list_events",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list events.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -239,6 +265,11 @@ def list_google_calendar_events(input_data: dict) -> dict:
             "description": "Calendar ID (default: primary).",
             "example": "primary",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -248,6 +279,7 @@ def get_google_calendar_event(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "get_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get event.",
         event_id=input_data["event_id"],
@@ -280,6 +312,11 @@ def get_google_calendar_event(input_data: dict) -> dict:
             "description": "Set true if event_data includes attachments.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -290,6 +327,7 @@ def create_google_calendar_event(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "insert_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create event.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -320,6 +358,11 @@ def create_google_calendar_event(input_data: dict) -> dict:
             "description": "none, all, externalOnly.",
             "example": "none",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -330,6 +373,7 @@ def update_google_calendar_event(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "update_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to update event.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -360,6 +404,11 @@ def update_google_calendar_event(input_data: dict) -> dict:
             "description": "none, all, externalOnly.",
             "example": "none",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -370,6 +419,7 @@ def patch_google_calendar_event(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "patch_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to patch event.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -390,6 +440,11 @@ def patch_google_calendar_event(input_data: dict) -> dict:
             "description": "Calendar ID (default: primary).",
             "example": "primary",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -400,6 +455,7 @@ def delete_google_calendar_event(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "delete_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete event.",
         event_id=input_data["event_id"],
@@ -467,6 +523,11 @@ def move_google_calendar_event(input_data: dict) -> dict:
             "description": "none, all, externalOnly.",
             "example": "none",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -477,6 +538,7 @@ def quick_add_google_calendar_event(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "quick_add_event",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to quick-add event.",
         calendar_id=input_data.get("calendar_id", "primary"),
@@ -575,7 +637,13 @@ def import_google_calendar_event(input_data: dict) -> dict:
     name="list_google_calendars",
     description="List calendars the user has access to (from their calendarList).",
     action_sets=["google_calendar_admin", "google_calendar"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_google_calendars(input_data: dict) -> dict:
@@ -584,6 +652,7 @@ def list_google_calendars(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "list_calendars",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list calendars.",
     )
@@ -599,6 +668,11 @@ def list_google_calendars(input_data: dict) -> dict:
             "description": "Calendar ID (default: primary).",
             "example": "primary",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -608,6 +682,7 @@ def get_google_calendar(input_data: dict) -> dict:
     return run_client_sync(
         "google_calendar",
         "get_calendar",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get calendar.",
         calendar_id=input_data.get("calendar_id", "primary"),

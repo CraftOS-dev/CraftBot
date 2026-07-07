@@ -32,6 +32,11 @@ from agent_core import action
             "description": "Optional list of file paths to attach.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -42,6 +47,7 @@ def send_gmail(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "send_email",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Email sent.",
         fail_message="Failed to send email.",
@@ -62,6 +68,11 @@ def send_gmail(input_data: dict) -> dict:
             "description": "Number of recent emails to list.",
             "example": 5,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -71,6 +82,7 @@ def list_gmail(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "list_emails",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list emails.",
         n=input_data.get("count", 5),
@@ -97,6 +109,11 @@ def list_gmail(input_data: dict) -> dict:
             "description": "Whether to include full email body and attachment metadata.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -106,6 +123,7 @@ def get_gmail(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "get_email",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get email.",
         message_id=input_data["message_id"],
@@ -128,6 +146,11 @@ def get_gmail(input_data: dict) -> dict:
             "description": "Include full body text.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -137,6 +160,7 @@ def read_top_emails(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "read_top_emails",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to read emails.",
         n=input_data.get("count", 5),
@@ -164,6 +188,11 @@ def read_top_emails(input_data: dict) -> dict:
             "description": "Include Spam/Trash.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -173,6 +202,7 @@ def search_gmail(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "search_messages",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to search.",
         query=input_data["query"],
@@ -203,6 +233,11 @@ def search_gmail(input_data: dict) -> dict:
             "description": "Optional attachment file paths.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -213,6 +248,7 @@ def reply_gmail(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "reply_to_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to reply.",
         message_id=input_data["message_id"],
@@ -248,6 +284,11 @@ def reply_gmail(input_data: dict) -> dict:
             "description": "Optional attachment file paths.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -258,6 +299,7 @@ def forward_gmail(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "forward_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to forward.",
         message_id=input_data["message_id"],
@@ -456,6 +498,11 @@ def batch_delete_gmail(input_data: dict) -> dict:
             "description": "Max threads.",
             "example": 25,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -465,6 +512,7 @@ def list_gmail_threads(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "list_threads",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list threads.",
         query=input_data.get("query") or None,
@@ -484,6 +532,11 @@ def list_gmail_threads(input_data: dict) -> dict:
             "description": "metadata | full | minimal.",
             "example": "metadata",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -493,6 +546,7 @@ def get_gmail_thread(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "get_thread",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get thread.",
         thread_id=input_data["thread_id"],
@@ -612,6 +666,11 @@ def delete_gmail_thread(input_data: dict) -> dict:
     input_schema={
         "max_results": {"type": "integer", "description": "Max drafts.", "example": 25},
         "query": {"type": "string", "description": "Optional q query.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -621,6 +680,7 @@ def list_gmail_drafts(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "list_drafts",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list drafts.",
         max_results=input_data.get("max_results", 25),
@@ -639,6 +699,11 @@ def list_gmail_drafts(input_data: dict) -> dict:
             "description": "metadata | full | minimal.",
             "example": "metadata",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -648,6 +713,7 @@ def get_gmail_draft(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "get_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get draft.",
         draft_id=input_data["draft_id"],
@@ -670,6 +736,11 @@ def get_gmail_draft(input_data: dict) -> dict:
             "description": "Local file paths.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -680,6 +751,7 @@ def create_gmail_draft(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "create_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create draft.",
         to=input_data["to"],
@@ -707,6 +779,11 @@ def create_gmail_draft(input_data: dict) -> dict:
             "description": "Local file paths.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -717,6 +794,7 @@ def update_gmail_draft(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "update_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to update draft.",
         draft_id=input_data["draft_id"],
@@ -736,6 +814,11 @@ def update_gmail_draft(input_data: dict) -> dict:
     action_sets=["gmail_drafts", "gmail"],
     input_schema={
         "draft_id": {"type": "string", "description": "Draft ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -746,6 +829,7 @@ def send_gmail_draft(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "send_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to send draft.",
         draft_id=input_data["draft_id"],
@@ -758,6 +842,11 @@ def send_gmail_draft(input_data: dict) -> dict:
     action_sets=["gmail_drafts"],
     input_schema={
         "draft_id": {"type": "string", "description": "Draft ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -768,6 +857,7 @@ def delete_gmail_draft(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "delete_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete draft.",
         draft_id=input_data["draft_id"],
@@ -973,6 +1063,11 @@ def delete_gmail_label(input_data: dict) -> dict:
             "description": "Filename to use when save_to is a directory. Use the filename from get_gmail attachments list.",
             "example": "invoice.pdf",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -983,6 +1078,7 @@ def download_gmail_attachment(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "download_attachment",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to download attachment.",
         message_id=input_data["message_id"],
@@ -996,7 +1092,13 @@ def download_gmail_attachment(input_data: dict) -> dict:
     name="get_gmail_profile",
     description="Get the authenticated user's Gmail profile: email address, message/thread totals, historyId.",
     action_sets=["gmail_mail", "gmail"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_gmail_profile(input_data: dict) -> dict:
@@ -1005,6 +1107,7 @@ def get_gmail_profile(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "get_profile",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get profile.",
     )
@@ -1034,6 +1137,11 @@ def get_gmail_profile(input_data: dict) -> dict:
             "example": "me@example.com",
         },
         "attachments": {"type": "array", "description": "Attachments.", "example": []},
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1044,6 +1152,7 @@ def send_google_workspace_email(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "send_email",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Email sent.",
         fail_message="Failed to send email.",
@@ -1067,6 +1176,11 @@ def send_google_workspace_email(input_data: dict) -> dict:
             "description": "Optional sender email.",
             "example": "me@example.com",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1076,6 +1190,7 @@ def read_recent_google_workspace_emails(input_data: dict) -> dict:
     return run_client_sync(
         "gmail",
         "read_top_emails",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to read emails.",
         n=input_data.get("n", 5),

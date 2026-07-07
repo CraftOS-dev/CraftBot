@@ -32,6 +32,11 @@ from agent_core import action
             "description": "Optional CC recipients (comma-separated).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -42,6 +47,7 @@ def send_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "send_email",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Email sent.",
         fail_message="Failed to send email.",
@@ -67,6 +73,11 @@ def send_outlook_email(input_data: dict) -> dict:
             "description": "Only show unread emails.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -76,6 +87,7 @@ def list_outlook_emails(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_emails",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list emails.",
         n=input_data.get("count", 10),
@@ -93,6 +105,11 @@ def list_outlook_emails(input_data: dict) -> dict:
             "description": "Outlook message ID.",
             "example": "AAMk...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -102,6 +119,7 @@ def get_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "get_email",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get email.",
         message_id=input_data["message_id"],
@@ -123,6 +141,11 @@ def get_outlook_email(input_data: dict) -> dict:
             "description": "Include full body text.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -132,6 +155,7 @@ def read_top_outlook_emails(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "read_top_emails",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to read emails.",
         n=input_data.get("count", 5),
@@ -155,6 +179,11 @@ def read_top_outlook_emails(input_data: dict) -> dict:
             "description": "Optional folder name (inbox/sentitems/etc.) or ID.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -164,6 +193,7 @@ def search_outlook_emails(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "search_messages",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to search.",
         query=input_data["query"],
@@ -193,6 +223,11 @@ def search_outlook_emails(input_data: dict) -> dict:
             "description": "Optional comma-separated extra recipients.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -209,6 +244,7 @@ def reply_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "reply_to_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to reply.",
         message_id=input_data["message_id"],
@@ -229,6 +265,11 @@ def reply_outlook_email(input_data: dict) -> dict:
             "example": "AAMk...",
         },
         "comment": {"type": "string", "description": "Reply body.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -239,6 +280,7 @@ def reply_all_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "reply_all_to_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to reply-all.",
         message_id=input_data["message_id"],
@@ -267,6 +309,11 @@ def reply_all_outlook_email(input_data: dict) -> dict:
             "description": "Optional intro comment.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -281,6 +328,7 @@ def forward_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "forward_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to forward.",
         message_id=input_data["message_id"],
@@ -304,6 +352,11 @@ def forward_outlook_email(input_data: dict) -> dict:
             "description": "Optional initial reply text.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -314,6 +367,7 @@ def create_outlook_reply_draft(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "create_reply_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create reply draft.",
         message_id=input_data["message_id"],
@@ -337,6 +391,11 @@ def create_outlook_reply_draft(input_data: dict) -> dict:
             "example": "",
         },
         "comment": {"type": "string", "description": "Optional intro.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -349,6 +408,7 @@ def create_outlook_forward_draft(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "create_forward_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create forward draft.",
         message_id=input_data["message_id"],
@@ -384,6 +444,11 @@ def create_outlook_forward_draft(input_data: dict) -> dict:
             "example": "",
         },
         "html": {"type": "boolean", "description": "Body is HTML.", "example": False},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -395,6 +460,7 @@ def create_outlook_draft(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "create_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create draft.",
         subject=input_data["subject"],
@@ -430,6 +496,11 @@ def create_outlook_draft(input_data: dict) -> dict:
         },
         "cc": {"type": "string", "description": "New CC (optional).", "example": ""},
         "bcc": {"type": "string", "description": "New BCC (optional).", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -441,6 +512,7 @@ def update_outlook_draft(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "update_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to update draft.",
         message_id=input_data["message_id"],
@@ -460,6 +532,11 @@ def update_outlook_draft(input_data: dict) -> dict:
     action_sets=["outlook_mail", "outlook"],
     input_schema={
         "message_id": {"type": "string", "description": "Draft ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -470,6 +547,7 @@ def send_outlook_draft(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "send_draft",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to send draft.",
         message_id=input_data["message_id"],
@@ -482,6 +560,11 @@ def send_outlook_draft(input_data: dict) -> dict:
     action_sets=["outlook_mail", "outlook"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -492,6 +575,7 @@ def delete_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "delete_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete.",
         message_id=input_data["message_id"],
@@ -509,6 +593,11 @@ def delete_outlook_email(input_data: dict) -> dict:
             "description": "Folder ID or well-known name.",
             "example": "archive",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -519,6 +608,7 @@ def move_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "move_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to move.",
         message_id=input_data["message_id"],
@@ -537,6 +627,11 @@ def move_outlook_email(input_data: dict) -> dict:
             "description": "Folder ID or well-known name.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -547,6 +642,7 @@ def copy_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "copy_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to copy.",
         message_id=input_data["message_id"],
@@ -564,6 +660,11 @@ def copy_outlook_email(input_data: dict) -> dict:
             "description": "Outlook message ID.",
             "example": "AAMk...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -574,6 +675,7 @@ def mark_outlook_email_read(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "mark_as_read",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Email marked as read.",
         fail_message="Failed to mark email.",
@@ -587,6 +689,11 @@ def mark_outlook_email_read(input_data: dict) -> dict:
     action_sets=["outlook_mail"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -597,6 +704,7 @@ def mark_outlook_email_unread(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "mark_as_unread",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to mark unread.",
         message_id=input_data["message_id"],
@@ -614,6 +722,11 @@ def mark_outlook_email_unread(input_data: dict) -> dict:
             "description": "notFlagged, flagged, or complete.",
             "example": "flagged",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -624,6 +737,7 @@ def flag_outlook_email(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "flag_message",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to flag.",
         message_id=input_data["message_id"],
@@ -642,6 +756,11 @@ def flag_outlook_email(input_data: dict) -> dict:
             "description": "Comma-separated category display names.",
             "example": "Personal,Important",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -654,6 +773,7 @@ def set_outlook_email_categories(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "set_message_categories",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to set categories.",
         message_id=input_data["message_id"],
@@ -672,6 +792,11 @@ def set_outlook_email_categories(input_data: dict) -> dict:
     action_sets=["outlook_attachments", "outlook"],
     input_schema={
         "message_id": {"type": "string", "description": "Message ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -681,6 +806,7 @@ def list_outlook_attachments(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_attachments",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list attachments.",
         message_id=input_data["message_id"],
@@ -703,6 +829,11 @@ def list_outlook_attachments(input_data: dict) -> dict:
             "description": "Local path to save to.",
             "example": "C:/Users/me/downloads/file.pdf",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -713,6 +844,7 @@ def download_outlook_attachment(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "download_attachment",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to download.",
         message_id=input_data["message_id"],
@@ -741,6 +873,11 @@ def download_outlook_attachment(input_data: dict) -> dict:
             "description": "MIME type (autodetect if omitted).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -751,6 +888,7 @@ def add_outlook_attachment(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "add_attachment",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to add attachment.",
         message_id=input_data["message_id"],
@@ -770,6 +908,11 @@ def add_outlook_attachment(input_data: dict) -> dict:
             "description": "Attachment ID.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -780,6 +923,7 @@ def delete_outlook_attachment(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "delete_attachment",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete attachment.",
         message_id=input_data["message_id"],
@@ -796,7 +940,13 @@ def delete_outlook_attachment(input_data: dict) -> dict:
     name="list_outlook_folders",
     description="List mail folders in Outlook.",
     action_sets=["outlook_folders", "outlook"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_outlook_folders(input_data: dict) -> dict:
@@ -805,6 +955,7 @@ def list_outlook_folders(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_folders",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list folders.",
     )
@@ -820,6 +971,11 @@ def list_outlook_folders(input_data: dict) -> dict:
             "description": "Folder ID or well-known name (inbox, drafts, sentitems, etc.).",
             "example": "inbox",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -829,6 +985,7 @@ def get_outlook_folder(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "get_folder",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get folder.",
         folder_id=input_data["folder_id"],
@@ -850,6 +1007,11 @@ def get_outlook_folder(input_data: dict) -> dict:
             "description": "Parent folder ID or well-known name. Default msgfolderroot.",
             "example": "msgfolderroot",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -860,6 +1022,7 @@ def create_outlook_folder(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "create_folder",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create folder.",
         display_name=input_data["display_name"],
@@ -874,6 +1037,11 @@ def create_outlook_folder(input_data: dict) -> dict:
     input_schema={
         "folder_id": {"type": "string", "description": "Folder ID.", "example": ""},
         "display_name": {"type": "string", "description": "New name.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -884,6 +1052,7 @@ def update_outlook_folder(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "update_folder",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to rename folder.",
         folder_id=input_data["folder_id"],
@@ -897,6 +1066,11 @@ def update_outlook_folder(input_data: dict) -> dict:
     action_sets=["outlook_folders"],
     input_schema={
         "folder_id": {"type": "string", "description": "Folder ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -907,6 +1081,7 @@ def delete_outlook_folder(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "delete_folder",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete folder.",
         folder_id=input_data["folder_id"],
@@ -923,6 +1098,11 @@ def delete_outlook_folder(input_data: dict) -> dict:
             "description": "Parent folder ID or well-known name. Default msgfolderroot.",
             "example": "msgfolderroot",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -932,6 +1112,7 @@ def list_outlook_child_folders(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_child_folders",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list child folders.",
         folder_id=input_data.get("folder_id", "msgfolderroot"),
@@ -954,6 +1135,11 @@ def list_outlook_child_folders(input_data: dict) -> dict:
             "description": "Filter to unread.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -963,6 +1149,7 @@ def list_outlook_folder_messages(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_folder_messages",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list messages.",
         folder_id=input_data["folder_id"],
@@ -980,7 +1167,13 @@ def list_outlook_folder_messages(input_data: dict) -> dict:
     name="get_outlook_mailbox_settings",
     description="Get the user's mailbox settings (timezone, locale, working hours, etc.).",
     action_sets=["outlook_settings"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_outlook_mailbox_settings(input_data: dict) -> dict:
@@ -989,6 +1182,7 @@ def get_outlook_mailbox_settings(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "get_mailbox_settings",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get settings.",
     )
@@ -998,7 +1192,13 @@ def get_outlook_mailbox_settings(input_data: dict) -> dict:
     name="get_outlook_automatic_replies",
     description="Get the current out-of-office / automatic reply settings.",
     action_sets=["outlook_settings", "outlook"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_outlook_automatic_replies(input_data: dict) -> dict:
@@ -1007,6 +1207,7 @@ def get_outlook_automatic_replies(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "get_automatic_replies",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to get auto-replies.",
     )
@@ -1047,6 +1248,11 @@ def get_outlook_automatic_replies(input_data: dict) -> dict:
             "description": "ISO 8601 end (only for status=scheduled).",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1057,6 +1263,7 @@ def update_outlook_automatic_replies(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "update_automatic_replies",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to set auto-replies.",
         status=input_data["status"],
@@ -1076,7 +1283,13 @@ def update_outlook_automatic_replies(input_data: dict) -> dict:
     name="list_outlook_inbox_rules",
     description="List inbox rules (server-side mail rules).",
     action_sets=["outlook_settings"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_outlook_inbox_rules(input_data: dict) -> dict:
@@ -1085,6 +1298,7 @@ def list_outlook_inbox_rules(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_inbox_rules",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list rules.",
     )
@@ -1120,6 +1334,11 @@ def list_outlook_inbox_rules(input_data: dict) -> dict:
             "description": "Enable on create.",
             "example": True,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1130,6 +1349,7 @@ def create_outlook_inbox_rule(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "create_inbox_rule",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create rule.",
         display_name=input_data["display_name"],
@@ -1146,6 +1366,11 @@ def create_outlook_inbox_rule(input_data: dict) -> dict:
     action_sets=["outlook_settings"],
     input_schema={
         "rule_id": {"type": "string", "description": "Rule ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1156,6 +1381,7 @@ def delete_outlook_inbox_rule(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "delete_inbox_rule",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete rule.",
         rule_id=input_data["rule_id"],
@@ -1166,7 +1392,13 @@ def delete_outlook_inbox_rule(input_data: dict) -> dict:
     name="list_outlook_categories",
     description="List the user's master categories (color-coded tags for messages, calendar items, etc.).",
     action_sets=["outlook_settings"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_outlook_categories(input_data: dict) -> dict:
@@ -1175,6 +1407,7 @@ def list_outlook_categories(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "list_categories",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list categories.",
     )
@@ -1195,6 +1428,11 @@ def list_outlook_categories(input_data: dict) -> dict:
             "description": "preset0..preset24.",
             "example": "preset0",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1205,6 +1443,7 @@ def create_outlook_category(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "create_category",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to create category.",
         display_name=input_data["display_name"],
@@ -1218,6 +1457,11 @@ def create_outlook_category(input_data: dict) -> dict:
     action_sets=["outlook_settings"],
     input_schema={
         "category_id": {"type": "string", "description": "Category ID.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional Outlook account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1228,6 +1472,7 @@ def delete_outlook_category(input_data: dict) -> dict:
     return run_client_sync(
         "outlook",
         "delete_category",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to delete category.",
         category_id=input_data["category_id"],

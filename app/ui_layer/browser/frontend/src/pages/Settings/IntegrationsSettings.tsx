@@ -391,6 +391,37 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
   const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
+  // Mirrors managingIntegration for the same reason as selectedIntegrationRef
+  // above — used to refresh the accounts list after an "Add account" connect.
+  const managingIntegrationRef = React.useRef<Integration | null>(null)
+  useEffect(() => {
+    managingIntegrationRef.current = managingIntegration
+  }, [managingIntegration])
+
+  // Staged (not-yet-saved) account changes for the Manage modal. Alias edits,
+  // "Set primary", and "Disconnect" only update this local state — nothing
+  // reaches the backend until "Save changes" is clicked. "Add account" is the
+  // one exception: it's a real OAuth grant with Google/etc, so it always
+  // applies immediately (there's nothing to stage — the token already exists
+  // the moment the user approves it externally).
+  const [pendingAliases, setPendingAliases] = useState<Record<string, string>>({})
+  const [pendingPrimary, setPendingPrimary] = useState<string | null>(null)
+  const [pendingDisconnects, setPendingDisconnects] = useState<Set<string>>(new Set())
+
+  const resetPendingAccountChanges = () => {
+    setPendingAliases({})
+    setPendingPrimary(null)
+    setPendingDisconnects(new Set())
+  }
+
+  // Disconnect results normally close the Manage modal (single-account
+  // flow). During a staged batch save with pending disconnects, the modal
+  // should stay open and just refresh instead — this ref is the simplest
+  // way to tell the shared result handler which behavior applies, since the
+  // WS transport has no per-request correlation to key off of. Cleared a
+  // few seconds after firing, long enough for local disconnect calls to
+  // resolve.
+  const isSavingAccountChangesRef = React.useRef(false)
 
   // Slow operation overlay — shown during long disconnects (WhatsApp Web's
   // bridge teardown can take 20–30 seconds; without this the user has no
@@ -452,6 +483,13 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
           if (just && just.has_config && (just.config_fields?.length ?? 0) > 0) {
             send('integration_info', { id: just.id })
           }
+          // Add-account (from the Manage modal) doesn't go through
+          // selectedIntegration — refresh managingIntegration's accounts
+          // list directly so the new account shows up without a reload.
+          const managing = managingIntegrationRef.current
+          if (managing && d.id === managing.id) {
+            send('integration_info', { id: d.id })
+          }
         } else {
           setConnectError(d.error || d.message || 'Connection failed')
         }
@@ -462,11 +500,36 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
         // operation it was tracking.
         setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
-          showToast('success', d.message || 'Disconnected successfully')
-          setShowManageModal(false)
-          setManagingIntegration(null)
+          if (isSavingAccountChangesRef.current) {
+            // Part of a staged "Save changes" batch — keep the modal open
+            // and just refresh its accounts list instead of closing it.
+            if (d.id) send('integration_info', { id: d.id })
+          } else {
+            showToast('success', d.message || 'Disconnected successfully')
+            setShowManageModal(false)
+            setManagingIntegration(null)
+          }
         } else {
           showToast('error', d.error || 'Failed to disconnect')
+        }
+      }),
+      onMessage('integration_set_primary_result', (data: unknown) => {
+        const d = data as { success: boolean; message?: string; error?: string; id?: string }
+        if (d.success) {
+          showToast('success', d.message || 'Primary account updated')
+          // Stay on the Manage modal — refresh its accounts list in place.
+          if (d.id) send('integration_info', { id: d.id })
+        } else {
+          showToast('error', d.error || d.message || 'Failed to set primary account')
+        }
+      }),
+      onMessage('integration_set_alias_result', (data: unknown) => {
+        const d = data as { success: boolean; message?: string; error?: string; id?: string }
+        if (d.success) {
+          showToast('success', d.message || 'Nickname saved')
+          if (d.id) send('integration_info', { id: d.id })
+        } else {
+          showToast('error', d.error || d.message || 'Failed to set alias')
         }
       }),
       onMessage('integration_info', (data: unknown) => {
@@ -633,7 +696,15 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   }
 
   const handleOpenManage = (integration: Integration) => {
+    resetPendingAccountChanges()
     send('integration_info', { id: integration.id })
+  }
+
+  // Closing the modal without saving discards any staged alias/primary/
+  // disconnect edits — only "Save changes" commits them.
+  const handleCloseManage = () => {
+    setShowManageModal(false)
+    resetPendingAccountChanges()
   }
 
   const handleConnectToken = () => {
@@ -653,6 +724,15 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
     send('integration_connect_oauth', { id: selectedIntegration.id })
   }
 
+  // "Add account" in the Manage modal — same OAuth connect flow as the
+  // initial Connect button, just keyed off managingIntegration instead of
+  // selectedIntegration. On success the connect_result handler below
+  // refreshes managingIntegration so the new account shows up immediately.
+  const handleAddAccount = () => {
+    if (!managingIntegration) return
+    send('integration_connect_oauth', { id: managingIntegration.id })
+  }
+
   const handleConnectInteractive = () => {
     if (!selectedIntegration) return
     setIsConnecting(true)
@@ -664,6 +744,96 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
   // user gets visible feedback during the bridge teardown (which can take
   // 20–30 seconds for WhatsApp Web). Add other slow integrations here.
   const SLOW_DISCONNECT_IDS = new Set(['whatsapp_web'])
+
+  // Integrations whose backend credential storage supports more than one
+  // connected account — see craftos_integrations/accounts.py and each
+  // integration's list_accounts()/set_primary()/set_alias() overrides.
+  // "Add account" and the alias/primary controls are hidden for everything
+  // else since their storage still overwrites the single credential file
+  // on reconnect.
+  const MULTI_ACCOUNT_IDS = new Set([
+    'gmail',
+    'google_calendar',
+    'google_drive',
+    'google_docs',
+    'google_youtube',
+    'outlook',
+    'linkedin',
+    'notion',
+    'hubspot',
+    'slack',
+  ])
+
+  // Stage a primary-account change — applied only on "Save changes".
+  const handleSetPrimary = (accountId: string) => {
+    setPendingPrimary(accountId)
+  }
+
+  // Stage an alias edit — applied only on "Save changes".
+  const handleAliasInputChange = (accountId: string, value: string) => {
+    setPendingAliases(prev => ({ ...prev, [accountId]: value }))
+  }
+
+  // Toggle an account between "marked for removal" and normal — applied
+  // only on "Save changes". Un-staging a pending primary choice if that
+  // same account gets marked for removal (disconnecting your chosen new
+  // primary makes no sense).
+  const handleToggleStagedDisconnect = (accountId: string) => {
+    setPendingDisconnects(prev => {
+      const next = new Set(prev)
+      if (next.has(accountId)) {
+        next.delete(accountId)
+      } else {
+        next.add(accountId)
+      }
+      return next
+    })
+    setPendingPrimary(prev => (prev === accountId ? null : prev))
+  }
+
+  const hasPendingAccountChanges =
+    pendingDisconnects.size > 0 ||
+    pendingPrimary !== null ||
+    Object.entries(pendingAliases).some(
+      ([id, val]) =>
+        val.trim() !==
+        (managingIntegration?.accounts.find(a => a.id === id)?.alias ?? ''),
+    )
+
+  const handleSaveAccountChanges = () => {
+    if (!managingIntegration) return
+    const id = managingIntegration.id
+    const realPrimaryId = managingIntegration.accounts.find(a => a.is_primary)?.id
+
+    if (pendingDisconnects.size > 0) {
+      isSavingAccountChangesRef.current = true
+      setTimeout(() => {
+        isSavingAccountChangesRef.current = false
+      }, 4000)
+    }
+
+    pendingDisconnects.forEach(accountId => {
+      send('integration_disconnect', { id, account_id: accountId })
+    })
+
+    if (
+      pendingPrimary &&
+      pendingPrimary !== realPrimaryId &&
+      !pendingDisconnects.has(pendingPrimary)
+    ) {
+      send('integration_set_primary', { id, account_id: pendingPrimary })
+    }
+
+    Object.entries(pendingAliases).forEach(([accountId, alias]) => {
+      if (pendingDisconnects.has(accountId)) return
+      const current = managingIntegration.accounts.find(a => a.id === accountId)?.alias ?? ''
+      if (alias.trim() !== current) {
+        send('integration_set_alias', { id, account_id: accountId, alias: alias.trim() })
+      }
+    })
+
+    resetPendingAccountChanges()
+  }
 
   const handleDisconnect = (accountId?: string) => {
     if (!managingIntegration) return
@@ -1117,11 +1287,11 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
 
       {/* Manage Modal */}
       {showManageModal && managingIntegration && (
-        <div className={styles.modalOverlay} onClick={() => setShowManageModal(false)}>
+        <div className={styles.modalOverlay} onClick={handleCloseManage}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3>Manage {managingIntegration.name}</h3>
-              <button className={styles.modalClose} onClick={() => setShowManageModal(false)}>
+              <button className={styles.modalClose} onClick={handleCloseManage}>
                 <X size={18} />
               </button>
             </div>
@@ -1131,18 +1301,104 @@ export function IntegrationsSettings({ hideHeader = false }: { hideHeader?: bool
                 <p className={styles.noAccounts}>No accounts connected</p>
               ) : (
                 <div className={styles.accountsList}>
-                  {managingIntegration.accounts.map(account => (
-                    <div key={account.id} className={styles.accountItem}>
-                      <span className={styles.accountName}>{account.display}</span>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDisconnect(account.id)}
+                  {managingIntegration.accounts.map(account => {
+                    const supportsMultiAccount = MULTI_ACCOUNT_IDS.has(managingIntegration.id)
+                    const realPrimaryId = managingIntegration.accounts.find(a => a.is_primary)?.id
+                    const isEffectivePrimary = supportsMultiAccount
+                      ? (pendingPrimary ?? realPrimaryId) === account.id
+                      : account.is_primary
+                    const isStagedForRemoval = pendingDisconnects.has(account.id)
+                    const aliasValue = pendingAliases[account.id] ?? account.alias ?? ''
+                    const hasPendingEdit =
+                      isStagedForRemoval ||
+                      (pendingPrimary === account.id && account.id !== realPrimaryId) ||
+                      aliasValue.trim() !== (account.alias ?? '')
+                    return (
+                      <div
+                        key={account.id}
+                        className={
+                          isStagedForRemoval
+                            ? `${styles.accountItem} ${styles.accountItemPendingRemoval}`
+                            : styles.accountItem
+                        }
                       >
-                        Disconnect
+                        <div className={styles.accountName}>
+                          <span className={styles.accountNameTop} title={account.display}>
+                            {account.display}
+                            {isEffectivePrimary && <Badge variant="info">Primary</Badge>}
+                            {hasPendingEdit && <Badge variant="warning">Unsaved</Badge>}
+                          </span>
+                          {/* Alias hides the real identity above — show it here so
+                              renaming an account never loses track of which one it is. */}
+                          {account.alias && (
+                            <span className={styles.accountIdentity} title={account.id}>
+                              {account.id}
+                            </span>
+                          )}
+                        </div>
+                        <div className={styles.accountControls}>
+                          {supportsMultiAccount && (
+                            <input
+                              type="text"
+                              value={aliasValue}
+                              placeholder="Add a nickname"
+                              className={styles.aliasInput}
+                              disabled={isStagedForRemoval}
+                              onChange={e => handleAliasInputChange(account.id, e.target.value)}
+                            />
+                          )}
+                          {supportsMultiAccount && !isEffectivePrimary && !isStagedForRemoval && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleSetPrimary(account.id)}
+                            >
+                              Set primary
+                            </Button>
+                          )}
+                          {supportsMultiAccount ? (
+                            <Button
+                              variant={isStagedForRemoval ? 'secondary' : 'danger'}
+                              size="sm"
+                              onClick={() => handleToggleStagedDisconnect(account.id)}
+                            >
+                              {isStagedForRemoval ? 'Undo' : 'Disconnect'}
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDisconnect(account.id)}
+                            >
+                              Disconnect
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {MULTI_ACCOUNT_IDS.has(managingIntegration.id) && (
+                <div className={styles.accountsFooter}>
+                  <Button variant="secondary" size="sm" onClick={handleAddAccount}>
+                    <Plus size={14} /> Add account
+                  </Button>
+                  <div className={styles.accountsSaveBar}>
+                    {hasPendingAccountChanges && (
+                      <Button variant="ghost" size="sm" onClick={resetPendingAccountChanges}>
+                        Discard changes
                       </Button>
-                    </div>
-                  ))}
+                    )}
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={!hasPendingAccountChanges}
+                      onClick={handleSaveAccountChanges}
+                    >
+                      Save changes
+                    </Button>
+                  </div>
                 </div>
               )}
               {/* Configure — schema-driven form, only shown for integrations

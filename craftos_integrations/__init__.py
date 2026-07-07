@@ -90,6 +90,8 @@ from .service import (
     list_metadata,
     parse_status_accounts,
     send_message,
+    set_account_alias,
+    set_primary_account,
     status,
     update_config,
 )
@@ -141,6 +143,8 @@ __all__ = [
     "list_connected",
     "list_all",
     "disconnect",
+    "set_primary_account",
+    "set_account_alias",
     "status",
     # Metadata + connect dispatchers
     "get_metadata",

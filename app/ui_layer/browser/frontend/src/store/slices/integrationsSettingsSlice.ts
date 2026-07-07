@@ -11,6 +11,12 @@ export interface IntegrationField {
 export interface IntegrationAccount {
   display: string
   id: string
+  // Present only for integrations whose backend supports multiple accounts
+  // (Gmail, Calendar, Drive, Docs, YouTube, Outlook, LinkedIn, Notion,
+  // HubSpot, Slack) — see craftos_integrations/accounts.py. Absent/undefined
+  // for single-account integrations.
+  alias?: string | null
+  is_primary?: boolean
 }
 
 // Schema for a single config input rendered by the Configure section in

@@ -44,6 +44,11 @@ from agent_core import action
             "description": "Include archived contacts.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -54,6 +59,7 @@ async def list_hubspot_contacts(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_contacts",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -81,6 +87,11 @@ async def list_hubspot_contacts(input_data: dict) -> dict:
             "description": "Comma-separated object types to include associations for.",
             "example": "companies,deals",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -92,6 +103,7 @@ async def get_hubspot_contact(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_contact",
+        account=input_data.get("account"),
         contact_id=input_data["contact_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -112,6 +124,11 @@ async def get_hubspot_contact(input_data: dict) -> dict:
                 "lastname": "Doe",
             },
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -122,6 +139,7 @@ async def create_hubspot_contact(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_contact",
+        account=input_data.get("account"),
         properties=input_data["properties"],
     )
 
@@ -141,6 +159,11 @@ async def create_hubspot_contact(input_data: dict) -> dict:
             "description": "Properties to update (flat dict).",
             "example": {"phone": "+1-555-0100"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -151,6 +174,7 @@ async def update_hubspot_contact(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_contact",
+        account=input_data.get("account"),
         contact_id=input_data["contact_id"],
         properties=input_data["properties"],
     )
@@ -166,6 +190,11 @@ async def update_hubspot_contact(input_data: dict) -> dict:
             "description": "Contact ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -174,7 +203,10 @@ async def delete_hubspot_contact(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_contact", contact_id=input_data["contact_id"]
+        "hubspot",
+        "delete_contact",
+        account=input_data.get("account"),
+        contact_id=input_data["contact_id"],
     )
 
 
@@ -214,6 +246,11 @@ async def delete_hubspot_contact(input_data: dict) -> dict:
             "example": 30,
         },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -224,6 +261,7 @@ async def search_hubspot_contacts(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "search_contacts",
+        account=input_data.get("account"),
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -247,6 +285,11 @@ async def search_hubspot_contacts(input_data: dict) -> dict:
             "description": "Comma-separated properties to return.",
             "example": "email,firstname",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -257,6 +300,7 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "batch_get_contacts",
+        account=input_data.get("account"),
         ids=input_data["ids"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
@@ -272,6 +316,11 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
             "description": "List of property dicts.",
             "example": [{"email": "a@x.com"}, {"email": "b@x.com"}],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -280,7 +329,10 @@ async def batch_create_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "batch_create_contacts", records=input_data["records"]
+        "hubspot",
+        "batch_create_contacts",
+        account=input_data.get("account"),
+        records=input_data["records"],
     )
 
 
@@ -299,6 +351,11 @@ async def batch_create_hubspot_contacts(input_data: dict) -> dict:
             "description": "Contact ID that gets merged INTO the primary.",
             "example": "456",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -309,6 +366,7 @@ async def merge_hubspot_contacts(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "merge_contacts",
+        account=input_data.get("account"),
         primary_id=input_data["primary_id"],
         id_to_merge=input_data["id_to_merge"],
     )
@@ -340,6 +398,11 @@ async def merge_hubspot_contacts(input_data: dict) -> dict:
             "description": "Include archived.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -350,6 +413,7 @@ async def list_hubspot_companies(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_companies",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -377,6 +441,11 @@ async def list_hubspot_companies(input_data: dict) -> dict:
             "description": "Comma-separated association types.",
             "example": "contacts,deals",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -388,6 +457,7 @@ async def get_hubspot_company(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_company",
+        account=input_data.get("account"),
         company_id=input_data["company_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -404,6 +474,11 @@ async def get_hubspot_company(input_data: dict) -> dict:
             "description": "Flat property dict.",
             "example": {"name": "Acme Co", "domain": "acme.com"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -412,7 +487,10 @@ async def create_hubspot_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_company", properties=input_data["properties"]
+        "hubspot",
+        "create_company",
+        account=input_data.get("account"),
+        properties=input_data["properties"],
     )
 
 
@@ -431,6 +509,11 @@ async def create_hubspot_company(input_data: dict) -> dict:
             "description": "Properties to update.",
             "example": {"industry": "Software"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -441,6 +524,7 @@ async def update_hubspot_company(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_company",
+        account=input_data.get("account"),
         company_id=input_data["company_id"],
         properties=input_data["properties"],
     )
@@ -456,6 +540,11 @@ async def update_hubspot_company(input_data: dict) -> dict:
             "description": "Company ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -464,7 +553,10 @@ async def delete_hubspot_company(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_company", company_id=input_data["company_id"]
+        "hubspot",
+        "delete_company",
+        account=input_data.get("account"),
+        company_id=input_data["company_id"],
     )
 
 
@@ -500,6 +592,11 @@ async def delete_hubspot_company(input_data: dict) -> dict:
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -510,6 +607,7 @@ async def search_hubspot_companies(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "search_companies",
+        account=input_data.get("account"),
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -533,6 +631,11 @@ async def search_hubspot_companies(input_data: dict) -> dict:
             "description": "Comma-separated properties.",
             "example": "name,domain",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -543,6 +646,7 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "batch_get_companies",
+        account=input_data.get("account"),
         ids=input_data["ids"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
@@ -558,6 +662,11 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
             "description": "List of property dicts.",
             "example": [{"name": "Acme"}, {"name": "Foo"}],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -566,7 +675,10 @@ async def batch_create_hubspot_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "batch_create_companies", records=input_data["records"]
+        "hubspot",
+        "batch_create_companies",
+        account=input_data.get("account"),
+        records=input_data["records"],
     )
 
 
@@ -592,6 +704,11 @@ async def batch_create_hubspot_companies(input_data: dict) -> dict:
             "description": "Include archived.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -602,6 +719,7 @@ async def list_hubspot_deals(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_deals",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -629,6 +747,11 @@ async def list_hubspot_deals(input_data: dict) -> dict:
             "description": "Comma-separated association types.",
             "example": "contacts,companies",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -640,6 +763,7 @@ async def get_hubspot_deal(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_deal",
+        account=input_data.get("account"),
         deal_id=input_data["deal_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -660,6 +784,11 @@ async def get_hubspot_deal(input_data: dict) -> dict:
                 "dealstage": "qualifiedtobuy",
             },
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -668,7 +797,10 @@ async def create_hubspot_deal(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_deal", properties=input_data["properties"]
+        "hubspot",
+        "create_deal",
+        account=input_data.get("account"),
+        properties=input_data["properties"],
     )
 
 
@@ -687,6 +819,11 @@ async def create_hubspot_deal(input_data: dict) -> dict:
             "description": "Properties to update.",
             "example": {"amount": "75000"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -697,6 +834,7 @@ async def update_hubspot_deal(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_deal",
+        account=input_data.get("account"),
         deal_id=input_data["deal_id"],
         properties=input_data["properties"],
     )
@@ -712,6 +850,11 @@ async def update_hubspot_deal(input_data: dict) -> dict:
             "description": "Deal ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -719,7 +862,12 @@ async def update_hubspot_deal(input_data: dict) -> dict:
 async def delete_hubspot_deal(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_deal", deal_id=input_data["deal_id"])
+    return await run_client(
+        "hubspot",
+        "delete_deal",
+        account=input_data.get("account"),
+        deal_id=input_data["deal_id"],
+    )
 
 
 @action(
@@ -754,6 +902,11 @@ async def delete_hubspot_deal(input_data: dict) -> dict:
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -764,6 +917,7 @@ async def search_hubspot_deals(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "search_deals",
+        account=input_data.get("account"),
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -782,6 +936,11 @@ async def search_hubspot_deals(input_data: dict) -> dict:
             "description": "List of property dicts.",
             "example": [{"dealname": "A"}, {"dealname": "B"}],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -790,7 +949,10 @@ async def batch_create_hubspot_deals(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "batch_create_deals", records=input_data["records"]
+        "hubspot",
+        "batch_create_deals",
+        account=input_data.get("account"),
+        records=input_data["records"],
     )
 
 
@@ -809,6 +971,11 @@ async def batch_create_hubspot_deals(input_data: dict) -> dict:
             "description": "Target stage ID (use list_hubspot_pipeline_stages to find).",
             "example": "closedwon",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -819,6 +986,7 @@ async def move_hubspot_deal_stage(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "move_deal_stage",
+        account=input_data.get("account"),
         deal_id=input_data["deal_id"],
         stage_id=input_data["stage_id"],
     )
@@ -836,6 +1004,11 @@ async def move_hubspot_deal_stage(input_data: dict) -> dict:
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -845,6 +1018,7 @@ async def list_hubspot_deals_by_pipeline(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_deals_by_pipeline",
+        account=input_data.get("account"),
         pipeline_id=input_data["pipeline_id"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -873,6 +1047,11 @@ async def list_hubspot_deals_by_pipeline(input_data: dict) -> dict:
             "description": "Include archived.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -883,6 +1062,7 @@ async def list_hubspot_tickets(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_tickets",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -910,6 +1090,11 @@ async def list_hubspot_tickets(input_data: dict) -> dict:
             "description": "Comma-separated association types.",
             "example": "contacts,companies",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -921,6 +1106,7 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_ticket",
+        account=input_data.get("account"),
         ticket_id=input_data["ticket_id"],
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         associations=[a.strip() for a in assocs.split(",") if a.strip()] or None,
@@ -941,6 +1127,11 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
                 "hs_ticket_priority": "HIGH",
             },
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -949,7 +1140,10 @@ async def create_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "create_ticket", properties=input_data["properties"]
+        "hubspot",
+        "create_ticket",
+        account=input_data.get("account"),
+        properties=input_data["properties"],
     )
 
 
@@ -968,6 +1162,11 @@ async def create_hubspot_ticket(input_data: dict) -> dict:
             "description": "Properties to update.",
             "example": {"hs_ticket_priority": "URGENT"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -978,6 +1177,7 @@ async def update_hubspot_ticket(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_ticket",
+        account=input_data.get("account"),
         ticket_id=input_data["ticket_id"],
         properties=input_data["properties"],
     )
@@ -993,6 +1193,11 @@ async def update_hubspot_ticket(input_data: dict) -> dict:
             "description": "Ticket ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1001,7 +1206,10 @@ async def delete_hubspot_ticket(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_ticket", ticket_id=input_data["ticket_id"]
+        "hubspot",
+        "delete_ticket",
+        account=input_data.get("account"),
+        ticket_id=input_data["ticket_id"],
     )
 
 
@@ -1037,6 +1245,11 @@ async def delete_hubspot_ticket(input_data: dict) -> dict:
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1047,6 +1260,7 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "search_tickets",
+        account=input_data.get("account"),
         query=input_data.get("query") or None,
         filter_groups=input_data.get("filter_groups") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1070,6 +1284,11 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
             "description": "Closed-stage ID for this pipeline (use list_hubspot_pipeline_stages).",
             "example": "4",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1080,6 +1299,7 @@ async def close_hubspot_ticket(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "close_ticket",
+        account=input_data.get("account"),
         ticket_id=input_data["ticket_id"],
         closed_stage_id=input_data["closed_stage_id"],
     )
@@ -1097,6 +1317,11 @@ async def close_hubspot_ticket(input_data: dict) -> dict:
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1106,6 +1331,7 @@ async def list_hubspot_tickets_by_pipeline(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_tickets_by_pipeline",
+        account=input_data.get("account"),
         pipeline_id=input_data["pipeline_id"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -1129,6 +1355,11 @@ async def list_hubspot_tickets_by_pipeline(input_data: dict) -> dict:
             "description": "Comma-separated properties.",
             "example": "hs_task_subject,hs_task_status,hs_timestamp",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1139,6 +1370,7 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_tasks",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1190,6 +1422,11 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
             "description": "ID of the associated object.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1200,6 +1437,7 @@ async def create_hubspot_task(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_task",
+        account=input_data.get("account"),
         subject=input_data["subject"],
         body=input_data.get("body", ""),
         due_timestamp_ms=input_data.get("due_timestamp_ms"),
@@ -1226,6 +1464,11 @@ async def create_hubspot_task(input_data: dict) -> dict:
             "description": "Properties to update.",
             "example": {"hs_task_status": "COMPLETED"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1236,6 +1479,7 @@ async def update_hubspot_task(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_task",
+        account=input_data.get("account"),
         task_id=input_data["task_id"],
         properties=input_data["properties"],
     )
@@ -1251,6 +1495,11 @@ async def update_hubspot_task(input_data: dict) -> dict:
             "description": "Task ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1258,7 +1507,12 @@ async def update_hubspot_task(input_data: dict) -> dict:
 async def delete_hubspot_task(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_task", task_id=input_data["task_id"])
+    return await run_client(
+        "hubspot",
+        "delete_task",
+        account=input_data.get("account"),
+        task_id=input_data["task_id"],
+    )
 
 
 @action(
@@ -1273,6 +1527,11 @@ async def delete_hubspot_task(input_data: dict) -> dict:
             "description": "Comma-separated properties.",
             "example": "hs_note_body,hs_timestamp",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1283,6 +1542,7 @@ async def list_hubspot_notes(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_notes",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1310,6 +1570,11 @@ async def list_hubspot_notes(input_data: dict) -> dict:
             "description": "ID of associated object.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1320,6 +1585,7 @@ async def create_hubspot_note(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_note",
+        account=input_data.get("account"),
         body=input_data["body"],
         owner_id=input_data.get("owner_id") or None,
         associated_object_type=input_data.get("associated_object_type") or None,
@@ -1337,6 +1603,11 @@ async def create_hubspot_note(input_data: dict) -> dict:
             "description": "Note ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1344,7 +1615,12 @@ async def create_hubspot_note(input_data: dict) -> dict:
 async def delete_hubspot_note(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_note", note_id=input_data["note_id"])
+    return await run_client(
+        "hubspot",
+        "delete_note",
+        account=input_data.get("account"),
+        note_id=input_data["note_id"],
+    )
 
 
 @action(
@@ -1359,6 +1635,11 @@ async def delete_hubspot_note(input_data: dict) -> dict:
             "description": "Comma-separated properties.",
             "example": "hs_call_title,hs_call_duration,hs_call_direction",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1369,6 +1650,7 @@ async def list_hubspot_calls(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_calls",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1431,6 +1713,11 @@ async def list_hubspot_calls(input_data: dict) -> dict:
             "description": "Associated object ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1441,6 +1728,7 @@ async def log_hubspot_call(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "log_call",
+        account=input_data.get("account"),
         title=input_data["title"],
         body=input_data.get("body", ""),
         timestamp_ms=input_data.get("timestamp_ms"),
@@ -1467,6 +1755,11 @@ async def log_hubspot_call(input_data: dict) -> dict:
             "description": "Comma-separated properties.",
             "example": "hs_email_subject,hs_email_direction",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1477,6 +1770,7 @@ async def list_hubspot_emails(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_emails",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1534,6 +1828,11 @@ async def list_hubspot_emails(input_data: dict) -> dict:
             "description": "Associated object ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1544,6 +1843,7 @@ async def log_hubspot_email(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "log_email",
+        account=input_data.get("account"),
         subject=input_data["subject"],
         text_body=input_data.get("text_body", ""),
         html_body=input_data.get("html_body", ""),
@@ -1569,6 +1869,11 @@ async def log_hubspot_email(input_data: dict) -> dict:
             "description": "Comma-separated properties.",
             "example": "hs_meeting_title,hs_meeting_start_time",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1579,6 +1884,7 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_meetings",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
@@ -1631,6 +1937,11 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
             "description": "Associated object ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1641,6 +1952,7 @@ async def create_hubspot_meeting(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_meeting",
+        account=input_data.get("account"),
         title=input_data["title"],
         body=input_data.get("body", ""),
         start_timestamp_ms=input_data["start_timestamp_ms"],
@@ -1663,6 +1975,11 @@ async def create_hubspot_meeting(input_data: dict) -> dict:
             "description": "Meeting ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1671,7 +1988,10 @@ async def delete_hubspot_meeting(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "delete_meeting", meeting_id=input_data["meeting_id"]
+        "hubspot",
+        "delete_meeting",
+        account=input_data.get("account"),
+        meeting_id=input_data["meeting_id"],
     )
 
 
@@ -1695,6 +2015,11 @@ async def delete_hubspot_meeting(input_data: dict) -> dict:
             "description": "Optional: specific list IDs to fetch.",
             "example": [],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1704,6 +2029,7 @@ async def list_hubspot_lists(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_lists",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         list_ids=input_data.get("list_ids") or None,
     )
@@ -1715,13 +2041,23 @@ async def list_hubspot_lists(input_data: dict) -> dict:
     action_sets=["hubspot_lists"],
     input_schema={
         "list_id": {"type": "string", "description": "List ID.", "example": "1"},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_hubspot_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "get_list", list_id=input_data["list_id"])
+    return await run_client(
+        "hubspot",
+        "get_list",
+        account=input_data.get("account"),
+        list_id=input_data["list_id"],
+    )
 
 
 @action(
@@ -1749,6 +2085,11 @@ async def get_hubspot_list(input_data: dict) -> dict:
             "description": "Filter tree for DYNAMIC lists.",
             "example": {},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1759,6 +2100,7 @@ async def create_hubspot_list(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_list",
+        account=input_data.get("account"),
         name=input_data["name"],
         object_type_id=input_data.get("object_type_id", "0-1"),
         processing_type=input_data.get("processing_type", "MANUAL"),
@@ -1772,6 +2114,11 @@ async def create_hubspot_list(input_data: dict) -> dict:
     action_sets=["hubspot_lists"],
     input_schema={
         "list_id": {"type": "string", "description": "List ID.", "example": "1"},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1779,7 +2126,12 @@ async def create_hubspot_list(input_data: dict) -> dict:
 async def delete_hubspot_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_list", list_id=input_data["list_id"])
+    return await run_client(
+        "hubspot",
+        "delete_list",
+        account=input_data.get("account"),
+        list_id=input_data["list_id"],
+    )
 
 
 @action(
@@ -1793,6 +2145,11 @@ async def delete_hubspot_list(input_data: dict) -> dict:
             "description": "Contact IDs to add.",
             "example": ["123", "456"],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1803,6 +2160,7 @@ async def add_contacts_to_hubspot_list(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "add_contacts_to_list",
+        account=input_data.get("account"),
         list_id=input_data["list_id"],
         contact_ids=input_data["contact_ids"],
     )
@@ -1819,6 +2177,11 @@ async def add_contacts_to_hubspot_list(input_data: dict) -> dict:
             "description": "Contact IDs to remove.",
             "example": ["123", "456"],
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1829,6 +2192,7 @@ async def remove_contacts_from_hubspot_list(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "remove_contacts_from_list",
+        account=input_data.get("account"),
         list_id=input_data["list_id"],
         contact_ids=input_data["contact_ids"],
     )
@@ -1849,6 +2213,11 @@ async def remove_contacts_from_hubspot_list(input_data: dict) -> dict:
             "description": "Object type: deals or tickets.",
             "example": "deals",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1856,7 +2225,10 @@ async def list_hubspot_pipelines(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_pipelines", object_type=input_data["object_type"]
+        "hubspot",
+        "list_pipelines",
+        account=input_data.get("account"),
+        object_type=input_data["object_type"],
     )
 
 
@@ -1875,6 +2247,11 @@ async def list_hubspot_pipelines(input_data: dict) -> dict:
             "description": "Pipeline ID.",
             "example": "default",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1884,6 +2261,7 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_pipeline",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
     )
@@ -1916,6 +2294,11 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
             "description": "Display order among pipelines.",
             "example": 0,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1926,6 +2309,7 @@ async def create_hubspot_pipeline(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_pipeline",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         label=input_data["label"],
         stages=input_data["stages"],
@@ -1948,6 +2332,11 @@ async def create_hubspot_pipeline(input_data: dict) -> dict:
             "description": "Pipeline ID.",
             "example": "default",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -1957,6 +2346,7 @@ async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_pipeline_stages",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
     )
@@ -1987,6 +2377,11 @@ async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
             "description": "Stage fields to update.",
             "example": {"label": "Qualified — Buying"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -1997,6 +2392,7 @@ async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_pipeline_stage",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
         stage_id=input_data["stage_id"],
@@ -2024,6 +2420,11 @@ async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
             "description": "Max results (1-500).",
             "example": 100,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2033,6 +2434,7 @@ async def list_hubspot_owners(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_owners",
+        account=input_data.get("account"),
         email=input_data.get("email") or None,
         limit=input_data.get("limit", 100),
     )
@@ -2044,13 +2446,23 @@ async def list_hubspot_owners(input_data: dict) -> dict:
     action_sets=["hubspot_owners"],
     input_schema={
         "owner_id": {"type": "string", "description": "Owner ID.", "example": "12345"},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_hubspot_owner(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "get_owner", owner_id=input_data["owner_id"])
+    return await run_client(
+        "hubspot",
+        "get_owner",
+        account=input_data.get("account"),
+        owner_id=input_data["owner_id"],
+    )
 
 
 # ==================================================================
@@ -2068,6 +2480,11 @@ async def get_hubspot_owner(input_data: dict) -> dict:
             "description": "contacts/companies/deals/tickets or custom schema name.",
             "example": "contacts",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2075,7 +2492,10 @@ async def list_hubspot_properties(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "list_properties", object_type=input_data["object_type"]
+        "hubspot",
+        "list_properties",
+        account=input_data.get("account"),
+        object_type=input_data["object_type"],
     )
 
 
@@ -2094,6 +2514,11 @@ async def list_hubspot_properties(input_data: dict) -> dict:
             "description": "Property internal name.",
             "example": "firstname",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2103,6 +2528,7 @@ async def get_hubspot_property(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_property",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         property_name=input_data["property_name"],
     )
@@ -2129,6 +2555,11 @@ async def get_hubspot_property(input_data: dict) -> dict:
                 "groupName": "contactinformation",
             },
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2139,6 +2570,7 @@ async def create_hubspot_property(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_property",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         definition=input_data["definition"],
     )
@@ -2164,6 +2596,11 @@ async def create_hubspot_property(input_data: dict) -> dict:
             "description": "Fields to update.",
             "example": {"label": "Color preference"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2174,6 +2611,7 @@ async def update_hubspot_property(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "update_property",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         property_name=input_data["property_name"],
         definition=input_data["definition"],
@@ -2195,6 +2633,11 @@ async def update_hubspot_property(input_data: dict) -> dict:
             "description": "Property internal name.",
             "example": "favorite_color",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2205,6 +2648,7 @@ async def delete_hubspot_property(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "delete_property",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
         property_name=input_data["property_name"],
     )
@@ -2220,6 +2664,11 @@ async def delete_hubspot_property(input_data: dict) -> dict:
             "description": "Object type.",
             "example": "contacts",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2229,6 +2678,7 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_property_groups",
+        account=input_data.get("account"),
         object_type=input_data["object_type"],
     )
 
@@ -2268,6 +2718,11 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
             "description": "Optional: specific association type ID (use list_hubspot_association_types).",
             "example": 0,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2278,6 +2733,7 @@ async def create_hubspot_association(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_association",
+        account=input_data.get("account"),
         from_object_type=input_data["from_object_type"],
         from_object_id=input_data["from_object_id"],
         to_object_type=input_data["to_object_type"],
@@ -2312,6 +2768,11 @@ async def create_hubspot_association(input_data: dict) -> dict:
             "example": 100,
         },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2321,6 +2782,7 @@ async def list_hubspot_associations(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_associations",
+        account=input_data.get("account"),
         from_object_type=input_data["from_object_type"],
         from_object_id=input_data["from_object_id"],
         to_object_type=input_data["to_object_type"],
@@ -2354,6 +2816,11 @@ async def list_hubspot_associations(input_data: dict) -> dict:
             "description": "Target ID.",
             "example": "456",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2364,6 +2831,7 @@ async def delete_hubspot_association(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "delete_association",
+        account=input_data.get("account"),
         from_object_type=input_data["from_object_type"],
         from_object_id=input_data["from_object_id"],
         to_object_type=input_data["to_object_type"],
@@ -2386,6 +2854,11 @@ async def delete_hubspot_association(input_data: dict) -> dict:
             "description": "Target type.",
             "example": "contacts",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2395,6 +2868,7 @@ async def list_hubspot_association_types(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_association_types",
+        account=input_data.get("account"),
         from_object_type=input_data["from_object_type"],
         to_object_type=input_data["to_object_type"],
     )
@@ -2412,6 +2886,11 @@ async def list_hubspot_association_types(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2421,6 +2900,7 @@ async def list_hubspot_forms(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_forms",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -2436,13 +2916,23 @@ async def list_hubspot_forms(input_data: dict) -> dict:
             "description": "Form GUID.",
             "example": "abc12345-6789-0abc-def0-123456789abc",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_hubspot_form(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "get_form", form_id=input_data["form_id"])
+    return await run_client(
+        "hubspot",
+        "get_form",
+        account=input_data.get("account"),
+        form_id=input_data["form_id"],
+    )
 
 
 @action(
@@ -2473,6 +2963,11 @@ async def get_hubspot_form(input_data: dict) -> dict:
             "description": "Optional context (hutk, pageUrl, pageName, ipAddress).",
             "example": {"pageName": "Demo Request"},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2483,6 +2978,7 @@ async def submit_hubspot_form(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "submit_form",
+        account=input_data.get("account"),
         portal_id=input_data["portal_id"],
         form_guid=input_data["form_guid"],
         fields=input_data["fields"],
@@ -2506,6 +3002,11 @@ async def submit_hubspot_form(input_data: dict) -> dict:
             "example": 30,
         },
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2515,6 +3016,7 @@ async def list_hubspot_form_submissions(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_form_submissions",
+        account=input_data.get("account"),
         form_guid=input_data["form_guid"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -2533,6 +3035,11 @@ async def list_hubspot_form_submissions(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2542,6 +3049,7 @@ async def list_hubspot_marketing_emails(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_marketing_emails",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -2557,6 +3065,11 @@ async def list_hubspot_marketing_emails(input_data: dict) -> dict:
             "description": "Marketing email ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2564,7 +3077,10 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_marketing_email", email_id=input_data["email_id"]
+        "hubspot",
+        "get_marketing_email",
+        account=input_data.get("account"),
+        email_id=input_data["email_id"],
     )
 
 
@@ -2594,6 +3110,11 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
             "description": "Optional contact-property overrides.",
             "example": {},
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2604,6 +3125,7 @@ async def send_hubspot_single_send(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "send_single_email",
+        account=input_data.get("account"),
         email_id=input_data["email_id"],
         to_email=input_data["to_email"],
         custom_properties=input_data.get("custom_properties") or None,
@@ -2621,6 +3143,11 @@ async def send_hubspot_single_send(input_data: dict) -> dict:
             "description": "Marketing email ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2630,6 +3157,7 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "get_marketing_email_statistics",
+        account=input_data.get("account"),
         email_id=input_data["email_id"],
     )
 
@@ -2664,6 +3192,11 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
             "description": "Overwrite existing file with the same name.",
             "example": False,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2674,6 +3207,7 @@ async def upload_hubspot_file(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "upload_file",
+        account=input_data.get("account"),
         file_path=input_data["file_path"],
         folder_path=input_data.get("folder_path", "/"),
         access=input_data.get("access", "PRIVATE"),
@@ -2691,13 +3225,23 @@ async def upload_hubspot_file(input_data: dict) -> dict:
             "description": "File ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_hubspot_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "get_file", file_id=input_data["file_id"])
+    return await run_client(
+        "hubspot",
+        "get_file",
+        account=input_data.get("account"),
+        file_id=input_data["file_id"],
+    )
 
 
 @action(
@@ -2710,6 +3254,11 @@ async def get_hubspot_file(input_data: dict) -> dict:
             "description": "File ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2717,7 +3266,12 @@ async def get_hubspot_file(input_data: dict) -> dict:
 async def delete_hubspot_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("hubspot", "delete_file", file_id=input_data["file_id"])
+    return await run_client(
+        "hubspot",
+        "delete_file",
+        account=input_data.get("account"),
+        file_id=input_data["file_id"],
+    )
 
 
 @action(
@@ -2727,6 +3281,11 @@ async def delete_hubspot_file(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2736,6 +3295,7 @@ async def list_hubspot_folders(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_folders",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -2753,6 +3313,11 @@ async def list_hubspot_folders(input_data: dict) -> dict:
     input_schema={
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2762,6 +3327,7 @@ async def list_hubspot_conversations(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_conversations",
+        account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
@@ -2777,6 +3343,11 @@ async def list_hubspot_conversations(input_data: dict) -> dict:
             "description": "Thread ID.",
             "example": "123456789",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2784,7 +3355,10 @@ async def get_hubspot_conversation(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "hubspot", "get_conversation", thread_id=input_data["thread_id"]
+        "hubspot",
+        "get_conversation",
+        account=input_data.get("account"),
+        thread_id=input_data["thread_id"],
     )
 
 
@@ -2800,6 +3374,11 @@ async def get_hubspot_conversation(input_data: dict) -> dict:
         },
         "limit": {"type": "integer", "description": "Max results.", "example": 30},
         "after": {"type": "string", "description": "Pagination cursor.", "example": ""},
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2809,6 +3388,7 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_conversation_messages",
+        account=input_data.get("account"),
         thread_id=input_data["thread_id"],
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
@@ -2859,6 +3439,11 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
             "description": "Optional sender actor ID.",
             "example": "",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2869,6 +3454,7 @@ async def send_hubspot_conversation_message(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "send_conversation_message",
+        account=input_data.get("account"),
         thread_id=input_data["thread_id"],
         text=input_data["text"],
         channel_id=input_data["channel_id"],
@@ -2893,6 +3479,11 @@ async def send_hubspot_conversation_message(input_data: dict) -> dict:
             "description": "HubSpot App ID (developer console).",
             "example": "1234567",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -2902,6 +3493,7 @@ async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "list_webhook_subscriptions",
+        account=input_data.get("account"),
         app_id=input_data["app_id"],
     )
 
@@ -2931,6 +3523,11 @@ async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
             "description": "Whether the subscription is active.",
             "example": True,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2941,6 +3538,7 @@ async def create_hubspot_webhook_subscription(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "create_webhook_subscription",
+        account=input_data.get("account"),
         app_id=input_data["app_id"],
         event_type=input_data["event_type"],
         property_name=input_data.get("property_name") or None,
@@ -2963,6 +3561,11 @@ async def create_hubspot_webhook_subscription(input_data: dict) -> dict:
             "description": "Subscription ID.",
             "example": "abc123",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional HubSpot portal (hub domain, hub id, or unique fragment, e.g. 'work'). Omit to use the primary portal.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
     parallelizable=False,
@@ -2973,6 +3576,7 @@ async def delete_hubspot_webhook_subscription(input_data: dict) -> dict:
     return await run_client(
         "hubspot",
         "delete_webhook_subscription",
+        account=input_data.get("account"),
         app_id=input_data["app_id"],
         subscription_id=input_data["subscription_id"],
     )

@@ -13,13 +13,12 @@ from ... import (
     IntegrationHandler,
     IntegrationSpec,
     OAuthFlow,
-    has_credential,
     load_credential,
     register_client,
     register_handler,
-    remove_credential,
     save_credential,
 )
+from ... import accounts as acc
 from ...config import ConfigStore
 from ...helpers import Result, request as http_request
 from ...logger import get_logger
@@ -28,6 +27,18 @@ logger = get_logger(__name__)
 
 LINKEDIN_API_BASE = "https://api.linkedin.com/v2"
 LINKEDIN_OAUTH_BASE = "https://www.linkedin.com/oauth/v2"
+
+# Multi-account: the bare "linkedin.json" is always the primary account (no
+# migration needed for existing single-account installs); additional
+# accounts get "linkedin__<identity>.json" — see craftos_integrations/accounts.py.
+_STEM = "linkedin"
+
+
+def _identity(cred: "LinkedInCredential") -> str:
+    # email is the human-friendly identity when available; older credential
+    # files (saved before this field existed) fall back to the opaque
+    # OpenID `sub` claim so they keep resolving correctly.
+    return cred.email or cred.linkedin_id
 
 
 @dataclass
@@ -39,6 +50,7 @@ class LinkedInCredential:
     client_secret: str = ""
     linkedin_id: str = ""
     user_id: str = ""
+    email: str = ""
 
 
 LINKEDIN = IntegrationSpec(
@@ -80,6 +92,12 @@ class LinkedInHandler(IntegrationHandler):
         token_url="https://www.linkedin.com/oauth/v2/accessToken",
         userinfo_url="https://api.linkedin.com/v2/userinfo",
         scopes="openid profile email w_member_social",
+        # prompt=login forces LinkedIn's login form every time instead of
+        # silently reusing an already-signed-in browser session — the
+        # closest LinkedIn equivalent to Google's prompt=select_account.
+        # Without it, "add account" would just re-authenticate the same
+        # member and overwrite it instead of letting the user switch.
+        extra_auth_params={"prompt": "login"},
     )
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -88,32 +106,75 @@ class LinkedInHandler(IntegrationHandler):
             return False, f"LinkedIn OAuth failed: {result['error']}"
 
         info = result.get("userinfo", {})
+        email = info.get("email", "")
+        linkedin_id = info.get("sub", "")
+        identity = email or linkedin_id
+
+        target_file = acc.resolve_save_target(_STEM, LinkedInCredential, _identity, identity)
         save_credential(
-            self.spec.cred_file,
+            target_file,
             LinkedInCredential(
                 access_token=result["access_token"],
                 refresh_token=result.get("refresh_token", ""),
                 token_expiry=time.time() + result.get("expires_in", 3600),
                 client_id=ConfigStore.get_oauth("LINKEDIN_CLIENT_ID"),
                 client_secret=ConfigStore.get_oauth("LINKEDIN_CLIENT_SECRET"),
-                linkedin_id=info.get("sub", ""),
-                user_id=info.get("sub", ""),
+                linkedin_id=linkedin_id,
+                user_id=linkedin_id,
+                email=email,
             ),
         )
-        return True, f"LinkedIn connected as {info.get('name')} ({info.get('email')})"
+        return True, f"LinkedIn connected as {info.get('name')} ({email})"
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        account = args[0] if args else None
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, LinkedInCredential, _identity)
+        if not accounts:
             return False, "No LinkedIn credentials found."
-        remove_credential(self.spec.cred_file)
-        return True, "Removed LinkedIn credential."
+        if not account:
+            acc.remove_all_accounts(_STEM)
+            return True, "Removed LinkedIn credential."
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, LinkedInCredential, _identity, account, "LinkedIn"
+        )
+        if err:
+            return False, err
+        acc.remove_account(_STEM, fname)
+        return True, "Removed LinkedIn account."
 
     async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, LinkedInCredential, _identity)
+        if not accounts:
             return True, "LinkedIn: Not connected"
-        cred = load_credential(self.spec.cred_file, LinkedInCredential)
-        lid = cred.linkedin_id if cred else "unknown"
-        return True, f"LinkedIn: Connected\n  - {lid}"
+        lines = ["LinkedIn: Connected"]
+        lines.extend(f"  - {a.identity} ({a.identity})" for a in accounts)
+        return True, "\n".join(lines)
+
+    def list_accounts(self):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, LinkedInCredential, _identity)
+        return acc.accounts_to_dicts(accounts)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, LinkedInCredential, _identity, account_id, "LinkedIn"
+        )
+        if err:
+            return False, err
+        if not acc.promote_to_primary(_STEM, fname):
+            return False, f"{account_id} is already the primary LinkedIn account."
+        return True, f"{account_id} is now the primary LinkedIn account."
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, LinkedInCredential, _identity, account_id, "LinkedIn"
+        )
+        if err:
+            return False, err
+        cred = load_credential(fname, LinkedInCredential)
+        if not cred:
+            return False, f"Could not load credential for {account_id}."
+        acc.set_alias(self.spec.platform_id, _identity(cred), alias)
+        return True, f"Alias {'set' if alias.strip() else 'cleared'} for {_identity(cred)}."
 
 
 # -----------------------------------------------------------------
@@ -129,13 +190,27 @@ class LinkedInClient(BasePlatformClient):
     def __init__(self):
         super().__init__()
         self._cred: Optional[LinkedInCredential] = None
+        self._cred_file: Optional[str] = None
 
     def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
+        """True if *any* account is connected. Deliberately does not resolve
+        self._account here — see GoogleApiClientMixin.has_credentials for why."""
+        return bool(acc.list_accounts(self.spec.platform_id, _STEM, LinkedInCredential, _identity))
 
     def _load(self) -> LinkedInCredential:
         if self._cred is None:
-            self._cred = load_credential(self.spec.cred_file, LinkedInCredential)
+            fname, err = acc.resolve_account(
+                self.spec.platform_id,
+                _STEM,
+                LinkedInCredential,
+                _identity,
+                getattr(self, "_account", None),
+                "LinkedIn",
+            )
+            if err:
+                raise RuntimeError(err)
+            self._cred_file = fname
+            self._cred = load_credential(fname, LinkedInCredential)
         if self._cred is None:
             raise RuntimeError("No LinkedIn credentials. Use /linkedin login first.")
         return self._cred
@@ -190,7 +265,7 @@ class LinkedInClient(BasePlatformClient):
         data = result["result"]
         cred.access_token = data["access_token"]
         cred.token_expiry = time.time() + data.get("expires_in", 5184000) - 86400
-        save_credential(self.spec.cred_file, cred)
+        save_credential(self._cred_file or self.spec.cred_file, cred)
         self._cred = cred
         return cred.access_token
 

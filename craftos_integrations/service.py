@@ -103,6 +103,27 @@ async def disconnect(
     return success, message
 
 
+async def set_primary_account(integration: str, account_id: str) -> Tuple[bool, str]:
+    """Promote ``account_id`` to the primary account (see accounts.py)."""
+    handler, err = _resolve_handler(integration)
+    if err:
+        return False, err
+    success, message = await handler.set_primary(account_id)
+    if success:
+        # Primary/secondary file roles just swapped — drop cached clients so
+        # the next action/listener rebuild resolves "primary" correctly.
+        await _reset_platform_for_handler(handler)
+    return success, message
+
+
+def set_account_alias(integration: str, account_id: str, alias: str) -> Tuple[bool, str]:
+    """Set (or, with an empty ``alias``, clear) a connected account's alias."""
+    handler, err = _resolve_handler(integration)
+    if err:
+        return False, err
+    return handler.set_alias(account_id, alias)
+
+
 async def status(integration: str) -> Tuple[bool, str]:
     """Run the integration's status check."""
     handler, err = _resolve_handler(integration)
@@ -283,12 +304,20 @@ async def get_integration_info(integration: str) -> Optional[Dict[str, Any]]:
         return None
     handler = get_handler(integration)
     connected = False
-    accounts: List[Dict[str, str]] = []
+    accounts: List[Dict[str, Any]] = []
     try:
-        _, status_msg = await handler.status()
-        if "Connected" in status_msg and "Not connected" not in status_msg:
-            connected = True
-            accounts = parse_status_accounts(status_msg)
+        # Multi-account-capable handlers (accounts.py-backed) expose the
+        # real account list directly — alias/is_primary don't fit the old
+        # "- name (id)" status-string format, so prefer this when available.
+        structured = handler.list_accounts()
+        if structured is not None:
+            accounts = structured
+            connected = len(accounts) > 0
+        else:
+            _, status_msg = await handler.status()
+            if "Connected" in status_msg and "Not connected" not in status_msg:
+                connected = True
+                accounts = parse_status_accounts(status_msg)
     except Exception:
         pass
     metadata["connected"] = connected

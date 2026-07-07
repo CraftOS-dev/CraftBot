@@ -15,13 +15,12 @@ from ... import (
     IntegrationSpec,
     OAuthFlow,
     PlatformMessage,
-    has_credential,
     load_credential,
     register_client,
     register_handler,
-    remove_credential,
     save_credential,
 )
+from ... import accounts as acc
 from ...helpers import arequest, request as http_request
 from ...logger import get_logger
 
@@ -90,6 +89,18 @@ SLACK = IntegrationSpec(
     platform_id="slack",
 )
 
+# Multi-account: the bare "slack.json" is always the primary workspace (no
+# migration needed for existing single-account installs); additional
+# workspaces get "slack__<workspace-id>.json" — see accounts.py.
+# workspace_id (Slack's team ID) is used as identity rather than team_name
+# since it's immutable and globally unique; team_name is a better display
+# label but is mutable and can be user-supplied via /slack login.
+_STEM = "slack"
+
+
+def _identity(cred: "SlackCredential") -> str:
+    return cred.workspace_id
+
 
 # -----------------------------------------------------------------
 # Handler
@@ -154,14 +165,7 @@ class SlackHandler(IntegrationHandler):
         team_id = team.get("id", "")
         team_name = team.get("name", team_id)
 
-        save_credential(
-            self.spec.cred_file,
-            SlackCredential(
-                bot_token=bot_token,
-                workspace_id=team_id,
-                team_name=team_name,
-            ),
-        )
+        self._save_account(SlackCredential(bot_token=bot_token, workspace_id=team_id, team_name=team_name))
         return True, f"Slack connected via CraftOS app: {team_name} ({team_id})"
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -179,28 +183,66 @@ class SlackHandler(IntegrationHandler):
         team_id = result.get("team_id", "")
         workspace_name = args[1] if len(args) > 1 else result.get("team", team_id)
 
-        save_credential(
-            self.spec.cred_file,
-            SlackCredential(
-                bot_token=bot_token,
-                workspace_id=team_id,
-                team_name=workspace_name,
-            ),
+        self._save_account(
+            SlackCredential(bot_token=bot_token, workspace_id=team_id, team_name=workspace_name)
         )
         return True, f"Slack connected: {workspace_name} ({team_id})"
 
+    def _save_account(self, cred: "SlackCredential") -> None:
+        target_file = acc.resolve_save_target(_STEM, SlackCredential, _identity, cred.workspace_id)
+        save_credential(target_file, cred)
+        if cred.team_name and not acc.get_alias(SLACK.platform_id, cred.workspace_id):
+            acc.set_alias(SLACK.platform_id, cred.workspace_id, cred.team_name)
+
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        account = args[0] if args else None
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, SlackCredential, _identity)
+        if not accounts:
             return False, "No Slack credentials found."
-        remove_credential(self.spec.cred_file)
-        return True, "Removed Slack credential."
+        if not account:
+            acc.remove_all_accounts(_STEM)
+            return True, "Removed Slack credential."
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, SlackCredential, _identity, account, "Slack"
+        )
+        if err:
+            return False, err
+        acc.remove_account(_STEM, fname)
+        return True, "Removed Slack account."
 
     async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, SlackCredential, _identity)
+        if not accounts:
             return True, "Slack: Not connected"
-        cred = load_credential(self.spec.cred_file, SlackCredential)
-        name = cred.team_name or cred.workspace_id if cred else "unknown"
-        return True, f"Slack: Connected\n  - {name} ({cred.workspace_id})"
+        lines = ["Slack: Connected"]
+        lines.extend(f"  - {a.display} ({a.identity})" for a in accounts)
+        return True, "\n".join(lines)
+
+    def list_accounts(self):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, SlackCredential, _identity)
+        return acc.accounts_to_dicts(accounts)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, SlackCredential, _identity, account_id, "Slack"
+        )
+        if err:
+            return False, err
+        if not acc.promote_to_primary(_STEM, fname):
+            return False, f"{account_id} is already the primary Slack account."
+        return True, f"{account_id} is now the primary Slack account."
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, SlackCredential, _identity, account_id, "Slack"
+        )
+        if err:
+            return False, err
+        cred = load_credential(fname, SlackCredential)
+        if not cred:
+            return False, f"Could not load credential for {account_id}."
+        acc.set_alias(self.spec.platform_id, cred.workspace_id, alias)
+        return True, f"Alias {'set' if alias.strip() else 'cleared'} for {cred.workspace_id}."
 
 
 # -----------------------------------------------------------------
@@ -222,11 +264,23 @@ class SlackClient(BasePlatformClient):
         self._catchup_done: bool = False
 
     def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
+        """True if *any* account is connected. Deliberately does not resolve
+        self._account here — see GoogleApiClientMixin.has_credentials for why."""
+        return bool(acc.list_accounts(self.spec.platform_id, _STEM, SlackCredential, _identity))
 
     def _load(self) -> SlackCredential:
         if self._cred is None:
-            self._cred = load_credential(self.spec.cred_file, SlackCredential)
+            fname, err = acc.resolve_account(
+                self.spec.platform_id,
+                _STEM,
+                SlackCredential,
+                _identity,
+                getattr(self, "_account", None),
+                "Slack",
+            )
+            if err:
+                raise RuntimeError(err)
+            self._cred = load_credential(fname, SlackCredential)
         if self._cred is None:
             raise RuntimeError("No Slack credentials. Use /slack login first.")
         return self._cred

@@ -617,16 +617,90 @@
 
 .accountItem {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
   padding: var(--space-3);
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
 }
 
 .accountName {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.accountNameTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-width: 0;
   font-size: var(--text-sm);
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Real account identity (email, workspace id, ...), shown under the alias
+   so setting a nickname never hides which account it actually points to. */
+.accountIdentity {
+  max-width: 100%;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.aliasInput {
+  width: 160px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.aliasInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Account staged for removal on "Save changes" but not yet applied — dimmed
+   and outlined so it reads as "pending", not gone. */
+.accountItemPendingRemoval {
+  opacity: 0.6;
+  outline: 1px dashed rgba(239, 68, 68, 0.4);
+}
+
+.accountsFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.accountsSaveBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 /* Danger Zone */

@@ -72,6 +72,24 @@ def _build_keyword_index() -> Dict[str, str]:
             key = key.lower().strip()
             if key:
                 index.setdefault(key, integration_id)
+
+    # The auto-derived keys above only cover an integration's own id/first
+    # token — for compound Google Workspace names that means "google
+    # calendar"/"google" matches but the bare second word ("calendar",
+    # "docs", "drive", "youtube") never does, even though that's how people
+    # actually talk ("what's on my school calendar"). Seed those explicitly
+    # (overwriting, not setdefault) so essentials injection actually fires
+    # on the common phrasing. "google" itself is left alone — it's
+    # inherently ambiguous across 5 services, unlike these individual words.
+    for key, integration_id in (
+        ("calendar", "google_calendar"),
+        ("docs", "google_docs"),
+        ("doc", "google_docs"),
+        ("drive", "google_drive"),
+        ("youtube", "google_youtube"),
+    ):
+        if integration_id in integration_ids:
+            index[key] = integration_id
     return index
 
 

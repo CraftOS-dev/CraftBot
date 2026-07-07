@@ -92,6 +92,8 @@ from app.ui_layer.settings import (
     connect_integration_oauth,
     connect_integration_interactive,
     disconnect_integration,
+    set_primary_integration_account,
+    set_integration_account_alias,
     # WhatsApp QR code flow
     start_whatsapp_qr_session,
     check_whatsapp_session_status,
@@ -1928,6 +1930,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             integration_id = data.get("id", "")
             account_id = data.get("account_id")
             await self._handle_integration_disconnect(integration_id, account_id)
+
+        elif msg_type == "integration_set_primary":
+            integration_id = data.get("id", "")
+            account_id = data.get("account_id", "")
+            await self._handle_integration_set_primary(integration_id, account_id)
+
+        elif msg_type == "integration_set_alias":
+            integration_id = data.get("id", "")
+            account_id = data.get("account_id", "")
+            alias = data.get("alias", "")
+            await self._handle_integration_set_alias(integration_id, account_id, alias)
 
         # Generic per-integration config (replaces the old bespoke jira/github settings handlers)
         elif msg_type == "integration_get_config":
@@ -6941,6 +6954,62 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 )
 
         asyncio.create_task(_do_disconnect())
+
+    async def _handle_integration_set_primary(
+        self, integration_id: str, account_id: str
+    ) -> None:
+        """Promote a connected account to primary for this integration."""
+        try:
+            success, message = await set_primary_integration_account(
+                integration_id, account_id
+            )
+            await self._broadcast(
+                {
+                    "type": "integration_set_primary_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                }
+            )
+            if success:
+                await self._handle_integration_list()
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "integration_set_primary_result",
+                    "data": {"success": False, "error": str(e), "id": integration_id},
+                }
+            )
+
+    async def _handle_integration_set_alias(
+        self, integration_id: str, account_id: str, alias: str
+    ) -> None:
+        """Set (or, with an empty alias, clear) a connected account's alias."""
+        try:
+            success, message = set_integration_account_alias(
+                integration_id, account_id, alias
+            )
+            await self._broadcast(
+                {
+                    "type": "integration_set_alias_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                }
+            )
+            if success:
+                await self._handle_integration_list()
+        except Exception as e:
+            await self._broadcast(
+                {
+                    "type": "integration_set_alias_result",
+                    "data": {"success": False, "error": str(e), "id": integration_id},
+                }
+            )
 
     # ==========================
     # Generic per-integration config

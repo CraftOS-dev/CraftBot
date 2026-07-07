@@ -5,7 +5,13 @@ from agent_core import action
     name="get_my_youtube_channel",
     description="Return the authenticated user's YouTube channel info (id, title, subscriber/view counts).",
     action_sets=["google_youtube"],
-    input_schema={},
+    input_schema={
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_my_youtube_channel(input_data: dict) -> dict:
@@ -14,6 +20,7 @@ def get_my_youtube_channel(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "get_my_channel",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to fetch channel.",
     )
@@ -39,6 +46,11 @@ def get_my_youtube_channel(input_data: dict) -> dict:
             "description": "Max number of results.",
             "example": 25,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -48,6 +60,7 @@ def search_youtube(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "search",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="YouTube search failed.",
         query=input_data["query"],
@@ -66,6 +79,11 @@ def search_youtube(input_data: dict) -> dict:
             "description": "The YouTube video ID.",
             "example": "dQw4w9WgXcQ",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -75,6 +93,7 @@ def get_youtube_video(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "get_video",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to fetch video.",
         video_id=input_data["video_id"],
@@ -91,6 +110,11 @@ def get_youtube_video(input_data: dict) -> dict:
             "description": "Max number of subscriptions to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -100,6 +124,7 @@ def list_my_youtube_subscriptions(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "list_my_subscriptions",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list subscriptions.",
         max_results=input_data.get("max_results", 50),
@@ -116,6 +141,11 @@ def list_my_youtube_subscriptions(input_data: dict) -> dict:
             "description": "Max number of playlists to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -125,6 +155,7 @@ def list_my_youtube_playlists(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "list_my_playlists",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list playlists.",
         max_results=input_data.get("max_results", 50),
@@ -146,6 +177,11 @@ def list_my_youtube_playlists(input_data: dict) -> dict:
             "description": "Max number of items to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -155,6 +191,7 @@ def list_youtube_playlist_items(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "list_playlist_items",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to list playlist items.",
         playlist_id=input_data["playlist_id"],
@@ -172,6 +209,11 @@ def list_youtube_playlist_items(input_data: dict) -> dict:
             "description": "The channel ID to subscribe to.",
             "example": "UC...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -181,6 +223,7 @@ def subscribe_to_youtube_channel(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "subscribe",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Subscribed.",
         fail_message="Failed to subscribe.",
@@ -198,6 +241,11 @@ def subscribe_to_youtube_channel(input_data: dict) -> dict:
             "description": "The subscription record ID.",
             "example": "abc123...",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -207,6 +255,7 @@ def unsubscribe_from_youtube_channel(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "unsubscribe",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Unsubscribed.",
         fail_message="Failed to unsubscribe.",
@@ -229,6 +278,11 @@ def unsubscribe_from_youtube_channel(input_data: dict) -> dict:
             "description": "One of: like, dislike, none.",
             "example": "like",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -238,6 +292,7 @@ def rate_youtube_video(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "rate_video",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to rate video.",
         video_id=input_data["video_id"],
@@ -261,6 +316,11 @@ def rate_youtube_video(input_data: dict) -> dict:
             "description": "Comment text.",
             "example": "Great video!",
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -270,6 +330,7 @@ def post_youtube_comment(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "post_comment",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         success_message="Comment posted.",
         fail_message="Failed to post comment.",
@@ -293,6 +354,11 @@ def post_youtube_comment(input_data: dict) -> dict:
             "description": "Max number of comments to return.",
             "example": 50,
         },
+        "account": {
+            "type": "string",
+            "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
+            "example": "",
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -302,6 +368,7 @@ def get_youtube_video_comments(input_data: dict) -> dict:
     return run_client_sync(
         "google_youtube",
         "get_video_comments",
+        account=input_data.get("account"),
         unwrap_envelope=True,
         fail_message="Failed to fetch comments.",
         video_id=input_data["video_id"],

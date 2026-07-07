@@ -43,8 +43,11 @@ from .._google_common import (
     GoogleApiClientMixin,
     GoogleCredential,
     make_google_oauth,
+    run_google_list_accounts,
     run_google_login,
     run_google_logout,
+    run_google_set_alias,
+    run_google_set_primary,
     run_google_status,
 )
 
@@ -112,10 +115,19 @@ class GmailHandler(IntegrationHandler):
         return await run_google_login(self.spec, self.oauth, "Gmail")
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        return await run_google_logout(self.spec, "Gmail")
+        return await run_google_logout(self.spec, "Gmail", args[0] if args else None)
 
     async def status(self) -> Tuple[bool, str]:
         return await run_google_status(self.spec, "Gmail")
+
+    def list_accounts(self):
+        return run_google_list_accounts(self.spec)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        return await run_google_set_primary(self.spec, "Gmail", account_id)
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        return run_google_set_alias(self.spec, account_id, alias)
 
 
 # -----------------------------------------------------------------

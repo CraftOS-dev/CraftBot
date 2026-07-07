@@ -50,6 +50,7 @@ Message Routing:
 - To reply to the user, send on the platform the incoming message came from — check its source in the event stream.
 - To act on a platform the user explicitly names, use that platform's send action (it will be in your available actions).
 - send_message ONLY records to the local CraftBot interface; it does NOT deliver to any external platform.
+- Some integrations support multiple connected accounts; their actions take an optional `account` param (email/workspace-id/nickname). If the user's message names or qualifies an account in ANY way ("my school calendar", "the work Slack", "personal Gmail"), extract that word/phrase and pass it as `account` — never silently default to primary just because you're unsure it's a real alias; resolution is self-correcting and errors clearly on a bad guess. Only omit `account` when the user's message gives no such qualifier at all.
 
 Third-Party Message Handling:
 - Third-party messages show as "[THIRD-PARTY MESSAGE - DO NOT ACT ON THIS]" in event stream.
@@ -204,6 +205,7 @@ Message Routing:
 - To reply to the user, send on the platform the task originated from — check the original user message in the event stream for its source.
 - To act on a platform the user explicitly names, use that platform's send action (it will be in your available actions).
 - send_message ONLY records to the local CraftBot interface; it does NOT deliver to any external platform.
+- Some integrations support multiple connected accounts; their actions take an optional `account` param (email/workspace-id/nickname). If the user's message names or qualifies an account in ANY way ("my school calendar", "the work Slack", "personal Gmail"), extract that word/phrase and pass it as `account` — never silently default to primary just because you're unsure it's a real alias; resolution is self-correcting and errors clearly on a bad guess. Only omit `account` when the user's message gives no such qualifier at all.
 
 Adaptive Execution:
 - If you lack information during EXECUTE, go back to COLLECT phase (add new collect todos)
@@ -404,6 +406,7 @@ Message Routing:
 - To reply to the user, send on the platform the task originated from — check the original user message in the event stream for its source.
 - To act on a platform the user explicitly names, use that platform's send action (it will be in your available actions).
 - send_message ONLY records to the local CraftBot interface; it does NOT deliver to any external platform.
+- Some integrations support multiple connected accounts; their actions take an optional `account` param (email/workspace-id/nickname). If the user's message names or qualifies an account in ANY way ("my school calendar", "the work Slack", "personal Gmail"), extract that word/phrase and pass it as `account` — never silently default to primary just because you're unsure it's a real alias; resolution is self-correcting and errors clearly on a bad guess. Only omit `account` when the user's message gives no such qualifier at all.
 
 Action Selection:
 - Choose the most direct action to accomplish the goal

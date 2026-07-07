@@ -15,13 +15,12 @@ from ... import (
     IntegrationSpec,
     OAuthFlow,
     PlatformMessage,
-    has_credential,
     load_credential,
     register_client,
     register_handler,
-    remove_credential,
     save_credential,
 )
+from ... import accounts as acc
 from ...config import ConfigStore
 from ...helpers import Result, arequest, request as http_request
 from ...logger import get_logger
@@ -34,6 +33,15 @@ OUTLOOK_SCOPES = "Mail.Read Mail.Send Mail.ReadWrite User.Read offline_access"
 
 POLL_INTERVAL = 5
 RETRY_DELAY = 10
+
+# Multi-account: the bare "outlook.json" is always the primary account (no
+# migration needed for existing single-account installs); additional
+# accounts get "outlook__<email>.json" — see craftos_integrations/accounts.py.
+_STEM = "outlook"
+
+
+def _identity(cred: "OutlookCredential") -> str:
+    return cred.email
 
 
 @dataclass
@@ -75,7 +83,12 @@ class OutlookHandler(IntegrationHandler):
         userinfo_url="https://graph.microsoft.com/v1.0/me",
         scopes=OUTLOOK_SCOPES,
         use_pkce=True,
-        extra_auth_params={"response_mode": "query"},
+        # select_account forces Microsoft's account chooser every time.
+        # Without it the OAuth popup silently reuses whichever Microsoft
+        # account is already signed into the system browser, so "add
+        # account" would just re-authenticate the primary and overwrite it
+        # instead of letting the user pick a second one.
+        extra_auth_params={"response_mode": "query", "prompt": "select_account"},
     )
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -86,8 +99,9 @@ class OutlookHandler(IntegrationHandler):
         info = result.get("userinfo", {})
         user_email = info.get("mail") or info.get("userPrincipalName", "")
 
+        target_file = acc.resolve_save_target(_STEM, OutlookCredential, _identity, user_email)
         save_credential(
-            self.spec.cred_file,
+            target_file,
             OutlookCredential(
                 access_token=result["access_token"],
                 refresh_token=result.get("refresh_token", ""),
@@ -99,17 +113,54 @@ class OutlookHandler(IntegrationHandler):
         return True, f"Outlook connected as {user_email}"
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        account = args[0] if args else None
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, OutlookCredential, _identity)
+        if not accounts:
             return False, "No Outlook credentials found."
-        remove_credential(self.spec.cred_file)
-        return True, "Removed Outlook credential."
+        if not account:
+            acc.remove_all_accounts(_STEM)
+            return True, "Removed Outlook credential."
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, OutlookCredential, _identity, account, "Outlook"
+        )
+        if err:
+            return False, err
+        acc.remove_account(_STEM, fname)
+        return True, "Removed Outlook account."
 
     async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, OutlookCredential, _identity)
+        if not accounts:
             return True, "Outlook: Not connected"
-        cred = load_credential(self.spec.cred_file, OutlookCredential)
-        email = cred.email if cred else "unknown"
-        return True, f"Outlook: Connected\n  - {email}"
+        lines = ["Outlook: Connected"]
+        lines.extend(f"  - {a.identity} ({a.identity})" for a in accounts)
+        return True, "\n".join(lines)
+
+    def list_accounts(self):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, OutlookCredential, _identity)
+        return acc.accounts_to_dicts(accounts)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, OutlookCredential, _identity, account_id, "Outlook"
+        )
+        if err:
+            return False, err
+        if not acc.promote_to_primary(_STEM, fname):
+            return False, f"{account_id} is already the primary Outlook account."
+        return True, f"{account_id} is now the primary Outlook account."
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, OutlookCredential, _identity, account_id, "Outlook"
+        )
+        if err:
+            return False, err
+        cred = load_credential(fname, OutlookCredential)
+        if not cred:
+            return False, f"Could not load credential for {account_id}."
+        acc.set_alias(self.spec.platform_id, cred.email, alias)
+        return True, f"Alias {'set' if alias.strip() else 'cleared'} for {cred.email}."
 
 
 # -----------------------------------------------------------------
@@ -125,16 +176,30 @@ class OutlookClient(BasePlatformClient):
     def __init__(self):
         super().__init__()
         self._cred: Optional[OutlookCredential] = None
+        self._cred_file: Optional[str] = None
         self._poll_task: Optional[asyncio.Task] = None
         self._seen_message_ids: set = set()
         self._last_poll_time: Optional[str] = None
 
     def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
+        """True if *any* account is connected. Deliberately does not resolve
+        self._account here — see GoogleApiClientMixin.has_credentials for why."""
+        return bool(acc.list_accounts(self.spec.platform_id, _STEM, OutlookCredential, _identity))
 
     def _load(self) -> OutlookCredential:
         if self._cred is None:
-            self._cred = load_credential(self.spec.cred_file, OutlookCredential)
+            fname, err = acc.resolve_account(
+                self.spec.platform_id,
+                _STEM,
+                OutlookCredential,
+                _identity,
+                getattr(self, "_account", None),
+                "Outlook",
+            )
+            if err:
+                raise RuntimeError(err)
+            self._cred_file = fname
+            self._cred = load_credential(fname, OutlookCredential)
         if self._cred is None:
             raise RuntimeError("No Outlook credentials. Use /outlook login first.")
         return self._cred
@@ -168,7 +233,7 @@ class OutlookClient(BasePlatformClient):
         cred.access_token = data["access_token"]
         cred.refresh_token = data.get("refresh_token", cred.refresh_token)
         cred.token_expiry = time.time() + data.get("expires_in", 3600) - 60
-        save_credential(self.spec.cred_file, cred)
+        save_credential(self._cred_file or self.spec.cred_file, cred)
         self._cred = cred
         return cred.access_token
 

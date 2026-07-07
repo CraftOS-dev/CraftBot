@@ -25,13 +25,12 @@ from ... import (
     IntegrationHandler,
     IntegrationSpec,
     OAuthFlow,
-    has_credential,
     load_credential,
     register_client,
     register_handler,
-    remove_credential,
     save_credential,
 )
+from ... import accounts as acc
 from ...config import ConfigStore
 from ...helpers import Result, arequest
 from ...helpers import request as http_request
@@ -100,6 +99,26 @@ HUBSPOT = IntegrationSpec(
     cred_file="hubspot.json",
     platform_id="hubspot",
 )
+
+# Multi-account: the bare "hubspot.json" is always the primary portal (no
+# migration needed for existing single-account installs); additional
+# portals get "hubspot__<hub-id>.json" — see accounts.py. hub_id (the
+# portal ID) is used as identity rather than hub_domain since it's always
+# present and immutable; hub_domain is a better display label but can be
+# blank for some Private App tokens.
+#
+# Note: HubSpot's OAuth authorize screen has no documented
+# prompt=select_account equivalent — if the user is already authorized to
+# only one portal in their browser session, "add account" may silently
+# re-authorize that same portal (matched by hub_id, so it updates in place
+# rather than corrupting anything). Connecting a genuinely different
+# portal may require the user to already be logged into that portal's
+# HubSpot account in their browser first.
+_STEM = "hubspot"
+
+
+def _identity(cred: "HubSpotCredential") -> str:
+    return cred.hub_id
 
 
 # -----------------------------------------------------------------
@@ -191,18 +210,16 @@ class HubSpotHandler(IntegrationHandler):
 
         import time as _time
 
-        save_credential(
-            self.spec.cred_file,
-            HubSpotCredential(
-                access_token=access_token,
-                refresh_token=refresh_token,
-                token_expiry=_time.time() + expires_in if expires_in else 0.0,
-                hub_id=str(meta.get("hub_id", "")),
-                hub_domain=meta.get("hub_domain", ""),
-                user_email=meta.get("user", ""),
-                auth_kind="oauth",
-            ),
+        cred = HubSpotCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_expiry=_time.time() + expires_in if expires_in else 0.0,
+            hub_id=str(meta.get("hub_id", "")),
+            hub_domain=meta.get("hub_domain", ""),
+            user_email=meta.get("user", ""),
+            auth_kind="oauth",
         )
+        self._save_account(cred)
         label = meta.get("hub_domain") or meta.get("hub_id") or "HubSpot"
         return True, f"HubSpot connected via OAuth: {label}"
 
@@ -228,42 +245,91 @@ class HubSpotHandler(IntegrationHandler):
             return False, f"HubSpot auth failed: {ping['error']}"
         meta = ping.get("result") or {}
 
-        save_credential(
-            self.spec.cred_file,
-            HubSpotCredential(
-                access_token=token,
-                hub_id=str(meta.get("portalId", "")),
-                hub_domain=meta.get("uiDomain", ""),
-                auth_kind="token",
-            ),
+        cred = HubSpotCredential(
+            access_token=token,
+            hub_id=str(meta.get("portalId", "")),
+            hub_domain=meta.get("uiDomain", ""),
+            auth_kind="token",
         )
+        self._save_account(cred)
         label = meta.get("uiDomain") or meta.get("portalId") or "HubSpot"
         return True, f"HubSpot connected: {label}"
 
-    async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
-            return False, "No HubSpot credentials found."
-        try:
-            from ...manager import get_external_comms_manager
+    def _save_account(self, cred: "HubSpotCredential") -> None:
+        target_file = acc.resolve_save_target(_STEM, HubSpotCredential, _identity, cred.hub_id)
+        save_credential(target_file, cred)
+        # Pre-fill a friendly alias from the portal domain so a freshly
+        # connected portal doesn't display as a bare numeric hub_id.
+        if cred.hub_domain and not acc.get_alias(HUBSPOT.platform_id, cred.hub_id):
+            acc.set_alias(HUBSPOT.platform_id, cred.hub_id, cred.hub_domain)
 
-            manager = get_external_comms_manager()
-            if manager:
-                await manager.stop_platform(self.spec.platform_id)
-        except Exception:
-            pass
-        remove_credential(self.spec.cred_file)
-        return True, "Removed HubSpot credential."
+    async def logout(self, args: List[str]) -> Tuple[bool, str]:
+        account = args[0] if args else None
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, HubSpotCredential, _identity)
+        if not accounts:
+            return False, "No HubSpot credentials found."
+
+        if not account:
+            acc.remove_all_accounts(_STEM)
+            remaining = []
+        else:
+            fname, err = acc.resolve_account(
+                self.spec.platform_id, _STEM, HubSpotCredential, _identity, account, "HubSpot"
+            )
+            if err:
+                return False, err
+            acc.remove_account(_STEM, fname)
+            remaining = acc.list_accounts(self.spec.platform_id, _STEM, HubSpotCredential, _identity)
+
+        if not remaining:
+            try:
+                from ...manager import get_external_comms_manager
+
+                manager = get_external_comms_manager()
+                if manager:
+                    await manager.stop_platform(self.spec.platform_id)
+            except Exception:
+                pass
+
+        return True, "Removed HubSpot credential." if not account else "Removed HubSpot account."
 
     async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, HubSpotCredential, _identity)
+        if not accounts:
             return True, "HubSpot: Not connected"
-        cred = load_credential(self.spec.cred_file, HubSpotCredential)
+        lines = ["HubSpot: Connected"]
+        for a in accounts:
+            cred = load_credential(a.filename, HubSpotCredential)
+            via = "OAuth" if cred and cred.auth_kind == "oauth" else "Private App token"
+            email = f" ({cred.user_email})" if cred and cred.user_email else ""
+            lines.append(f"  - {a.display}{email} via {via} ({a.identity})")
+        return True, "\n".join(lines)
+
+    def list_accounts(self):
+        accounts = acc.list_accounts(self.spec.platform_id, _STEM, HubSpotCredential, _identity)
+        return acc.accounts_to_dicts(accounts)
+
+    async def set_primary(self, account_id: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, HubSpotCredential, _identity, account_id, "HubSpot"
+        )
+        if err:
+            return False, err
+        if not acc.promote_to_primary(_STEM, fname):
+            return False, f"{account_id} is already the primary HubSpot account."
+        return True, f"{account_id} is now the primary HubSpot account."
+
+    def set_alias(self, account_id: str, alias: str) -> Tuple[bool, str]:
+        fname, err = acc.resolve_account(
+            self.spec.platform_id, _STEM, HubSpotCredential, _identity, account_id, "HubSpot"
+        )
+        if err:
+            return False, err
+        cred = load_credential(fname, HubSpotCredential)
         if not cred:
-            return True, "HubSpot: Not connected"
-        label = cred.hub_domain or cred.hub_id or "unknown portal"
-        via = "OAuth" if cred.auth_kind == "oauth" else "Private App token"
-        email = f" ({cred.user_email})" if cred.user_email else ""
-        return True, f"HubSpot: Connected\n  - {label}{email} via {via}"
+            return False, f"Could not load credential for {account_id}."
+        acc.set_alias(self.spec.platform_id, cred.hub_id, alias)
+        return True, f"Alias {'set' if alias.strip() else 'cleared'} for {cred.hub_id}."
 
 
 # -----------------------------------------------------------------
@@ -292,13 +358,27 @@ class HubSpotClient(BasePlatformClient):
     def __init__(self) -> None:
         super().__init__()
         self._cred: Optional[HubSpotCredential] = None
+        self._cred_file: Optional[str] = None
 
     def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
+        """True if *any* account is connected. Deliberately does not resolve
+        self._account here — see GoogleApiClientMixin.has_credentials for why."""
+        return bool(acc.list_accounts(self.spec.platform_id, _STEM, HubSpotCredential, _identity))
 
     def _load(self) -> HubSpotCredential:
         if self._cred is None:
-            self._cred = load_credential(self.spec.cred_file, HubSpotCredential)
+            fname, err = acc.resolve_account(
+                self.spec.platform_id,
+                _STEM,
+                HubSpotCredential,
+                _identity,
+                getattr(self, "_account", None),
+                "HubSpot",
+            )
+            if err:
+                raise RuntimeError(err)
+            self._cred_file = fname
+            self._cred = load_credential(fname, HubSpotCredential)
         if self._cred is None:
             raise RuntimeError("No HubSpot credentials. Use /hubspot login first.")
         return self._cred
@@ -373,7 +453,7 @@ class HubSpotClient(BasePlatformClient):
         cred.refresh_token = data.get("refresh_token") or cred.refresh_token
         # Refresh 60s before actual expiry to avoid races with in-flight calls.
         cred.token_expiry = time.time() + data.get("expires_in", 1800) - 60
-        save_credential(self.spec.cred_file, cred)
+        save_credential(self._cred_file or self.spec.cred_file, cred)
         logger.info("[HUBSPOT] Access token refreshed.")
         return new_token
 

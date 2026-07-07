@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import Optional, Type, TypeVar
+from typing import List, Optional, Type, TypeVar
 
 from .config import ConfigStore
 from .logger import get_logger
@@ -114,6 +115,43 @@ def save_credential(filename: str, credential) -> None:
 
 def remove_credential(filename: str) -> bool:
     return _remove(filename, "credential")
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Multi-account credential filenames
+#
+# The bare ``<stem>.json`` file (e.g. ``gmail.json``) always holds the
+# *primary* account — untouched, so existing single-account users need no
+# migration. Additional accounts get their own ``<stem>__<sanitized>.json``
+# file. Double underscore is deliberate: it can never collide with the
+# single-underscore config pairing (``gmail_config.json``), so a glob for
+# secondary account files never picks up a config file.
+# ════════════════════════════════════════════════════════════════════════
+
+_SANITIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def sanitize_account(email: str) -> str:
+    """Lowercase an email into a filename-safe fragment: alan@x.com -> alan_x_com."""
+    return _SANITIZE_RE.sub("_", email.strip().lower()).strip("_")
+
+
+def account_filename(stem: str, email: str) -> str:
+    """Secondary-account filename for ``stem`` (e.g. 'gmail') + an email."""
+    return f"{stem}__{sanitize_account(email)}.json"
+
+
+def list_account_files(stem: str) -> List[str]:
+    """Bare filenames of every *secondary* account file for ``stem``.
+
+    Does not include the primary (bare ``<stem>.json``) file — callers that
+    want the full account list should check ``has_credential(f"{stem}.json")``
+    separately (see ``_google_common.list_google_accounts``).
+    """
+    prefix = f"{stem}__"
+    return sorted(
+        p.name for p in _credentials_dir().glob(f"{prefix}*.json")
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════

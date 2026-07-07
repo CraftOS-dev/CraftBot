@@ -5,7 +5,8 @@ Microsoft 365 / Outlook.com mail integration via Microsoft Graph.
 ## Essentials
 
 - **The integration knows the user's own email address** (`cred.email`). NEVER ask the user — read it from the connected credential or `check_integration_status`.
-- **`From` is always the connected account.** Can't be spoofed on send.
+- **Multiple Outlook accounts may be connected**, each with an optional nickname ("work", "personal"). Every action takes an optional `account` param (email, unique email substring, or nickname). **If the user's message qualifies which account at all** ("my work Outlook", "the school one"), extract that word and pass it — don't silently default to primary. Only omit `account` when the user gave no qualifier. An unresolvable/ambiguous `account` returns an error listing the connected accounts; relay that instead of guessing.
+- **`From` is always the account the call resolved to.** Can't be spoofed within one account.
 - **Self-emails are auto-filtered on incoming events** (case-insensitive match on sender) — own sends don't echo back.
 - **Identity format:** plain email-address strings.
 - **Message IDs are Microsoft Graph opaque IDs** (`AAMk...`). Pull from list/search; never construct.
