@@ -108,35 +108,3 @@ class UIScreenshot(Base):
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
         }
 
-
-class Item(Base):
-    """
-    Example model for list-based data (todos, notes, etc.)
-
-    Customize or replace this model based on your Living UI needs.
-    """
-
-    __tablename__ = "items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    completed = Column(Boolean, default=False)
-    order = Column(Integer, default=0)
-    extra_data = Column(
-        JSON, default=dict
-    )  # Flexible extra data (avoid 'metadata' - reserved in SQLAlchemy)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "description": self.description,
-            "completed": self.completed,
-            "order": self.order,
-            "extraData": self.extra_data or {},
-            "createdAt": self.created_at.isoformat() if self.created_at else None,
-            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
-        }

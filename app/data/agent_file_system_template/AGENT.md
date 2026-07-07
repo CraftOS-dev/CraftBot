@@ -1429,7 +1429,7 @@ clipboard                clipboard_read, clipboard_write
 comms                    send_message_with_attachment
 
 living_ui                living_ui_scaffold, living_ui_import_external, living_ui_import_zip,
-                         living_ui_notify_ready, living_ui_report_progress, living_ui_restart
+                         living_ui_validate, living_ui_notify_ready, living_ui_report_progress, living_ui_restart
 
 per-platform integrations  Discord, Slack, Telegram, Notion, LinkedIn, Jira, GitHub,
                            Outlook, WhatsApp, Twitter, Google Workspace

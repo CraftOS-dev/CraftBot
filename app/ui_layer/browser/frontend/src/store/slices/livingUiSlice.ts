@@ -1,6 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type {
   LivingUIProject,
+  LivingUIBuildEvent,
   LivingUIStatusUpdate,
   LivingUIStateUpdate,
   LivingUIListResponse,
@@ -28,6 +29,9 @@ export interface LivingUIPendingQuestion {
   message: string
 }
 
+// Cap kept in sync with the backend's replay ring buffer.
+const MAX_BUILD_EVENTS = 200
+
 interface LivingUiState {
   projects: LivingUIProject[]
   creating: LivingUIStatusUpdate | null
@@ -35,6 +39,8 @@ interface LivingUiState {
   activeId: string | null
   states: Record<string, LivingUIStateUpdate['state']>
   pendingQuestions: Record<string, LivingUIPendingQuestion>
+  // Live Construction View feed, per creating project.
+  buildEvents: Record<string, LivingUIBuildEvent[]>
 }
 
 const initialState: LivingUiState = {
@@ -44,6 +50,7 @@ const initialState: LivingUiState = {
   activeId: null,
   states: {},
   pendingQuestions: {},
+  buildEvents: {},
 }
 
 const livingUiSlice = createSlice({
@@ -81,8 +88,10 @@ const livingUiSlice = createSlice({
       const { projectId, url, port } = action.payload
       state.creating = null
       delete state.pendingQuestions[projectId]
+      // The build is over — drop the construction feed and dev preview.
+      delete state.buildEvents[projectId]
       state.projects = state.projects.map(p =>
-        p.id === projectId ? { ...p, status: 'running', url, port } : p,
+        p.id === projectId ? { ...p, status: 'running', url, port, devUrl: undefined } : p,
       )
     },
     markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number }>) {
@@ -146,7 +155,7 @@ const livingUiSlice = createSlice({
     markStopped(state, action: PayloadAction<{ projectId: string }>) {
       state.projects = state.projects.map(p =>
         p.id === action.payload.projectId
-          ? { ...p, status: 'stopped', url: undefined, port: undefined }
+          ? { ...p, status: 'stopped', url: undefined, port: undefined, devUrl: undefined }
           : p,
       )
     },
@@ -156,6 +165,7 @@ const livingUiSlice = createSlice({
       delete state.todos[id]
       delete state.states[id]
       delete state.pendingQuestions[id]
+      delete state.buildEvents[id]
       if (state.activeId === id) state.activeId = null
     },
     setTodos(state, action: PayloadAction<{ projectId: string; todos: LivingUITodo[] }>) {
@@ -188,6 +198,33 @@ const livingUiSlice = createSlice({
     clearPendingQuestion(state, action: PayloadAction<{ projectId: string }>) {
       delete state.pendingQuestions[action.payload.projectId]
     },
+    // --- Live Construction View ---
+    appendBuildEvent(
+      state,
+      action: PayloadAction<{ projectId: string; event: LivingUIBuildEvent }>,
+    ) {
+      const { projectId, event } = action.payload
+      const list = state.buildEvents[projectId] ?? []
+      if (list.some(e => e.id === event.id)) return // replay/live dedupe
+      list.push(event)
+      state.buildEvents[projectId] = list.slice(-MAX_BUILD_EVENTS)
+    },
+    setBuildEvents(
+      state,
+      action: PayloadAction<{ projectId: string; events: LivingUIBuildEvent[] }>,
+    ) {
+      const { projectId, events } = action.payload
+      state.buildEvents[projectId] = events.slice(-MAX_BUILD_EVENTS)
+    },
+    setDevPreview(
+      state,
+      action: PayloadAction<{ projectId: string; url: string | null }>,
+    ) {
+      const { projectId, url } = action.payload
+      state.projects = state.projects.map(p =>
+        p.id === projectId ? { ...p, devUrl: url ?? undefined } : p,
+      )
+    },
   },
 })
 
@@ -212,6 +249,9 @@ export const {
   clearPendingQuestion,
   launchTimedOut,
   stopTimedOut,
+  appendBuildEvent,
+  setBuildEvents,
+  setDevPreview,
 } = livingUiSlice.actions
 
 export default livingUiSlice.reducer
@@ -335,6 +375,21 @@ register('living_ui_error', (data, dispatch) => {
   const e = data as { projectId: string; error: string }
   if (e.projectId) clearOptimisticTimeout(e.projectId)
   dispatch(markError(e))
+})
+
+register('living_ui_build_event', (data, dispatch) => {
+  const u = data as { projectId: string; event: LivingUIBuildEvent }
+  if (u.projectId && u.event) dispatch(appendBuildEvent(u))
+})
+
+register('living_ui_build_events_replay', (data, dispatch) => {
+  const u = data as { projectId: string; events: LivingUIBuildEvent[] }
+  if (u.projectId && Array.isArray(u.events)) dispatch(setBuildEvents(u))
+})
+
+register('living_ui_dev_preview', (data, dispatch) => {
+  const u = data as { projectId: string; url: string | null }
+  if (u.projectId) dispatch(setDevPreview(u))
 })
 
 // `living_ui_data_changed` has no state — it just nudges the iframe pool to

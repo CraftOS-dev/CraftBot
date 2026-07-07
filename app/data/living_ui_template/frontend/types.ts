@@ -3,11 +3,14 @@
  * Define your data structures here
  */
 
-// Base state interface - extend this for your app state
+// Base state interface - extend this for your app state.
+// Keep the index signature: state flows into StatePersistence / ApiService,
+// which are typed against Record<string, unknown>.
 export interface AppState {
   initialized: boolean
   loading: boolean
   error: string | null
+  [key: string]: unknown
 }
 
 // Example data item - customize for your needs

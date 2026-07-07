@@ -74,6 +74,22 @@ class LivingUIProject:
     process: Optional[subprocess.Popen] = None  # Frontend process
     backend_process: Optional[subprocess.Popen] = None  # Backend process
     app_process: Optional[subprocess.Popen] = None  # Single process for external apps
+    # Live Construction View dev preview (Vite dev server shown while the
+    # project is still being created). dev_port is persisted so startup
+    # cleanup can kill an orphaned dev server after a crash; dev_url and
+    # dev_process are runtime-only.
+    dev_port: Optional[int] = None
+    dev_url: Optional[str] = None  # NOT restored on load
+    dev_process: Optional[subprocess.Popen] = None  # NOT serialized
+    # Set when the launch pipeline last PASSED, cleared on every new pipeline
+    # attempt and on code writes (see construction_events). Gates
+    # living_ui_notify_ready: no fresh pass, no ready. Runtime-only — a
+    # restart requires re-validation by design.
+    validation_passed_at: Optional[float] = None  # NOT serialized
+    # Rendered-layout metrics from the dev preview's reveal engine (design
+    # gate) + when they were measured. Runtime-only.
+    design_metrics: Optional[Dict[str, Any]] = None  # NOT serialized
+    design_metrics_at: Optional[float] = None  # NOT serialized
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -97,6 +113,8 @@ class LivingUIProject:
             "appRuntime": self.app_runtime,
             "tunnelUrl": self.tunnel_url,
             "uiTheme": self.ui_theme,
+            "devPort": self.dev_port,
+            "devUrl": self.dev_url,
         }
 
 
@@ -598,6 +616,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             project_type=project_data.get("projectType", "native"),
                             app_runtime=project_data.get("appRuntime"),
                             ui_theme=project_data.get("uiTheme"),
+                            # dev_port only — so startup cleanup can kill an
+                            # orphaned dev server; dev_url/process are never
+                            # valid across restarts.
+                            dev_port=project_data.get("devPort"),
                         )
                         # Keep the saved tunnel URL optimistically; reachability
                         # is verified in a background thread below so startup
@@ -1037,6 +1059,73 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 "errors": [f"Project path not found: {project.path}"],
             }
 
+        # Every pipeline attempt invalidates the previous pass until this
+        # attempt succeeds — a stale "validation passed" must never gate-keep
+        # notify_ready after the project has demonstrably changed or failed.
+        project.validation_passed_at = None
+
+        # Completeness gate: a project still being CREATED may not launch
+        # while its MainView is the untouched template placeholder. The todo
+        # list is the agent's self-report and can be wrong (observed: all
+        # feature todos marked complete with zero code written, then
+        # notify_ready on the raw template); the filesystem cannot lie.
+        # Applies only to mid-creation launches — relaunches of finished
+        # projects and external/imported apps are never gated.
+        if project.status == "creating" and project.project_type == "native":
+            from .pace_guard import mounting_errors, skeleton_missing
+
+            if skeleton_missing(project_path):
+                return {
+                    "status": "error",
+                    "step": "completeness.check",
+                    "errors": [
+                        "The app has not been built yet: frontend/components/"
+                        "MainView.tsx still contains the untouched template "
+                        "placeholder. Whatever the todo list says, no UI has "
+                        "been created — do NOT mark todos complete without "
+                        "doing the work. Build the app first: write the "
+                        "layout wireframe (skill Phase 1.5 — MainView as the "
+                        "full-page frame with its CSS, then one styled "
+                        "component file per region), take each component "
+                        "through backend + wiring (Phase 2-7), then run "
+                        "living_ui_validate until it passes."
+                    ],
+                }
+            # Requirement ledger gate FIRST: LIVING_UI.md's REQ block must
+            # exist, cover all five sections, and be fully checked — planned
+            # means built, and the ledger IS the plan. This is the cheapest
+            # and most fundamental "you are not done" signal, so an early
+            # validate call refuses immediately instead of running anything.
+            from .requirements import requirements_errors
+
+            req_errors = requirements_errors(project_path)
+            if req_errors:
+                return {
+                    "status": "error",
+                    "step": "requirements.check",
+                    "errors": req_errors,
+                }
+            # The wireframe exists — but is the built UI actually ON SCREEN?
+            # A wireframe-only app, or components that exist on disk but are
+            # never imported by MainView, ships an unusable skeleton. Refuse.
+            mount_errors = mounting_errors(project_path)
+            if mount_errors:
+                return {
+                    "status": "error",
+                    "step": "completeness.check",
+                    "errors": mount_errors,
+                }
+            # Design gate: the dev preview measured the real rendered layout.
+            # Overflow, clipped text, empty sections, or a mostly-void page
+            # fail fast, before the expensive pipeline runs.
+            design_errors = self.design_review_errors(project)
+            if design_errors:
+                return {
+                    "status": "error",
+                    "step": "design.review",
+                    "errors": design_errors,
+                }
+
         # Load manifest
         manifest_path = project_path / "config" / "manifest.json"
         if not manifest_path.exists():
@@ -1403,8 +1492,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.info(f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}")
 
         # === SUCCESS ===
+        # The production preview is up — the Live Construction View's dev
+        # server has served its purpose. (Killing it doesn't blank the dev
+        # iframe: the page persists visually until the host swaps to the
+        # production URL on living_ui_ready.)
+        self.stop_dev_preview(project_id)
         project.status = "running"
         project.error = None
+        project.validation_passed_at = time.time()
         self._save_projects()
         self._save_launch_timestamp(project_path)
 
@@ -1652,6 +1747,21 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         return errors
 
+    @staticmethod
+    def _certifi_ssl_env() -> dict:
+        """SSL CA bundle env for project subprocesses. This Windows
+        environment can't load the OS cert store from Python (the app itself
+        needs a certifi shim in app/main.py) — without these vars any HTTPS
+        fetch inside a project backend or its tests dies with SSL errors,
+        which has repeatedly blocked validation. Fail-silent."""
+        try:
+            import certifi
+
+            ca = certifi.where()
+            return {"SSL_CERT_FILE": ca, "REQUESTS_CA_BUNDLE": ca}
+        except Exception:
+            return {}
+
     async def _run_pipeline_command(
         self, cwd: Path, command: str, step_name: str, timeout: int = 1200
     ) -> dict:
@@ -1661,9 +1771,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         logger.info(f"[LIVING_UI:PIPELINE] [{step_name}] Running: {command}")
 
         try:
+            cmd_env = os.environ.copy()
+            cmd_env.update(self._certifi_ssl_env())
             proc = await asyncio.create_subprocess_shell(
                 command,
                 cwd=str(cwd),
+                env=cmd_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -1840,6 +1953,142 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return f'"{py}" {command[7:]}'
         return command
 
+    # ========================================================================
+    # Live Construction View dev preview
+    #
+    # While a project is being created, a Vite dev server (npm run dev) serves
+    # the real frontend with hot-module-reload so the user watches the app
+    # grow as the agent writes files. It runs on its OWN allocated port —
+    # never the project's frontend port — so it can stay alive through the
+    # entire launch pipeline and is killed only once the production preview
+    # is up (or the project is stopped/deleted). Purely cosmetic: every
+    # failure degrades to today's progress-bar experience, never blocks a
+    # build.
+    # ========================================================================
+
+    DEV_PREVIEW_INSTALL_TIMEOUT = 420  # seconds for npm install
+    DEV_PREVIEW_START_TIMEOUT = 45  # seconds for the dev server to respond
+
+    def _dev_preview_eligible(self, project: "LivingUIProject") -> bool:
+        if project.project_type != "native" or not project.path:
+            return False
+        project_path = Path(project.path)
+        return (project_path / "package.json").exists() and (
+            project_path / "frontend"
+        ).exists()
+
+    async def start_dev_preview(self, project_id: str) -> bool:
+        """Start the dev preview for a project that is being created.
+
+        Installs npm dependencies if needed (overlaps the Phase 0 interview),
+        starts `npm run dev` on a freshly allocated port, and broadcasts the
+        URL so the Live Construction View can mount its iframe. Idempotent;
+        returns True when a dev server is (already) up.
+        """
+        project = self.projects.get(project_id)
+        if not project or project.status != "creating":
+            return False
+        if not self._dev_preview_eligible(project):
+            return False
+        if project.dev_process and project.dev_process.poll() is None:
+            return True
+
+        project_path = Path(project.path)
+        dev_log = project_path / "logs" / "dev_preview.log"
+
+        try:
+            # -- npm install (skipped when node_modules already exists) --
+            if not (project_path / "node_modules").exists():
+                logger.info(
+                    f"[LIVING_UI:DEV_PREVIEW] npm install for {project_id}..."
+                )
+                install = self._start_process(
+                    project_path, "npm install", dev_log, project=project
+                )
+                waited = 0.0
+                while install.poll() is None:
+                    if waited >= self.DEV_PREVIEW_INSTALL_TIMEOUT:
+                        self._terminate_process(install)
+                        logger.warning(
+                            f"[LIVING_UI:DEV_PREVIEW] npm install timed out for {project_id}"
+                        )
+                        return False
+                    await asyncio.sleep(2)
+                    waited += 2
+                self._close_process_log(install)
+                if install.returncode != 0:
+                    logger.warning(
+                        f"[LIVING_UI:DEV_PREVIEW] npm install failed "
+                        f"(exit {install.returncode}) for {project_id}"
+                    )
+                    return False
+
+            # The project may have been deleted/finished during the install.
+            project = self.projects.get(project_id)
+            if not project or project.status != "creating":
+                return False
+
+            dev_port = self._allocate_port()
+            project.dev_port = dev_port
+            dev_process = self._start_process(
+                project_path,
+                # --strictPort: fail rather than silently drift to another
+                # port, which would make dev_url point at nothing.
+                f"npm run dev -- --port {dev_port} --strictPort",
+                dev_log,
+                port=dev_port,
+                project=project,
+            )
+            project.dev_process = dev_process
+
+            ready = await self._wait_for_server(
+                dev_port, timeout=self.DEV_PREVIEW_START_TIMEOUT
+            )
+            if not ready:
+                self._terminate_process(dev_process)
+                project.dev_process = None
+                project.dev_port = None
+                self._release_port(dev_port)
+                logger.warning(
+                    f"[LIVING_UI:DEV_PREVIEW] dev server never became ready for {project_id}"
+                )
+                return False
+
+            project.dev_url = f"http://localhost:{dev_port}"
+            self._save_projects()
+            logger.info(
+                f"[LIVING_UI:DEV_PREVIEW] Live at {project.dev_url} for {project_id}"
+            )
+            from .broadcast import broadcast_living_ui_dev_preview
+
+            await broadcast_living_ui_dev_preview(project_id, project.dev_url)
+            return True
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:DEV_PREVIEW] start failed for {project_id}: {e}"
+            )
+            return False
+
+    def stop_dev_preview(self, project_id: str) -> None:
+        """Tear down a project's dev preview (process, port, url). Safe to
+        call when none is running."""
+        project = self.projects.get(project_id)
+        if not project:
+            return
+        had_preview = bool(project.dev_process or project.dev_port or project.dev_url)
+        if project.dev_process:
+            self._terminate_process(project.dev_process)
+            project.dev_process = None
+        if project.dev_port:
+            if self._is_port_in_use(project.dev_port):
+                self._kill_process_on_port(project.dev_port)
+            self._release_port(project.dev_port)
+            project.dev_port = None
+        project.dev_url = None
+        if had_preview:
+            self._save_projects()
+            logger.info(f"[LIVING_UI:DEV_PREVIEW] Stopped for {project_id}")
+
     def _start_process(
         self,
         cwd: Path,
@@ -1861,6 +2110,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         # Build env with integration bridge vars if project provided
         env = os.environ.copy()
+        env.update(self._certifi_ssl_env())
         if extra_env:
             env.update(extra_env)
         if project and project.bridge_token:
@@ -2367,6 +2617,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 tracked_ports.add(p.port)
             if p.backend_port:
                 tracked_ports.add(p.backend_port)
+            # Orphaned Live Construction dev server from a previous session
+            if p.dev_port:
+                tracked_ports.add(p.dev_port)
+                p.dev_port = None
+                p.dev_url = None
 
         if tracked_ports:
             # Get all port -> PID mappings with a single system call
@@ -2758,6 +3013,140 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if project_id in self.projects:
             self.projects[project_id].task_id = task_id
 
+    # ────────────────────────────────────────────────────────────────────
+    # Design review (Live Construction View feeds this)
+    #
+    # The reveal engine in the dev preview measures the REAL rendered
+    # layout (overflow, clipped text, empty sections, viewport fill) and
+    # periodically captures a screenshot. Metrics gate validation; the
+    # screenshot is written to logs/design_preview.png for the agent's
+    # describe_image self-review.
+    # ────────────────────────────────────────────────────────────────────
+
+    def set_design_metrics(self, project_id: str, metrics: Dict[str, Any]) -> None:
+        project = self.projects.get(project_id)
+        if not project or not isinstance(metrics, dict):
+            return
+        project.design_metrics = metrics
+        project.design_metrics_at = time.time()
+
+    def save_design_screenshot(self, project_id: str, data_url: str) -> None:
+        """Persist the dev preview's periodic screenshot so the agent can
+        review its own UI with describe_image. Size is governed at the
+        source (the engine caps capture resolution). Fail-silent."""
+        project = self.projects.get(project_id)
+        if not project or not project.path or not isinstance(data_url, str):
+            return
+        try:
+            import base64
+
+            raw = base64.b64decode(data_url.split(",")[-1])
+            if not raw:
+                return
+            out = Path(project.path) / "logs" / "design_preview.png"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(raw)
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] design screenshot save failed: {e}")
+
+    def _design_metrics_current(self, project: "LivingUIProject") -> bool:
+        """Metrics are current when measured AFTER the last frontend change —
+        staleness is derived from the build itself, not from a clock window.
+        With no observable frontend changes, existing metrics count as
+        current (nothing has invalidated them)."""
+        if not project.design_metrics or not project.design_metrics_at:
+            return False
+        try:
+            from .construction_events import get_buffered_events
+
+            last_frontend_ms = max(
+                (
+                    e.get("ts", 0)
+                    for e in get_buffered_events(project.id)
+                    if e.get("area") == "frontend"
+                ),
+                default=0,
+            )
+            return project.design_metrics_at * 1000 >= last_frontend_ms
+        except Exception:
+            return True
+
+    def design_review_errors(self, project: "LivingUIProject") -> List[str]:
+        """Deterministic design gate from real rendered-layout metrics.
+        Empty list when fine or when no current metrics exist (fail-open —
+        headless builds have no dev preview to measure). Every check here is
+        an ABSENCE/PRESENCE fact about the rendered page — no judgment
+        thresholds (visual judgment belongs to the describe_image review)."""
+        try:
+            metrics = project.design_metrics
+            if not self._design_metrics_current(project):
+                return []
+            errors: List[str] = []
+            if metrics.get("overflowX"):
+                errors.append(
+                    "DESIGN: the page overflows horizontally — content is "
+                    "wider than the viewport. Nothing may escape AppShell; "
+                    "fix widths/min-widths so the layout fits."
+                )
+            clipped = int(metrics.get("clippedText") or 0)
+            if clipped > 0:
+                errors.append(
+                    f"DESIGN: {clipped} text element(s) are clipped "
+                    f"(text cut off mid-word). Give inputs/labels room "
+                    f"(full-width inside their Section) or allow wrapping."
+                )
+            empty = int(metrics.get("emptySections") or 0)
+            if empty > 0:
+                errors.append(
+                    f"DESIGN: {empty} Section(s) render EMPTY (no visible "
+                    f"content). Every Section must show real content or an "
+                    f"intentional EmptyState."
+                )
+            # NOTE: viewportFill is reported in the metrics for the agent's
+            # information but deliberately NOT gated — "how full is full
+            # enough" is a judgment call that belongs to the describe_image
+            # design review, not a platform constant.
+            # Visual richness: an all-text page (ZERO icons/images — an
+            # absence fact, not a quota) looks unfinished. Only judged once
+            # skeletons are gone — wireframe metrics legitimately have none.
+            icons = metrics.get("iconCount")
+            if (
+                isinstance(icons, (int, float))
+                and int(icons) == 0
+                and int(metrics.get("skeletons") or 0) == 0
+            ):
+                errors.append(
+                    "DESIGN: the UI contains ZERO icons or images — all-text "
+                    "pages look unfinished. Add lucide-react icons to the "
+                    "header, section actions, buttons, and empty states, and "
+                    "use IconBadge/StatCard accents where they fit."
+                )
+            if errors:
+                errors.append(
+                    "Fix the layout/CSS (watch the live preview update), "
+                    "then run living_ui_validate again."
+                )
+            return errors
+        except Exception:
+            return []
+
+    def is_validated(self, project_id: str) -> bool:
+        """True when the full launch pipeline has passed for this project and
+        nothing has invalidated the pass since (code write, failed attempt,
+        restart). Gates living_ui_notify_ready."""
+        project = self.projects.get(project_id)
+        return bool(project and project.validation_passed_at)
+
+    def invalidate_validation(self, project_id: str) -> None:
+        """Clear a project's validation pass. Called when project code
+        changes after a pass — the changed code has not been validated."""
+        project = self.projects.get(project_id)
+        if project and project.validation_passed_at:
+            project.validation_passed_at = None
+            logger.info(
+                f"[LIVING_UI] Validation invalidated for {project_id} (code changed)"
+            )
+
     def set_project_ui_theme(self, project_id: str, theme: Dict[str, Any]) -> bool:
         """Persist the per-project display theme chosen in the UI.
 
@@ -3110,6 +3499,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         project.backend_url = f"http://localhost:{app_port}"
         project.status = "running"
+        project.validation_passed_at = time.time()
         self._save_projects()
 
         logger.info(f"[LIVING_UI:PIPELINE] App ready: {project.url}")
@@ -3389,6 +3779,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 logger.error(f"[LIVING_UI] Project not found: {project_id}")
                 return False
 
+            # Stop the Live Construction dev preview if one is running
+            self.stop_dev_preview(project_id)
+
             # Stop app process (external/single-process apps)
             if project.app_process:
                 self._terminate_process(project.app_process)
@@ -3432,6 +3825,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         # Stop tunnel if active
         await self.stop_tunnel(project_id)
+
+        # Stop the Live Construction dev preview and drop its event feed
+        self.stop_dev_preview(project_id)
+        try:
+            from .construction_events import clear_buffer
+
+            clear_buffer(project_id)
+        except Exception:
+            pass
 
         # Stop if running
         if project.status == "running":

@@ -1248,33 +1248,23 @@ class ActionRouter:
                     kept.append(action_dict)
             actions = kept
 
-        # Check for non-parallelizable actions by looking up each action's parallelizable attribute
-        # If found, we need to keep the non-parallelizable action (not just the first action)
-        non_parallel_action = None
-        for action_dict in actions:
-            action_name = action_dict.get("action_name", "")
-            if action_name:
-                act = self.action_library.retrieve_action(action_name)
-                if act and not getattr(act, "parallelizable", True):
-                    non_parallel_action = action_dict
-                    break
-
-        if non_parallel_action and len(actions) > 1:
-            non_parallel_name = non_parallel_action.get("action_name")
-            logger.warning(
-                f"[PARALLEL] Non-parallelizable action detected in batch of {len(actions)}. "
-                f"Using non-parallelizable action: {non_parallel_name}"
-            )
-            # Mark other actions as dropped with error
+        # Batches containing non-parallelizable actions (file writes, waits,
+        # ...) are NO LONGER reduced to one action: the ActionManager runs
+        # such batches SEQUENTIALLY in the listed order (see
+        # execute_actions_parallel), so a single decision can carry several
+        # writes plus a follow-up command. Just log that it will serialize.
+        if len(actions) > 1:
             for action_dict in actions:
-                if action_dict is not non_parallel_action:
-                    dropped_action = action_dict.copy()
-                    dropped_action["_error"] = (
-                        f"Action dropped: cannot run in parallel with non-parallelizable action '{non_parallel_name}'. "
-                        f"Non-parallelizable actions must run alone."
-                    )
-                    dropped_actions.append(dropped_action)
-            actions = [non_parallel_action]
+                action_name = action_dict.get("action_name", "")
+                if action_name:
+                    act = self.action_library.retrieve_action(action_name)
+                    if act and not getattr(act, "parallelizable", True):
+                        logger.info(
+                            f"[PARALLEL] Batch of {len(actions)} contains "
+                            f"non-parallelizable '{action_name}' — executing "
+                            f"sequentially in order."
+                        )
+                        break
 
         # Validate each action exists and is visible
         validated = []

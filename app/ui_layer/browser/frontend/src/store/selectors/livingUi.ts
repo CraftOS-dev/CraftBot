@@ -17,3 +17,6 @@ export const selectLivingUiStates = (state: RootState) =>
 
 export const selectLivingUiPendingQuestions = (state: RootState) =>
   state.livingUi.pendingQuestions
+
+export const selectLivingUiBuildEvents = (state: RootState) =>
+  state.livingUi.buildEvents

@@ -240,8 +240,10 @@ Missions (multi-session / ongoing work):
 </rules>
 
 <parallel_actions>
-Batch up to 10 actions in one step ONLY when none depends on another's output (e.g. several read_file / web_search / memory_search, or task_update_todos + send_message together).
-A non-parallelizable action MUST be the ONLY action in its step — this includes any write/mutate (write_file, stream_edit, clipboard_write), wait, and add_action_sets / remove_action_sets.
+Batch up to 10 actions in one step whenever you can fully specify every action's parameters NOW (no action's parameters depend on another's OUTPUT).
+Read-only actions run concurrently. Write/mutate actions (write_file, stream_edit, run_shell, ...) run SEQUENTIALLY in the order you list them — so you SHOULD batch related work into one step: e.g. write tests + write model changes + write routes + run pytest, all in ONE step; or write a component file + the MainView edit that mounts it. This is dramatically cheaper than one action per step — prefer it whenever the contents of each write are already decided.
+Keep actions in separate steps ONLY when you must READ a result before you can write the next parameters (e.g. read a file to find an anchor before editing it).
+If an action in a batch fails, the remaining actions are skipped and reported — check each result.
 Never emit two of the same single-instance action: combine multiple messages into ONE send, use ONE task_update_todos with the full list, and never pair task_end with anything.
 </parallel_actions>
 
@@ -418,31 +420,26 @@ Critical Rules:
 </rules>
 
 <parallel_actions>
-Parallel Action Execution:
-When multiple actions are completely independent (no action depends on another's output),
-you SHOULD batch up to 10 of them in a single step to maximize efficiency.
+Batched Action Execution:
+When you can fully specify every action's parameters NOW, batch up to 10
+actions in a single step. Read-only actions run concurrently; write/mutate
+actions (write_file, stream_edit, run_shell, ...) run SEQUENTIALLY in the
+order you list them.
 
-Good candidates for parallelization:
-- Multiple read_file() calls for different files
-- Multiple web_search() or memory_search() calls
-- Any combination of read-only operations
-- send message action combined with task_update_todos
-Example: read_file("a.txt") + read_file("b.txt") + grep_files("pattern")
-Example: web_search("query1") + web_search("query2") + memory_search("topic")
-Example: task_update_todos(...) + send_message(...)
+Good candidates for batching:
+- Multiple read_file() / web_search() / memory_search() calls
+- Several write_file() calls to different files, in order
+- write_file(s) followed by the run_shell command that uses them
+- task_update_todos(...) + send_message(...)
 
-Never parallelize these:
-- Write/mutate operations: write_file, stream_edit, clipboard_write
-- Task/state management: wait
-- Action set changes: add_action_sets, remove_action_sets
-- Multiple send_message actions together (combine into one message instead)
-- Multiple task_update_todos actions together (use one call with complete todo list)
-- Multiple task_end actions together
+Keep in separate steps ONLY:
+- An action whose parameters depend on READING another action's result first
+- Multiple send_message actions (combine into one message instead)
+- Multiple task_update_todos actions (use one call with the complete list)
+- task_end paired with anything
 
-RULES:
-1. Never parallelize an action that depends on another action's output.
-2. If any selected action is non-parallelizable, it must be the ONLY action in that step.
-3. task_update_todos + send_message is a good combination - use them together when updating progress and notifying the user.
+If an action in a batch fails, the remaining actions are skipped and
+reported — check each result.
 </parallel_actions>
 
 <reasoning_protocol>

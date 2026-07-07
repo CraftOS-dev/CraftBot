@@ -128,6 +128,17 @@ async def living_ui_scaffold(input_data: dict) -> dict:
         # Register it in the browser's project list immediately (modal-parity).
         await broadcast_living_ui_created(project.to_dict())
 
+        # Start the Live Construction dev preview in the background: npm
+        # install overlaps the Phase 0 interview, then a Vite dev server lets
+        # the user watch the app grow as files are written. Fire-and-forget —
+        # a preview failure must never affect the build.
+        try:
+            import asyncio as _asyncio
+
+            _asyncio.create_task(manager.start_dev_preview(project.id))
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "project_id": project.id,
@@ -139,7 +150,8 @@ async def living_ui_scaffold(input_data: dict) -> dict:
                 f"Use this absolute path as the base for ALL file operations "
                 f"(e.g. {project.path}/backend/models.py, {project.path}/frontend/). "
                 f"Do NOT write to bare relative paths. When the build is complete, "
-                f'call living_ui_notify_ready(project_id="{project.id}").'
+                f'run living_ui_validate(project_id="{project.id}") until it '
+                f'PASSES, then call living_ui_notify_ready(project_id="{project.id}").'
             ),
         }
     except Exception as e:
@@ -147,12 +159,215 @@ async def living_ui_scaffold(input_data: dict) -> dict:
 
 
 @action(
+    name="living_ui_validate",
+    description=(
+        "Validate a Living UI project by running the FULL launch pipeline: "
+        "completeness check, dependency install, all tests, build, backend "
+        "start + smoke tests, operations manifest check. Returns the exact "
+        "errors to fix on failure. This MUST pass before "
+        "living_ui_notify_ready can be called — notify_ready refuses "
+        "unvalidated projects. Re-run after fixing errors; editing project "
+        "code after a pass invalidates it, requiring a fresh run."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The Living UI project ID (provided in task instruction).",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result: 'success' or 'error'.",
+        },
+        "message": {
+            "type": "string",
+            "example": "Validation PASSED. Now call living_ui_notify_ready.",
+            "description": "Status message.",
+        },
+        "test_errors": {
+            "type": "array",
+            "example": ["[import] Failed to import routes: ..."],
+            "description": "List of errors if validation failed. Fix these and call again.",
+        },
+    },
+    test_payload={
+        "project_id": "test123",
+        "simulated_mode": True,
+    },
+)
+async def living_ui_validate(input_data: dict) -> dict:
+    """Run the full launch pipeline and record a validation pass on success."""
+    project_id = input_data.get("project_id", "")
+    simulated_mode = input_data.get("simulated_mode", False)
+
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+
+    if simulated_mode:
+        return {
+            "status": "success",
+            "message": f"Validation PASSED for {project_id}. Now call living_ui_notify_ready.",
+        }
+
+    try:
+        from app.living_ui import get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {
+                "status": "error",
+                "message": "Living UI manager not initialized. Browser adapter may not be running.",
+            }
+
+        # Full pipeline: completeness gate → install → tests → build →
+        # backend + smoke tests → ops check → frontend. Records the
+        # validation pass on success (cleared again by any code edit).
+        result = await manager.launch_and_verify(project_id)
+
+        if result["status"] == "success":
+            return {
+                "status": "success",
+                "message": (
+                    f"Validation PASSED for {project_id}. "
+                    f'Now call living_ui_notify_ready(project_id="{project_id}") '
+                    f"to present the app to the user."
+                ),
+            }
+        errors = result.get("errors", [])
+        errors_str = "\n".join(errors[:10])
+        return {
+            "status": "error",
+            "message": f"Validation failed at step: {result.get('step', 'unknown')}",
+            "test_errors": errors[:10],
+            "details": f"Fix these errors and call living_ui_validate again:\n{errors_str}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Validation failed: {str(e)}"}
+
+
+@action(
+    name="living_ui_tick_requirements",
+    description=(
+        "Tick fulfilled requirement checkboxes in LIVING_UI.md by their IDs "
+        '(e.g. ids=["F3", "V6", "Q1"]). This is the ONLY way to mark '
+        "requirements done — never flip checkboxes with stream_edit (exact "
+        "string matching fails on text drift; this action edits by ID and "
+        "cannot mismatch). Batch it at the end of each component slice with "
+        "every ID that slice fulfilled. stream_edit remains valid only for "
+        "REWORDING a requirement's text. Returns the updated done/total "
+        "counts and lists any unknown IDs."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=True,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The Living UI project ID (provided in task instruction).",
+        },
+        "ids": {
+            "type": "array",
+            "example": ["F3", "V6", "Q1"],
+            "description": "Requirement IDs to mark fulfilled (case-insensitive).",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result: 'success' or 'error'.",
+        },
+        "message": {
+            "type": "string",
+            "example": "Ticked F3, V6. Progress: 12/58 requirements fulfilled.",
+            "description": "What was ticked, already done, or unknown, plus progress.",
+        },
+        "done": {
+            "type": "integer",
+            "example": 12,
+            "description": "Requirements fulfilled after this call.",
+        },
+        "total": {
+            "type": "integer",
+            "example": 58,
+            "description": "Total requirements in the ledger.",
+        },
+    },
+    test_payload={
+        "project_id": "test123",
+        "ids": ["F1"],
+        "simulated_mode": True,
+    },
+)
+async def living_ui_tick_requirements(input_data: dict) -> dict:
+    """Mark ledger requirements fulfilled by ID (keyed mutation, no string matching)."""
+    project_id = input_data.get("project_id", "")
+    ids = input_data.get("ids") or []
+
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+    if not isinstance(ids, list) or not ids:
+        return {"status": "error", "message": 'ids is required, e.g. ids=["F3", "V6"]'}
+
+    if input_data.get("simulated_mode", False):
+        return {"status": "success", "message": f"Ticked {', '.join(map(str, ids))}."}
+
+    try:
+        from app.living_ui import get_living_ui_manager
+        from app.living_ui.requirements import tick_requirements
+
+        manager = get_living_ui_manager()
+        project = manager.projects.get(project_id) if manager else None
+        if not project:
+            return {"status": "error", "message": f"Project not found: {project_id}"}
+
+        result = tick_requirements(project.path, ids)
+
+        parts = []
+        if result["ticked"]:
+            parts.append(f"Ticked {', '.join(result['ticked'])}.")
+        if result["already"]:
+            parts.append(f"Already ticked: {', '.join(result['already'])}.")
+        if result["unknown"]:
+            parts.append(
+                f"UNKNOWN IDs (not in the ledger, check LIVING_UI.md): "
+                f"{', '.join(result['unknown'])}."
+            )
+        parts.append(
+            f"Progress: {result['done']}/{result['total']} requirements fulfilled."
+        )
+        # Unknown IDs with nothing ticked = the call did no work; surface as
+        # an error so the agent corrects the IDs instead of moving on.
+        status = "error" if (result["unknown"] and not result["ticked"]) else "success"
+        return {
+            "status": status,
+            "message": " ".join(parts),
+            "done": result["done"],
+            "total": result["total"],
+        }
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Tick failed: {str(e)}"}
+
+
+@action(
     name="living_ui_notify_ready",
     description=(
-        "Launch, verify, and serve a Living UI project. "
-        "Call this after building the Living UI code. "
-        "This action installs dependencies, runs tests, starts the backend and frontend, "
-        "and notifies the browser. Returns test errors if anything fails."
+        "Present a VALIDATED Living UI to the user (marks it ready and swaps "
+        "the browser to the live app). HARD REQUIREMENT: living_ui_validate "
+        "must have PASSED first — this action refuses unvalidated projects "
+        "and returns an error telling you to validate. Editing code after "
+        "validation requires validating again."
     ),
     default=False,
     mode="CLI",
@@ -176,11 +391,6 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             "example": "Living UI abc12345 is now ready at http://localhost:3100",
             "description": "Status message.",
         },
-        "test_errors": {
-            "type": "array",
-            "example": ["[import] Failed to import routes: ..."],
-            "description": "List of test errors if launch failed. Fix these and call again.",
-        },
     },
     test_payload={
         "project_id": "test123",
@@ -188,7 +398,8 @@ async def living_ui_scaffold(input_data: dict) -> dict:
     },
 )
 async def living_ui_notify_ready(input_data: dict) -> dict:
-    """Launch, verify, and notify browser that a Living UI is ready."""
+    """Present a validated Living UI to the user. Refuses without a fresh
+    validation pass from living_ui_validate."""
     project_id = input_data.get("project_id", "")
     simulated_mode = input_data.get("simulated_mode", False)
 
@@ -211,30 +422,42 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
                 "message": "Living UI manager not initialized. Browser adapter may not be running.",
             }
 
-        # Run the full pipeline: install → test → launch → verify
-        result = await manager.launch_and_verify(project_id)
-
-        if result["status"] == "success":
-            # Notify browser that the UI is ready
-            url = result.get("url", "")
-            port = result.get("port", 0)
-            await broadcast_living_ui_ready(project_id, url, port)
-            return {
-                "status": "success",
-                "message": f"Living UI {project_id} is now ready at {url}",
-            }
-        else:
-            # Return errors directly so the agent can fix them
-            errors = result.get("errors", [])
-            errors_str = "\n".join(errors[:10])
+        # THE GATE: no fresh validation pass, no ready. This is deliberate —
+        # skipping a failed validation and calling notify_ready anyway must
+        # be impossible, not just discouraged.
+        if not manager.is_validated(project_id):
             return {
                 "status": "error",
-                "message": f"Launch failed at step: {result.get('step', 'unknown')}",
-                "test_errors": errors[:10],
-                "details": f"Fix these errors and call living_ui_notify_ready again:\n{errors_str}",
+                "error_code": "validation_not_passed",
+                "message": (
+                    "Validation has NOT passed for this project. Run "
+                    f'living_ui_validate(project_id="{project_id}") and fix '
+                    "any errors it reports until it PASSES — only then can "
+                    "living_ui_notify_ready be called. (A previous pass is "
+                    "cleared whenever project code changes or a validation "
+                    "attempt fails.)"
+                ),
             }
+
+        project = manager.get_project(project_id)
+        url = project.url if project else ""
+        port = project.port if project else 0
+        ok = await broadcast_living_ui_ready(project_id, url or "", port or 0)
+        if not ok:
+            return {
+                "status": "error",
+                "message": "Failed to notify the browser. Is the CraftBot app running?",
+            }
+        project = manager.get_project(project_id)
+        return {
+            "status": "success",
+            "message": (
+                f"Living UI {project_id} is now ready at "
+                f"{project.url if project else url}"
+            ),
+        }
     except Exception as e:
-        return {"status": "error", "message": f"Failed to launch: {str(e)}"}
+        return {"status": "error", "message": f"Failed to notify ready: {str(e)}"}
 
 
 @action(

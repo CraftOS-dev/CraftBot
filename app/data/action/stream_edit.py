@@ -210,9 +210,22 @@ def stream_edit_action(input_data: dict) -> dict:
         with open(file_path, "w", encoding="utf-8", newline="") as f:
             f.write(new_content)
 
+        message = f"Successfully replaced {count} occurrence(s)"
+        # Living UI write-time guard: build-order pace note plus pattern
+        # warnings (route /api prefix, raw HTML controls, missing CSS) for
+        # projects the user is watching being created. Advisory, fail-silent.
+        try:
+            from app.living_ui.pace_guard import review_note_for
+
+            note = review_note_for(file_path)
+            if note:
+                message = f"{message}\n\n{note}"
+        except Exception:
+            pass
+
         return {
             "status": "success",
-            "message": f"Successfully replaced {count} occurrence(s)",
+            "message": message,
             "occurrences_replaced": count,
         }
 

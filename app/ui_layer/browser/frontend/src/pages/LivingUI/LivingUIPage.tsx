@@ -22,14 +22,17 @@ import { IconButton } from '../../components/ui/IconButton'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
 import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, getIframeWindow } from './iframePool'
-import { CreationProgress } from './CreationProgress'
+import { ConstructionView, devIframeKey } from './ConstructionView'
 import { CreationQuestionForm } from './CreationQuestionForm'
 import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS, buildThemeMessage } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
+import type { LivingUIBuildEvent } from '../../types'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
-import { selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
+import { selectLivingUiPendingQuestions, selectLivingUiBuildEvents } from '../../store/selectors/livingUi'
 import { clearPendingQuestion } from '../../store/slices/livingUiSlice'
 import styles from './LivingUIPage.module.css'
+
+const EMPTY_EVENTS: LivingUIBuildEvent[] = []
 
 function loadLivingUITheme(projectId: string): LivingUIThemeId {
   try {
@@ -85,6 +88,7 @@ export function LivingUIPage() {
   const { theme: appTheme } = useTheme()
   const dispatch = useAppDispatch()
   const pendingQuestions = useAppSelector(selectLivingUiPendingQuestions)
+  const buildEventsMap = useAppSelector(selectLivingUiBuildEvents)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
@@ -131,6 +135,22 @@ export function LivingUIPage() {
 
   // A question the agent mirrored onto this screen (waiting on the user's reply).
   const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
+
+  // Live Construction View: shown for the whole build, and kept up through
+  // the launch phase while the dev preview is still alive so there's no
+  // blank gap between "creating" and "running".
+  const buildEvents = projectId ? (buildEventsMap[projectId] ?? EMPTY_EVENTS) : EMPTY_EVENTS
+  const showConstruction =
+    !!project &&
+    (project.status === 'creating' ||
+      (!!project.devUrl && (project.status === 'ready' || project.status === 'launching')))
+
+  // Once the production preview takes over, drop the dev iframe for good.
+  useEffect(() => {
+    if (projectId && project?.status === 'running') {
+      removeIframe(devIframeKey(projectId))
+    }
+  }, [projectId, project?.status])
 
   // Answer from the screen → send back as a reply targeting the creation task's
   // session (Rule 2 in chat routing resumes the waiting task). Mirrors a chat reply.
@@ -256,6 +276,7 @@ export function LivingUIPage() {
   const handleDelete = () => {
     if (projectId) {
       removeIframe(projectId)
+      removeIframe(devIframeKey(projectId))
       deleteLivingUI(projectId)
       navigate('/')
     }
@@ -400,20 +421,24 @@ export function LivingUIPage() {
         <div className={styles.iframeContainer}>
           {project.status === 'running' && project.url ? (
             <div ref={iframePlaceholderRef} className={styles.iframe} />
-          ) : project.status === 'creating' ? (
-            pendingQuestion ? (
-              <CreationQuestionForm
-                key={pendingQuestion.message}
-                projectName={project.name}
-                message={pendingQuestion.message}
-                onAnswer={handleAnswer}
-              />
-            ) : (
-              <CreationProgress
-                projectName={project.name}
+          ) : showConstruction ? (
+            <>
+              <ConstructionView
+                project={project}
                 todos={livingUITodos[project.id]}
+                events={buildEvents}
               />
-            )
+              {pendingQuestion && (
+                <div className={styles.questionOverlay}>
+                  <CreationQuestionForm
+                    key={pendingQuestion.message}
+                    projectName={project.name}
+                    message={pendingQuestion.message}
+                    onAnswer={handleAnswer}
+                  />
+                </div>
+              )}
+            </>
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>
               <CraftBotMascot state="launching" size={96} />

@@ -580,6 +580,61 @@ class ActionManager:
 
         # Log parallel execution start (internal logging only, no display message)
         action_names = [a[0].name for a in actions]
+
+        # Batches containing non-parallelizable actions (file writes, waits,
+        # ...) execute SEQUENTIALLY in the listed order instead of being
+        # reduced to a single action: one LLM decision can carry several
+        # writes plus a follow-up command (Claude-Code-style batching), at a
+        # fraction of the per-decision context cost. Stops at the first
+        # error — later actions in a batch may assume earlier ones succeeded.
+        if any(not getattr(a, "parallelizable", True) for a, _ in actions):
+            logger.info(
+                f"[BATCH] Executing {len(actions)} actions sequentially: {action_names}"
+            )
+            seq_results: List[Dict] = []
+            batch_failed = False
+            for action, input_data in actions:
+                if batch_failed:
+                    seq_results.append(
+                        {
+                            "status": "error",
+                            "error": (
+                                f"Action {action.name} SKIPPED: an earlier "
+                                f"action in this batch failed. Re-select it "
+                                f"if it is still needed."
+                            ),
+                            "action_name": action.name,
+                            "skipped": True,
+                        }
+                    )
+                    continue
+                if action.name == "task_start":
+                    seq_session_id = self._generate_unique_session_id()
+                else:
+                    seq_session_id = session_id
+                try:
+                    result = await self.execute_action(
+                        action=action,
+                        context=context,
+                        event_stream=event_stream,
+                        parent_id=parent_id,
+                        session_id=seq_session_id,
+                        is_running_task=is_running_task,
+                        is_gui_task=is_gui_task,
+                        input_data=input_data,
+                    )
+                except Exception as e:
+                    logger.error(f"[BATCH] Action {action.name} raised: {e}")
+                    result = {
+                        "status": "error",
+                        "error": str(e),
+                        "action_name": action.name,
+                    }
+                seq_results.append(result)
+                if isinstance(result, dict) and result.get("status") == "error":
+                    batch_failed = True
+            return seq_results
+
         logger.info(
             f"[PARALLEL] Executing {len(actions)} actions in parallel: {action_names}"
         )

@@ -292,6 +292,12 @@ class AgentBase:
         from app.triggers.activity_log import ActivityLogGuard, get_activity_log
 
         self.activity_log = get_activity_log()
+        # Living UI build-event tap: derives "the app is being built" events
+        # from write_file / stream_edit / run_shell during Living UI creation
+        # tasks, powering the Live Construction View. Fail-silent by design.
+        from app.living_ui.construction_events import make_action_hooks
+
+        _build_on_start, _build_on_end = make_action_hooks()
         self.action_manager = ActionManager(
             self.action_library,
             self.llm,
@@ -299,6 +305,8 @@ class AgentBase:
             self.event_stream_manager,
             self.context_engine,
             self.state_manager,
+            on_action_start=_build_on_start,
+            on_action_end=_build_on_end,
             idempotency_guard=ActivityLogGuard(self.activity_log),
         )
         self.action_router = ActionRouter(

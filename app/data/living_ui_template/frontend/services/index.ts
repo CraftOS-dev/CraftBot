@@ -9,7 +9,7 @@
 
 // Main API service for backend communication
 export { ApiService } from './ApiService'
-export type { ActionRequest, ActionResponse, ItemData } from './ApiService'
+export type { ActionRequest, ActionResponse } from './ApiService'
 
 // localStorage persistence utilities
 export {

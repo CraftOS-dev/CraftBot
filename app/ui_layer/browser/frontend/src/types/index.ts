@@ -728,6 +728,30 @@ export interface LivingUIProject {
     themeId: string
     customColors?: { bg: string; surface: string; text: string; accent: string }
   }
+  // Live Construction View: URL of the Vite dev server shown while the
+  // project is still being created (runtime-only, cleared once running).
+  devUrl?: string
+}
+
+// One derived "the app is being built" event streamed to the Live
+// Construction View (producer: app/living_ui/construction_events.py).
+export interface LivingUIBuildEvent {
+  id: string
+  ts: number
+  kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold'
+  area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
+  label: string
+  file?: string
+  entities?: {
+    models?: string[]
+    routes?: string[]
+    components?: string[]
+    tests?: string[]
+  }
+  snippet?: string
+  tests?: { passed: number; failed: number }
+  // Ledger progress from LIVING_UI.md (drives the dock's progress bar)
+  requirements?: { done: number; total: number }
 }
 
 export interface LivingUICreateRequest {

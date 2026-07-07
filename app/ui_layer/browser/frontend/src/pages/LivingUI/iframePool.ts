@@ -68,11 +68,18 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
   if (!iframe) {
     iframe = document.createElement('iframe')
     iframe.src = src
+    // Remember the requested src separately: refreshIframe() transiently
+    // blanks iframe.src, so it can't be trusted for change detection.
+    iframe.dataset.craftbotSrc = src
     iframe.style.cssText =
       'position:fixed;border:none;visibility:hidden;pointer-events:none;z-index:10;'
     iframe.title = `Living UI ${id}`
     getContainer().appendChild(iframe)
     pool.set(id, iframe)
+  } else if (iframe.dataset.craftbotSrc !== src) {
+    // Same pool slot, new target (e.g. dev preview → production URL).
+    iframe.dataset.craftbotSrc = src
+    iframe.src = src
   }
   touchAccess(id)
   return iframe

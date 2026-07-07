@@ -165,7 +165,7 @@ def create_tasks_bulk(tasks: List[TaskCreate], db: Session = Depends(get_db)):
     return {"created": len(created)}
 ```
 
-Follow the template's `/api/items/bulk` pattern. One request for 100 records,
+Give every list resource `POST /api/{resource}/bulk` (accepts a JSON array, one transaction). One request for 100 records,
 never 100 requests.
 
 ### Declared Operations (REQUIRED)

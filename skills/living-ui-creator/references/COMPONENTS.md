@@ -9,6 +9,40 @@ import { Button, Input, Textarea, Select, Checkbox, Toggle, Card, Container, Div
 
 ---
 
+## Layout Kit (the page comes from HERE — never hand-roll page scaffolding)
+
+`AppShell`, `Section`, `CardGrid`, `SkeletonCard`, `SkeletonRow`
+own page structure: gutters, max-width, viewport height, section spacing,
+overflow discipline, responsive collapse, and shimmer placeholders. Build
+every page as a kit assembly; your own `<style>` blocks cover only what is
+INTERNAL to a component.
+
+```tsx
+import { AppShell, Section, CardGrid, SkeletonCard, EmptyState, Button } from './components/ui'
+
+<AppShell>
+  <Section title="Categories">…category tabs…</Section>
+  <Section title="Articles" meta="124 articles">
+    <CardGrid>
+      {loading ? <SkeletonCard count={6} /> :
+       articles.length === 0 ? <EmptyState title="No articles yet" message="Refresh to load the latest news." /> :
+       articles.map(a => <ArticleCard key={a.id} article={a} />)}
+    </CardGrid>
+  </Section>
+</AppShell>
+```
+
+- `AppShell` props: `sidebar?` (240px sticky column), `children`, `maxWidth?` — NO page header: pages start with their content Sections
+- `Section` props: `title?`, `meta?` (counts/hints), `actions?`, `children`
+- `CardGrid` props: `minWidth?` (px, default 260) — responsive auto-fill grid
+- `SkeletonCard` props: `count?`, `height?` | `SkeletonRow` props: `count?` — wireframe placeholders (Phase 1.5) and loading states
+- `Toolbar` props: `children`, `end?` — one horizontal row of controls (filters + a right-aligned action)
+- `IconBadge` props: `icon` (lucide element), `color?`, `size?` — colored icon holder; the cheapest way to stop a UI being all text
+- `StatCard` props: `icon?`, `value`, `label`, `color?` — icon + big number + label, for dashboard strips (`<CardGrid minWidth={200}>` of StatCards)
+- `SplitView` props: `children` (main), `aside`, `asideWidth?` — main content + side column, collapses on mobile
+
+---
+
 ## Forms
 
 ### Button

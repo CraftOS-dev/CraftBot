@@ -33,6 +33,12 @@ _broadcast_todos_callback: Optional[
 _broadcast_question_callback: Optional[Callable[[str, str, str], Awaitable[None]]] = (
     None
 )
+_broadcast_build_event_callback: Optional[
+    Callable[[str, Dict[str, Any]], Awaitable[None]]
+] = None
+_broadcast_dev_preview_callback: Optional[
+    Callable[[str, Optional[str]], Awaitable[None]]
+] = None
 
 # Captured at register time so cross-thread dispatchers (action handlers
 # running on a worker thread pool) can schedule coroutines onto the main loop.
@@ -47,6 +53,12 @@ def register_broadcast_callbacks(
     ] = None,
     broadcast_created: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     broadcast_question: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
+    broadcast_build_event: Optional[
+        Callable[[str, Dict[str, Any]], Awaitable[None]]
+    ] = None,
+    broadcast_dev_preview: Optional[
+        Callable[[str, Optional[str]], Awaitable[None]]
+    ] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 
@@ -58,11 +70,14 @@ def register_broadcast_callbacks(
         _broadcast_progress_callback, \
         _broadcast_todos_callback
     global _broadcast_question_callback, _main_loop
+    global _broadcast_build_event_callback, _broadcast_dev_preview_callback
     _broadcast_ready_callback = broadcast_ready
     _broadcast_created_callback = broadcast_created
     _broadcast_progress_callback = broadcast_progress
     _broadcast_todos_callback = broadcast_todos
     _broadcast_question_callback = broadcast_question
+    _broadcast_build_event_callback = broadcast_build_event
+    _broadcast_dev_preview_callback = broadcast_dev_preview
     try:
         _main_loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -170,6 +185,55 @@ def _dispatch_todos(project_id: str, todos: List[Dict[str, Any]]) -> bool:
 
     coro.close()
     logger.warning("[LIVING_UI] No main loop available; todo broadcast skipped")
+    return False
+
+
+async def broadcast_living_ui_dev_preview(
+    project_id: str, url: Optional[str]
+) -> bool:
+    """Announce a project's dev-preview URL (or None when it stops).
+
+    The Live Construction View points its iframe at this URL while the
+    project is still being built. Returns True on success.
+    """
+    if _broadcast_dev_preview_callback:
+        await _broadcast_dev_preview_callback(project_id, url)
+        return True
+    return False
+
+
+async def _broadcast_build_event_async(
+    project_id: str, event: Dict[str, Any]
+) -> bool:
+    if _broadcast_build_event_callback:
+        await _broadcast_build_event_callback(project_id, event)
+        return True
+    return False
+
+
+def dispatch_build_event(project_id: str, event: Dict[str, Any]) -> bool:
+    """Thread-safe build-event broadcast (mirrors _dispatch_todos).
+
+    Called from ActionManager hooks: normally on the main asyncio loop, but
+    scheduled thread-safely so a worker-thread caller can't crash it.
+    """
+    if not _broadcast_build_event_callback:
+        return False
+
+    coro = _broadcast_build_event_async(project_id, event)
+
+    try:
+        running = asyncio.get_running_loop()
+        running.create_task(coro)
+        return True
+    except RuntimeError:
+        pass
+
+    if _main_loop is not None and _main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, _main_loop)
+        return True
+
+    coro.close()
     return False
 
 

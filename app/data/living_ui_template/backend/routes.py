@@ -3,6 +3,12 @@ Living UI API Routes
 
 REST API endpoints for state management and data operations.
 Provides both generic state storage and example CRUD operations.
+
+PATH RULE (the #1 recurring mistake — read before adding routes):
+  - This router is mounted with prefix="/api" in main.py.
+  - Declare route paths WITHOUT /api:   @router.get("/articles")      CORRECT
+                                        @router.get("/api/articles")  WRONG (=> /api/api/articles, 404s)
+  - Your TESTS call the full path WITH /api:  client.get("/api/articles")
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +16,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from database import get_db
-from models import AppState, Item, UISnapshot, UIScreenshot
+from models import AppState, UISnapshot, UIScreenshot
 from datetime import datetime
 import logging
 
@@ -34,24 +40,6 @@ class ActionRequest(BaseModel):
 
     action: str
     payload: Optional[Dict[str, Any]] = None
-
-
-class ItemCreate(BaseModel):
-    """Schema for creating an item."""
-
-    title: str
-    description: Optional[str] = None
-    extra_data: Optional[Dict[str, Any]] = None
-
-
-class ItemUpdate(BaseModel):
-    """Schema for updating an item."""
-
-    title: Optional[str] = None
-    description: Optional[str] = None
-    completed: Optional[bool] = None
-    order: Optional[int] = None
-    extra_data: Optional[Dict[str, Any]] = None
 
 
 class UISnapshotUpdate(BaseModel):
@@ -209,112 +197,6 @@ def execute_action(
         # Unknown action - return current state without changes
         logger.warning(f"[Routes] Unknown action: {action}")
         return {"status": "unknown_action", "action": action, "data": current_data}
-
-
-# ============================================================================
-# Item CRUD Routes (Example for list-based data)
-# ============================================================================
-
-
-@router.get("/items")
-def list_items(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
-    """Get all items, ordered by their order field."""
-    items = db.query(Item).order_by(Item.order, Item.id).all()
-    return [item.to_dict() for item in items]
-
-
-@router.post("/items")
-def create_item(data: ItemCreate, db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Create a new item."""
-    # Get max order to put new item at end
-    max_order = db.query(Item).count()
-    item = Item(
-        title=data.title,
-        description=data.description,
-        extra_data=data.extra_data or {},
-        order=max_order,
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    logger.info(f"[Routes] Created item: {item.id}")
-    return item.to_dict()
-
-
-@router.post("/items/bulk")
-def create_items_bulk(
-    items: List[ItemCreate], db: Session = Depends(get_db)
-) -> Dict[str, Any]:
-    """Create many items in one request (single transaction).
-
-    Every list resource should have a bulk endpoint like this — one request
-    for N records instead of N requests. Keep this pattern when replacing
-    the Item model with real resources.
-    """
-    max_order = db.query(Item).count()
-    created = []
-    for offset, data in enumerate(items):
-        item = Item(
-            title=data.title,
-            description=data.description,
-            extra_data=data.extra_data or {},
-            order=max_order + offset,
-        )
-        db.add(item)
-        created.append(item)
-    db.commit()
-    for item in created:
-        db.refresh(item)
-    logger.info(f"[Routes] Bulk-created {len(created)} items")
-    return {"created": len(created), "items": [i.to_dict() for i in created]}
-
-
-@router.get("/items/{item_id}")
-def get_item(item_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Get a specific item by ID."""
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return item.to_dict()
-
-
-@router.put("/items/{item_id}")
-def update_item(
-    item_id: int, data: ItemUpdate, db: Session = Depends(get_db)
-) -> Dict[str, Any]:
-    """Update an existing item."""
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    if data.title is not None:
-        item.title = data.title
-    if data.description is not None:
-        item.description = data.description
-    if data.completed is not None:
-        item.completed = data.completed
-    if data.order is not None:
-        item.order = data.order
-    if data.extra_data is not None:
-        item.extra_data = data.extra_data
-
-    db.commit()
-    db.refresh(item)
-    logger.info(f"[Routes] Updated item: {item_id}")
-    return item.to_dict()
-
-
-@router.delete("/items/{item_id}")
-def delete_item(item_id: int, db: Session = Depends(get_db)) -> Dict[str, str]:
-    """Delete an item."""
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    db.delete(item)
-    db.commit()
-    logger.info(f"[Routes] Deleted item: {item_id}")
-    return {"status": "deleted", "id": str(item_id)}
 
 
 # ============================================================================

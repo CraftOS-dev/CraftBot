@@ -1242,3 +1242,31 @@ export function ListItem({ children, onClick, active }: ListItemProps) {
 export type {
   SpinnerProps,
 }
+
+// =============================================================================
+// LAYOUT KIT — page-level primitives (AppShell, Section, CardGrid, ...)
+// The page's structure, gutters, and skeleton states come from these.
+// =============================================================================
+
+export {
+  AppShell,
+  Section,
+  CardGrid,
+  Toolbar,
+  IconBadge,
+  StatCard,
+  SplitView,
+  SkeletonCard,
+  SkeletonRow,
+} from './layout'
+export type {
+  AppShellProps,
+  SectionProps,
+  CardGridProps,
+  ToolbarProps,
+  IconBadgeProps,
+  StatCardProps,
+  SplitViewProps,
+  SkeletonCardProps,
+  SkeletonRowProps,
+} from './layout'

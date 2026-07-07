@@ -20,17 +20,6 @@ export interface ActionResponse {
   [key: string]: unknown
 }
 
-export interface ItemData {
-  id?: number
-  title: string
-  description?: string
-  completed?: boolean
-  order?: number
-  metadata?: Record<string, unknown>
-  createdAt?: string
-  updatedAt?: string
-}
-
 class ApiServiceClass {
   private baseUrl: string
 
@@ -148,81 +137,6 @@ class ApiServiceClass {
       throw new Error(`Failed to execute action: ${response.statusText}`)
     }
     return response.json()
-  }
-
-  // ============================================================================
-  // Items CRUD (Example for list-based data)
-  // ============================================================================
-
-  /**
-   * Get all items
-   */
-  async getItems(): Promise<ItemData[]> {
-    const response = await fetch(`${this.baseUrl}/api/items`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get items: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  /**
-   * Create a new item
-   */
-  async createItem(data: Omit<ItemData, 'id'>): Promise<ItemData> {
-    const response = await fetch(`${this.baseUrl}/api/items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to create item: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  /**
-   * Get a specific item by ID
-   */
-  async getItem(id: number): Promise<ItemData> {
-    const response = await fetch(`${this.baseUrl}/api/items/${id}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get item: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  /**
-   * Update an existing item
-   */
-  async updateItem(id: number, data: Partial<ItemData>): Promise<ItemData> {
-    const response = await fetch(`${this.baseUrl}/api/items/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to update item: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  /**
-   * Delete an item
-   */
-  async deleteItem(id: number): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/items/${id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to delete item: ${response.statusText}`)
-    }
   }
 }
 

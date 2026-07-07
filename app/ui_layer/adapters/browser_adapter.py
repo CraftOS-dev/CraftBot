@@ -1070,6 +1070,8 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_created=self.broadcast_living_ui_created,
             broadcast_question=self.broadcast_living_ui_question,
+            broadcast_build_event=self.broadcast_living_ui_build_event,
+            broadcast_dev_preview=self.broadcast_living_ui_dev_preview,
         )
 
         # Subscribe the Living UI module to TaskManager todo updates so that
@@ -1455,6 +1457,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+            # Reconstruct the Live Construction View for in-flight builds:
+            # replay the build-event feed and re-announce the dev-preview URL
+            # so a page refresh mid-creation doesn't land on an empty screen.
+            try:
+                from app.living_ui.construction_events import get_buffered_events
+
+                for p in self._living_ui_manager.list_projects():
+                    if p.status != "creating":
+                        continue
+                    buffered = get_buffered_events(p.id)
+                    if buffered:
+                        await ws.send_json(
+                            {
+                                "type": "living_ui_build_events_replay",
+                                "data": {"projectId": p.id, "events": buffered},
+                            }
+                        )
+                    if getattr(p, "dev_url", None):
+                        await ws.send_json(
+                            {
+                                "type": "living_ui_dev_preview",
+                                "data": {"projectId": p.id, "url": p.dev_url},
+                            }
+                        )
+            except (
+                ConnectionResetError,
+                ClientConnectionResetError,
+                RuntimeError,
+            ):
+                raise
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] build-event replay on connect failed: {e}")
         except (ConnectionResetError, ClientConnectionResetError, RuntimeError):
             # Gracefully handle connection closing
             self._ws_clients.discard(ws)
@@ -1991,6 +2025,17 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             integration_id = data.get("id")
             values = data.get("values") or {}
             await self._handle_integration_update_config(integration_id, values)
+
+        # Live Construction View design telemetry (reveal engine → dock → here)
+        elif msg_type == "living_ui_design_metrics":
+            self._living_ui_manager.set_design_metrics(
+                data.get("projectId", ""), data.get("metrics") or {}
+            )
+
+        elif msg_type == "living_ui_design_screenshot":
+            self._living_ui_manager.save_design_screenshot(
+                data.get("projectId", ""), data.get("dataUrl", "")
+            )
 
         # Living UI settings handlers
         elif msg_type == "living_ui_settings_get":
@@ -2924,6 +2969,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 logger.info(
                     f"[LIVING_UI] Created and triggered task {task_id} for project {project.id}"
                 )
+                # Live Construction dev preview: npm install + Vite dev server
+                # in the background so the user watches the app being built.
+                asyncio.create_task(
+                    self._living_ui_manager.start_dev_preview(project.id)
+                )
             else:
                 logger.error(
                     f"[LIVING_UI] Failed to create task for project {project.id}"
@@ -3760,6 +3810,31 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "projectId": project_id,
                     "todos": todos,
                 },
+            }
+        )
+
+    async def broadcast_living_ui_build_event(
+        self, project_id: str, event: Dict[str, Any]
+    ) -> None:
+        """Stream one build event (file written, tests run, ...) to the
+        Live Construction View shown while a Living UI is being created."""
+        await self._broadcast(
+            {
+                "type": "living_ui_build_event",
+                "data": {"projectId": project_id, "event": event},
+            }
+        )
+
+    async def broadcast_living_ui_dev_preview(
+        self, project_id: str, url: Optional[str]
+    ) -> None:
+        """Announce a creating project's dev-preview URL (Vite dev server),
+        or None when the dev preview stops. The construction view mounts /
+        unmounts its live iframe on this."""
+        await self._broadcast(
+            {
+                "type": "living_ui_dev_preview",
+                "data": {"projectId": project_id, "url": url},
             }
         )
 

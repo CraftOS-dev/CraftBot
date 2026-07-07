@@ -16,7 +16,7 @@ Import any external app into CraftBot's Living UI system. The app gets lifecycle
 1. **Detect** — Analyze the app source to determine runtime, build, and start commands
 2. **Configure** — Generate the launch configuration
 3. **Import** — Call `living_ui_import_external` to register the project
-4. **Launch** — Call `living_ui_notify_ready` or let the user launch from the UI
+4. **Launch** — Run `living_ui_validate` until it passes, then `living_ui_notify_ready` (or let the user launch from the UI)
 5. **Document** — Create LIVING_UI.md describing the app
 6. **Construct the CLI** — Create config/operations.json (+ wrapper scripts if
    needed) so the app is fully operable via `livingui`; verify with `--help`
@@ -204,4 +204,4 @@ Health: http_get on http://localhost:{{PORT}}
 - NEVER modify the original app source code during import (that's for the modify skill later)
 - NEVER skip reading the README — it often has the correct build/run instructions
 - NEVER assume a port — always detect it from the app's configuration
-- NEVER use `living_ui_scaffold` for external apps — register them with `living_ui_import_external` (or `living_ui_import_zip` for exported projects). After the import succeeds, `living_ui_notify_ready` is the correct way to launch the project.
+- NEVER use `living_ui_scaffold` for external apps — register them with `living_ui_import_external` (or `living_ui_import_zip` for exported projects). After the import succeeds, run `living_ui_validate` until it passes, then `living_ui_notify_ready` to launch (notify_ready refuses unvalidated projects).

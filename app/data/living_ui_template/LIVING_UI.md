@@ -14,16 +14,35 @@
 
 ## Requirements
 
-<!-- Agent: Document gathered requirements from Phase 0 here -->
+This is THE requirement ledger and progress tracker for this app. Phase 0
+fills it with SUPER-DETAILED, ID'd checkbox items covering the app's whole
+scope; every item gets ticked (`- [ ]` → `- [x]`) as it is fulfilled.
+Validation refuses missing, thin, or unfinished ledgers.
 
-### Entities & Data Model
-<!-- What are the main entities? What fields does each have? How do they relate? -->
-
-### Layout & Design
-<!-- Layout style, color scheme, theme preference, visual style -->
-
+<!-- REQ:BEGIN -->
 ### Features
-<!-- CRUD operations, search/filter, media support, drag-and-drop, detail views, etc. -->
+<!-- Core capabilities — everything the app DOES. IDs F1, F2, ... -->
+<!-- - [ ] F1: ... -->
+
+### Data
+<!-- Models, fields, schema, persistence rules. IDs D1, D2, ... -->
+<!-- - [ ] D1: ... -->
+
+### Design
+<!-- Visual/UX: icons, imagery, layout, alignment, hierarchy, pages/tabs,
+     color usage — concrete and comprehensive. IDs V1, V2, ... -->
+<!-- - [ ] V1: ... -->
+
+### CLI
+<!-- Every operation CraftBot needs to operate this app via `livingui`
+     (config/operations.json). IDs C1, C2, ... -->
+<!-- - [ ] C1: ... -->
+
+### Quality of Life
+<!-- Scope-specific power-UX: shortcuts, drag & drop, multi-select, context
+     menus, mobile layout, and much more — invent for THIS app. IDs Q1, ... -->
+<!-- - [ ] Q1: ... -->
+<!-- REQ:END -->
 
 ### Assumptions
 <!-- What did you assume? List assumptions made for areas not explicitly discussed -->
