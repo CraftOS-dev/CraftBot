@@ -12,6 +12,7 @@ import fnmatch
 import os
 import re
 import sqlite3
+import stat
 import threading
 import time
 from dataclasses import dataclass
@@ -38,9 +39,19 @@ _SKIP_DIR_NAMES = {
     ".craftbot",
     "node_modules",
     ".git",
+    ".svn",
+    ".hg",
     "__pycache__",
     "venv",
     ".venv",
+    ".env",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
     "$recycle.bin",
     "system volume information",
 }
@@ -55,8 +66,21 @@ _watchers: dict[str, _RootWatcher] = {}
 # entry means "no known pending changes" (build_index can use the cheap
 # cached-count path). A non-empty entry lets build_index apply just those
 # paths (_apply_targeted_changes) instead of re-walking the entire tree.
+#
+# _needs_full_rewalk holds roots where a directory-level event (rename,
+# move, delete of a whole subtree) was observed. A single directory event
+# doesn't tell us which of its descendants changed, so those roots fall
+# back to one full _incremental_update pass instead of a targeted one.
+#
+# _verified_roots holds roots that have had at least one real check (full
+# crawl or incremental/targeted pass) *in this process*. Without it, a
+# freshly restarted process with an existing, matching, non-empty index
+# and no recorded pending changes would trust that index as fresh even
+# though real changes may have happened while the process was down.
 _pending_changes_lock = threading.Lock()
 _pending_changes: dict[str, set[str]] = {}
+_needs_full_rewalk: set[str] = set()
+_verified_roots: set[str] = set()
 
 
 def _get_build_lock(root: str) -> threading.Lock:
@@ -71,10 +95,16 @@ def _get_build_lock(root: str) -> threading.Lock:
 
 
 def _is_skip_path(path: str) -> bool:
-    """True if *path* has a _SKIP_DIR_NAMES component anywhere in it."""
-    normalized = os.path.normcase(path)
-    parts = normalized.replace("/", os.sep).split(os.sep)
-    return any(part in _SKIP_DIR_NAMES for part in parts)
+    """True if *path* has a _SKIP_DIR_NAMES component anywhere in it.
+
+    Lowercases explicitly rather than relying on os.path.normcase, which is
+    only case-insensitive on Windows (a no-op on POSIX) — this must match
+    _iter_files' always-case-insensitive entry.name.lower() check on every
+    platform, or a mixed-case noise directory would be excluded from the
+    crawl but not from watcher events on Linux/macOS.
+    """
+    parts = path.replace("\\", "/").split("/")
+    return any(part.lower() in _SKIP_DIR_NAMES for part in parts)
 
 
 @dataclass
@@ -213,10 +243,13 @@ def build_index(root: str, force: bool = False) -> IndexStats:
                 and os.path.normcase(stored_root[0]) == os.path.normcase(root)
             )
 
+            key = os.path.normcase(root)
+
             if (
                 not force
                 and has_rows
                 and root_matches_stored
+                and key in _verified_roots
                 and not _peek_has_pending_changes(root)
             ):
                 total = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
@@ -231,13 +264,18 @@ def build_index(root: str, force: bool = False) -> IndexStats:
             if not force and has_rows and root_matches_stored:
                 # A non-empty pending set (reported directly by this root's
                 # watcher) lets us apply just those paths — O(changes), not
-                # O(total files indexed). Only fall back to the full re-walk
-                # when we have no such record (e.g. no watcher running yet).
-                pending = _pop_pending_changes(root)
-                if pending:
-                    stats = _apply_targeted_changes(conn, root, pending)
-                else:
+                # O(total files indexed). Fall back to the full re-walk when
+                # a directory-level event was seen (a single event doesn't
+                # tell us which descendants changed) or when this root has
+                # no verified state yet in this process (e.g. right after a
+                # restart, before any watcher has run — an empty pending set
+                # there must not be mistaken for "nothing changed").
+                pending, needs_full = _pop_pending_changes(root)
+                if needs_full or key not in _verified_roots or not pending:
                     stats = _incremental_update(conn, root)
+                else:
+                    stats = _apply_targeted_changes(conn, root, pending)
+                _verified_roots.add(key)
                 conn.execute(
                     "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
                     (_META_BUILT_AT, str(time.time())),
@@ -256,6 +294,7 @@ def build_index(root: str, force: bool = False) -> IndexStats:
             # FTS index in one pass at the end (standard FTS5 external-content
             # bulk-load pattern). _init_schema recreates the triggers after.
             _pop_pending_changes(root)  # full crawl already reflects current state
+            _verified_roots.add(key)
             conn.execute("DROP TRIGGER IF EXISTS files_ai")
             conn.execute("DROP TRIGGER IF EXISTS files_ad")
             conn.execute("DROP TRIGGER IF EXISTS files_au")
@@ -353,20 +392,30 @@ def _incremental_update(
             removed += 1
 
     conn.commit()
-    total = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-    return total, added, updated, removed
+    # files_indexed is discarded by every caller — see _apply_targeted_changes.
+    return -1, added, updated, removed
 
 
 def _peek_has_pending_changes(root: str) -> bool:
     key = os.path.normcase(root)
     with _pending_changes_lock:
-        return bool(_pending_changes.get(key))
+        return bool(_pending_changes.get(key)) or key in _needs_full_rewalk
 
 
-def _pop_pending_changes(root: str) -> set[str]:
+def _pop_pending_changes(root: str) -> tuple[set[str], bool]:
+    """Clear and return (changed_paths, needs_full_rewalk) for *root*."""
     key = os.path.normcase(root)
     with _pending_changes_lock:
-        return _pending_changes.pop(key, set())
+        paths = _pending_changes.pop(key, set())
+        needs_full = key in _needs_full_rewalk
+        _needs_full_rewalk.discard(key)
+        return paths, needs_full
+
+
+def _mark_needs_full_rewalk(root: str) -> None:
+    key = os.path.normcase(root)
+    with _pending_changes_lock:
+        _needs_full_rewalk.add(key)
 
 
 def _apply_targeted_changes(
@@ -381,8 +430,14 @@ def _apply_targeted_changes(
     added = updated = removed = 0
     for path in changed_paths:
         try:
+            # lstat (not following symlinks) so a symlink is never indexed
+            # here as a "file" — matches _iter_files/_full_crawl, which
+            # also never treats symlinks as files. Deriving is_file from
+            # this same stat (rather than a separate os.path.isfile call,
+            # which *does* follow symlinks) keeps the two code paths from
+            # disagreeing about what counts as an indexable file.
             st = os.stat(path, follow_symlinks=False)
-            is_file = os.path.isfile(path)
+            is_file = stat.S_ISREG(st.st_mode)
         except OSError:
             st = None
             is_file = False
@@ -412,8 +467,9 @@ def _apply_targeted_changes(
             updated += 1
 
     conn.commit()
-    total = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-    return total, added, updated, removed
+    # files_indexed is discarded by every caller (search(), _flush()) — skip
+    # the O(total rows) COUNT(*) a real total would cost on every flush.
+    return -1, added, updated, removed
 
 
 def _fts_prefilter_sql(pattern: str) -> tuple[str, list[str]] | None:
@@ -518,11 +574,60 @@ def list_local_drives() -> list[str]:
     return drives
 
 
+def resolve_roots(
+    base_directory: str, windows: bool = False
+) -> tuple[list[str], dict | None]:
+    """Validate and normalize a possibly '|'-joined base_directory string.
+
+    Shared by both find_files action variants (posix/windows) via module
+    import — same reasoning as find_files' docstring below: a same-module
+    sibling helper in the action file itself would not be resolvable under
+    the sandboxed exec model those actions run under.
+
+    Returns (roots, None) on success, or ([], error_dict) if base_directory
+    is empty/only separators/whitespace, or any listed root doesn't exist
+    or isn't a directory.
+    """
+    if not base_directory:
+        base_directory = os.path.expanduser("~")
+
+    raw_roots = [part.strip() for part in base_directory.split("|") if part.strip()]
+    if not raw_roots:
+        return [], {
+            "status": "error",
+            "matches": [],
+            "message": "base_directory must contain at least one non-empty path.",
+        }
+
+    roots = []
+    for root in raw_roots:
+        if windows:
+            root = root.replace("/", "\\")
+        root = os.path.normpath(os.path.expanduser(root))
+
+        if not os.path.exists(root):
+            return [], {
+                "status": "error",
+                "matches": [],
+                "message": f"Base directory does not exist: {root}",
+            }
+        if not os.path.isdir(root):
+            return [], {
+                "status": "error",
+                "matches": [],
+                "message": f"Base directory is not a directory: {root}",
+            }
+        roots.append(root)
+
+    return roots, None
+
+
 def find_files(
     base_directory: str,
     file_pattern: str,
     recursive: bool,
     all_drives: bool = False,
+    limit: int | None = None,
 ) -> dict:
     """Search one or more roots for basenames matching *file_pattern*.
 
@@ -534,7 +639,8 @@ def find_files(
 
     *base_directory* may contain multiple absolute paths joined by '|' to
     search several roots in one call. If *all_drives* is True, *base_directory*
-    is ignored and every local fixed drive is searched instead.
+    is ignored and every local fixed drive is searched instead. *limit*, if
+    given, caps the total number of matches across all roots combined.
     """
     if all_drives:
         roots = list_local_drives()
@@ -563,6 +669,10 @@ def find_files(
             if path not in seen:
                 seen.add(path)
                 matches.append(path)
+                if limit is not None and len(matches) >= limit:
+                    break
+        if limit is not None and len(matches) >= limit:
+            break
 
     scope = ", ".join(roots) if roots else base_directory
     return {
@@ -617,12 +727,19 @@ class _RootWatcher:
         self._is_running = True
         return True
 
-    def _on_change(self, path: str, _event_type: str) -> None:
+    def _on_change(self, path: str, event_type: str) -> None:
         if _is_skip_path(path):
             return
-        key = os.path.normcase(self.root)
-        with _pending_changes_lock:
-            _pending_changes.setdefault(key, set()).add(path)
+        if event_type == "dir_changed":
+            # A single directory-level event (rename/move/delete of a whole
+            # subtree) doesn't tell us which descendants changed — the next
+            # build_index() pass does one full re-walk for this root instead
+            # of trusting an incomplete targeted-changes set.
+            _mark_needs_full_rewalk(self.root)
+        else:
+            key = os.path.normcase(self.root)
+            with _pending_changes_lock:
+                _pending_changes.setdefault(key, set()).add(path)
         with self._lock:
             self._pending = True
             if self._debounce_timer:
@@ -645,19 +762,36 @@ class _IndexEventHandler(FileSystemEventHandler):
         self._callback = callback
 
     def on_created(self, event) -> None:
+        # A newly created directory has no stale descendants to reconcile —
+        # files created inside it later fire their own normal per-path
+        # events — so this isn't treated as a structural "dir_changed"
+        # event. Only a directory *move/rename* gets that treatment (see
+        # on_moved): that's the one case with no per-descendant events.
         if not event.is_directory:
             self._callback(event.src_path, "created")
 
     def on_modified(self, event) -> None:
+        # Directory "modified" events don't reliably signal an added/removed
+        # descendant (they can fire for metadata-only changes too), so they
+        # aren't treated as structural — only a directory move/rename is.
         if not event.is_directory:
             self._callback(event.src_path, "modified")
 
     def on_deleted(self, event) -> None:
+        # A deleted directory's contents already generate their own
+        # per-file delete events in the common case (recursive delete, or
+        # Explorer moving it to $RECYCLE.BIN as an on_moved) — the
+        # directory-level event itself adds no new information, so it's
+        # not treated as structural here either.
         if not event.is_directory:
             self._callback(event.src_path, "deleted")
 
     def on_moved(self, event) -> None:
         if event.is_directory:
+            # The one case that genuinely needs whole-subtree reconciliation:
+            # a rename/move doesn't generate per-descendant events, so we
+            # can't know what changed underneath without a real re-walk.
+            self._callback(event.src_path, "dir_changed")
             return
         self._callback(event.src_path, "deleted")
         if event.dest_path:

@@ -4015,11 +4015,19 @@ class AgentBase:
 
         def _prewarm() -> None:
             try:
-                for drive in file_index.list_local_drives():
+                drives = file_index.list_local_drives()
+            except Exception as e:
+                logger.warning(f"[FILE_INDEX] Could not enumerate local drives: {e}")
+                return
+
+            for drive in drives:
+                try:
                     file_index.build_index(drive)
                     file_index.start_watcher(drive)
-            except Exception as e:
-                logger.warning(f"[FILE_INDEX] Background pre-warm failed: {e}")
+                except Exception as e:
+                    logger.warning(
+                        f"[FILE_INDEX] Background pre-warm failed for {drive}: {e}"
+                    )
 
         threading.Thread(
             target=_prewarm, daemon=True, name="file-index-prewarm"

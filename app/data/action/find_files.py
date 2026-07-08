@@ -28,6 +28,11 @@ from agent_core import action
             "example": False,
             "description": "If true, search every local fixed drive/mount in one call instead of just base_directory (which is then ignored). Use this instead of calling find_files once per drive.",
         },
+        "limit": {
+            "type": "integer",
+            "example": 500,
+            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Default: unbounded.",
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -57,6 +62,7 @@ def find_file_by_name(input_data: dict) -> dict:
     recursive = bool(input_data.get("recursive", True))
     all_drives = bool(input_data.get("all_drives", False))
     base_directory = (input_data.get("base_directory") or "").strip()
+    limit = input_data.get("limit")
 
     if not pattern:
         return {"status": "error", "matches": [], "message": "Pattern is required."}
@@ -64,32 +70,10 @@ def find_file_by_name(input_data: dict) -> dict:
     if all_drives:
         base_directory = ""
     else:
-        # Default to user's home directory if not provided
-        if not base_directory:
-            base_directory = os.path.expanduser("~")
-
-        # base_directory may hold multiple '|'-joined roots; validate each.
-        roots = [part.strip() for part in base_directory.split("|") if part.strip()]
-        normalized_roots = []
-        for root in roots:
-            root = os.path.normpath(os.path.expanduser(root))
-
-            if not os.path.exists(root):
-                return {
-                    "status": "error",
-                    "matches": [],
-                    "message": f"Base directory does not exist: {root}",
-                }
-
-            if not os.path.isdir(root):
-                return {
-                    "status": "error",
-                    "matches": [],
-                    "message": f"Base directory is not a directory: {root}",
-                }
-
-            normalized_roots.append(root)
-        base_directory = "|".join(normalized_roots)
+        roots, error = file_index.resolve_roots(base_directory, windows=False)
+        if error:
+            return error
+        base_directory = "|".join(roots)
 
     # Normalize the pattern (if user passes a path, only use its basename as the match pattern)
     pattern = os.path.expanduser(pattern)
@@ -100,7 +84,9 @@ def find_file_by_name(input_data: dict) -> dict:
         else pattern
     )
 
-    return file_index.find_files(base_directory, file_pattern, recursive, all_drives)
+    return file_index.find_files(
+        base_directory, file_pattern, recursive, all_drives, limit
+    )
 
 
 @action(
@@ -129,6 +115,11 @@ def find_file_by_name(input_data: dict) -> dict:
             "type": "boolean",
             "example": False,
             "description": "If true, search every local fixed drive in one call instead of just base_directory (which is then ignored). Use this instead of calling find_files once per drive.",
+        },
+        "limit": {
+            "type": "integer",
+            "example": 500,
+            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Default: unbounded.",
         },
     },
     output_schema={
@@ -159,6 +150,7 @@ def find_file_by_name_windows(input_data: dict) -> dict:
     recursive = bool(input_data.get("recursive", True))
     all_drives = bool(input_data.get("all_drives", False))
     base_directory = (input_data.get("base_directory") or "").strip()
+    limit = input_data.get("limit")
 
     if not pattern:
         return {"status": "error", "matches": [], "message": "Pattern is required."}
@@ -166,34 +158,10 @@ def find_file_by_name_windows(input_data: dict) -> dict:
     if all_drives:
         base_directory = ""
     else:
-        # Default to user's home directory if not provided
-        if not base_directory:
-            base_directory = os.path.expanduser("~")
-
-        # base_directory may hold multiple '|'-joined roots; validate each.
-        roots = [part.strip() for part in base_directory.split("|") if part.strip()]
-        normalized_roots = []
-        for root in roots:
-            # Windows-friendly normalization
-            root = root.replace("/", "\\")
-            root = os.path.normpath(os.path.expanduser(root))
-
-            if not os.path.exists(root):
-                return {
-                    "status": "error",
-                    "matches": [],
-                    "message": f"Base directory does not exist: {root}",
-                }
-
-            if not os.path.isdir(root):
-                return {
-                    "status": "error",
-                    "matches": [],
-                    "message": f"Base directory is not a directory: {root}",
-                }
-
-            normalized_roots.append(root)
-        base_directory = "|".join(normalized_roots)
+        roots, error = file_index.resolve_roots(base_directory, windows=True)
+        if error:
+            return error
+        base_directory = "|".join(roots)
 
     pattern = pattern.replace("/", "\\")
     pattern = os.path.expanduser(pattern)
@@ -206,4 +174,6 @@ def find_file_by_name_windows(input_data: dict) -> dict:
         else pattern
     )
 
-    return file_index.find_files(base_directory, file_pattern, recursive, all_drives)
+    return file_index.find_files(
+        base_directory, file_pattern, recursive, all_drives, limit
+    )
