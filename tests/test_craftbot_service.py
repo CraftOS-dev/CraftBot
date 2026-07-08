@@ -6,7 +6,6 @@ import sys
 import pytest
 
 import craftbot
-from startup_constants import CRAFTBOT_READY_MARKER
 
 
 class _ExitedProcess:
@@ -147,7 +146,9 @@ def test_start_ignores_stale_ready_marker_when_child_exits(
 ):
     pid_file = tmp_path / "craftbot.pid"
     log_file = tmp_path / "craftbot.log"
-    log_file.write_text(f"old run\n{CRAFTBOT_READY_MARKER}\n", encoding="utf-8")
+    log_file.write_text(
+        f"old run\n{craftbot.CRAFTBOT_READY_MARKER}\n", encoding="utf-8"
+    )
     events = []
 
     monkeypatch.setattr(craftbot, "PID_FILE", str(pid_file))
@@ -201,7 +202,3 @@ def test_source_install_returns_false_when_service_start_fails(
 
     output = capsys.readouterr().out
     assert "CraftBot failed to start" in output
-
-
-def test_ready_marker_constant_is_shared():
-    assert CRAFTBOT_READY_MARKER == "CRAFTBOT IS READY"

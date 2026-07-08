@@ -75,7 +75,6 @@ from typing import Callable, List, Optional
 from installer import helpers as _helpers
 from installer import metadata as _metadata
 from installer import payload as _payload
-from startup_constants import CRAFTBOT_READY_MARKER
 
 # Store platform once so static analysers don't short-circuit platform branches
 _PLATFORM: str = sys.platform
@@ -187,6 +186,7 @@ LAUNCHD_LABEL = "com.craftbot.agent"  # macOS launchd label
 DEFAULT_FRONTEND_PORT = 7925
 DEFAULT_BACKEND_PORT = 7926
 BROWSER_URL = f"http://localhost:{DEFAULT_FRONTEND_PORT}"
+CRAFTBOT_READY_MARKER = "CRAFTBOT IS READY"
 SHORTCUT_NAME = "CraftBot.lnk"
 # Bundled icons live in sys._MEIPASS in frozen mode (PyInstaller's runtime
 # extract dir) and alongside craftbot.py in source mode. _ensure_ico() copies

@@ -21,7 +21,6 @@ import time
 from typing import Callable, Optional
 
 import craftbot
-from startup_constants import CRAFTBOT_READY_MARKER
 
 # webview imported lazily inside `attach` so a syntax error here doesn't
 # break source-mode tests that don't have pywebview installed.
@@ -208,7 +207,7 @@ class WizardAPI:
         Stops when the ready marker appears (run.py prints this once the
         frontend + agent are both up) or after `deadline_s` seconds."""
         offset = start_offset
-        end_marker = CRAFTBOT_READY_MARKER
+        end_marker = craftbot.CRAFTBOT_READY_MARKER
         end_time = time.monotonic() + deadline_s
         announced = False
         while time.monotonic() < end_time:

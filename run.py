@@ -34,9 +34,10 @@ from app.runtime_preflight import (
     ensure_runtime_dependencies,
     mark_runtime_dependencies_checked,
 )
-from startup_constants import CRAFTBOT_READY_MARKER
 
 multiprocessing.freeze_support()
+
+CRAFTBOT_READY_MARKER = "CRAFTBOT IS READY"
 
 # Configuration is loaded from settings.json via the agent startup
 # No .env file is used - all settings come from app/config/settings.json
