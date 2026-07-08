@@ -7561,15 +7561,29 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         self, request: web.Request, path: str
     ) -> web.Response:
         """Forward an interactive marketplace request (ratings/comments).
-        These are server-only features — 503 in degraded/offline mode."""
+        These are server-only features — 503 in degraded/offline mode.
+
+        On hosted (CraftBot Live) instances the browser sends the
+        dashboard-minted cb_access cookie with every request; forwarding it
+        lets the marketplace server verify the user with the dashboard.
+        OSS/local installs have no such cookie → writes come back 401 and
+        the UI shows the read-only state."""
         from aiohttp import web
 
         try:
             body = None
             if request.method in ("POST", "PUT"):
                 body = await request.json()
+            extra_headers = None
+            cb_access = request.cookies.get("cb_access")
+            if cb_access:
+                extra_headers = {"X-CB-Access": cb_access}
             status, data = await self._marketplace_client.proxy_json(
-                request.method, path, json_body=body, params=dict(request.query)
+                request.method,
+                path,
+                json_body=body,
+                params=dict(request.query),
+                extra_headers=extra_headers,
             )
             return web.json_response(data, status=status)
         except Exception as e:

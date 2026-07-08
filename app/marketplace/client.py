@@ -149,6 +149,7 @@ class MarketplaceClient:
         path: str,
         json_body: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, str]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> tuple:
         """Forward a request to the marketplace server verbatim, attaching the
         instance header. Returns (status, parsed_json). No GitHub fallback —
@@ -158,6 +159,8 @@ class MarketplaceClient:
             "X-CraftBot-Instance": get_instance_id(),
             "User-Agent": f"CraftBot/{get_app_version()}",
         }
+        if extra_headers:
+            headers.update(extra_headers)
         timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SEC)
         connector = aiohttp.TCPConnector(ssl=self._ssl_ctx)
         try:

@@ -59,6 +59,9 @@ export interface RatingResponse {
   yourStars: number | null
   ratingAvg: number
   ratingCount: number
+  /** True when the request carried a valid CraftBot Live/CraftOS session.
+   *  OSS installs are always false — ratings/comments are read-only there. */
+  authenticated?: boolean
 }
 
 export interface CommentItem {

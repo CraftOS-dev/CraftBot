@@ -1297,6 +1297,20 @@
   color: var(--mk-text-dim);
 }
 
+.ratingStarBtnStatic {
+  cursor: default;
+}
+
+/* "Available on CraftBot Live / CraftOS" hints for gated features */
+.authNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--mk-text-faint);
+}
+
 /* Comments */
 .commentForm {
   display: flex;

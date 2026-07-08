@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Loader2, MessageSquare, Send } from 'lucide-react'
-import { fetchComments, postComment } from '../marketplaceApi'
+import { fetchComments, fetchRating, postComment } from '../marketplaceApi'
 import type { CommentItem } from '../marketplaceApi'
 import styles from '../Marketplace.module.css'
 
@@ -28,6 +28,8 @@ export function CommentsSection({ slug }: { slug: string }) {
   const [sending, setSending] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  // Commenting requires a CraftBot Live / CraftOS session (server-verified).
+  const [canComment, setCanComment] = useState(false)
 
   useEffect(() => {
     setComments([])
@@ -38,6 +40,9 @@ export function CommentsSection({ slug }: { slug: string }) {
       .then(data => { setComments(data.comments); setTotal(data.total) })
       .catch(() => setUnavailable(true))
       .finally(() => setLoading(false))
+    fetchRating(slug)
+      .then(r => setCanComment(r.authenticated === true))
+      .catch(() => setCanComment(false))
   }, [slug])
 
   if (unavailable) return null
@@ -72,6 +77,11 @@ export function CommentsSection({ slug }: { slug: string }) {
         Comments{total > 0 ? ` (${total})` : ''}
       </h2>
 
+      {!canComment ? (
+        <p className={styles.authNote}>
+          <MessageSquare size={13} /> Comments can be posted from CraftBot Live and CraftOS.
+        </p>
+      ) : (
       <form className={styles.commentForm} onSubmit={submit}>
         <input
           className={styles.input}
@@ -102,6 +112,7 @@ export function CommentsSection({ slug }: { slug: string }) {
           </button>
         </div>
       </form>
+      )}
 
       {loading ? (
         <div className={styles.stateCenter}><Loader2 size={18} className={styles.spinner} /></div>
