@@ -1264,6 +1264,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from app.living_ui.integration_bridge import IntegrationBridge
 
         self._integration_bridge = IntegrationBridge(self._living_ui_manager)
+        # Reverse channel: lets a running app's backend fire its declared
+        # triggers at the agent (POST /api/bridge/trigger).
+        self._integration_bridge.trigger_handler = self._handle_living_ui_app_trigger
         self._integration_bridge.register_routes(self._app)
 
         # Serve Vite-built frontend (production)
@@ -1584,6 +1587,30 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "chat_attachment_upload":
             # Upload attachment for chat message
             await self._handle_chat_attachment_upload(data)
+
+        elif msg_type == "living_ui_trigger":
+            # A running Living UI app fired a declared trigger at the agent
+            # (frontend origin: iframe postMessage forwarded by the host).
+            result = await self._handle_living_ui_app_trigger(
+                data.get("projectId", ""),
+                str(data.get("trigger", "")),
+                data.get("params") or {},
+                origin="ui",
+            )
+            if "error" in result and ws:
+                try:
+                    await ws.send_json(
+                        {
+                            "type": "living_ui_trigger_result",
+                            "data": {
+                                "projectId": data.get("projectId", ""),
+                                "trigger": data.get("trigger", ""),
+                                **result,
+                            },
+                        }
+                    )
+                except Exception:
+                    pass
 
         elif msg_type == "command":
             # User sent a command
@@ -3486,11 +3513,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _living_ui_control_handler(self, request: "web.Request") -> "web.Response":
         """Loopback control endpoint for the livingui CLI.
 
-        Body: {token, command: start|stop|restart|data_changed|ui_command,
-               projectId, payload?}. Token comes from the per-boot token file
-        only local processes can read; the server itself binds localhost.
+        Body: {token, command: start|stop|restart|data_changed|ui_command|
+               trigger, projectId, payload?}. Token comes from the per-boot
+        token file only local processes can read; the server itself binds
+        localhost.
         """
         import hmac
+
+        from aiohttp import web
 
         try:
             body = await request.json()
@@ -3532,10 +3562,102 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     project_id, payload.get("command") or {}
                 )
                 return web.json_response({"status": "ok"})
+            if command == "trigger":
+                result = await self._handle_living_ui_app_trigger(
+                    project_id,
+                    str(payload.get("trigger", "")),
+                    payload.get("params") or {},
+                    origin=str(payload.get("origin") or "cli"),
+                )
+                status = 200 if "error" not in result else 400
+                return web.json_response(result, status=status)
             return web.json_response({"error": f"unknown command '{command}'"}, status=400)
         except Exception as e:
             logger.error(f"[LIVING_UI] Control command '{command}' failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _handle_living_ui_app_trigger(
+        self,
+        project_id: str,
+        trigger_name: str,
+        params: Dict[str, Any],
+        origin: str,
+    ) -> Dict[str, Any]:
+        """Single funnel for app-fired Living UI triggers (all origins).
+
+        Origins: 'ui' (button/event in the app's frontend, via postMessage →
+        WS), 'backend' (the app's FastAPI process, via the integration
+        bridge), 'cli' (livingui trigger, via the control endpoint). Only
+        triggers declared in the project's config/triggers.json — authored by
+        the agent at build time — are trusted; everything else is rejected
+        here, before any content reaches the agent. Every accepted firing is
+        surfaced as a visible chat event so trigger-initiated agent work is
+        never silent.
+        """
+        from app.living_ui import triggers as trigger_plane
+
+        project = self._living_ui_manager.get_project(project_id)
+        if not project:
+            return {"error": f"Unknown Living UI project '{project_id}'"}
+        if not trigger_name:
+            return {"error": "Missing trigger name"}
+        if not isinstance(params, dict):
+            return {"error": "Trigger params must be a JSON object"}
+
+        try:
+            trig_def, filled = trigger_plane.resolve_trigger(
+                project, trigger_name, params
+            )
+        except trigger_plane.TriggerError as e:
+            logger.warning(
+                f"[LIVING_UI:TRIGGER] Rejected '{trigger_name}' from "
+                f"{origin} ({project_id}): {e}"
+            )
+            return {"error": str(e)}
+
+        rejection = trigger_plane.guard.check_and_record(
+            project_id, trigger_name, trigger_plane.effective_cooldown(trig_def)
+        )
+        if rejection:
+            logger.warning(f"[LIVING_UI:TRIGGER] {rejection} ({project_id})")
+            return {"error": rejection}
+
+        # Visible chat event — the user always sees why the agent started
+        # doing something.
+        summary = f"⚡ {project.name} fired trigger '{trigger_name}'"
+        if filled:
+            compact = json.dumps(filled, default=str)
+            if len(compact) > 200:
+                compact = compact[:200] + "…"
+            summary += f" · {compact}"
+        await self._chat.append_message(
+            ChatMessage(
+                sender="System",
+                content=summary,
+                style="info",
+                timestamp=time.time(),
+            )
+        )
+
+        message = trigger_plane.build_agent_message(
+            project, trigger_name, trig_def, filled, origin
+        )
+        try:
+            routed = await self._controller._agent.handle_living_ui_app_trigger(
+                project_id, trigger_name, message
+            )
+        except Exception as e:
+            logger.error(
+                f"[LIVING_UI:TRIGGER] Delivery of '{trigger_name}' failed: {e}",
+                exc_info=True,
+            )
+            return {"error": f"Trigger delivery failed: {e}"}
+
+        logger.info(
+            f"[LIVING_UI:TRIGGER] '{trigger_name}' from {origin} "
+            f"({project_id}) → {routed}"
+        )
+        return {"status": "ok", **routed}
 
     async def _handle_living_ui_state_update(self, data: Dict[str, Any]) -> None:
         """Handle state update from a Living UI for agent awareness."""

@@ -392,6 +392,15 @@ data commands cover every table automatically. Also give every list
 resource a bulk-create endpoint (`POST /api/{resource}/bulk` — template's
 `/api/items/bulk` pattern).
 
+**Declare app→agent triggers where the app should drive CraftBot.** If the
+requirements include the app itself asking the agent to act (an "Ask
+CraftBot to ..." button, backend logic reacting to a threshold or event),
+declare each such event in `config/triggers.json` and fire it with
+`fireCraftBotTrigger()` (frontend) or `integration.fire_trigger()` (backend).
+Hand-author this file (unlike operations.json there is no generator), test
+each trigger with `livingui <project_id> trigger <name>`, and document them
+in LIVING_UI.md. See [TRIGGERS.md](references/TRIGGERS.md).
+
 ### Phase 10: Launch (MANDATORY)
 
 **YOU MUST call `living_ui_notify_ready` to complete the task.**
@@ -469,6 +478,7 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - [Requirement Questionnaire](references/QUESTIONNAIRE.md) - Reference questions for Phase 0
 - [MVC-A Architecture](references/MVC-A.md) - When to use each layer, agent data access methods
 - [Operations Manifest](references/OPERATIONS.md) - Declaring the app's verbs (config/operations.json)
+- [Trigger Manifest](references/TRIGGERS.md) - App-fired agent triggers (config/triggers.json)
 - [Quality Standards](references/STANDARDS.md) - Professional standards for Living UIs
 - [Code Examples](references/EXAMPLES.md) - Complete code examples for each phase
 - [Verification Checklist](references/VERIFY.md) - QA checklist before launch (REQUIRED)

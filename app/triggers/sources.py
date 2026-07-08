@@ -43,6 +43,7 @@ class TriggerSource(str, Enum):
     LIVING_UI_DEV = "living_ui_dev"
     LIVING_UI_CRASH_FIX = "living_ui_crash_fix"
     LIVING_UI_IMPORT = "living_ui_import"
+    LIVING_UI_ACTION = "living_ui_action"
     # Catch-all for producers not yet migrated to TriggerService.
     LEGACY = "legacy"
 
@@ -71,3 +72,13 @@ def scheduled_once_dedup_key(schedule_id: str) -> str:
 def resume_dedup_key(task_id: str) -> str:
     """Dedup key for a boot-time task resume — double-boot can't double-resume."""
     return f"resume:{task_id}"
+
+
+def living_ui_action_dedup_key(project_id: str, trigger_name: str) -> str:
+    """Dedup key for an app-fired Living UI trigger that opens a new session.
+
+    Scoped to (project, trigger): while one firing is still queued or in
+    flight, re-fires of the same trigger dedup instead of stacking sessions.
+    A new firing is allowed as soon as the previous one settles.
+    """
+    return f"living-ui-action:{project_id}:{trigger_name}"

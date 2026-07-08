@@ -39,6 +39,10 @@ class IntegrationBridge:
     def __init__(self, manager: "LivingUIManager"):
         self._manager = manager
         self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=True)
+        # Set by the browser adapter: async (project_id, trigger, params,
+        # origin) -> dict. The adapter owns trigger validation + delivery;
+        # the bridge only authenticates which project is calling.
+        self.trigger_handler = None
 
     def register_routes(self, app: web.Application) -> None:
         """Register integration bridge routes on the aiohttp app."""
@@ -46,6 +50,7 @@ class IntegrationBridge:
         app.router.add_post("/api/integrations/proxy", self._handle_proxy)
         app.router.add_post("/api/bridge/llm", self._handle_llm)
         app.router.add_post("/api/bridge/vlm", self._handle_vlm)
+        app.router.add_post("/api/bridge/trigger", self._handle_trigger)
         logger.info("[INTEGRATION_BRIDGE] Routes registered")
 
     async def cleanup(self) -> None:
@@ -237,6 +242,46 @@ class IntegrationBridge:
         except Exception as e:
             logger.error(f"[INTEGRATION_BRIDGE] VLM error: {e}")
             return web.json_response({"error": f"VLM error: {str(e)}"}, status=502)
+
+    async def _handle_trigger(self, request: web.Request) -> web.Response:
+        """Fire one of the calling project's declared triggers at the agent.
+
+        Expected JSON body: {"trigger": "restock_needed", "params": {...}}.
+        The bearer token identifies the project, so an app can only fire its
+        OWN declared triggers — validation and rate limiting happen in the
+        adapter's shared funnel.
+        """
+        project_id = self._validate_token(request)
+        if not project_id:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        if self.trigger_handler is None:
+            return web.json_response(
+                {"error": "Trigger channel not available"}, status=501
+            )
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        trigger = str(data.get("trigger", ""))
+        params = data.get("params") or {}
+        if not trigger:
+            return web.json_response(
+                {"error": "Missing required field: trigger"}, status=400
+            )
+
+        try:
+            result = await self.trigger_handler(
+                project_id, trigger, params, origin="backend"
+            )
+        except Exception as e:
+            logger.error(f"[INTEGRATION_BRIDGE] Trigger error: {e}")
+            return web.json_response({"error": f"Trigger error: {str(e)}"}, status=502)
+
+        status = 200 if "error" not in result else 400
+        return web.json_response(result, status=status)
 
     # ------------------------------------------------------------------
     # Helpers

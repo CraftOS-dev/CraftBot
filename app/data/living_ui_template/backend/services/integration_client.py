@@ -115,6 +115,35 @@ class IntegrationClient:
         except Exception as e:
             return {"error": str(e)}
 
+    async def fire_trigger(
+        self, trigger: str, params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Fire one of this app's declared triggers at the CraftBot agent.
+
+        Use this from business logic — a threshold crossed, a record created,
+        a scheduled check failed — to have CraftBot act on it. The trigger
+        must be declared in config/triggers.json; `params` are validated
+        against its declared param spec.
+
+        Returns:
+            {"status": "ok", "routed": ...} on success
+            {"error": "..."} when rejected (undeclared trigger, bad params,
+            cooldown) or when no CraftBot host is available.
+        """
+        if not self.available:
+            return {"error": "Integration bridge not available"}
+        try:
+            client = self._ensure_client()
+            r = await client.post(
+                f"{BRIDGE_URL}/api/bridge/trigger",
+                headers=self._auth_headers(),
+                json={"trigger": trigger, "params": params or {}},
+            )
+            return r.json()
+        except Exception as e:
+            return {"error": str(e)}
+
     async def close(self):
         """Close the HTTP client."""
         if self._client:

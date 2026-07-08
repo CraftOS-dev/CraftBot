@@ -77,6 +77,20 @@ User Action → Frontend Component → AppController → Backend API → SQLite 
                                   Update UI State
 ```
 
+## Agent Triggers (config/triggers.json)
+
+<!-- Agent: if this app fires triggers at CraftBot, list them here -->
+
+Declared triggers let the app itself ask CraftBot to do something — a button
+in the UI (`fireCraftBotTrigger(name, params)` from `frontend/agent/hooks.ts`)
+or backend logic (`integration.fire_trigger(name, params)` from
+`services/integration_client.py`). Only triggers declared in
+`config/triggers.json` are accepted. Test with `livingui {{PROJECT_ID}} trigger <name>`.
+
+| Trigger | Fired when | What CraftBot does |
+|---------|------------|--------------------|
+| (none declared) | | |
+
 ## Testing
 
 <!-- Agent: How to verify the app works -->

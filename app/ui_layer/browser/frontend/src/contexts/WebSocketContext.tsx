@@ -12,7 +12,7 @@ import type {
   LivingUITodo, LivingUITodosUpdate,
   LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
-import { scheduleRefreshIframe, setEvictionListener, postMessageToIframe } from '../pages/LivingUI/iframePool'
+import { scheduleRefreshIframe, setEvictionListener, postMessageToIframe, findProjectIdByWindow } from '../pages/LivingUI/iframePool'
 import { useToast } from './ToastContext'
 import { getSocketClient } from '../store/socket/socketInstance'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
@@ -406,6 +406,29 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       unsubMsg()
     }
   }, [handleMessage])
+
+  // Running app → agent: a Living UI fires a declared trigger by posting
+  // { type: 'craftbot-agent-trigger', trigger, params } to the host window
+  // (the reverse of the craftbot-agent-command path above). The project is
+  // identified by matching the event source against pooled iframes — a
+  // message from any other window is ignored — and forwarded over WS for
+  // manifest validation on the backend.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string; trigger?: string; params?: Record<string, unknown> } | null
+      if (!data || typeof data !== 'object' || data.type !== 'craftbot-agent-trigger') return
+      const projectId = findProjectIdByWindow(e.source)
+      if (!projectId || !data.trigger || typeof data.trigger !== 'string') return
+      sendOrQueue(JSON.stringify({
+        type: 'living_ui_trigger',
+        projectId,
+        trigger: data.trigger,
+        params: data.params && typeof data.params === 'object' ? data.params : {},
+      }))
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [sendOrQueue])
 
   const loadOlderMessages = useCallback(() => {
     if (!hasMoreMessages || loadingOlderMessages || oldestMessageTimestamp === undefined) return

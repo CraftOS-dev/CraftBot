@@ -135,6 +135,20 @@ export function getIframeWindow(id: string): Window | null {
   return pool.get(id)?.contentWindow ?? null
 }
 
+/**
+ * Resolve which pooled Living UI a postMessage came from by matching the
+ * event's source window against pool iframes. Returns null for messages
+ * from any window that is not a pooled Living UI iframe — the authenticity
+ * check for app-originated messages (e.g. craftbot-agent-trigger).
+ */
+export function findProjectIdByWindow(win: MessageEventSource | null): string | null {
+  if (!win) return null
+  for (const [id, iframe] of pool) {
+    if (iframe.contentWindow === win) return id
+  }
+  return null
+}
+
 export function broadcastThemeToIframes(theme: string, cssVars: Record<string, string>) {
   const message = { type: 'craftbot-theme', theme, cssVars }
   pool.forEach(iframe => {

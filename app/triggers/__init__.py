@@ -8,6 +8,7 @@ TriggerStore, and the TriggerService producer/consumer front door.
 
 from app.triggers.sources import (
     TriggerSource,
+    living_ui_action_dedup_key,
     resume_dedup_key,
     scheduled_dedup_key,
     scheduled_once_dedup_key,
@@ -24,6 +25,7 @@ __all__ = [
     "EmitResult",
     "SessionRouter",
     "get_trigger_store",
+    "living_ui_action_dedup_key",
     "resume_dedup_key",
     "scheduled_dedup_key",
     "scheduled_once_dedup_key",

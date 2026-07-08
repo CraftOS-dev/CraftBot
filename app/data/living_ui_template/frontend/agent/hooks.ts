@@ -63,3 +63,27 @@ export function useAgentCommand(handler: (command: AgentCommand) => void): void 
     return () => window.removeEventListener('message', onMessage)
   }, [])
 }
+
+/**
+ * Fire one of this app's declared triggers at the CraftBot agent — the
+ * reverse of useAgentCommand. The trigger must be declared in
+ * config/triggers.json; undeclared names are rejected by the host.
+ * `params` are data for the trigger's declared instruction, validated
+ * against its param spec.
+ *
+ * Returns false when no CraftBot host is present (app opened standalone) —
+ * the app should degrade gracefully, this is fire-and-forget either way.
+ *
+ * @example
+ * <button onClick={() => fireCraftBotTrigger('restock_needed', { item_id: item.id })}>
+ *   Ask CraftBot to restock
+ * </button>
+ */
+export function fireCraftBotTrigger(trigger: string, params?: Record<string, unknown>): boolean {
+  if (window.parent === window) return false
+  window.parent.postMessage(
+    { type: 'craftbot-agent-trigger', trigger, params: params || {} },
+    '*',
+  )
+  return true
+}

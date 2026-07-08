@@ -44,6 +44,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.living_ui import data_plane, migration, operations  # noqa: E402
+from app.living_ui import triggers as trigger_plane  # noqa: E402
 
 PROG = "livingui"
 
@@ -325,6 +326,7 @@ COMMANDS (each supports --help)
   select|count|insert|update|delete|sql          data (direct DB, works when stopped)
   api <METHOD> <path>                            call an HTTP endpoint
   run <op>                                       fire a declared operation
+  triggers | trigger <name> [--set k=v]          app→agent triggers (config/triggers.json)
   ops-sync [--write] | ops-check                 generate/validate operations.json
   migrate                                        apply additive schema migration
   start | stop | restart                         lifecycle (via CraftBot)
@@ -391,6 +393,19 @@ def project_help(project: Project) -> int:
         lines.append(
             "OPERATIONS: none declared (config/operations.json missing or empty)"
         )
+
+    try:
+        declared_triggers = trigger_plane.load_triggers(project)
+    except trigger_plane.TriggerError as e:
+        declared_triggers = {}
+        lines.append(f"(triggers manifest broken: {e})")
+    if declared_triggers:
+        lines.append("")
+        lines.append(f"TRIGGERS — app→agent  ({PROG} {project.slug} trigger <name>)")
+        for name, trig_def in list(declared_triggers.items())[:10]:
+            description = (trig_def.get("description") or "")[:64]
+            lines.append(f"  {name:<24} {description}")
+
     lines.append("")
     lines.append(PROJECT_COMMANDS_HELP)
 
@@ -1080,6 +1095,52 @@ def cmd_ui(project, args):
     return 0
 
 
+def cmd_triggers(project, _args):
+    """List the app's declared triggers (config/triggers.json)."""
+    try:
+        declared = trigger_plane.load_triggers(project)
+    except trigger_plane.TriggerError as e:
+        fail(str(e))
+    if not declared:
+        print("(no triggers declared — config/triggers.json missing or empty)")
+        return 0
+    print(f"TRIGGERS  ({PROG} {project.slug} trigger <name> [--set k=v])")
+    for name, trig_def in declared.items():
+        description = (trig_def.get("description") or "")[:64]
+        print(f"  {name:<24} {description}")
+        params = trig_def.get("params") or {}
+        if params:
+            print(f"  {'':<24} params: {', '.join(sorted(params.keys()))}")
+    return 0
+
+
+def cmd_trigger(project, args):
+    """Fire a declared trigger at the CraftBot agent (as the app would)."""
+    if args.data:
+        try:
+            params = json.loads(args.data)
+        except Exception as e:
+            fail(f"--data must be a JSON object ({e})")
+        if not isinstance(params, dict):
+            fail("--data must be a JSON object")
+    else:
+        params = parse_set(args.set)
+    ok, response = control_call(
+        "trigger",
+        project.id,
+        payload={"trigger": args.name, "params": params, "origin": "cli"},
+        timeout=30,
+    )
+    if not ok or response.get("error"):
+        fail(
+            response.get("error", "control call failed"),
+            f"{PROG} {project.slug} triggers   (see what's declared)",
+        )
+    routed = response.get("routed", "?")
+    print(f"fired '{args.name}' → agent ({routed} session)")
+    return 0
+
+
 def cmd_snapshot(project, _args):
     status, text = _http(project, "GET", "/api/ui-snapshot", timeout=10)
     print(text[:4000])
@@ -1182,6 +1243,12 @@ def _make_parsers():
     p.add_argument("--data", required=True, help='JSON command, e.g. \'{"type": "refresh"}\'')
     parsers["ui"] = (p, cmd_ui)
 
+    p = argparse.ArgumentParser(prog=f"{PROG} <project> trigger")
+    p.add_argument("name", help="a trigger declared in config/triggers.json")
+    p.add_argument("--set", action="append", help="param: --set k=v (repeatable; k:=json for raw JSON)")
+    p.add_argument("--data", help="all params as one JSON object")
+    parsers["trigger"] = (p, cmd_trigger)
+
     p = argparse.ArgumentParser(prog=f"{PROG} <project> ops-sync")
     p.add_argument("--write", action="store_true", help="merge generated skeletons into operations.json")
     parsers["ops-sync"] = (p, cmd_ops_sync)
@@ -1189,10 +1256,11 @@ def _make_parsers():
     p = argparse.ArgumentParser(prog=f"{PROG} <project> ops-check")
     parsers["ops-check"] = (p, cmd_ops_check)
 
-    for simple in ("status", "jobs", "migrate", "snapshot"):
+    for simple in ("status", "jobs", "migrate", "snapshot", "triggers"):
         p = argparse.ArgumentParser(prog=f"{PROG} <project> {simple}")
         parsers[simple] = (p, {"status": cmd_status, "jobs": cmd_jobs,
-                               "migrate": cmd_migrate, "snapshot": cmd_snapshot}[simple])
+                               "migrate": cmd_migrate, "snapshot": cmd_snapshot,
+                               "triggers": cmd_triggers}[simple])
     return parsers
 
 

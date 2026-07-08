@@ -1,0 +1,4 @@
+{
+  "$comment": "Declared triggers — events this app can fire AT the CraftBot agent (the reverse of operations.json). Each trigger's 'instruction' is what the agent is asked to do when it fires; runtime 'params' are validated data, never instructions. Fire from the frontend with fireCraftBotTrigger(name, params) (frontend/agent/hooks.ts), from the backend with integration.fire_trigger(name, params) (services/integration_client.py), or test with `livingui <project> trigger <name>`. Only declared triggers are accepted. Optional per-trigger 'cooldown_seconds' raises the anti-loop floor. See the living-ui-creator skill's TRIGGERS.md reference for the full spec.",
+  "triggers": {}
+}

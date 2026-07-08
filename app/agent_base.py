@@ -2215,6 +2215,87 @@ class AgentBase:
                 )
         return True
 
+    async def handle_living_ui_app_trigger(
+        self,
+        living_ui_id: str,
+        trigger_name: str,
+        message: str,
+    ) -> Dict:
+        """Deliver an app-fired Living UI trigger into the project's chat flow.
+
+        Deterministic routing (no LLM): if an active session is already bound
+        to this Living UI, the trigger message feeds that session — the app
+        event continues the ongoing conversation about the app. Otherwise a
+        new session opens with source LIVING_UI_ACTION, deduped per
+        (project, trigger) so re-fires can't stack sessions while one is
+        still in flight. The manifest validation and rate limiting happened
+        upstream (browser adapter funnel); by this point the message is
+        trusted, composed content.
+        """
+        from app.triggers import living_ui_action_dedup_key
+
+        content = f"{self._build_living_ui_prefix(living_ui_id)}\n{message}"
+        platform = "Living UI"
+
+        # An existing session bound to this project (its creation/dev task, or
+        # a chat session opened about it) keeps the conversation in one place.
+        try:
+            for trig in await self.triggers.list_triggers():
+                payload = getattr(trig, "payload", None) or {}
+                if living_ui_id in (
+                    payload.get("living_ui_id"),
+                    payload.get("project_id"),
+                ):
+                    if await self._fire_session(
+                        trig.session_id, content, platform, living_ui_id
+                    ):
+                        logger.info(
+                            f"[LIVING_UI:TRIGGER] '{trigger_name}' fed existing "
+                            f"session {trig.session_id}"
+                        )
+                        return {"routed": "existing", "session_id": trig.session_id}
+        except Exception as e:
+            logger.warning(
+                f"[LIVING_UI:TRIGGER] Session scan failed, opening new session: {e}"
+            )
+
+        # No bound session — open a new one. Mirrors _create_new_session_trigger
+        # minus the user-message specifics (no parked row: emit() is already
+        # durable, and dedup covers the in-flight window).
+        await self.state_manager.start_session(None)
+        self.event_stream_manager.get_main_stream().log(
+            "living ui app trigger",
+            content,
+            event_type=EventType.USER_MESSAGE,
+            display_message=content,
+            platform=platform,
+        )
+        self.state_manager._append_to_conversation_history("user", content)
+        self.state_manager.bump_event_stream()
+
+        result = await self.trigger_service.emit(
+            TriggerSpec(
+                source=TriggerSource.LIVING_UI_ACTION,
+                description=content,
+                priority=10,
+                session_id=await self._generate_unique_session_id(),
+                payload={
+                    "living_ui_id": living_ui_id,
+                    "trigger_name": trigger_name,
+                    "user_message": content,
+                    "platform": platform,
+                },
+                dedup_key=living_ui_action_dedup_key(living_ui_id, trigger_name),
+            )
+        )
+        if result.deduped:
+            logger.info(
+                f"[LIVING_UI:TRIGGER] '{trigger_name}' deduped — previous firing "
+                "still in flight"
+            )
+            return {"routed": "deduped"}
+        return {"routed": "new"}
+
     async def _create_new_session_trigger(
         self,
         chat_content: str,
