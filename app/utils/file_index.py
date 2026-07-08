@@ -9,6 +9,7 @@ directories (VCS metadata, dependency/build caches, OS reserved folders).
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import os
 import re
 import sqlite3
@@ -16,6 +17,8 @@ import stat
 import threading
 import time
 from dataclasses import dataclass
+
+from app.config import APP_DATA_PATH
 
 try:
     from watchdog.events import FileSystemEventHandler
@@ -54,6 +57,9 @@ _SKIP_DIR_NAMES = {
     ".vscode",
     "$recycle.bin",
     "system volume information",
+    ".trash",
+    ".trashes",
+    "lost+found",
 }
 
 _build_locks_registry_lock = threading.Lock()
@@ -116,8 +122,30 @@ class IndexStats:
     duration_seconds: float
 
 
+_INDEX_STORAGE_ROOT = os.path.join(str(APP_DATA_PATH), ".file_index")
+
+
 def _index_dir(root: str) -> str:
-    return os.path.join(os.path.abspath(root), ".craftbot")
+    """Per-root index directory, centralized under CraftBot's own app-data
+    directory rather than inside the searched root itself.
+
+    Keeping index storage out of the searched tree matters for two reasons:
+    it stays out of the way of arbitrary/mounted directories that get
+    searched (e.g. a Docker bind-mounted workspace volume), and it makes
+    "delete CraftBot's data" a single well-known location instead of
+    scattered .craftbot folders wherever a search happened to run.
+
+    Keyed by a deterministic hash of the normalized root path (same
+    sha256(...)[:16] convention used elsewhere in the codebase, e.g.
+    activity_log.make_idem_key) so re-indexing the same root reuses its
+    existing db. A short sanitized slug is prefixed purely so a developer
+    browsing the storage directory can tell folders apart at a glance —
+    the hash alone guarantees uniqueness.
+    """
+    normalized = os.path.normcase(os.path.abspath(root))
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", normalized).strip("_")[:40]
+    return os.path.join(_INDEX_STORAGE_ROOT, f"{slug}_{digest}")
 
 
 def _db_path(root: str) -> str:
@@ -195,7 +223,21 @@ def _split_or_patterns(pattern: str) -> list[str]:
 
 
 def _iter_files(root: str):
-    """Recursive file iterator mirroring os.walk (skips _SKIP_DIR_NAMES, no symlink follow)."""
+    """Recursive file iterator mirroring os.walk (skips _SKIP_DIR_NAMES, stays
+    on one filesystem, no symlink follow).
+
+    The filesystem-boundary check (mirrors `find -xdev`) matters most on
+    macOS/Linux, where "/" is the root of everything — without it, indexing
+    "/" would recurse into /proc, /sys, other mounted volumes under
+    /Volumes, network shares, etc. On Windows this is effectively a no-op
+    since crossing from one drive to another isn't reachable via plain
+    recursion anyway.
+    """
+    try:
+        root_dev = os.stat(root).st_dev
+    except OSError:
+        return
+
     stack = [root]
     while stack:
         dir_path = stack.pop()
@@ -205,6 +247,18 @@ def _iter_files(root: str):
                     try:
                         if entry.is_dir(follow_symlinks=False):
                             if entry.name.lower() in _SKIP_DIR_NAMES:
+                                continue
+                            try:
+                                # os.stat(entry.path, ...), NOT entry.stat(...):
+                                # on Windows, DirEntry.stat() is served from
+                                # scandir's cached WIN32_FIND_DATA, which has
+                                # no device info and always reports st_dev=0
+                                # — comparing that against the real root_dev
+                                # would treat every subdirectory as a
+                                # different filesystem and skip it entirely.
+                                if os.stat(entry.path, follow_symlinks=False).st_dev != root_dev:
+                                    continue
+                            except OSError:
                                 continue
                             stack.append(entry.path)
                         elif entry.is_file(follow_symlinks=False):
@@ -640,8 +694,15 @@ def find_files(
     *base_directory* may contain multiple absolute paths joined by '|' to
     search several roots in one call. If *all_drives* is True, *base_directory*
     is ignored and every local fixed drive is searched instead. *limit*, if
-    given, caps the total number of matches across all roots combined.
+    given and positive, caps the total number of matches across all roots
+    combined. 0 (or any non-positive value) means unlimited, matching the
+    common "0 = no limit" convention — without this, a literal 0 would stop
+    the search after exactly one match, since `len(matches) >= 0` is true
+    the instant the first match is found.
     """
+    if limit is not None and limit <= 0:
+        limit = None
+
     if all_drives:
         roots = list_local_drives()
         if not roots:

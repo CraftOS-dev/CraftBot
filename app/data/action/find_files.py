@@ -31,7 +31,7 @@ from agent_core import action
         "limit": {
             "type": "integer",
             "example": 500,
-            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Default: unbounded.",
+            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Pass 0 or omit for unlimited.",
         },
     },
     output_schema={
@@ -119,7 +119,7 @@ def find_file_by_name(input_data: dict) -> dict:
         "limit": {
             "type": "integer",
             "example": 500,
-            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Default: unbounded.",
+            "description": "Optional cap on the total number of matches returned across all searched roots. Useful with all_drives or broad patterns to avoid extremely large result sets. Pass 0 or omit for unlimited.",
         },
     },
     output_schema={
