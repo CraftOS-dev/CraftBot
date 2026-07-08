@@ -70,6 +70,9 @@
     "port": 7926,
     "startup_ui": false
   },
+  "file_index": {
+    "prewarm_all_drives": true
+  },
   "api_keys_configured": {
     "openai": false,
     "anthropic": false,

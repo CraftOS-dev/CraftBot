@@ -57,3 +57,5 @@ agent_file_system/TASK_HISTORY.md
 docs/LIVING_UI_DEVELOPER_GUIDE.md
 agent_file_system/ACTIONS.md
 agent_bundle/
+**/.craftbot/
+app/data/.file_index/
