@@ -11,16 +11,30 @@ export interface QuestionStepperProps {
   onSubmit: (messageId: string, sessionId: string | undefined, answers: Record<string, string> | undefined, declined: boolean) => void
 }
 
+// Per-question draft kept structured (which boxes are checked vs. what was
+// free-typed) so navigating between questions never has to reverse-engineer
+// state from the joined answer string — choice values containing ", " would
+// mis-parse, and a free-typed value equal to a choice would be reclassified.
+interface QuestionDraft {
+  checked: string[]
+  other: string
+}
+
+const draftText = (d: QuestionDraft) =>
+  [...d.checked, ...(d.other ? [d.other] : [])].join(', ')
+
 export function QuestionStepper({ messageId, sessionId, questions, answers, declined, onSubmit }: QuestionStepperProps) {
   const resolved = !!answers || !!declined
   const [step, setStep] = useState(0)
-  const [localAnswers, setLocalAnswers] = useState<Record<string, string>>({})
+  const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({})
   const [otherText, setOtherText] = useState('')
   const [checked, setChecked] = useState<Set<string>>(new Set())
 
   // Esc abandons the whole batch — scoped to this stepper via bubbling from
   // its own focused controls, not a window-wide listener (which would decline
   // whichever batch happened to be mounted regardless of what's focused).
+  // The free-text inputs intercept Esc to clear themselves instead, and the
+  // Dismiss button covers the case where nothing in the stepper has focus.
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') onSubmit(messageId, sessionId, undefined, true)
   }
@@ -46,39 +60,31 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
   const isReview = !single && step === questions.length
   const current = questions[step]
 
-  // Navigating to a question rehydrates its previous answer (if any) instead
-  // of blindly clearing it — otherwise revisiting an already-answered
-  // question shows it as unanswered, and re-confirming would silently
-  // overwrite the earlier answer with an empty/partial one.
-  const goToStep = (i: number) => {
-    setStep(i)
-    const q = questions[i]
-    if (!q) return // i === questions.length: moving into the review step, nothing to rehydrate
-    const existing = localAnswers[q.id]
-    if (existing === undefined) {
-      setOtherText('')
-      setChecked(new Set())
-      return
-    }
-    if (q.multiSelect) {
-      const knownValues = new Set(q.choices.map(c => c.value))
-      const parts = existing.split(', ')
-      setChecked(new Set(parts.filter(p => knownValues.has(p))))
-      setOtherText(parts.filter(p => !knownValues.has(p)).join(', '))
-    } else {
-      const isKnownChoice = q.choices.some(c => c.value === existing)
-      setChecked(new Set())
-      setOtherText(isKnownChoice ? '' : existing)
-    }
+  const answerTextFor = (qid: string): string | undefined => {
+    const d = drafts[qid]
+    return d === undefined ? undefined : draftText(d)
   }
 
-  const answerCurrent = (value: string) => {
-    const next = { ...localAnswers, [current.id]: value }
-    setLocalAnswers(next)
+  // Navigating to a question rehydrates its saved draft (if any) so a
+  // previously-given answer shows exactly as it was entered.
+  // `source` lets callers that just updated the drafts pass the fresh map,
+  // since the `drafts` in this closure is one render behind.
+  const goToStep = (i: number, source: Record<string, QuestionDraft> = drafts) => {
+    setStep(i)
+    const q = questions[i]
+    if (!q) return // i === questions.length: moving into the review step
+    const d = source[q.id]
+    setChecked(new Set(d?.checked ?? []))
+    setOtherText(d?.other ?? '')
+  }
+
+  const saveCurrent = (d: QuestionDraft) => {
+    const next = { ...drafts, [current.id]: d }
+    setDrafts(next)
     if (single) {
-      onSubmit(messageId, sessionId, next, false)
+      onSubmit(messageId, sessionId, { [current.id]: draftText(d) }, false)
     } else {
-      goToStep(step + 1)
+      goToStep(step + 1, next)
     }
   }
 
@@ -90,40 +96,64 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
   }
 
   const confirmMultiSelect = () => {
-    const values = [...checked, ...(otherText.trim() ? [otherText.trim()] : [])]
-    if (values.length === 0) return
-    answerCurrent(values.join(', '))
+    const other = otherText.trim()
+    if (checked.size === 0 && !other) return
+    saveCurrent({ checked: [...checked], other })
   }
 
   const submitOther = () => {
-    if (!otherText.trim()) return
-    answerCurrent(otherText.trim())
+    const other = otherText.trim()
+    if (!other) return
+    saveCurrent({ checked: [], other })
+  }
+
+  const submitAll = () => {
+    const all: Record<string, string> = {}
+    for (const q of questions) {
+      const text = answerTextFor(q.id)
+      if (text !== undefined) all[q.id] = text
+    }
+    onSubmit(messageId, sessionId, all, false)
+  }
+
+  const clearOnEscape = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation() // clear the field, don't decline the batch
+      setOtherText('')
+    }
   }
 
   return (
     <div className={styles.stepper} onKeyDown={handleKeyDown}>
-      {!single && (
-        <div className={styles.nav}>
-          {step > 0 && (
-            <button type="button" className={styles.backButton} onClick={() => goToStep(step - 1)}>
-              ‹ Back
-            </button>
-          )}
-          {questions.map((q, i) => (
-            <button
-              key={q.id}
-              type="button"
-              className={`${styles.navDot} ${i === step ? styles.navDotActive : ''} ${localAnswers[q.id] ? styles.navDotDone : ''}`}
-              onClick={() => goToStep(i)}
-              disabled={i > step && localAnswers[q.id] === undefined}
-              aria-label={`Question ${i + 1} of ${questions.length}`}
-            >
-              {i + 1}
-            </button>
-          ))}
+      <div className={styles.nav}>
+        {!single && step > 0 && (
+          <button type="button" className={styles.backButton} onClick={() => goToStep(step - 1)}>
+            ‹ Back
+          </button>
+        )}
+        {!single && questions.map((q, i) => (
+          <button
+            key={q.id}
+            type="button"
+            className={`${styles.navDot} ${i === step ? styles.navDotActive : ''} ${drafts[q.id] ? styles.navDotDone : ''}`}
+            onClick={() => goToStep(i)}
+            disabled={i > step && drafts[q.id] === undefined}
+            aria-label={`Question ${i + 1} of ${questions.length}`}
+          >
+            {i + 1}
+          </button>
+        ))}
+        {!single && (
           <span className={styles.navReview}>{isReview ? 'Review' : `${step + 1} of ${questions.length}`}</span>
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          className={styles.dismissButton}
+          onClick={() => onSubmit(messageId, sessionId, undefined, true)}
+        >
+          Dismiss
+        </button>
+      </div>
 
       {isReview ? (
         <div className={styles.review}>
@@ -135,14 +165,10 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
               onClick={() => goToStep(questions.indexOf(q))}
             >
               <span className={styles.resolvedQuestion}>{q.text}</span>
-              <span className={styles.resolvedAnswer}>{localAnswers[q.id]}</span>
+              <span className={styles.resolvedAnswer}>{answerTextFor(q.id)}</span>
             </button>
           ))}
-          <button
-            type="button"
-            className={styles.submitButton}
-            onClick={() => onSubmit(messageId, sessionId, localAnswers, false)}
-          >
+          <button type="button" className={styles.submitButton} onClick={submitAll}>
             Submit answers
           </button>
         </div>
@@ -169,7 +195,7 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
                   className={styles.otherInput}
                   value={otherText}
                   onChange={e => setOtherText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') confirmMultiSelect() }}
+                  onKeyDown={e => { if (e.key === 'Enter') confirmMultiSelect(); clearOnEscape(e) }}
                   placeholder="Other (optional)..."
                 />
               </div>
@@ -184,26 +210,29 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
             </>
           ) : (
             <>
-              {current.choices.map((c, i) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  role="radio"
-                  aria-checked="false"
-                  className={styles.choiceButton}
-                  onClick={() => answerCurrent(c.value)}
-                >
-                  <span className={styles.choiceIndex}>{i + 1}</span>
-                  {c.label}
-                </button>
-              ))}
+              {current.choices.map((c, i) => {
+                const selected = checked.has(c.value)
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    className={`${styles.choiceButton} ${selected ? styles.choiceButtonSelected : ''}`}
+                    onClick={() => saveCurrent({ checked: [c.value], other: '' })}
+                  >
+                    <span className={styles.choiceIndex}>{i + 1}</span>
+                    {c.label}
+                  </button>
+                )
+              })}
               <div className={styles.otherRow}>
                 <input
                   type="text"
                   className={styles.otherInput}
                   value={otherText}
                   onChange={e => setOtherText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') submitOther() }}
+                  onKeyDown={e => { if (e.key === 'Enter') submitOther(); clearOnEscape(e) }}
                   placeholder={current.choices.length > 0 ? 'Or type your own answer...' : 'Type your answer...'}
                 />
                 <button type="button" className={styles.otherSend} onClick={submitOther} disabled={!otherText.trim()}>

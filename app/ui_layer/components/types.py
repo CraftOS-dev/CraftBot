@@ -64,6 +64,28 @@ class ChatMessageQuestion:
     choices: List[ChatMessageOption] = field(default_factory=list)
     multi_select: bool = False
 
+    def to_dict(self) -> Dict:
+        """Wire/storage shape (camelCase keys, matches the frontend type)."""
+        return {
+            "id": self.id,
+            "text": self.text,
+            "choices": [{"label": c.label, "value": c.value} for c in self.choices],
+            "multiSelect": self.multi_select,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "ChatMessageQuestion":
+        """Inverse of to_dict, tolerant of missing keys."""
+        return cls(
+            id=data.get("id", ""),
+            text=data.get("text", ""),
+            choices=[
+                ChatMessageOption(label=c.get("label", ""), value=c.get("value", ""))
+                for c in data.get("choices", [])
+            ],
+            multi_select=data.get("multiSelect", False),
+        )
+
 
 @dataclass
 class ChatMessage:

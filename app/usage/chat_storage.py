@@ -338,16 +338,62 @@ class ChatStorage:
             declined: True if the user escaped out of the batch instead of answering.
 
         Returns:
-            True if the message was updated, False if not found.
+            True if the message was updated, False if not found or already
+            resolved. The WHERE clause only matches an unresolved row, making
+            this the atomic first-submission-wins guard: a second submit for
+            the same batch (e.g. from a stale browser tab) returns False and
+            the caller must not resume the task again.
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE chat_messages SET question_answers = ?, questions_declined = ? WHERE message_id = ?",
+                """
+                UPDATE chat_messages SET question_answers = ?, questions_declined = ?
+                WHERE message_id = ? AND question_answers IS NULL
+                  AND (questions_declined IS NULL OR questions_declined = 0)
+                """,
                 (json.dumps(answers) if answers else None, declined, message_id),
             )
             conn.commit()
             return cursor.rowcount > 0
+
+    def get_message(self, message_id: str) -> Optional[StoredChatMessage]:
+        """
+        Get a single message by ID.
+
+        Args:
+            message_id: The message ID to look up.
+
+        Returns:
+            The stored message, or None if not found.
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected, questions, question_answers, questions_declined
+                FROM chat_messages
+                WHERE message_id = ?
+            """,
+                (message_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return StoredChatMessage(
+                message_id=row[0],
+                sender=row[1],
+                content=row[2],
+                style=row[3],
+                timestamp=row[4],
+                attachments=json.loads(row[5]) if row[5] else None,
+                task_session_id=row[6],
+                options=json.loads(row[7]) if row[7] else None,
+                option_selected=row[8],
+                questions=json.loads(row[9]) if row[9] else None,
+                question_answers=json.loads(row[10]) if row[10] else None,
+                questions_declined=bool(row[11]) if row[11] is not None else None,
+            )
 
     def delete_message(self, message_id: str) -> bool:
         """

@@ -234,24 +234,10 @@ class BrowserChatComponent(ChatComponentProtocol):
                     ]
                 questions = None
                 if stored.questions:
-                    from app.ui_layer.components.types import (
-                        ChatMessageOption,
-                        ChatMessageQuestion,
-                    )
+                    from app.ui_layer.components.types import ChatMessageQuestion
 
                     questions = [
-                        ChatMessageQuestion(
-                            id=q.get("id", ""),
-                            text=q.get("text", ""),
-                            choices=[
-                                ChatMessageOption(
-                                    label=c.get("label", ""), value=c.get("value", "")
-                                )
-                                for c in q.get("choices", [])
-                            ],
-                            multi_select=q.get("multiSelect", False),
-                        )
-                        for q in stored.questions
+                        ChatMessageQuestion.from_dict(q) for q in stored.questions
                     ]
                 self._messages.append(
                     ChatMessage(
@@ -277,6 +263,11 @@ class BrowserChatComponent(ChatComponentProtocol):
         """Append message and broadcast to clients."""
         self._messages.append(message)
 
+        # Serialized once, shared by the storage insert and the broadcast
+        questions_data = (
+            [q.to_dict() for q in message.questions] if message.questions else None
+        )
+
         # Persist to storage
         if self._storage:
             try:
@@ -299,20 +290,6 @@ class BrowserChatComponent(ChatComponentProtocol):
                     options_data = [
                         {"label": o.label, "value": o.value, "style": o.style}
                         for o in message.options
-                    ]
-                questions_data = None
-                if message.questions:
-                    questions_data = [
-                        {
-                            "id": q.id,
-                            "text": q.text,
-                            "choices": [
-                                {"label": c.label, "value": c.value}
-                                for c in q.choices
-                            ],
-                            "multiSelect": q.multi_select,
-                        }
-                        for q in message.questions
                     ]
                 stored = StoredChatMessage(
                     message_id=message.message_id
@@ -372,18 +349,8 @@ class BrowserChatComponent(ChatComponentProtocol):
             message_data["optionSelected"] = message.option_selected
 
         # Include clarifying-question batch if present
-        if message.questions:
-            message_data["questions"] = [
-                {
-                    "id": q.id,
-                    "text": q.text,
-                    "choices": [
-                        {"label": c.label, "value": c.value} for c in q.choices
-                    ],
-                    "multiSelect": q.multi_select,
-                }
-                for q in message.questions
-            ]
+        if questions_data:
+            message_data["questions"] = questions_data
         if message.question_answers:
             message_data["questionAnswers"] = message.question_answers
         if message.questions_declined:
@@ -457,24 +424,10 @@ class BrowserChatComponent(ChatComponentProtocol):
                     ]
                 questions = None
                 if s.questions:
-                    from app.ui_layer.components.types import (
-                        ChatMessageOption,
-                        ChatMessageQuestion,
-                    )
+                    from app.ui_layer.components.types import ChatMessageQuestion
 
                     questions = [
-                        ChatMessageQuestion(
-                            id=q.get("id", ""),
-                            text=q.get("text", ""),
-                            choices=[
-                                ChatMessageOption(
-                                    label=c.get("label", ""), value=c.get("value", "")
-                                )
-                                for c in q.get("choices", [])
-                            ],
-                            multi_select=q.get("multiSelect", False),
-                        )
-                        for q in s.questions
+                        ChatMessageQuestion.from_dict(q) for q in s.questions
                     ]
                 messages.append(
                     ChatMessage(
@@ -1183,6 +1136,10 @@ class BrowserAdapter(InterfaceAdapter):
     def metrics_collector(self) -> MetricsCollector:
         """Get the metrics collector for dashboard data."""
         return self._metrics_collector
+
+    def can_prompt_user(self) -> bool:
+        """A user can answer an interactive prompt when a browser tab is connected."""
+        return len(self._ws_clients) > 0
 
     async def submit_message(
         self,
@@ -4164,31 +4121,84 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         Persists the resolution, then resumes the parked task the same way a
         normal reply to a waiting task does (see ``submit_message``'s
         ``reply_context`` handling) — no separate resume path needed.
+
+        First submission wins: the storage UPDATE only matches an unresolved
+        row, so a duplicate submit (e.g. from a second browser tab that still
+        showed the live stepper) is dropped instead of resuming the task twice.
         """
         try:
-            question_text_by_id: Dict[str, str] = {}
+            resolved_answers = answers if not declined else None
+            storage = self._chat._storage if self._chat else None
+
+            in_memory = None
             if self._chat and message_id:
                 for m in self._chat._messages:
                     if m.message_id == message_id:
-                        if m.questions:
-                            question_text_by_id = {q.id: q.text for q in m.questions}
-                        m.question_answers = answers if not declined else None
-                        m.questions_declined = declined
+                        in_memory = m
                         break
-                if self._chat._storage:
-                    try:
-                        self._chat._storage.update_question_answers(
-                            message_id, answers if not declined else None, declined
-                        )
-                    except Exception:
-                        pass
 
-            if declined:
-                resume_text = "The user declined to answer."
-            elif answers:
+            already_resolved_in_memory = in_memory is not None and (
+                in_memory.question_answers is not None
+                or in_memory.questions_declined
+            )
+            if storage:
+                claimed = False
+                try:
+                    claimed = storage.update_question_answers(
+                        message_id, resolved_answers, declined
+                    )
+                except Exception:
+                    # Storage unavailable: fall back to the in-memory guard.
+                    claimed = not already_resolved_in_memory
+                # update_question_answers returns False for a missing row too;
+                # only treat it as a duplicate when memory confirms resolution
+                # or has no unresolved copy to contradict it.
+                if not claimed and (in_memory is None or already_resolved_in_memory):
+                    logger.info(
+                        f"[QUESTION_ANSWERS] Ignoring duplicate submit for {message_id}"
+                    )
+                    return
+            elif already_resolved_in_memory:
+                return
+
+            question_text_by_id: Dict[str, str] = {}
+            if in_memory is not None:
+                if in_memory.questions:
+                    question_text_by_id = {q.id: q.text for q in in_memory.questions}
+                in_memory.question_answers = resolved_answers
+                in_memory.questions_declined = declined
+            elif storage:
+                # Message aged out of the in-memory window (e.g. answered via
+                # paginated history after a restart): recover the question
+                # texts from storage so the resume text isn't raw ids.
+                try:
+                    stored = storage.get_message(message_id)
+                    if stored and stored.questions:
+                        question_text_by_id = {
+                            q.get("id", ""): q.get("text", "")
+                            for q in stored.questions
+                        }
+                except Exception:
+                    pass
+
+            # Collapse the stepper on every connected client — the submitting
+            # tab already resolved optimistically, but other tabs would keep
+            # showing a live stepper and could submit again.
+            await self._broadcast(
+                {
+                    "type": "question_answers_resolved",
+                    "data": {
+                        "messageId": message_id,
+                        "answers": resolved_answers,
+                        "declined": declined,
+                    },
+                }
+            )
+
+            if resolved_answers:
                 lines = [
                     f"{i + 1}. {question_text_by_id.get(qid, qid)} → {answer}"
-                    for i, (qid, answer) in enumerate(answers.items())
+                    for i, (qid, answer) in enumerate(resolved_answers.items())
                 ]
                 resume_text = "Answered clarifying questions:\n" + "\n".join(lines)
             else:
@@ -8253,18 +8263,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 if m.option_selected:
                     msg_data["optionSelected"] = m.option_selected
                 if m.questions:
-                    msg_data["questions"] = [
-                        {
-                            "id": q.id,
-                            "text": q.text,
-                            "choices": [
-                                {"label": c.label, "value": c.value}
-                                for c in q.choices
-                            ],
-                            "multiSelect": q.multi_select,
-                        }
-                        for q in m.questions
-                    ]
+                    msg_data["questions"] = [q.to_dict() for q in m.questions]
                 if m.question_answers:
                     msg_data["questionAnswers"] = m.question_answers
                 if m.questions_declined:
@@ -8979,20 +8978,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         else {}
                     ),
                     **(
-                        {
-                            "questions": [
-                                {
-                                    "id": q.id,
-                                    "text": q.text,
-                                    "choices": [
-                                        {"label": c.label, "value": c.value}
-                                        for c in q.choices
-                                    ],
-                                    "multiSelect": q.multi_select,
-                                }
-                                for q in m.questions
-                            ]
-                        }
+                        {"questions": [q.to_dict() for q in m.questions]}
                         if m.questions
                         else {}
                     ),

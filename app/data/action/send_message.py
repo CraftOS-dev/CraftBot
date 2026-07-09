@@ -39,6 +39,7 @@ from agent_core import action
     },
 )
 async def send_message(input_data: dict) -> dict:
+    from app.data.action.constants import WAIT_FOR_REPLY_PARK_DELAY_SECONDS
 
     message = input_data["message"]
     wait_for_user_reply = bool(input_data.get("wait_for_user_reply", False))
@@ -65,7 +66,7 @@ async def send_message(input_data: dict) -> dict:
             except Exception:
                 pass
 
-    fire_at_delay = 10800 if wait_for_user_reply else 0
+    fire_at_delay = WAIT_FOR_REPLY_PARK_DELAY_SECONDS if wait_for_user_reply else 0
     # Return 'success' for test compatibility, but keep 'ok' in production if needed
     status = "success" if simulated_mode else "ok"
     return {

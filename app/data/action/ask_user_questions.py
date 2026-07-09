@@ -89,6 +89,8 @@ from agent_core import action
     },
 )
 async def ask_user_questions(input_data: dict) -> dict:
+    from app.data.action.constants import WAIT_FOR_REPLY_PARK_DELAY_SECONDS
+
     questions = input_data.get("questions") or []
     simulated_mode = input_data.get("simulated_mode", False)
     session_id = input_data.get("_session_id")
@@ -100,8 +102,18 @@ async def ask_user_questions(input_data: dict) -> dict:
         import app.internal_action_interface as internal_action_interface
 
         ui_adapter = internal_action_interface.InternalActionInterface.ui_adapter
-        ws_clients = getattr(ui_adapter, "_ws_clients", None)
-        if ws_clients is not None and len(ws_clients) == 0:
+        if ui_adapter is None:
+            return {
+                "status": "error",
+                "message": (
+                    "Cannot ask the user interactively — no CraftBot browser interface "
+                    "is attached (CLI/headless mode). Ask conversationally with a send "
+                    "message action (wait_for_user_reply=true) instead."
+                ),
+            }
+        # Fail closed: only park the task when the adapter affirms a user is
+        # present to answer (browser adapter: at least one connected client).
+        if not ui_adapter.can_prompt_user():
             return {
                 "status": "error",
                 "message": (
@@ -129,17 +141,20 @@ async def ask_user_questions(input_data: dict) -> dict:
         ]
         content = "\n".join(f"{i + 1}. {q.text}" for i, q in enumerate(question_objs))
 
-        if ui_adapter is not None:
-            from app.onboarding import onboarding_manager
+        from app.onboarding import onboarding_manager
 
-            agent_name = onboarding_manager.state.agent_name or "Agent"
-            await ui_adapter._display_chat_message(
-                agent_name,
-                content,
-                "agent",
-                task_session_id=session_id,
-                questions=question_objs,
-            )
+        agent_name = onboarding_manager.state.agent_name or "Agent"
+        await ui_adapter._display_chat_message(
+            agent_name,
+            content,
+            "agent",
+            task_session_id=session_id,
+            questions=question_objs,
+        )
 
     status = "success" if simulated_mode else "ok"
-    return {"status": status, "fire_at_delay": 10800, "wait_for_user_reply": True}
+    return {
+        "status": status,
+        "fire_at_delay": WAIT_FOR_REPLY_PARK_DELAY_SECONDS,
+        "wait_for_user_reply": True,
+    }

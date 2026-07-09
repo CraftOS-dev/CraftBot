@@ -545,6 +545,17 @@ class InterfaceAdapter(ABC):
     # Helper methods
     # ─────────────────────────────────────────────────────────────────────
 
+    def can_prompt_user(self) -> bool:
+        """
+        Whether a user is present and able to answer an interactive prompt
+        (e.g. a clarifying-question stepper) right now.
+
+        Defaults to False: an adapter must explicitly declare interactive
+        capability, so actions that park a task waiting on an answer fail
+        closed on adapters that can't deliver one.
+        """
+        return False
+
     async def _display_chat_message(
         self,
         label: str,
