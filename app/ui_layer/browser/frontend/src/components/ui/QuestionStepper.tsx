@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import type { ChatMessageQuestion } from '../../types'
 import styles from './QuestionStepper.module.css'
 
@@ -18,15 +18,12 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
   const [otherText, setOtherText] = useState('')
   const [checked, setChecked] = useState<Set<string>>(new Set())
 
-  // Esc abandons the whole batch — only while it's still unanswered.
-  useEffect(() => {
-    if (resolved) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onSubmit(messageId, sessionId, undefined, true)
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [resolved, messageId, sessionId, onSubmit])
+  // Esc abandons the whole batch — scoped to this stepper via bubbling from
+  // its own focused controls, not a window-wide listener (which would decline
+  // whichever batch happened to be mounted regardless of what's focused).
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') onSubmit(messageId, sessionId, undefined, true)
+  }
 
   if (resolved) {
     return (
@@ -49,21 +46,39 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
   const isReview = !single && step === questions.length
   const current = questions[step]
 
+  // Navigating to a question rehydrates its previous answer (if any) instead
+  // of blindly clearing it — otherwise revisiting an already-answered
+  // question shows it as unanswered, and re-confirming would silently
+  // overwrite the earlier answer with an empty/partial one.
   const goToStep = (i: number) => {
     setStep(i)
-    setOtherText('')
-    setChecked(new Set())
+    const q = questions[i]
+    if (!q) return // i === questions.length: moving into the review step, nothing to rehydrate
+    const existing = localAnswers[q.id]
+    if (existing === undefined) {
+      setOtherText('')
+      setChecked(new Set())
+      return
+    }
+    if (q.multiSelect) {
+      const knownValues = new Set(q.choices.map(c => c.value))
+      const parts = existing.split(', ')
+      setChecked(new Set(parts.filter(p => knownValues.has(p))))
+      setOtherText(parts.filter(p => !knownValues.has(p)).join(', '))
+    } else {
+      const isKnownChoice = q.choices.some(c => c.value === existing)
+      setChecked(new Set())
+      setOtherText(isKnownChoice ? '' : existing)
+    }
   }
 
   const answerCurrent = (value: string) => {
     const next = { ...localAnswers, [current.id]: value }
     setLocalAnswers(next)
-    setOtherText('')
-    setChecked(new Set())
     if (single) {
       onSubmit(messageId, sessionId, next, false)
     } else {
-      setStep(step + 1)
+      goToStep(step + 1)
     }
   }
 
@@ -86,7 +101,7 @@ export function QuestionStepper({ messageId, sessionId, questions, answers, decl
   }
 
   return (
-    <div className={styles.stepper}>
+    <div className={styles.stepper} onKeyDown={handleKeyDown}>
       {!single && (
         <div className={styles.nav}>
           {step > 0 && (

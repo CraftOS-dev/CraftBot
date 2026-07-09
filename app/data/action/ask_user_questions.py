@@ -72,6 +72,11 @@ from agent_core import action
             "example": 10800,
             "description": "Delay in seconds before the next follow-up action should be scheduled. Always 10800 (3 hours) — this action always pauses for a reply.",
         },
+        "wait_for_user_reply": {
+            "type": "boolean",
+            "example": True,
+            "description": "Always true — tells the agent loop to mark the task as waiting and hold off the next trigger until the user replies.",
+        },
     },
     test_payload={
         "questions": [
@@ -137,4 +142,4 @@ async def ask_user_questions(input_data: dict) -> dict:
             )
 
     status = "success" if simulated_mode else "ok"
-    return {"status": status, "fire_at_delay": 10800}
+    return {"status": status, "fire_at_delay": 10800, "wait_for_user_reply": True}

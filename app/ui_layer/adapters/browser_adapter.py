@@ -8252,6 +8252,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     ]
                 if m.option_selected:
                     msg_data["optionSelected"] = m.option_selected
+                if m.questions:
+                    msg_data["questions"] = [
+                        {
+                            "id": q.id,
+                            "text": q.text,
+                            "choices": [
+                                {"label": c.label, "value": c.value}
+                                for c in q.choices
+                            ],
+                            "multiSelect": q.multi_select,
+                        }
+                        for q in m.questions
+                    ]
+                if m.question_answers:
+                    msg_data["questionAnswers"] = m.question_answers
+                if m.questions_declined:
+                    msg_data["questionsDeclined"] = m.questions_declined
                 messages_data.append(msg_data)
 
             await self._broadcast(
