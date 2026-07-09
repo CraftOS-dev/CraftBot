@@ -100,11 +100,24 @@
     })();
     </script>
 
-    <!-- CraftBot theme sync — applies theme + CSS vars from parent frame -->
+    <!-- CraftBot theme sync — the HOST owns theming. Applies mode
+         (light/dark, always following the browser interface), the style
+         pack (data-style: default|modern|glass|classic — chosen in the
+         Living UI top bar's theme picker), and CSS palette vars from
+         parent-frame messages. localStorage only CACHES the last host-sent
+         style for a flash-free boot; a fresh message always wins. -->
     <script>
     (function() {
-      function applyTheme(theme, cssVars) {
+      var STYLES = ['default', 'modern', 'glass', 'classic'];
+      function cachedStyle() {
+        try { var s = localStorage.getItem('livingui-style'); return STYLES.indexOf(s) !== -1 ? s : null; } catch(e) { return null; }
+      }
+      function applyTheme(theme, cssVars, style) {
         document.documentElement.setAttribute('data-theme', theme || 'dark');
+        if (style && STYLES.indexOf(style) !== -1) {
+          document.documentElement.setAttribute('data-style', style);
+          try { localStorage.setItem('livingui-style', style); } catch(e) {}
+        }
         if (cssVars && typeof cssVars === 'object') {
           var styleId = 'craftbot-theme-vars';
           var el = document.getElementById(styleId) || document.createElement('style');
@@ -120,13 +133,15 @@
       // Apply incoming theme messages
       window.addEventListener('message', function(e) {
         if (e.data && e.data.type === 'craftbot-theme') {
-          applyTheme(e.data.theme, e.data.cssVars);
+          applyTheme(e.data.theme, e.data.cssVars, e.data.style);
         }
       });
-      // Apply stored theme immediately to avoid flash — default is always dark
+      // Apply stored mode + cached style immediately to avoid flash —
+      // default is always dark/default until the host says otherwise.
       var stored = 'dark';
       try { var s = window.parent && window.parent.localStorage && window.parent.localStorage.getItem('craftbot-theme'); if (s === 'light' || s === 'dark') stored = s; } catch(e) {}
       document.documentElement.setAttribute('data-theme', stored);
+      document.documentElement.setAttribute('data-style', cachedStyle() || 'default');
     })();
     </script>
 

@@ -11,56 +11,56 @@ When something goes wrong, check these log files in the project directory:
 | Log File | Contains |
 |----------|----------|
 | `backend/logs/subprocess_output.log` | Uvicorn startup output, crashes, stack traces |
-| `backend/logs/backend_*.log` | Backend app-level logs (requests, errors, SQL) |
+| `backend/logs/backend_*.log` | Backend app-level logs (requests, unhandled 500s, SQL) |
 | `backend/logs/frontend_console.log` | Frontend console errors, warnings, app logs, and network requests |
 | `backend/logs/test_discovery.json` | Pre-launch test results (imports, routes, models) |
 | `backend/logs/test_results.json` | External smoke test results |
-| `logs/frontend_output.log` | Vite preview server output |
+| `logs/schedule.log` / `logs/schedule_state.json` | Scheduled-op results and last-run state |
+| `logs/dev_preview.log` | Live-preview npm install / Vite dev server output |
 
 **Read these logs first** when debugging launch failures or runtime issues.
+Validation's `runtime.logs` step reads the first three too — an ERROR
+recorded there during validation refuses the launch.
 
 ---
 
 ## Common Mistakes
 
 - **Relative imports** — NEVER use `from . import models` or `from .models import ...` in backend code. Use absolute imports: `from models import ...`
-- **Double /api prefix** — Routes in `routes.py` should NOT have `/api` prefix (e.g., use `@router.get("/items")` not `@router.get("/api/items")`). The prefix is added by `main.py`'s `include_router`.
-- **Running servers manually** — NEVER start uvicorn, npm run dev, or npm run preview. The pipeline handles this.
+- **Double /api prefix** — Routes in `routes.py` should NOT have `/api` prefix (e.g., use `@router.get("/cards/archive")` not `@router.get("/api/cards/archive")`). The prefix is added by `main.py`'s `include_router`.
+- **Running servers/builds manually** — NEVER start uvicorn, npm run dev/build/preview. The pipeline installs, builds, and serves; write-time feedback already runs `tsc` for you.
+- **EntityForm/EntityTable take the SCHEMA name** (`entity="Card"`), while `useEntities` takes the route plural (`'cards'`). Mixing them up is a compile error (and the runtime error names the right value).
 
 ---
 
 ## Quick Diagnostics
 
-### 1. Backend Check
+### 1. Backend import check (read-only, safe)
 
 ```bash
 cd backend && python -c "from models import *; from routes import *; print('Backend OK')"
 ```
 
-If this fails, you have Python/import errors.
+If this fails, you have Python/import errors — the traceback names the file.
 
-### 2. Frontend Type Check
+### 2. TypeScript errors
 
-```bash
-npx tsc --noEmit
-```
+You do NOT run tsc manually in a loop — every frontend write already
+returns the COMPLETE current error list in the write result. Fix all of
+them in your next step. (A one-off `npx tsc --noEmit` is fine while
+debugging a confusing type issue.)
 
-If this fails, you have TypeScript errors.
+### 3. Everything else
 
-### 3. Build Check
-
-```bash
-npm run build
-echo $?  # Should print 0
-```
-
-If exit code is not 0, build failed.
+`living_ui_validate` runs the full pipeline (install, tests, build, smoke,
+runtime logs, design) and returns the complete error list. Don't rebuild
+its steps by hand.
 
 ---
 
 ## Common Errors & Fixes
 
-### Missing db.commit() (Data Not Saved!)
+### Missing db.commit() in a CUSTOM route (Data Not Saved!)
 ```python
 # WRONG - changes not saved
 db.add(item)
@@ -71,14 +71,16 @@ db.add(item)
 db.commit()
 return item.to_dict()
 ```
+(Generated CRUD commits automatically — this applies to routes.py only.)
 
-### SQLAlchemy Reserved Names
-```python
-# WRONG - will crash
-metadata = Column(JSON)
+### Reserved field names in schema.json
+```json
+// WRONG — 'metadata' collides with SQLAlchemy internals; id/createdAt/
+// updatedAt are automatic and must never be declared
+{"fields": {"metadata": {"type": "json"}, "id": {"type": "integer"}}}
 
-# RIGHT
-extra_data = Column(JSON)
+// RIGHT
+{"fields": {"extraData": {"type": "json"}}}
 ```
 
 ### Non-responsive Frontend
@@ -93,16 +95,16 @@ extra_data = Column(JSON)
   padding: 0 16px;
 }
 ```
+(Preset components and skeletons are already adaptive — this applies to
+your own scoped styles.)
 
 ### No Loading State
-```typescript
-// WRONG - jarring UX
-const items = await fetch('/api/items')
 
-// RIGHT - user sees loading
-setState({ loading: true })
-const items = await fetch('/api/items')
-setState({ loading: false, items })
+`useEntities` gives you `loading` for free:
+
+```tsx
+const cards = useEntities<Card>('cards')
+if (cards.loading) return <SkeletonRow count={3} />
 ```
 
 ### Frontend-Only State (Data Loss!)
@@ -110,8 +112,8 @@ setState({ loading: false, items })
 // WRONG - lost on refresh
 const [todos, setTodos] = useState([])
 
-// RIGHT - fetched from backend
-const todos = await fetch('/api/todos').then(r => r.json())
+// RIGHT - backed by the database via the generated API
+const todos = useEntities<Todo>('todos')
 ```
 
 ### Wrong Project ID
@@ -122,7 +124,6 @@ living_ui_notify_ready(project_id="Create_Living_UI_MyApp_abc123", ...)
 # RIGHT - using project ID from task instruction
 living_ui_notify_ready(project_id="c8cda731", ...)
 ```
-
 
 ### "Cannot read property 'X' of undefined"
 
@@ -145,27 +146,22 @@ items?.map(item => ...) ?? []
 
 ### TypeScript type errors on API response
 
-**Cause:** Backend returns different shape than types.ts
-
-**Diagnosis:**
-```bash
-# Check actual API response
-curl http://localhost:PORT/api/items | head
-```
+**Cause:** Backend returns different shape than your types
 
 **Fix:**
-1. Compare response to types.ts interface
-2. Backend uses snake_case, TypeScript expects camelCase
-3. Update `to_dict()` to use camelCase keys
+1. For schema entities this CANNOT drift — the wire format is camelCase by
+   the engine and `frontend/types.gen.ts` is generated from the same
+   schema. Import types from types.gen, never hand-write them.
+2. For CUSTOM endpoints: return camelCase keys from routes.py to match
+   the response types you declared in `types.ts`.
 
 ```python
-# In models.py
-def to_dict(self):
-    return {
-        "id": self.id,
-        "createdAt": self.created_at.isoformat(),  # camelCase!
-        "userName": self.user_name,  # camelCase!
-    }
+# In a routes.py custom endpoint
+return {
+    "id": row.id,
+    "createdAt": row.created_at.isoformat(),  # camelCase!
+    "userName": row.user_name,  # camelCase!
+}
 ```
 
 ---
@@ -175,26 +171,9 @@ def to_dict(self):
 **Cause:** Backend not saving or frontend not fetching
 
 **Fix Checklist:**
-- [ ] Route calls `db.commit()` after changes
-- [ ] `AppController.initialize()` calls backend API
-- [ ] Backend returns the saved object (not input data)
-
-```python
-# WRONG - missing commit
-@router.post("/items")
-def create_item(data: dict, db: Session = Depends(get_db)):
-    item = Item(**data)
-    db.add(item)
-    return item.to_dict()  # NOT SAVED!
-
-# RIGHT - with commit
-@router.post("/items")
-def create_item(data: dict, db: Session = Depends(get_db)):
-    item = Item(**data)
-    db.add(item)
-    db.commit()  # SAVE TO DATABASE
-    return item.to_dict()
-```
+- [ ] Custom routes call `db.commit()` after changes
+- [ ] The component reads via `useEntities` (or `data.list`) — not a local useState
+- [ ] Custom routes return the SAVED object (not the input data)
 
 ---
 
@@ -205,14 +184,15 @@ def create_item(data: dict, db: Session = Depends(get_db)):
 **Fix:**
 - Check import paths are correct (relative vs absolute)
 - Ensure all used items are exported from their modules
-- Move shared types to `types.ts` to avoid circular deps
+- Entity types come from `../types.gen`; only app-specific NON-entity
+  types live in `types.ts`
 
 ```typescript
-// BAD - importing from component that imports this
-import { Item } from './ItemList'
+// BAD - importing an entity type from a component
+import { Card } from './CardList'
 
-// GOOD - import from shared types
-import { Item } from '../types'
+// GOOD - entity types are generated
+import type { Card } from '../types.gen'
 ```
 
 ---
@@ -224,30 +204,8 @@ import { Item } from '../types'
 **Fix:**
 1. Check `manifest.json` ports match actual running services
 2. Verify backend CORS is configured (should be by default)
-3. Frontend should use relative URLs or correct backend port
-
-```typescript
-// Check AppController or services for backend URL
-const BACKEND_URL = `http://localhost:${backendPort}`
-```
-
----
-
-### "metadata" SQLAlchemy error
-
-**Cause:** Using reserved column name
-
-**Fix:** Rename the column
-
-```python
-# WRONG - 'metadata' is reserved
-class Item(Base):
-    metadata = Column(JSON)  # CRASHES
-
-# RIGHT - use different name
-class Item(Base):
-    extra_data = Column(JSON)  # Works
-```
+3. Frontend should use the provided clients (`services/data.ts`,
+   `ApiService`) — they already resolve the backend URL
 
 ---
 
@@ -257,15 +215,14 @@ class Item(Base):
 
 **Diagnosis:**
 ```bash
-# Check database directly
-sqlite3 backend/living_ui.db "SELECT * FROM items;"
+livingui <project> select cards --limit 5
+livingui <project> sql "SELECT COUNT(*) FROM card"
 ```
+(Table names are snake_case singular on disk; the CLI's `schema` command
+lists them.)
 
-**Fix:** Check your query in routes.py
-```python
-# Make sure table name matches model
-items = db.query(Item).all()  # Item must match __tablename__
-```
+**Fix:** Check the filters you pass to `useEntities`/the list endpoint, or
+your custom route's query.
 
 ---
 
@@ -274,113 +231,51 @@ items = db.query(Item).all()  # Item must match __tablename__
 **Cause:** Event handlers not connected
 
 **Fix Checklist:**
-- [ ] onClick/onChange handlers are passed to components
-- [ ] Handler functions exist in controller
-- [ ] No TypeScript errors silently breaking the code
+- [ ] Every control has a real handler — `onClick={() => {}}` stubs are forbidden
+- [ ] The handler actually calls `useEntities.create/update/remove`, `data.*`, or ApiService (custom endpoints)
+- [ ] No TypeScript errors silently breaking the module (read the write-result feedback)
 
-```typescript
-// Check handlers are connected
-<button onClick={() => controller.deleteItem(id)}>Delete</button>
-
-// Make sure method exists in controller
-class AppController {
-  async deleteItem(id: string): Promise<void> {
-    // Implementation here
-  }
-}
+```tsx
+// A wired control: real handler → API call → view refresh
+<Button size="sm" variant="danger"
+  onClick={async () => { if (await confirm('Delete?')) await cards.remove(card.id) }}>
+  Delete
+</Button>
 ```
 
 ---
 
-## Development Workflow
+## Operating & Debugging a Running App
 
-### Start Development Environment
-
-```bash
-# Terminal 1: Backend (PORT from config/manifest.json)
-cd backend
-uvicorn main:app --port PORT --reload
-
-# Terminal 2: Frontend (dev server with hot reload)
-npm run dev
-```
-
-### Test Backend Before Frontend
-
-Before building UI, verify backend works (replace PORT with your backend port):
+The platform runs all servers. To poke a live app, use the CLI:
 
 ```bash
-# Create
-curl -X POST http://localhost:PORT/api/items \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Test Item"}'
-
-# Read
-curl http://localhost:PORT/api/items
-
-# Update
-curl -X PUT http://localhost:PORT/api/items/ITEM_ID \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Updated"}'
-
-# Delete
-curl -X DELETE http://localhost:PORT/api/items/ITEM_ID
-```
-
-### Build for Production
-
-```bash
-# Type check first
-npx tsc --noEmit
-
-# Build
-npm run build
-
-# Verify success
-echo $?  # Must be 0
-ls dist/  # Should have files
+livingui <project> status                 # ports, health, uptime
+livingui <project> logs --tail 50         # recent backend log
+livingui <project> snapshot               # what the user sees (DOM/text)
+livingui <project> screenshot --out s.png # visual check (describe_image)
+livingui <project> api GET /api/cards     # probe any endpoint
+livingui <project> run <op>               # exercise declared behavior
+livingui <project> restart                # relaunch after code changes
 ```
 
 ---
 
 ## Debugging Tips
 
-### Check Browser Console
+### Check the captured console first
 
-1. Open DevTools (F12)
-2. Go to Console tab
-3. Look for red errors
-4. Check Network tab for failed requests
+`backend/logs/frontend_console.log` already contains the browser's
+errors, warnings, and failed network requests — you rarely need DevTools.
 
-### Check Backend Logs
+### Verify data flow in isolation
 
-Backend prints errors to terminal. Look for:
-- ImportError (missing module)
-- SyntaxError (Python syntax issue)
-- SQLAlchemyError (database issue)
-
-### Verify State Flow
-
-Add temporary logging:
-
-```typescript
-// In AppController
-async fetchItems() {
-  console.log('Fetching items...')
-  const items = await ApiService.getItems()
-  console.log('Got items:', items)
-  await this.setState({ items })
-  console.log('State updated')
-}
-```
-
-### Test in Isolation
-
-1. Backend works? → Test with curl
-2. API returns correct data? → Check with curl
-3. Types match? → Run tsc --noEmit
-4. Component renders? → Check browser console
-5. State updates? → Add console.log
+1. Rows exist? → `livingui <project> select <table> --limit 5`
+2. Endpoint returns them? → `livingui <project> api GET /api/<plural>`
+3. Types match? → read the write-result tsc feedback
+4. Component renders them? → `livingui <project> snapshot`
+5. Still confused? → add a temporary `console.log` (it lands in
+   frontend_console.log) and remove it after
 
 ---
 
@@ -388,10 +283,11 @@ async fetchItems() {
 
 | Symptom | Likely Cause | Quick Fix |
 |---------|--------------|-----------|
-| Build fails | TypeScript errors | Run `npx tsc --noEmit` |
-| State lost on refresh | Missing db.commit() | Add `db.commit()` after changes |
+| Validate fails at frontend.build | TypeScript errors | Fix every error in the returned list |
+| State lost on refresh | Missing db.commit() / local-only state | Commit in custom routes; use useEntities |
 | "undefined" errors | Null state access | Add optional chaining `?.` |
 | CORS errors | Port mismatch | Check manifest.json ports |
-| Empty responses | Wrong query | Check model __tablename__ |
-| Buttons don't work | Missing handlers | Connect onClick to controller |
-| Type mismatch | snake_case vs camelCase | Fix to_dict() output |
+| Empty responses | Wrong filters/table | `livingui select` / `sql` to inspect |
+| Buttons don't work | Stub handlers | Wire real handlers to the data layer |
+| Type mismatch | snake_case vs camelCase | types.gen for entities; camelCase from custom routes |
+| unknown entity "xyz" at render | Route plural passed to EntityForm/Table | Use the SCHEMA name (`entity="Card"`) |

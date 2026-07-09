@@ -60,35 +60,119 @@ Follow the living-ui-creator skill instructions. Here's the workflow:
    platform flags backend writes made before the wireframe exists.
 4. BUILD THE APP to fulfill the REQUIREMENTS — work the way you would in
    any codebase; there is NO forced backend-then-frontend order:
-   - READ before you write: the existing files you're about to change
-     (backend/models.py, backend/routes.py, frontend/AppController.ts, the
-     component files) and LIVING_UI.md for project-specific notes — and
+   - THE BACKEND IS DECLARED, NOT CODED: define every entity in
+     config/schema.json and the engine materializes the models AND a full
+     REST API per entity at startup (GET/POST/PUT/DELETE /api/<plural>,
+     bulk insert, equality filters + ?q= search + range filters
+     (<field>_gte/_lte) + orderBy/order/limit/offset + /_stats
+     aggregations, camelCase JSON, automatic id/createdAt/updatedAt — do
+     NOT declare those three). Field types include enum (values list,
+     union-typed) and "unique": true constraints.
+     You never write models.py or CRUD routes. Hand-write ONLY behavior
+     the generated CRUD cannot express, as custom endpoints in routes.py
+     (paths WITHOUT /api — the router adds it), each with a one-line
+     docstring, each declared as an op in config/operations.json.
+   - GENERATED, NEVER HAND-WRITTEN: entity TypeScript types live in
+     frontend/types.gen.ts (regenerated from schema.json on every schema
+     write) — import them. Data plumbing is provided: useEntities from
+     '../services/data' (items + create/update/remove with auto-refresh)
+     and the `data` client for one-off calls. Do NOT write per-entity
+     fetch methods; ApiService is only for CUSTOM endpoints.
+   - EVERY ENTITY NEEDS A WORKING INGRESS: before building, state how
+     each entity's records enter the app (user forms / bridge pull from a
+     connected service / file import / computed). Inbound webhooks are NOT
+     an ingress — the app runs on localhost and external services can
+     never reach it. If the REQUIREMENTS demand external data, build the
+     bridge pull (services/integration_client) plus a scheduled sync op;
+     a dashboard that can never contain data is a failed build even if
+     validation passes.
+   - DEPENDENCIES ARE THE PLATFORM'S JOB: never run npm install / pip
+     install — installs run automatically from project creation onward.
+     Early "Cannot find module" type errors on TEMPLATE deps mean the
+     install is still running: keep building, the note clears itself; a
+     second concurrent npm CORRUPTS node_modules and kills the preview.
+     New packages: add to package.json/requirements.txt and validation
+     installs them. Schema field renames/removals are safe — the platform
+     reconciles the DB (never hand-edit/delete living_ui.db).
+   - FILE STORAGE IS BUILT IN: system routes POST/GET/DELETE /api/files
+     (+ /api/files/{{id}} serving) with <FileUpload>/<ImageInput> presets and
+     files/fileUrl helpers in services/data — never hand-roll uploads;
+     store the returned url string in a schema string field.
+   - SCHEDULED OPS: add "schedule": "every 15m" | "hourly" | "daily 09:00"
+     to any op in operations.json and the platform runs it while the app
+     is up (defaults must satisfy params; results in logs/schedule.log).
+   - IN-APP AI: await integration.llm(prompt) / .describe_image(url) from
+     services/integration_client — CraftBot's models, no API keys; handle
+     the empty-string failure case in the UI.
+   - SECRETS: user-provided API keys live ONLY in backend/.env, read via
+     services/secrets.get_secret — never hardcoded, never printed.
+     CraftBot-connected services need no keys (integration bridge).
+   - EXTERNAL DATABASE (Supabase/Postgres): to run the app on Supabase,
+     write backend/.env with one line: DATABASE_URL=postgresql://...
+     (ask the user for their connection string; never hardcode or echo it
+     — it contains the password). The engine, migration, and CLI follow it
+     automatically; psycopg2 is preinstalled. Remote data is real — warn
+     before reset/destructive ops. Delete backend/.env to go back to
+     SQLite.
+   - SCHEMA-AWARE PRESETS FIRST: <EntityForm entity="Card" .../> IS the
+     create/edit form (right input per field type, required validation,
+     ref dropdowns); <EntityTable entity="Card" .../> IS the data table
+     (sortable, delete-confirmed). Plus useConfirm() (never browser
+     confirm()), SortableList + reorderAndSave (drag reorder),
+     SearchInput (pairs with ?q=), DateInput/NumberInput/TagInput,
+     useHotkey/useDebounce, toast.success/error (confirm EVERY mutation;
+     AppShell hosts it), DropdownMenu (row actions), Drawer (detail/edit
+     panel), SegmentedControl (enum filters), Sparkline/MiniBarChart (for
+     /_stats), Tooltip/Pagination/ProgressBar/Spinner/Kbd/Avatar — all
+     from './components/ui'. EntityTable also takes searchable + pageSize.
+     Hand-roll a form or table ONLY when the preset genuinely cannot
+     express it.
+   - STYLE PACKS — THE HOST OWNS THEMING: the template ships 4 design
+     languages (default/modern/glass/classic) as token overrides in
+     frontend/styles/themes.css. The user picks a THEME from the Living
+     UI top bar's picker (each theme bundles a style pack + palette);
+     dark/light follows the browser interface. NEVER render a theme picker, style switcher, or dark-mode
+     toggle inside the app — it is a defect. If the user wants a specific
+     look, call setDefaultStyle('glass') once at the top of App.tsx (yields
+     to the user's choice). NEVER hardcode radius/shadow/blur/spacing —
+     tokens only, or the packs break.
+   - ACCENT DISCIPLINE: the primary (orange) accent is for ONE main action
+     per view + active/selected states ONLY. Button defaults to secondary —
+     opt into variant="primary" deliberately. Vary StatCard/IconBadge/chart
+     colors with semantic tokens (info/success/warning/error) instead of
+     repeating the accent everywhere.
+   - READ before you write: config/schema.json, LIVING_UI.md, and the
+     files you're about to change (routes.py, the components) — and
      follow their conventions.
    - Build INCREMENTALLY so the preview keeps changing: take one
-     capability at a time all the way to working (its data, endpoints, and
-     UI, mounting each component as you write it). You choose the order and
-     grouping. Don't do all backend then all frontend — that leaves the
-     screen frozen.
+     capability at a time all the way to working (its schema entities, any
+     custom endpoint, and its UI, mounting each component as you write
+     it). Don't do all backend then all frontend — that leaves the screen
+     frozen.
+   - FIX FEEDBACK IMMEDIATELY: after frontend writes the platform runs the
+     project's own tsc and puts the COMPLETE type-error list in your write
+     result. Fix all of them in your next step — they never age well.
    - RUN tests / lint / the build when it helps you catch a problem early
      (find the project's commands first). You are NOT required to per
-     step — living_ui_validate runs the full suite at the end, so don't
-     re-run after every small change.
+     step — living_ui_validate runs the full suite at the end.
    - Every capability must WORK END TO END in the running app: the control
      opens a real form/modal (never a browser prompt/confirm), submits to
      the backend, and the view updates. Renders-but-does-nothing is NOT
      done.
-   Rules that always hold: whole-file rewrites for models.py/routes.py
-   (stream_edit appends corrupt them); NEVER seed fake data to pass a test;
-   every component is written ONCE in final form with its CSS in the same
-   write (no static stubs, no placeholder handlers like
-   onClick={{() => {{}}}}); mount every component (unmounted = invisible,
-   validation refuses it); replace every wireframe Skeleton (leftovers
-   FAIL validation); build the FULL scope the REQUIREMENTS specify — skip
-   nothing.
+   Rules that always hold: NEVER seed fake data to pass a test; every
+   component is written ONCE in final form (no static stubs, no
+   placeholder handlers like onClick={{() => {{}}}}); style internals with
+   the token-mapped Tailwind utilities (bg-surface, text-ink-secondary,
+   border-line, bg-primary, ...) — a scoped <style> block only for what
+   utilities can't express; prefer small targeted edits for small changes,
+   whole-file writes for new components; mount every component (unmounted
+   = invisible, validation refuses it); replace every wireframe Skeleton
+   (leftovers FAIL validation); build the FULL scope the REQUIREMENTS
+   specify — skip nothing.
 5. Update LIVING_UI.md with implementation details
 6. DESIGN SELF-REVIEW (mandatory, BEFORE validating): the live preview
    saves your app's screenshot to {project_path}/logs/design_preview.png.
-   Run describe_image on it with the skill's design-review prompt. The
+   Run describe_image on it with the EXACT reviewer prompt from the skill's references/DESIGN_REVIEW.md. The
    reviewer distinguishes GENUINE DEFECTS (broken, unfinished, or
    hard-to-use: clipped/overlapping text, unstyled or colliding elements,
    unreadable text, text-only walls with no visual structure) from
@@ -101,7 +185,9 @@ Follow the living-ui-creator skill instructions. Here's the workflow:
    feature is built and its flow works: validation VERIFIES finished
    work, it is not a probe for what's left. It runs the full pipeline
    (completeness/mounting checks, install, tests, build, backend + smoke
-   tests, ops check, and a DESIGN gate on rendered-layout facts:
+   tests, a runtime-log review that REFUSES on frontend-console or
+   backend errors recorded during validation, ops check, and a DESIGN
+   gate on rendered-layout facts:
    overflow, clipped text, empty sections, zero icons). Fix every error
    it reports and re-run until it PASSES. The REQUIREMENTS are a
    COMMITMENT: build all of them. NEVER ask the user for permission to
@@ -130,10 +216,10 @@ What a GOOD Living UI looks like:
 - Responsive design that works on different screen sizes
 
 Backend tests:
-- Write them alongside the models/routes they cover. Run pytest when it
-  helps you catch something early — you're not required to per capability,
-  and living_ui_validate runs the full suite at the end, so don't re-run
-  after every small change.
+- Generated CRUD is PRE-TESTED (the pipeline auto-generates CRUD tests
+  from your schema) — write tests ONLY for custom endpoints you add to
+  routes.py, alongside the endpoint. Run pytest when it helps you catch
+  something early; living_ui_validate runs the full suite at the end.
 - NEVER seed fake data to make a test pass — validation refuses red tests, so debts always come back to you
 - Tests must not depend on live internet: external-fetch endpoints degrade gracefully; test the non-network paths
 - When validate reports failures: read ALL errors before fixing; if it's an import error, check ALL files for the same pattern. Common fix: relative imports (from . import X) → absolute imports (from X import Y)
@@ -155,15 +241,19 @@ What to AVOID:
   before the app is built — the launch pipeline checks the filesystem and blocks it
 - Relative imports in backend code
 - Running uvicorn/npm manually — the launch pipeline handles this
-- Editing main.py, main.tsx, manifest.json, or tests/conftest.py — system managed
-- Rewriting conftest.py — it has the correct imports and test DB setup already
+- Editing system-managed files: main.py, models.py, engine.py,
+  system_models.py, system_routes.py, main.tsx, manifest.json,
+  tests/conftest.py, tailwind.config.js, postcss.config.js
+- Declaring id/createdAt/updatedAt in schema.json — the engine provides them
+- Writing CRUD by hand (models or routes) — schema.json already did it
 
 Shape your todo list to the app — this is a sensible DEFAULT, adapt it
 (one line per capability; keep it coarse so updates stay cheap):
 Read global config + reference files
 Layout wireframe — page frame + placeholder regions
-Build <capability A> (data + API + UI, mounted)
-Build <capability B> (data + API + UI, mounted)
+Declare the data schema (config/schema.json)
+Build <capability A> (UI + any custom endpoint, mounted)
+Build <capability B> (UI + any custom endpoint, mounted)
 ... one line per capability ...
 Update LIVING_UI.md with implementation details
 Design self-review: describe_image on logs/design_preview.png until PASS
@@ -188,8 +278,11 @@ How to build:
   violations.
 - Mount every component in the same step you write it — unmounted
   components are invisible and validation refuses them.
-- Whole-file rewrites for models.py/routes.py; stream_edit only for small
-  local changes; do NOT re-read files you wrote this task — trust your
-  writes.
+- Prefer small targeted edits for small changes and whole-file writes for
+  new files; do NOT re-read files you wrote this task — trust your writes.
+- Styling: token-mapped Tailwind utilities first (bg-surface, bg-raised,
+  text-ink, text-ink-secondary, text-ink-muted, border-line, bg-primary,
+  text-primary, rounded-token); scoped <style> only for what utilities
+  can't express.
 - A todo is complete only AFTER its files are written and, for anything
   user-facing, the flow actually works."""

@@ -326,7 +326,7 @@ COMMANDS (each supports --help)
   api <METHOD> <path>                            call an HTTP endpoint
   run <op>                                       fire a declared operation
   ops-sync [--write] | ops-check                 generate/validate operations.json
-  migrate                                        apply additive schema migration
+  migrate                                        sync DB to models (adds new columns; rebuilds tables whose columns were removed/renamed)
   start | stop | restart                         lifecycle (via CraftBot)
   jobs | job <id> [--cancel]                     background operations
   snapshot | screenshot [--out F] | ui --data J  see / drive the live UI"""
@@ -370,7 +370,11 @@ def project_help(project: Project) -> int:
         if len(db_schema) > 12:
             lines.append(f"  ... +{len(db_schema) - 12} more — {PROG} {project.slug} schema")
     elif project.project_type != "native":
-        lines.append("TABLES: none (external app — use `api` and `run`)")
+        lines.append(
+            "TABLES: none declared (external app — use `api` and `run`; to "
+            'enable data commands, declare {"data": {"sqlite": "path"}} in '
+            "config/manifest.json)"
+        )
     else:
         lines.append("TABLES: no database yet (launch once to create it)")
 
@@ -412,16 +416,33 @@ def _db_path_or_none(project: Project):
 
 
 def _require_db(project: Project) -> Path:
-    if project.project_type != "native":
-        fail(
-            f"'{project.slug}' is an external app with no managed database.",
-            f"{PROG} {project.slug} run   (its declared operations)",
-        )
     db_path = _db_path_or_none(project)
     if not db_path:
+        if project.project_type != "native":
+            fail(
+                f"'{project.slug}' declares no data source. External apps get "
+                'data commands via a manifest block: {"data": {"sqlite": '
+                '"relative/path.db"}} (or {"url": ...}) in config/manifest.json.',
+                f"{PROG} {project.slug} run   (its declared operations)",
+            )
         fail(
-            "No database yet (backend/living_ui.db missing).",
+            "No database yet (backend/living_ui.db missing and no "
+            "DATABASE_URL in backend/.env).",
             f"{PROG} {project.slug} start",
+        )
+    return db_path
+
+
+def _require_writable_db(project: Project) -> Path:
+    """Data source for a WRITE command — external apps must opt in."""
+    db_path = _require_db(project)
+    if not data_plane.data_source_writable(project):
+        fail(
+            f"'{project.slug}' is an imported app and its data source is "
+            "read-only (writing to a third-party app's database behind its "
+            'back can corrupt it). If the app tolerates external writes, set '
+            '"writable": true in the manifest\'s data block.',
+            f"{PROG} {project.slug} run   (write through its declared operations instead)",
         )
     return db_path
 
@@ -506,7 +527,7 @@ def _load_rows(args) -> list:
 
 
 def cmd_insert(project, args):
-    db_path = _require_db(project)
+    db_path = _require_writable_db(project)
     rows = _load_rows(args)
     try:
         result = data_plane.insert_rows(db_path, args.table, rows)
@@ -523,7 +544,7 @@ def cmd_insert(project, args):
 
 
 def cmd_update(project, args):
-    db_path = _require_db(project)
+    db_path = _require_writable_db(project)
     values = parse_set(args.set)
     if not values:
         fail("update needs --set k=v (repeatable)")
@@ -545,7 +566,7 @@ def cmd_update(project, args):
 
 
 def cmd_delete(project, args):
-    db_path = _require_db(project)
+    db_path = _require_writable_db(project)
     try:
         result = data_plane.delete_rows(
             db_path,
@@ -563,7 +584,7 @@ def cmd_delete(project, args):
 
 
 def cmd_sql(project, args):
-    db_path = _require_db(project)
+    db_path = _require_writable_db(project) if args.write else _require_db(project)
     try:
         result = data_plane.run_sql(db_path, args.query, write=args.write)
     except data_plane.DataPlaneError as e:
@@ -585,8 +606,22 @@ def cmd_sql(project, args):
 # ---------------------------------------------------------------------------
 
 
+def _agent_http_base(project: Project) -> str:
+    """Base URL for agent HTTP calls.
+
+    Native apps: the backend. External (imported) apps: the sidecar proxy —
+    it serves the A-layer (/api/ui-snapshot, /api/ui-screenshot) itself and
+    forwards everything else to the app transparently. Falls back to the
+    app's own port when the sidecar isn't up (project.url is set to
+    whichever is serving).
+    """
+    if project.project_type != "native" and project.url:
+        return project.url
+    return project.backend_url
+
+
 def _http(project: Project, method: str, path: str, body=None, query=None, timeout=30):
-    base = project.backend_url
+    base = _agent_http_base(project)
     if not base:
         fail(
             f"'{project.slug}' has no backend URL (status: {project.status}).",
@@ -1007,18 +1042,22 @@ def cmd_ops_sync(project, args):
     """Generate op skeletons for uncovered routes from the live OpenAPI."""
     from app.living_ui import ops_analyzer
 
-    if project.project_type != "native":
-        fail(
-            f"'{project.slug}' is an external app — ops-sync needs a FastAPI "
-            "backend. Write its operations.json by hand (see OPERATIONS.md)."
-        )
     if project.status != "running" or not project.backend_url:
         fail(
-            "ops-sync reads the running backend's OpenAPI spec.",
+            "ops-sync reads the running app's OpenAPI spec.",
             f"{PROG} {project.slug} start",
         )
-    spec = ops_analyzer.fetch_openapi(project.backend_url)
+    spec = ops_analyzer.fetch_openapi(
+        project.backend_url, spec_url=getattr(args, "openapi_url", "") or ""
+    )
     if not spec:
+        if project.project_type != "native":
+            fail(
+                "no OpenAPI spec found on the app (probed "
+                + ", ".join(ops_analyzer.OPENAPI_CANDIDATE_PATHS)
+                + "). If it serves one elsewhere: ops-sync --openapi-url <URL>. "
+                "Otherwise write config/operations.json by hand (see OPERATIONS.md)."
+            )
         fail("could not fetch openapi.json from the backend")
     result = ops_analyzer.sync_manifest(Path(project.path), spec, write=args.write)
     if result.get("error"):
@@ -1050,7 +1089,7 @@ def cmd_migrate(project, _args):
     print(result["output"] or result["status"])
     if result["status"] == "error":
         return 1
-    if result["added"]:
+    if result["added"] or result.get("rebuilt"):
         print(f"Next: {PROG} {project.slug} restart   (so the app picks up the schema)")
     return 0
 
@@ -1089,9 +1128,9 @@ def cmd_snapshot(project, _args):
 def cmd_screenshot(project, args):
     import base64
 
-    status, text = _http(project, "GET", "/api/ui-screenshot", timeout=15)
+    status, text = _http(project, "GET", "/api/ui-screenshot", timeout=20)
     if status >= 400:
-        fail(f"screenshot endpoint returned {status}")
+        fail(f"screenshot endpoint returned {status}: {text[:300]}")
     payload = json.loads(text)
     image = payload.get("imageData") or payload.get("image_data")
     if not image:
@@ -1184,6 +1223,7 @@ def _make_parsers():
 
     p = argparse.ArgumentParser(prog=f"{PROG} <project> ops-sync")
     p.add_argument("--write", action="store_true", help="merge generated skeletons into operations.json")
+    p.add_argument("--openapi-url", help="absolute URL of the app's OpenAPI spec (skips probing)")
     parsers["ops-sync"] = (p, cmd_ops_sync)
 
     p = argparse.ArgumentParser(prog=f"{PROG} <project> ops-check")

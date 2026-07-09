@@ -1,0 +1,49 @@
+{
+  "$comment": "THE app's data layer. Declare entities here and the backend engine materializes SQLAlchemy models AND a full REST API per entity at startup — no models.py or CRUD routes to write, ever. Generated per entity: GET /api/<plural> (equality filters on any field, ?q= search across string/text/enum fields, range filters <field>_gte/_lte/_gt/_lt, plus orderBy=<field>&order=asc|desc&limit&offset), POST /api/<plural>, POST /api/<plural>/bulk (JSON array, one transaction), GET/PUT/DELETE /api/<plural>/{id}, GET /api/<plural>/_stats?groupBy=&agg=count|sum|avg&field=, and GET /api/_meta/schema. Every entity automatically gets: integer autoincrement 'id', 'createdAt'/'updatedAt' ISO timestamps, camelCase JSON on the wire (snake_case in the DB — the engine converts). Field types: string (255 chars), text, integer, float, boolean, datetime (ISO-8601 strings on the wire), json, enum (add \"values\": [\"a\",\"b\"] — validated, union-typed in types.gen.ts), ref (holds the integer id of another entity; add \"entity\": \"Name\"; deleting a parent CASCADES children whose ref is required, NULLs optional refs — override with \"onDelete\"). Add \"unique\": true to any scalar field (duplicates -> 409). Field spec keys: type (required), required, default, unique, values (enum), entity (ref), onDelete (ref). Entity spec keys: description, fields, plural. Do NOT declare id/createdAt/updatedAt — they are automatic. Writing this file also regenerates frontend/types.gen.ts + schema.gen.ts (typed entities + the metadata powering <EntityForm>/<EntityTable>). The CLI's data commands (livingui <project> select/insert/update/delete) work against these tables immediately.",
+  "$example": {
+    "entities": {
+      "BoardColumn": {
+        "description": "A column (lane) on the board",
+        "fields": {
+          "title": {
+            "type": "string",
+            "required": true
+          },
+          "position": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      },
+      "Card": {
+        "description": "A card inside a column",
+        "fields": {
+          "title": {
+            "type": "string",
+            "required": true
+          },
+          "notes": {
+            "type": "text"
+          },
+          "position": {
+            "type": "integer",
+            "default": 0
+          },
+          "dueDate": {
+            "type": "datetime"
+          },
+          "labels": {
+            "type": "json",
+            "default": []
+          },
+          "columnId": {
+            "type": "ref",
+            "entity": "BoardColumn",
+            "required": true
+          }
+        }
+      }
+    }
+  },
+  "entities": {}
+}

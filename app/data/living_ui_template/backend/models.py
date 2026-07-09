@@ -1,110 +1,24 @@
 """
-Living UI Data Models
+Living UI Models (SYSTEM-MANAGED — do not edit)
 
-SQLAlchemy models for data persistence.
-Includes a flexible AppState model for storing arbitrary JSON state,
-plus example Item model for reference.
+There is nothing to hand-write here. App data models are DECLARED, not
+coded: define your entities in config/schema.json and the engine
+(engine.py) materializes the SQLAlchemy models AND their full REST CRUD
+API automatically — correct autoincrement ids, timestamps, camelCase
+serialization, filters, ordering, bulk insert, and relationship-aware
+deletes, all pre-tested.
+
+    config/schema.json  ->  models + /api/<plural> CRUD routes
+
+This module re-exports everything so `from models import <Entity>` works
+for tests and custom routes.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
-from typing import Dict, Any
+from system_models import Base, AppState, UISnapshot, UIScreenshot  # noqa: F401
+from engine import get_models as _get_engine_models
 
-Base = declarative_base()
+# Engine-materialized entities become importable by name: from models import Card
+_ENGINE_MODELS = _get_engine_models()
+globals().update(_ENGINE_MODELS)
 
-
-class AppState(Base):
-    """
-    Flexible application state storage.
-
-    Stores the entire app state as JSON, allowing any structure.
-    This is the primary model used by the default state management.
-
-    The agent should extend this with custom models for complex data needs.
-    """
-
-    __tablename__ = "app_state"
-
-    id = Column(Integer, primary_key=True, default=1)
-    data = Column(JSON, default=dict)  # Stores arbitrary state as JSON
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for API response."""
-        return {
-            "id": self.id,
-            "data": self.data or {},
-            "createdAt": self.created_at.isoformat() if self.created_at else None,
-            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-    def update_data(self, updates: Dict[str, Any]) -> None:
-        """Merge updates into existing data."""
-        current = self.data or {}
-        current.update(updates)
-        self.data = current
-        self.updated_at = datetime.utcnow()
-
-
-# ============================================================================
-# Example models for reference - Agent should customize these
-# ============================================================================
-
-
-class UISnapshot(Base):
-    """
-    UI state snapshot for agent observation.
-
-    Frontend periodically posts UI state here.
-    Agent can GET this to observe the UI without WebSocket.
-    """
-
-    __tablename__ = "ui_snapshot"
-
-    id = Column(Integer, primary_key=True, default=1)
-    html_structure = Column(Text, nullable=True)  # Simplified DOM structure
-    visible_text = Column(JSON, default=list)  # Array of visible text content
-    input_values = Column(JSON, default=dict)  # Form field values
-    component_state = Column(JSON, default=dict)  # Registered component states
-    current_view = Column(String(255), nullable=True)  # Current route/view
-    viewport = Column(JSON, default=dict)  # Window dimensions, scroll position
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "htmlStructure": self.html_structure,
-            "visibleText": self.visible_text or [],
-            "inputValues": self.input_values or {},
-            "componentState": self.component_state or {},
-            "currentView": self.current_view,
-            "viewport": self.viewport or {},
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-        }
-
-
-class UIScreenshot(Base):
-    """
-    UI screenshot for agent visual observation.
-
-    Frontend captures and posts screenshot here.
-    Agent can GET this to see the UI visually.
-    """
-
-    __tablename__ = "ui_screenshot"
-
-    id = Column(Integer, primary_key=True, default=1)
-    image_data = Column(Text, nullable=True)  # Base64 encoded PNG
-    width = Column(Integer, nullable=True)
-    height = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "imageData": self.image_data,
-            "width": self.width,
-            "height": self.height,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-        }
-
+__all__ = ["Base", "AppState", "UISnapshot", "UIScreenshot"] + list(_ENGINE_MODELS)

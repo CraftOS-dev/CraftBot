@@ -162,6 +162,10 @@ class LivingUIManager:
         # started backend mid-smoke-test). A queued duplicate waits, then
         # collapses into a no-op via the already-running check.
         self._launch_locks: Dict[str, asyncio.Lock] = {}
+        # Serializes start_dev_preview per project: the create-time call and
+        # a watchdog retry must never run two npm installs concurrently
+        # (concurrent npm corrupts node_modules).
+        self._dev_preview_locks: Dict[str, asyncio.Lock] = {}
 
         # Ensure workspace directory exists
         self.living_ui_dir = self.workspace_root / "living_ui"
@@ -207,6 +211,14 @@ class LivingUIManager:
         self._watchdog_task = asyncio.create_task(self._watchdog_loop())
         logger.info("[LIVING_UI:WATCHDOG] Started")
 
+        # Declared op schedules ("schedule" key in operations.json) fire
+        # alongside the watchdog for running projects.
+        from .scheduler import ScheduleRunner
+
+        if not hasattr(self, "_schedule_runner") or self._schedule_runner is None:
+            self._schedule_runner = ScheduleRunner(self)
+        self._schedule_runner.start()
+
     async def stop_watchdog(self) -> None:
         """Stop the background watchdog."""
         if not self._watchdog_running:
@@ -220,6 +232,9 @@ class LivingUIManager:
             except asyncio.CancelledError:
                 pass
             self._watchdog_task = None
+        runner = getattr(self, "_schedule_runner", None)
+        if runner:
+            runner.stop()
         logger.info("[LIVING_UI:WATCHDOG] Stopped")
 
     async def _watchdog_loop(self) -> None:
@@ -232,6 +247,8 @@ class LivingUIManager:
            task to investigate and fix the issue
         """
         retry_counts: Dict[str, int] = {}  # project_id -> consecutive failures
+        dev_retry_counts: Dict[str, int] = {}  # project_id -> preview retries
+        dev_preview_tasks: Dict[str, asyncio.Task] = {}  # in-flight retries
 
         # Initial delay to let everything settle after startup
         await asyncio.sleep(10)
@@ -241,6 +258,37 @@ class LivingUIManager:
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
 
                 for project_id, project in list(self.projects.items()):
+                    # -- Live Construction preview recovery: a 'creating'
+                    # project with no dev_url means the preview died (e.g.
+                    # an npm race corrupted node_modules) and the
+                    # construction canvas is blank. Keep retrying with
+                    # watchdog spacing — start_dev_preview repairs the
+                    # install and is idempotent when a server is already up.
+                    if project.status == "creating":
+                        if (
+                            project.dev_url is None
+                            and self._dev_preview_eligible(project)
+                        ):
+                            task = dev_preview_tasks.get(project_id)
+                            if task is None or task.done():
+                                attempts = dev_retry_counts.get(project_id, 0)
+                                if attempts < self.DEV_PREVIEW_MAX_RETRIES:
+                                    dev_retry_counts[project_id] = attempts + 1
+                                    logger.info(
+                                        f"[LIVING_UI:WATCHDOG] dev preview down for "
+                                        f"{project.name} ({project_id}) — retry "
+                                        f"{attempts + 1}/{self.DEV_PREVIEW_MAX_RETRIES}"
+                                    )
+                                    dev_preview_tasks[project_id] = asyncio.create_task(
+                                        self.start_dev_preview(project_id)
+                                    )
+                        else:
+                            dev_retry_counts.pop(project_id, None)
+                        retry_counts.pop(project_id, None)
+                        continue
+                    dev_retry_counts.pop(project_id, None)
+                    dev_preview_tasks.pop(project_id, None)
+
                     if project.status != "running":
                         # Clear retry count if project is no longer running
                         retry_counts.pop(project_id, None)
@@ -1177,6 +1225,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         logger.info(
             f"[LIVING_UI:PIPELINE] Starting launch pipeline for {project.name} ({project_id})"
         )
+        pipeline_started = datetime.now()
 
         # Ensure index.html has the CraftBot theme sync listener (self-healing for older installs)
         self._patch_theme_listener(project_path)
@@ -1284,6 +1333,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             frontend_errors = await frontend_task
             all_errors.extend(frontend_errors)
 
+        # Exact-normalized dedup: one broken import cascades through the
+        # internal/unit/pytest/compat steps as the SAME message — show each
+        # distinct failure once (no similarity heuristics, byte-identical
+        # after stripping the [step] prefix and collapsing whitespace).
+        all_errors = self._dedupe_errors(all_errors)
+
         # If ANY errors from either track, return them all at once
         if all_errors:
             logger.error(
@@ -1383,6 +1438,26 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         "status": "error",
                         "step": f"backend.post_start.{test['name']}",
                         "errors": errors,
+                    }
+
+            # Runtime-log review (creating projects): the fatal failures
+            # that shipped before this gate — sections crashing at render,
+            # unhandled 500s — were already RECORDED in logs nothing read.
+            if project.status == "creating":
+                log_errors = await asyncio.to_thread(
+                    self._review_runtime_logs, project_path, pipeline_started
+                )
+                if log_errors:
+                    logger.error(
+                        f"[LIVING_UI:PIPELINE] [runtime.logs] "
+                        f"{len(log_errors)} runtime error(s) recorded during "
+                        f"validation for {project_id}"
+                    )
+                    await self.stop_backend(project_id)
+                    return {
+                        "status": "error",
+                        "step": "runtime.logs",
+                        "errors": log_errors,
                     }
 
             # Validate the operations manifest against the live OpenAPI:
@@ -1755,6 +1830,82 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         except Exception:
             return {}
 
+    def _review_runtime_logs(
+        self, project_path: Path, since: "datetime"
+    ) -> List[str]:
+        """Runtime-error evidence the platform records but nothing used to
+        read: the app's own backend log (unhandled 500s, tracebacks) and the
+        captured frontend console (runtime crashes, failed requests). Only
+        entries from the current validation window count, so errors the
+        agent already caused and fixed mid-build never re-fail a pass.
+        Fail-open: unreadable/absent logs contribute nothing."""
+        errors: List[str] = []
+        seen = set()
+
+        def add(source: str, line: str) -> None:
+            key = " ".join(line.split())
+            if key and key not in seen:
+                seen.add(key)
+                errors.append(f"[{source}] {line.strip()[:400]}")
+
+        logs_dir = Path(project_path) / "backend" / "logs"
+        # Backend logs: one file per run, timestamped name — only files from
+        # THIS launch window.
+        stamp = since.strftime("%Y%m%d_%H%M%S")
+        try:
+            for log_file in sorted(logs_dir.glob("backend_*.log")):
+                if log_file.stem.replace("backend_", "") < stamp:
+                    continue
+                for line in log_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines():
+                    if "| ERROR" in line:
+                        add("backend", line)
+        except OSError:
+            pass
+        # Frontend console capture: ISO-UTC timestamps, appended across runs
+        # — filter to the window, keep crash-like lines and client-error
+        # responses (transient 5xx during restarts is the backend log's job).
+        try:
+            console = logs_dir / "frontend_console.log"
+            if console.exists():
+                from datetime import timezone
+
+                since_epoch = since.timestamp()
+                for line in console.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines():
+                    parts = line.split(" | ", 2)
+                    if len(parts) != 3 or parts[1].strip() != "ERROR":
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(
+                            parts[0].strip().replace("Z", "+00:00")
+                        )
+                        if ts.tzinfo is not None:
+                            ts_epoch = ts.timestamp()
+                        else:
+                            ts_epoch = ts.replace(tzinfo=timezone.utc).timestamp()
+                    except ValueError:
+                        continue
+                    if ts_epoch < since_epoch:
+                        continue
+                    msg = parts[2]
+                    crashy = (
+                        "Unhandled" in msg
+                        or "Error" in msg
+                        or "rejection" in msg
+                        or "\u2192 404" in msg
+                        or "\u2192 422" in msg
+                        or "-> 404" in msg
+                        or "-> 422" in msg
+                    )
+                    if crashy:
+                        add("frontend console", msg)
+        except OSError:
+            pass
+        return errors
+
     async def _run_pipeline_command(
         self, cwd: Path, command: str, step_name: str, timeout: int = 1200
     ) -> dict:
@@ -1781,8 +1932,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 logger.info(f"[LIVING_UI:PIPELINE] [{step_name}] OK")
                 return {"status": "success"}
             else:
-                # Combine stdout and stderr for error context
-                output = (stderr_str or stdout_str)[-1000:]
+                # COMPLETE output, both streams — never truncate. Compilers
+                # (tsc) list every error at once; cutting to a tail turned
+                # multi-error failures into one-error-per-validation cycles
+                # (observed: cycles whose only "error" was the npm banner).
+                output = "\n".join(s for s in (stdout_str, stderr_str) if s)
                 logger.error(
                     f"[LIVING_UI:PIPELINE] [{step_name}] FAILED (exit code {proc.returncode})"
                 )
@@ -1961,6 +2115,66 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
     DEV_PREVIEW_INSTALL_TIMEOUT = 420  # seconds for npm install
     DEV_PREVIEW_START_TIMEOUT = 45  # seconds for the dev server to respond
+    DEV_PREVIEW_MAX_RETRIES = 5  # watchdog re-attempts while status=creating
+
+    @staticmethod
+    def _npm_install_marker(project_path: Path) -> Path:
+        """Marker held for the duration of the platform's npm install.
+        type_check.py fails open while it exists, so write-time tsc never
+        reports phantom module errors against a half-extracted
+        node_modules (which steers the agent into a second, racing npm)."""
+        return project_path / "logs" / ".npm-installing"
+
+    @staticmethod
+    def _node_modules_healthy(project_path: Path) -> bool:
+        """True when npm install COMPLETED here: npm writes
+        node_modules/.package-lock.json last, and the vite shim is what
+        `npm run dev` actually needs. Either missing => install never
+        finished or was corrupted by a concurrent npm process."""
+        nm = project_path / "node_modules"
+        if not (nm / ".package-lock.json").is_file():
+            return False
+        shim = nm / ".bin" / ("vite.cmd" if os.name == "nt" else "vite")
+        return shim.exists()
+
+    async def _dev_preview_install(
+        self, project_path: Path, dev_log: Path, project: "LivingUIProject"
+    ) -> bool:
+        """Run npm install for the dev preview, holding the install marker."""
+        marker = self._npm_install_marker(project_path)
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(str(time.time()), encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            install = self._start_process(
+                project_path, "npm install", dev_log, project=project
+            )
+            waited = 0.0
+            while install.poll() is None:
+                if waited >= self.DEV_PREVIEW_INSTALL_TIMEOUT:
+                    self._terminate_process(install)
+                    logger.warning(
+                        "[LIVING_UI:DEV_PREVIEW] npm install timed out "
+                        f"in {project_path}"
+                    )
+                    return False
+                await asyncio.sleep(2)
+                waited += 2
+            self._close_process_log(install)
+            if install.returncode != 0:
+                logger.warning(
+                    f"[LIVING_UI:DEV_PREVIEW] npm install failed "
+                    f"(exit {install.returncode}) in {project_path}"
+                )
+                return False
+            return True
+        finally:
+            try:
+                marker.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _dev_preview_eligible(self, project: "LivingUIProject") -> bool:
         if project.project_type != "native" or not project.path:
@@ -1976,8 +2190,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         Installs npm dependencies if needed (overlaps the Phase 0 interview),
         starts `npm run dev` on a freshly allocated port, and broadcasts the
         URL so the Live Construction View can mount its iframe. Idempotent;
-        returns True when a dev server is (already) up.
+        returns True when a dev server is (already) up. Serialized per
+        project so the create-time call and watchdog retries can never run
+        two npm installs concurrently.
         """
+        lock = self._dev_preview_locks.setdefault(project_id, asyncio.Lock())
+        async with lock:
+            return await self._start_dev_preview_impl(project_id)
+
+    async def _start_dev_preview_impl(self, project_id: str) -> bool:
         project = self.projects.get(project_id)
         if not project or project.status != "creating":
             return False
@@ -1990,29 +2211,23 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         dev_log = project_path / "logs" / "dev_preview.log"
 
         try:
-            # -- npm install (skipped when node_modules already exists) --
-            if not (project_path / "node_modules").exists():
+            # -- npm install: run when node_modules is missing OR unhealthy
+            # (a concurrent npm process can corrupt an install — missing
+            # .package-lock.json / vite shim — in which case `npm run dev`
+            # dies instantly with "'vite' is not recognized"). npm install
+            # over an existing tree is a cheap no-op repair.
+            if not self._node_modules_healthy(project_path):
                 logger.info(
                     f"[LIVING_UI:DEV_PREVIEW] npm install for {project_id}..."
                 )
-                install = self._start_process(
-                    project_path, "npm install", dev_log, project=project
-                )
-                waited = 0.0
-                while install.poll() is None:
-                    if waited >= self.DEV_PREVIEW_INSTALL_TIMEOUT:
-                        self._terminate_process(install)
-                        logger.warning(
-                            f"[LIVING_UI:DEV_PREVIEW] npm install timed out for {project_id}"
-                        )
-                        return False
-                    await asyncio.sleep(2)
-                    waited += 2
-                self._close_process_log(install)
-                if install.returncode != 0:
+                if not await self._dev_preview_install(
+                    project_path, dev_log, project
+                ):
+                    return False
+                if not self._node_modules_healthy(project_path):
                     logger.warning(
-                        f"[LIVING_UI:DEV_PREVIEW] npm install failed "
-                        f"(exit {install.returncode}) for {project_id}"
+                        f"[LIVING_UI:DEV_PREVIEW] node_modules still unhealthy "
+                        f"after install for {project_id}"
                     )
                     return False
 
@@ -2117,6 +2332,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.warning(
                 f"[LIVING_UI] No bridge token for process: project={'yes' if project else 'no'}, token={'yes' if project and project.bridge_token else 'no'}"
             )
+        if project:
+            # Default file-storage root inside the CraftBot workspace, so
+            # user uploads are directly visible to the agent's file tools.
+            # The app's backend/.env FILES_DIR (if set) overrides this —
+            # resolution lives in the template's files_routes.py.
+            env["LIVING_UI_FILES_DIR"] = str(
+                self.workspace_root / "living_ui_files" / project.id
+            )
 
         try:
             if os.name == "nt":
@@ -2149,7 +2372,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         return process
 
     def _collect_test_errors(self, project_path: Path, test_name: str) -> List[str]:
-        """Read test result JSON files and extract error messages."""
+        """Read structured test results and extract EVERY error message.
+
+        The runner modes write JSON; the agent's pytest suite writes JUnit
+        XML (pytest's own structured contract — one entry per failing test,
+        no output-parsing, no truncation)."""
+        if test_name == "agent_tests":
+            return self._collect_junit_errors(
+                project_path / "backend" / "logs" / "test_agent.xml"
+            )
         errors = []
         # Map test names to result files
         file_map = {
@@ -2172,6 +2403,45 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             except Exception:
                 pass
         return errors
+
+    @staticmethod
+    def _dedupe_errors(errors: List[str]) -> List[str]:
+        """Drop repeats that are byte-identical after stripping a leading
+        [step] tag and collapsing whitespace. Order preserved; first wins."""
+        seen = set()
+        out: List[str] = []
+        for err in errors:
+            normalized = re.sub(r"^\[[^\]]*\]\s*", "", err)
+            normalized = " ".join(normalized.split())
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            out.append(err)
+        return out
+
+    @staticmethod
+    def _collect_junit_errors(xml_path: Path) -> List[str]:
+        """One entry per failed/errored testcase from a JUnit XML report."""
+        if not xml_path.exists():
+            return []
+        try:
+            import xml.etree.ElementTree as ET
+
+            root = ET.parse(xml_path).getroot()
+            errors: List[str] = []
+            for case in root.iter("testcase"):
+                for kind in ("failure", "error"):
+                    node = case.find(kind)
+                    if node is None:
+                        continue
+                    test_id = f"{case.get('classname', '?')}::{case.get('name', '?')}"
+                    message = (node.get("message") or "").strip()
+                    if not message and (node.text or "").strip():
+                        message = (node.text or "").strip().splitlines()[-1]
+                    errors.append(f"[{test_id}] {message or kind}")
+            return errors
+        except Exception:
+            return []
 
     @staticmethod
     def _cleanup_project_logs(project_path: Path) -> None:
@@ -3525,6 +3795,32 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             project.url = f"http://localhost:{app_port}"
 
         project.backend_url = f"http://localhost:{app_port}"
+
+        # Import adoption gates (creation-time only): an imported app the
+        # agent can't operate is a failed import. Existing projects
+        # relaunch without re-gating.
+        if project.status in ("creating", "created"):
+            gate_errors = await asyncio.to_thread(
+                self._check_external_adoption, project, project_path
+            )
+            if gate_errors:
+                logger.error(
+                    f"[LIVING_UI:PIPELINE] [import.adoption] "
+                    f"{len(gate_errors)} gate failure(s) for {project_id}"
+                )
+                if project.process is not None:
+                    self._terminate_process(project.process)
+                    project.process = None
+                self._terminate_process(app_process)
+                project.app_process = None
+                project.url = None
+                project.backend_url = None
+                return {
+                    "status": "error",
+                    "step": "import.adoption",
+                    "errors": gate_errors,
+                }
+
         project.status = "running"
         project.validation_passed_at = time.time()
         self._save_projects()
@@ -3535,6 +3831,77 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             "url": project.url,
             "port": proxy_port,
         }
+
+    def _check_external_adoption(
+        self, project: "LivingUIProject", project_path: Path
+    ) -> List[str]:
+        """Creation-time contract for imported apps.
+
+        The declared operations ARE an imported app's control surface — an
+        undeclared capability doesn't exist for any future agent. This gate
+        makes the importer skill's step 6 mechanical: no operations, no
+        docs, or a failing safe op refuses the import. Runs with the app
+        healthy so ops can be exercised for real.
+        """
+        from . import operations as ops_module
+        from .ops_analyzer import check_manifest
+        from .scheduler import execute_op
+
+        errors: List[str] = []
+
+        if not (project_path / "LIVING_UI.md").exists():
+            errors.append(
+                "LIVING_UI.md missing — document what the app does, its key "
+                "files, configuration and endpoints (importer skill step 5)."
+            )
+
+        try:
+            ops = ops_module.load_operations(project)
+        except ops_module.OperationError as e:
+            errors.append(f"config/operations.json is broken: {e}")
+            return errors
+        if not ops:
+            errors.append(
+                "config/operations.json declares no operations — declared "
+                "ops ARE an imported app's control surface; without them no "
+                "agent can ever operate it (importer skill step 6). Fix: "
+                "livingui <project> ops-sync --write (if the app serves an "
+                "OpenAPI spec) or declare http/shell ops by hand, then mark "
+                'the read-only ones "safe": true.'
+            )
+            return errors
+
+        findings = check_manifest(project_path, None)
+        errors.extend(
+            f"{f['message']} — fix: {f['fix']}"
+            for f in findings
+            if f["level"] == "error"
+        )
+
+        safe_ops = {
+            name: op_def
+            for name, op_def in ops.items()
+            if op_def.get("safe") is True
+        }
+        if not safe_ops:
+            errors.append(
+                'no operation is marked "safe": true — mark the read-only '
+                "ops safe so validation can prove the control surface "
+                "actually works (a status/list/read op always qualifies; "
+                "never mark ops with side effects)."
+            )
+        for name, op_def in safe_ops.items():
+            try:
+                ok, summary = execute_op(project, name, op_def)
+            except Exception as e:
+                ok, summary = False, str(e)
+            if not ok:
+                errors.append(
+                    f'safe op "{name}" failed end-to-end: {summary} — every '
+                    "op marked safe must work against the running app "
+                    "(defaults must satisfy its params)."
+                )
+        return errors
 
     @staticmethod
     def _append_node_args(command: str, extra_args: str) -> str:
@@ -3636,8 +4003,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         health_url: str = "",
         port_env_var: str = "PORT",
         project_id: Optional[str] = None,
+        data_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Import an external app as a Living UI project."""
+        """Import an external app as a Living UI project.
+
+        ``data_config`` declares where the app stores its data so the CLI's
+        data commands work on it: {"sqlite": "relative/path.db"} or
+        {"url": "postgresql://..."}, optionally {"writable": true} (defaults
+        to read-only — see data_plane.manifest_data_config).
+        """
         # Adopt the placeholder id when provided so the tab spawned at request
         # time becomes this project instead of a second tab appearing.
         project_id = project_id or self._generate_id()
@@ -3695,8 +4069,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     "health": health_cfg,
                 }
             },
-            "agentAwareness": {"enabled": False, "observationMode": "external"},
+            "agentAwareness": {"enabled": True, "observationMode": "sidecar"},
         }
+        if isinstance(data_config, dict) and (
+            data_config.get("sqlite") or data_config.get("url")
+        ):
+            manifest["data"] = data_config
 
         manifest_path = config_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2))
@@ -3879,6 +4257,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 shutil.rmtree(project_path)
             except Exception as e:
                 logger.error(f"[LIVING_UI] Failed to delete project directory: {e}")
+
+        # Delete the project's default file-storage dir (uploads served by
+        # files_routes.py; lives in the workspace, keyed by THIS project id)
+        files_dir = self.workspace_root / "living_ui_files" / project_id
+        if files_dir.exists():
+            try:
+                shutil.rmtree(files_dir)
+            except Exception as e:
+                logger.error(f"[LIVING_UI] Failed to delete files dir: {e}")
 
         # Remove from registry
         del self.projects[project_id]

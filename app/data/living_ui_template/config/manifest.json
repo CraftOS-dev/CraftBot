@@ -22,7 +22,7 @@
       "tests": [
         {"name": "internal", "command": "python test_runner.py --internal", "required": true},
         {"name": "unit", "command": "python test_runner.py --unit", "required": true},
-        {"name": "agent_tests", "command": "python -m pytest tests/ -v --tb=short", "required": true},
+        {"name": "agent_tests", "command": "python -m pytest tests/ -q --tb=short --junit-xml=logs/test_agent.xml", "required": true},
         {"name": "compatibility", "command": "python test_runner.py --compatibility", "required": false}
       ],
       "start": "python -m uvicorn main:app --host 0.0.0.0 --port {{BACKEND_PORT}}",

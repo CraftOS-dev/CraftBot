@@ -1,0 +1,119 @@
+/**
+ * Living UI Style Packs (SYSTEM-MANAGED — do not edit)
+ *
+ * A style pack is a token-override block, orthogonal to light/dark mode:
+ *
+ *   <html data-theme="dark|light" data-style="default|modern|glass|classic">
+ *
+ * Every component reads design tokens, so a pack restyles the WHOLE app —
+ * shape (radius), depth (shadows, blur), density (spacing, control
+ * heights), and surfaces — with zero component changes. Users switch packs
+ * with the <ThemeStylePicker /> preset (persisted per browser).
+ *
+ * Rules for packs:
+ *  - override TOKENS only; never target component classes
+ *  - pair every dark value with a [data-theme="light"] value when it
+ *    encodes a color or translucency
+ *  - keep --surface-backdrop 'none' unless surfaces are translucent
+ */
+
+/* ============================================================================
+ * MODERN — soft and roomy: large radii, deeper soft shadows, more air
+ * ========================================================================== */
+
+[data-style="modern"] {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --space-3: 0.875rem;
+  --space-4: 1.125rem;
+  --input-height-sm: 30px;
+  --input-height-md: 38px;
+  --input-height-lg: 44px;
+  --transition-base: 180ms ease;
+}
+
+[data-style="modern"][data-theme="light"] {
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.12);
+}
+
+/* ============================================================================
+ * GLASS — translucent blurred surfaces over a tinted page backdrop
+ * ========================================================================== */
+
+[data-style="glass"] {
+  --bg-secondary: rgba(23, 23, 23, 0.6);
+  --bg-tertiary: rgba(38, 38, 38, 0.55);
+  --bg-hover: rgba(64, 64, 64, 0.6);
+  --border-primary: rgba(255, 255, 255, 0.1);
+  --border-secondary: rgba(255, 255, 255, 0.06);
+  --surface-backdrop: blur(14px) saturate(1.4);
+  --page-backdrop:
+    radial-gradient(1000px 600px at 12% -10%, rgba(255, 79, 24, 0.13), transparent 60%),
+    radial-gradient(900px 600px at 100% 20%, rgba(59, 130, 246, 0.12), transparent 55%),
+    radial-gradient(700px 500px at 40% 110%, rgba(34, 197, 94, 0.08), transparent 60%);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --overlay-color: rgba(0, 0, 0, 0.45);
+}
+
+[data-style="glass"][data-theme="light"] {
+  --bg-secondary: rgba(255, 255, 255, 0.6);
+  --bg-tertiary: rgba(245, 245, 245, 0.65);
+  --bg-hover: rgba(229, 229, 229, 0.7);
+  --border-primary: rgba(0, 0, 0, 0.08);
+  --border-secondary: rgba(0, 0, 0, 0.05);
+  --page-backdrop:
+    radial-gradient(1000px 600px at 12% -10%, rgba(255, 79, 24, 0.1), transparent 60%),
+    radial-gradient(900px 600px at 100% 20%, rgba(59, 130, 246, 0.1), transparent 55%),
+    radial-gradient(700px 500px at 40% 110%, rgba(34, 197, 94, 0.07), transparent 60%);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.12);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --overlay-color: rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================================================
+ * CLASSIC — flat, bordered, dense: near-square corners, no shadows
+ * ========================================================================== */
+
+[data-style="classic"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --space-3: 0.625rem;
+  --space-4: 0.875rem;
+  --space-6: 1.25rem;
+  --space-8: 1.5rem;
+  --input-height-sm: 26px;
+  --input-height-md: 30px;
+  --input-height-lg: 36px;
+  --font-size-base: 0.8125rem;
+  --transition-base: 80ms ease;
+  --transition-fast: 60ms ease;
+}
+
+[data-style="classic"][data-theme="light"] {
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --border-primary: var(--color-gray-300);
+}

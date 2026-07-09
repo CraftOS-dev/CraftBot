@@ -66,28 +66,6 @@ def _cached_template_parse(rel: str, parser, fallback):
     return value
 
 
-_FALLBACK_SYSTEM_ROUTES = [
-    ("get", "/state"), ("put", "/state"), ("delete", "/state"),
-    ("post", "/state/replace"), ("post", "/action"),
-    ("get", "/ui-snapshot"), ("post", "/ui-snapshot"),
-    ("get", "/ui-screenshot"), ("post", "/ui-screenshot"),
-]
-
-# Column-0 anchor: decorators in docstring examples are indented/inline and
-# must not count as routes.
-_ROUTE_DECORATOR_RE = re.compile(
-    r"^@router\.(get|post|put|delete|patch)\(\s*[\"']([^\"']+)[\"']", re.MULTILINE
-)
-
-
-def _template_system_routes():
-    return _cached_template_parse(
-        "backend/routes.py",
-        lambda text: [(m.lower(), p) for m, p in _ROUTE_DECORATOR_RE.findall(text)],
-        _FALLBACK_SYSTEM_ROUTES,
-    )
-
-
 _FALLBACK_KIT_EXPORTS = [
     "AppShell", "Section", "CardGrid", "Toolbar", "IconBadge",
     "StatCard", "SplitView", "SkeletonCard", "SkeletonRow",
@@ -222,6 +200,17 @@ _ROUTE_API_PREFIX_RE = re.compile(
     r"@router\.(get|post|put|delete|patch)\(\s*[\"']/api/", re.IGNORECASE
 )
 _RAW_CONTROL_RE = re.compile(r"<(input|button|select|textarea)[\s/>]", re.IGNORECASE)
+
+# MainView must stay a pure Layout-Kit assembly: hand-made wireframe markup
+# (inline styles, style blocks, px dimensions, DIY shimmer divs) is the
+# root cause of inconsistent wireframes, overflow, and stuck-together
+# elements — the Skeleton* presets are adaptive and self-spacing.
+_MAINVIEW_INLINE_STYLE_RE = re.compile(r"style=\{\{")
+_MAINVIEW_STYLE_TAG_RE = re.compile(r"<style[\s>]")
+_MAINVIEW_PX_RE = re.compile(r"\d+px")
+_MAINVIEW_DIY_SKELETON_RE = re.compile(
+    r"animate-pulse|placeholder-shimmer|skeleton-(?:box|item|div)", re.IGNORECASE
+)
 # Empty arrow-function handlers: onClick={() => {}} and friends — the
 # signature of a stub/dead control (observed shipping as dead tabs, dead
 # search, dead Refresh buttons).
@@ -242,6 +231,18 @@ ROUTE_API_PREFIX_NOTE = (
     "(e.g. client.get(\"/api/articles\")). Fix the decorators now."
 )
 
+MAINVIEW_KIT_NOTE = (
+    "WARNING — MainView must be a PURE Layout-Kit assembly (AppShell/"
+    "Section/CardGrid/SplitView/Toolbar + the Skeleton presets: "
+    "SkeletonBox, SkeletonCircle, SkeletonText, SkeletonChip, SkeletonCard, "
+    "SkeletonRow, SkeletonStack). Detected hand-made layout/wireframe "
+    "markup: {found}. Remove it — no inline style objects, no <style> "
+    "blocks, no px dimensions, no DIY shimmer/skeleton divs. The presets "
+    "are adaptive (they can never overflow their container) and space "
+    "themselves; custom markup causes the overflow and stuck-together "
+    "elements the platform then fails at validation."
+)
+
 RAW_CONTROL_NOTE = (
     "WARNING — raw HTML controls (<input>/<button>/<select>/<textarea>) "
     "detected in this component. They render unstyled. Use the preset "
@@ -250,10 +251,12 @@ RAW_CONTROL_NOTE = (
 )
 
 MISSING_CSS_NOTE = (
-    "WARNING — this component ships no CSS: it has no <style> block and uses "
-    "no layout-kit primitives. CSS comes WITH the component: build it from "
-    "the layout kit (AppShell/Section/CardGrid/EmptyState/"
-    "Skeleton*) and/or add a scoped <style> block in this same file."
+    "WARNING — this component ships no styling: no Tailwind utility "
+    "classes, no <style> block, no layout-kit primitives. Styling comes "
+    "WITH the component: use the token-mapped Tailwind utilities "
+    "(bg-surface, text-ink-secondary, border-line, ...) and the layout kit "
+    "(AppShell/Section/CardGrid/EmptyState/Skeleton*); a scoped <style> "
+    "block only for what utilities can't express."
 )
 
 STUB_HANDLER_NOTE = (
@@ -264,37 +267,26 @@ STUB_HANDLER_NOTE = (
 )
 
 
-def _system_route_notes(content: str) -> List[str]:
-    """System routes every scaffolded backend must keep — derived from the
-    TEMPLATE's routes.py (whatever it declares is the contract). Whole-file
-    rewrites of routes.py from partial reads have deleted them."""
-    missing = []
-    for method, path in _template_system_routes():
-        pattern = (
-            r"@router\." + re.escape(method) + r"\(\s*[\"']"
-            + re.escape(path) + r"[\"']"
-        )
-        if not re.search(pattern, content):
-            missing.append(f"{method.upper()} {path}")
-    if not missing:
-        return []
-    return [
-        "WARNING — this routes.py is MISSING the template's system routes: "
-        + ", ".join(missing)
-        + ". Your whole-file rewrite deleted them — the agent APIs, console "
-        "log capture, and validation smoke tests depend on them. Read the "
-        "FULL current file, then rewrite it with the system routes restored "
-        "exactly as the template had them. Never rewrite routes.py from a "
-        "partial read."
-    ]
-
-
 def _pattern_notes(rel: str, content: str) -> List[str]:
     notes: List[str] = []
     if rel == "backend/routes.py":
         if _ROUTE_API_PREFIX_RE.search(content):
             notes.append(ROUTE_API_PREFIX_NOTE)
-        notes.extend(_system_route_notes(content))
+    if rel.replace("\\", "/").lower() in (
+        "frontend/components/mainview.tsx",
+        "frontend/components/mainview.jsx",
+    ):
+        found = []
+        if _MAINVIEW_INLINE_STYLE_RE.search(content):
+            found.append("inline style={{...}}")
+        if _MAINVIEW_STYLE_TAG_RE.search(content):
+            found.append("a <style> block")
+        if _MAINVIEW_PX_RE.search(content):
+            found.append("px dimensions")
+        if _MAINVIEW_DIY_SKELETON_RE.search(content):
+            found.append("hand-made skeleton/shimmer markup")
+        if found:
+            notes.append(MAINVIEW_KIT_NOTE.format(found=", ".join(found)))
     if (
         rel.startswith("frontend/components/")
         and rel.endswith((".tsx", ".jsx"))
@@ -303,7 +295,11 @@ def _pattern_notes(rel: str, content: str) -> List[str]:
     ):
         if _RAW_CONTROL_RE.search(content):
             notes.append(RAW_CONTROL_NOTE)
-        if "<style" not in content and not _layout_kit_re().search(content):
+        if (
+            "<style" not in content
+            and "className=" not in content
+            and not _layout_kit_re().search(content)
+        ):
             notes.append(MISSING_CSS_NOTE)
         if _STUB_HANDLER_RE.search(content):
             notes.append(STUB_HANDLER_NOTE)
@@ -342,6 +338,17 @@ def review_note_for(file_path: str) -> Optional[str]:
             )
         ):
             notes.extend(_import_export_notes(root))
+        # Continuous type verification: run the project's own tsc after
+        # frontend code writes and surface the COMPLETE error list now,
+        # instead of letting type errors pile up for validation. Fail-open.
+        try:
+            from .type_check import tsc_note_for
+
+            tsc_note = tsc_note_for(root, rel)
+            if tsc_note:
+                notes.append(tsc_note)
+        except Exception:
+            pass
         return "\n\n".join(notes) if notes else None
     except Exception:
         return None

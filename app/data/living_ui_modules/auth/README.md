@@ -31,15 +31,19 @@ Self-contained authentication with SQLite + bcrypt + JWT. No external services n
    router.include_router(auth_router)
    ```
 
-4. Import `User` in `models.py` so the table is created:
+4. Import `User` in `routes.py` (NOT models.py — that file is
+   system-managed) so the table is created; including the auth router in
+   step 3 already does this implicitly:
    ```python
    from auth_models import User  # noqa: F401
    ```
 
-5. Add `user_id` to your data models:
-   ```python
-   user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+5. Add a `userId` ref-style field to the entities that are per-user in
+   `config/schema.json` (an `integer` field holding the user's id):
+   ```json
+   "userId": {"type": "integer", "required": true}
    ```
+   and enforce ownership in your custom routes / queries.
 
 6. Protect routes with auth dependency:
    ```python

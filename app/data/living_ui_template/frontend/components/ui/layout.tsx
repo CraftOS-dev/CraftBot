@@ -22,6 +22,7 @@
  */
 
 import type { CSSProperties, ReactNode } from 'react'
+import { ToastHost } from './toast'
 
 // Class names that form the kit's PUBLIC CONTRACT — the dev-mode telemetry
 // (agent/devBuildMode.ts) imports these to measure the rendered layout.
@@ -51,12 +52,16 @@ export function AppShell({ sidebar, children, maxWidth = 1200 }: AppShellProps) 
         {sidebar && <aside className="lk-shell-sidebar">{sidebar}</aside>}
         <main className="lk-shell-main">{children}</main>
       </div>
+      <ToastHost />
       <style>{`
         .lk-shell {
           min-height: 100vh;
           display: flex;
           flex-direction: column;
-          background: var(--bg-primary);
+          background-color: var(--bg-primary);
+          background-image: var(--page-backdrop);
+          background-attachment: fixed;
+          background-size: cover;
           color: var(--text-primary);
           overflow-x: hidden;
         }
@@ -242,13 +247,25 @@ export function Toolbar({ children, end }: ToolbarProps) {
 export interface IconBadgeProps {
   /** A lucide-react icon element, e.g. <Newspaper size={18} />. */
   icon: ReactNode
-  /** Accent color token or css color (default: var(--color-primary)). */
+  /** Color token or css color. Default is NEUTRAL — pass semantic colors
+   * (var(--color-info), var(--color-success), …) to differentiate stats;
+   * don't make every badge the primary accent. */
   color?: string
   /** Diameter in px (default 36). */
   size?: number
 }
 
-export function IconBadge({ icon, color = 'var(--color-primary)', size = 36 }: IconBadgeProps) {
+/** Token names agents naturally write ("warning") resolve to their CSS
+ * variables — a bare token name would otherwise be an invalid color and
+ * silently render untinted. */
+function resolveAccent(color: string): string {
+  return ['primary', 'success', 'warning', 'error', 'info'].includes(color)
+    ? `var(--color-${color})`
+    : color
+}
+
+export function IconBadge({ icon, color = 'var(--text-secondary)', size = 36 }: IconBadgeProps) {
+  color = resolveAccent(color)
   return (
     <span
       className="lk-iconbadge"
@@ -301,7 +318,8 @@ export function StatCard({ icon, value, label, color }: StatCardProps) {
           gap: var(--space-3);
           padding: var(--space-4);
           background: var(--bg-secondary);
-          border: 1px solid var(--border-color, var(--color-gray-800));
+          backdrop-filter: var(--surface-backdrop);
+          border: 1px solid var(--border-primary);
           border-radius: var(--radius-lg);
           min-width: 0;
         }
@@ -368,21 +386,122 @@ export function SplitView({ children, aside, asideWidth = 320 }: SplitViewProps)
 // (For the no-data pattern use the existing <EmptyState> preset from index.)
 // =============================================================================
 
-export interface SkeletonCardProps {
-  /** How many placeholder cards to render (default 1). */
+/**
+ * ALL skeletons are ADAPTIVE: they size from their container (width 100%,
+ * aspect-ratio or em heights), never from px props — a skeleton can never
+ * overflow its parent. Adjacent skeletons space themselves automatically;
+ * use <SkeletonStack> to group mixed shapes with consistent rhythm.
+ *
+ * The wireframe vocabulary (Phase 1.5 uses ONLY these — never hand-made
+ * shimmer divs, inline styles, or px sizes):
+ *   SkeletonBox     plain rectangle   (ratio = width/height proportion)
+ *   SkeletonCircle  circle            (sm | md | lg, em-scaled)
+ *   SkeletonText    paragraph lines   (staggered widths)
+ *   SkeletonChip    pill row          (filters/tags placeholder)
+ *   SkeletonCard    media card        (aspect media + text lines)
+ *   SkeletonRow     list rows
+ *   SkeletonStack   vertical group with kit spacing
+ */
+
+export interface SkeletonBoxProps {
+  /** How many boxes (default 1). */
   count?: number
-  /** Card height in px (default 180). */
-  height?: number
+  /** Width/height proportion, e.g. 3 = wide strip, 1 = square (default 3). */
+  ratio?: number
 }
 
-export function SkeletonCard({ count = 1, height = 180 }: SkeletonCardProps) {
+export function SkeletonBox({ count = 1, ratio = 3 }: SkeletonBoxProps) {
   return (
     <>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="lk-skel-card" style={{ height: `${height}px` }}>
-          <div className="lk-skel lk-skel-media" />
-          <div className="lk-skel lk-skel-line" style={{ width: '72%' }} />
-          <div className="lk-skel lk-skel-line" style={{ width: '48%' }} />
+        <div
+          key={i}
+          className="lk-skel lk-skel-box"
+          style={{ aspectRatio: `${ratio}` } as CSSProperties}
+        />
+      ))}
+      <SkeletonStyles />
+    </>
+  )
+}
+
+export interface SkeletonCircleProps {
+  count?: number
+  /** Diameter, type-scaled: 'sm' (avatar) | 'md' | 'lg' (default 'md'). */
+  size?: 'sm' | 'md' | 'lg'
+}
+
+export function SkeletonCircle({ count = 1, size = 'md' }: SkeletonCircleProps) {
+  return (
+    <div className="lk-skel-circles">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className={`lk-skel lk-skel-circle lk-skel-circle-${size}`} />
+      ))}
+      <SkeletonStyles />
+    </div>
+  )
+}
+
+export interface SkeletonTextProps {
+  /** Number of text lines (default 3). Widths stagger automatically. */
+  lines?: number
+}
+
+export function SkeletonText({ lines = 3 }: SkeletonTextProps) {
+  const widths = ['92%', '78%', '85%', '64%', '88%', '71%']
+  return (
+    <div className="lk-skel-text">
+      {Array.from({ length: lines }, (_, i) => (
+        <div
+          key={i}
+          className="lk-skel lk-skel-textline"
+          style={{ width: widths[i % widths.length] }}
+        />
+      ))}
+      <SkeletonStyles />
+    </div>
+  )
+}
+
+export interface SkeletonChipProps {
+  /** Number of pills (default 3). */
+  count?: number
+}
+
+export function SkeletonChip({ count = 3 }: SkeletonChipProps) {
+  return (
+    <div className="lk-skel-chips">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="lk-skel lk-skel-chip" />
+      ))}
+      <SkeletonStyles />
+    </div>
+  )
+}
+
+export interface SkeletonCardProps {
+  /** How many placeholder cards to render (default 1). */
+  count?: number
+  /** Text lines under the media block (default 2). */
+  lines?: number
+  /** Render the media block (default true). */
+  media?: boolean
+}
+
+export function SkeletonCard({ count = 1, lines = 2, media = true }: SkeletonCardProps) {
+  const widths = ['72%', '48%', '84%', '56%']
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="lk-skel-card">
+          {media && <div className="lk-skel lk-skel-media" />}
+          {Array.from({ length: lines }, (_, j) => (
+            <div
+              key={j}
+              className="lk-skel lk-skel-line"
+              style={{ width: widths[j % widths.length] }}
+            />
+          ))}
         </div>
       ))}
       <SkeletonStyles />
@@ -405,6 +524,20 @@ export function SkeletonRow({ count = 3 }: SkeletonRowProps) {
   )
 }
 
+export interface SkeletonStackProps {
+  /** Mixed skeleton shapes, stacked with consistent kit spacing. */
+  children: ReactNode
+}
+
+export function SkeletonStack({ children }: SkeletonStackProps) {
+  return (
+    <div className="lk-skel-stack">
+      {children}
+      <SkeletonStyles />
+    </div>
+  )
+}
+
 function SkeletonStyles() {
   return (
     <style>{`
@@ -413,6 +546,9 @@ function SkeletonStyles() {
         overflow: hidden;
         background: var(--bg-tertiary);
         border-radius: var(--radius-md);
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
       }
       .lk-skel::after {
         content: '';
@@ -421,7 +557,7 @@ function SkeletonStyles() {
         background: linear-gradient(
           90deg,
           transparent 0%,
-          rgba(255, 255, 255, 0.06) 50%,
+          var(--shimmer) 50%,
           transparent 100%
         );
         animation: lkShimmer 1.6s ease-in-out infinite;
@@ -430,24 +566,79 @@ function SkeletonStyles() {
         0% { transform: translateX(-100%); }
         100% { transform: translateX(100%); }
       }
+      /* Adjacent skeletons never stick together (containers with their own
+         gap zero this out below). */
+      .lk-skel + .lk-skel,
+      .lk-skel + .lk-skel-card,
+      .lk-skel-card + .lk-skel,
+      .lk-skel-card + .lk-skel-card {
+        margin-top: var(--space-3);
+      }
+      .lk-skel-rows > .lk-skel + .lk-skel,
+      .lk-skel-text > .lk-skel + .lk-skel,
+      .lk-skel-chips > .lk-skel + .lk-skel,
+      .lk-skel-circles > .lk-skel + .lk-skel,
+      .lk-skel-stack > .lk-skel + .lk-skel,
+      .lk-skel-stack > .lk-skel + .lk-skel-card,
+      .lk-skel-stack > .lk-skel-card + .lk-skel,
+      .lk-skel-stack > .lk-skel-card + .lk-skel-card {
+        margin-top: 0;
+      }
+      .lk-skel-box { width: 100%; }
+      .lk-skel-circles {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        flex-wrap: wrap;
+        min-width: 0;
+      }
+      .lk-skel-circle { border-radius: var(--radius-full); flex-shrink: 0; }
+      .lk-skel-circle-sm { width: 2em; height: 2em; }
+      .lk-skel-circle-md { width: 3em; height: 3em; }
+      .lk-skel-circle-lg { width: 4.5em; height: 4.5em; }
+      .lk-skel-text {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        min-width: 0;
+      }
+      .lk-skel-textline { height: 0.9em; }
+      .lk-skel-chips {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        min-width: 0;
+      }
+      .lk-skel-chip { height: 1.8em; width: 5.5em; max-width: 30%; }
       .lk-skel-card {
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
         padding: var(--space-4);
         background: var(--bg-secondary);
-        border: 1px solid var(--border-color, var(--color-gray-800));
+        backdrop-filter: var(--surface-backdrop);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius-lg);
         overflow: hidden;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
       }
-      .lk-skel-media { flex: 1; min-height: 48px; }
-      .lk-skel-line { height: 12px; flex-shrink: 0; }
+      .lk-skel-media { width: 100%; aspect-ratio: 16 / 9; }
+      .lk-skel-line { height: 0.8em; flex-shrink: 0; }
       .lk-skel-rows {
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
+        min-width: 0;
       }
-      .lk-skel-row { height: 44px; }
+      .lk-skel-row { height: 2.75em; }
+      .lk-skel-stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        min-width: 0;
+      }
     `}</style>
   )
 }

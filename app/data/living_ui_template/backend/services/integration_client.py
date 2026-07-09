@@ -53,9 +53,9 @@ class IntegrationClient:
 
         Returns a list like:
         [
-            {"id": "google_workspace", "connected": true, "granted": true},
-            {"id": "slack", "connected": true, "granted": false},
-            {"id": "discord", "connected": false, "granted": false},
+            {"id": "google_workspace", "connected": true},
+            {"id": "slack", "connected": true},
+            {"id": "discord", "connected": false},
         ]
         """
         if not self.available:
@@ -114,6 +114,61 @@ class IntegrationClient:
             return r.json()
         except Exception as e:
             return {"error": str(e)}
+
+    async def llm(self, prompt: str, system_message: Optional[str] = None) -> str:
+        """
+        Ask CraftBot's configured LLM. Returns the response text ('' on
+        failure — check `available` first and handle empty results).
+
+        Use for in-app AI features: summarize rows, classify text, extract
+        fields, draft content. Keep prompts self-contained (the model has
+        no app context beyond what you pass).
+
+            summary = await integration.llm(
+                f"Summarize these tasks in 3 bullets:
+{tasks_text}"
+            )
+        """
+        if not self.available:
+            return ""
+        try:
+            client = self._ensure_client()
+            r = await client.post(
+                f"{BRIDGE_URL}/api/bridge/llm",
+                headers=self._auth_headers(),
+                json={"prompt": prompt, "system_message": system_message},
+                timeout=120,
+            )
+            if r.status_code == 200:
+                return r.json().get("content", "")
+            return ""
+        except Exception:
+            return ""
+
+    async def describe_image(self, image_url: str, prompt: Optional[str] = None) -> str:
+        """
+        Describe an image with CraftBot's vision model. `image_url` may be
+        a stored-file URL (/api/files/{id} works served from this app) or
+        any http(s) image URL. Returns '' on failure.
+        """
+        if not self.available:
+            return ""
+        try:
+            client = self._ensure_client()
+            payload: Dict[str, Any] = {"image_url": image_url}
+            if prompt:
+                payload["prompt"] = prompt
+            r = await client.post(
+                f"{BRIDGE_URL}/api/bridge/vlm",
+                headers=self._auth_headers(),
+                json=payload,
+                timeout=120,
+            )
+            if r.status_code == 200:
+                return r.json().get("content", r.json().get("description", ""))
+            return ""
+        except Exception:
+            return ""
 
     async def close(self):
         """Close the HTTP client."""

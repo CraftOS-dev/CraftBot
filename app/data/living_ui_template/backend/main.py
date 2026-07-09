@@ -12,6 +12,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from routes import router
+from system_routes import router as system_router
+from files_routes import router as files_router
+from engine import build_router as build_engine_router
 from database import init_db
 from logger import setup_logging, cleanup_old_logs
 from pathlib import Path
@@ -50,8 +53,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routes
+# ============================================================================
+# Diagnostic 500s (SYSTEM-MANAGED — do not remove). A bare "Internal Server
+# Error" costs whole debug cycles; this handler puts the REAL exception into
+# the response body so smoke tests, the frontend network log, and the agent
+# see the root cause immediately.
+# ============================================================================
+import traceback
+
+from fastapi.responses import JSONResponse
+
+_BACKEND_DIR = str(Path(__file__).parent).lower()
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request, exc):
+    where = None
+    for frame in reversed(traceback.extract_tb(exc.__traceback__)):
+        if _BACKEND_DIR in str(frame.filename).lower():
+            where = f"{Path(frame.filename).name}:{frame.lineno} in {frame.name}"
+            break
+    detail = f"{type(exc).__name__}: {exc}"
+    if where:
+        detail += f" [at {where}]"
+    logger.error(
+        f"[Backend] Unhandled error on {request.method} {request.url.path}: {detail}"
+    )
+    return JSONResponse(status_code=500, content={"detail": detail})
+
+
+# Include routes. Order matters for path resolution (first match wins):
+#   1. system routes (state/action/ui-snapshot — never shadowed)
+#   2. agent's custom routes (may intentionally override generated CRUD)
+#   3. engine-generated CRUD from config/schema.json
+app.include_router(system_router, prefix="/api")
+app.include_router(files_router, prefix="/api")
 app.include_router(router, prefix="/api")
+app.include_router(build_engine_router(), prefix="/api")
 
 # Auto-include additional routers from routes/ directory (if any)
 import importlib

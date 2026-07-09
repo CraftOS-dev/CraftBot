@@ -1,208 +1,223 @@
 # Living UI Code Examples
 
-Complete code examples for each development phase.
+Complete examples for the schema-driven architecture. The backend data
+layer is DECLARED — you never write models or CRUD routes. Entity types
+and the frontend data plumbing are provided — you never write those
+either.
 
-## Backend Model Example
+## What you hand-write (the complete list)
 
-**File: `backend/models.py`**
+| Artifact | File |
+|---|---|
+| Entity declarations | `config/schema.json` |
+| React components | `frontend/components/*.tsx` |
+| Custom behavior endpoints (only beyond CRUD) | `backend/routes.py` |
+| Ops for those endpoints | `config/operations.json` |
+| Tests for those endpoints | `backend/tests/test_*.py` |
+| Documentation | `LIVING_UI.md` |
 
-```python
-# Example: Add a Todo model
-class Todo(Base):
-    __tablename__ = "todos"
+Everything else — models, CRUD API, entity TypeScript types
+(`frontend/types.gen.ts`), the data client/hook, system routes, test
+runner — already exists or is generated.
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    text = Column(String, nullable=False)
-    completed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+## 1. Declare entities — `config/schema.json`
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "text": self.text,
-            "completed": self.completed,
-            "createdAt": self.created_at.isoformat() if self.created_at else None,
-        }
-```
-
-## Backend Routes Example
-
-**File: `backend/routes.py`**
-
-```python
-# Example: Add todo routes
-@router.get("/todos")
-def get_todos(db: Session = Depends(get_db)) -> List[Dict]:
-    todos = db.query(Todo).order_by(Todo.created_at).all()
-    return [t.to_dict() for t in todos]
-
-@router.post("/todos")
-def create_todo(data: Dict[str, Any], db: Session = Depends(get_db)) -> Dict:
-    todo = Todo(text=data["text"])
-    db.add(todo)
-    db.commit()
-    return todo.to_dict()
-
-@router.put("/todos/{todo_id}")
-def update_todo(todo_id: str, data: Dict[str, Any], db: Session = Depends(get_db)) -> Dict:
-    todo = db.query(Todo).filter(Todo.id == todo_id).first()
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    if "completed" in data:
-        todo.completed = data["completed"]
-    if "text" in data:
-        todo.text = data["text"]
-    db.commit()
-    return todo.to_dict()
-
-@router.delete("/todos/{todo_id}")
-def delete_todo(todo_id: str, db: Session = Depends(get_db)) -> Dict:
-    todo = db.query(Todo).filter(Todo.id == todo_id).first()
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    db.delete(todo)
-    db.commit()
-    return {"status": "deleted"}
-```
-
-## Frontend Types Example
-
-**File: `frontend/types.ts`**
-
-```typescript
-export interface Todo {
-  id: string
-  text: string
-  completed: boolean
-  createdAt: string
-}
-
-export interface AppState {
-  initialized: boolean
-  loading: boolean
-  error: string | null
-  todos: Todo[]  // Add your data here
+```json
+{
+  "entities": {
+    "BoardColumn": {
+      "description": "A lane on the board",
+      "fields": {
+        "title": {"type": "string", "required": true},
+        "position": {"type": "integer", "default": 0}
+      }
+    },
+    "Card": {
+      "description": "A card inside a column",
+      "fields": {
+        "title": {"type": "string", "required": true},
+        "notes": {"type": "text"},
+        "position": {"type": "integer", "default": 0},
+        "dueDate": {"type": "datetime"},
+        "labels": {"type": "json", "default": []},
+        "columnId": {"type": "ref", "entity": "BoardColumn", "required": true}
+      }
+    }
+  }
 }
 ```
 
-## React Component Example
+This alone creates the tables, the REST API (`/api/board_columns`,
+`/api/cards` + `/bulk` + filters/ordering), auto CRUD tests, AND
+`frontend/types.gen.ts` with `BoardColumn` and `Card` interfaces.
+Never declare `id`, `createdAt`, `updatedAt` — they are automatic.
 
-**File: `frontend/components/TodoList.tsx`**
+## 2. The one-line form and table (reach for these FIRST)
 
-```typescript
-interface TodoListProps {
-  todos: Todo[]
-  onToggle: (id: string) => void
-  onDelete: (id: string) => void
-}
+```tsx
+import { EntityForm, EntityTable, Modal, toast } from './ui'
 
-export function TodoList({ todos, onToggle, onDelete }: TodoListProps) {
-  return (
-    <ul className="todo-list">
-      {todos.map(todo => (
-        <li key={todo.id} className={todo.completed ? 'completed' : ''}>
-          <input
-            type="checkbox"
-            checked={todo.completed}
-            onChange={() => onToggle(todo.id)}
-          />
-          <span>{todo.text}</span>
-          <button onClick={() => onDelete(todo.id)}>Delete</button>
-        </li>
-      ))}
-    </ul>
-  )
-}
+// Create/edit form — generated from the schema (validation, ref dropdowns):
+<Modal open={adding} onClose={close} title="New card">
+  <EntityForm entity="Card" defaults={{ columnId: col.id }}
+              onSaved={() => { close(); cards.refresh(); toast.success('Card created') }}
+              onCancel={close} />
+</Modal>
+
+// Sortable, searchable, paged data table with confirmed deletes:
+<EntityTable entity="Card" filters={{ columnId: col.id }}
+             columns={['title', 'dueDate']} allowDelete searchable pageSize={25} />
 ```
 
-## AppController Methods Example
+## 2b. Custom layout — generated types + `useEntities`
 
-**File: `frontend/AppController.ts`**
+```tsx
+import { useState } from 'react'
+import { Button, Input, Modal, EmptyState, Section } from './ui'
+import { useEntities } from '../services/data'
+import type { Card, BoardColumn } from '../types.gen'
 
-```typescript
-// Add to AppController class
-async fetchTodos(): Promise<void> {
-  const response = await fetch(`${this.backendUrl}/todos`)
-  const todos = await response.json()
-  await this.setState({ todos })
-}
-
-async addTodo(text: string): Promise<void> {
-  const response = await fetch(`${this.backendUrl}/todos`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text })
+export function ColumnView({ column }: { column: BoardColumn }) {
+  const cards = useEntities<Card>('cards', {
+    columnId: column.id,
+    orderBy: 'position',
   })
-  const todo = await response.json()
-  const todos = [...this.state.todos, todo]
-  await this.setState({ todos })
-}
+  const [adding, setAdding] = useState(false)
+  const [title, setTitle] = useState('')
 
-async toggleTodo(id: string): Promise<void> {
-  const todo = this.state.todos.find(t => t.id === id)
-  if (!todo) return
-
-  await fetch(`${this.backendUrl}/todos/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ completed: !todo.completed })
-  })
-
-  const todos = this.state.todos.map(t =>
-    t.id === id ? { ...t, completed: !t.completed } : t
-  )
-  await this.setState({ todos })
-}
-```
-
-## MainView Example
-
-**File: `frontend/components/MainView.tsx`**
-
-```typescript
-import { useState, useEffect } from 'react'
-import { TodoList } from './TodoList'
-import type { AppController } from '../AppController'
-
-export function MainView({ controller }: { controller: AppController }) {
-  const [state, setState] = useState(controller.getState())
-
-  useEffect(() => {
-    // Subscribe to state changes
-    const unsubscribe = controller.subscribe(setState)
-    // Fetch initial data
-    controller.fetchTodos()
-    return unsubscribe
-  }, [controller])
+  const addCard = async () => {
+    await cards.create({ title, columnId: column.id, position: cards.items.length })
+    setTitle('')
+    setAdding(false)
+  }
 
   return (
-    <main>
-      <h1>My Todos</h1>
-      <TodoList
-        todos={state.todos || []}
-        onToggle={(id) => controller.toggleTodo(id)}
-        onDelete={(id) => controller.deleteTodo(id)}
-      />
-    </main>
+    <Section
+      title={column.title}
+      actions={<Button size="sm" onClick={() => setAdding(true)}>Add card</Button>}
+    >
+      {cards.items.length === 0 ? (
+        <EmptyState message="No cards yet — add the first one." />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {cards.items.map(card => (
+            <div key={card.id} className="bg-raised border-line rounded-token p-3 text-ink">
+              {card.title}
+              <Button size="sm" variant="ghost" onClick={() => cards.remove(card.id)}>
+                Delete
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      <Modal open={adding} onClose={() => setAdding(false)} title="New card">
+        <Input label="Title" value={title} onChange={e => setTitle(e.target.value)} />
+        <Button onClick={addCard} disabled={!title.trim()}>Create</Button>
+      </Modal>
+    </Section>
   )
 }
 ```
 
-## Notify Ready Example
+Notes: real `Modal` (never `prompt()`), Tailwind token classes for
+internals (`bg-raised`, `border-line`, `text-ink`, `rounded-token`),
+`useEntities` handles fetch/create/remove/refresh — no ApiService edits,
+no AppController plumbing, no hand-written entity types.
 
-```
-living_ui_notify_ready(
-  project_id="<PROJECT_ID from task instruction - NOT task session ID>",
-  url="http://localhost:<port from manifest.json>",
-  port=<port from manifest.json>
-)
+## 3. Custom behavior endpoint — `backend/routes.py` (only beyond CRUD)
+
+```python
+class ArchiveDoneRequest(BaseModel):
+    """Body for POST /cards/archive-done."""
+    columnId: int
+
+
+@router.post("/cards/archive-done")
+def archive_done(req: ArchiveDoneRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Archive every done card in a column (single transaction)."""
+    from models import Card
+    n = (
+        db.query(Card)
+        .filter(Card.column_id == req.columnId, Card.done == True)  # noqa: E712
+        .update({"archived": True})
+    )
+    db.commit()
+    return {"archived": n}
 ```
 
-**Example (replace PORT with value from config/manifest.json):**
+Rules: Pydantic body (never a bare Dict — smoke tests probe the OpenAPI
+schema), path WITHOUT `/api`, one-line docstring, absolute imports.
+`from models import Card` works for every schema entity (columns are
+snake_case in Python: `Card.column_id`).
+
+For routes that accept LISTS (imports, bulk ops), validate the ITEMS with
+a Pydantic model too — smoke tests probe with minimal payloads, and an
+unvalidated `List[dict]` turns missing fields into a 500 instead of a
+clean 422:
+
+```python
+class ImportCard(BaseModel):
+    """One card in an import payload."""
+    title: str
+    columnId: int
+    notes: Optional[str] = None
+
+
+class ImportRequest(BaseModel):
+    """Body for POST /cards/import."""
+    cards: List[ImportCard]
+
+
+@router.post("/cards/import")
+def import_cards(req: ImportRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Bulk-import cards (validated per item; one transaction)."""
+    from models import Card
+    rows = [Card(title=c.title, column_id=c.columnId, notes=c.notes) for c in req.cards]
+    db.add_all(rows)
+    db.commit()
+    return {"imported": len(rows)}
 ```
-living_ui_notify_ready(
-  project_id="b022f7bb",  # From task instruction, NOT session ID
-  url="http://localhost:PORT",
-  port=PORT
-)
+
+Any unhandled exception in a custom route returns a 500 whose body carries
+the REAL error (`{"detail": "IntegrityError: ... [at routes.py:42]"}`) —
+read it from the validation/smoke output instead of guessing.
+
+Then declare the op in `config/operations.json`:
+
+```json
+"archive_done": {
+  "description": "Archive every done card in a column. Use for cleanup requests.",
+  "params": {"columnId": "int"},
+  "executor": {"type": "http", "method": "POST", "path": "/api/cards/archive-done"},
+  "mode": "sync"
+}
+```
+
+And test it — `backend/tests/test_archive.py`:
+
+```python
+def test_archive_done(client):
+    col = client.post("/api/board_columns", json={"title": "T"}).json()
+    client.post("/api/cards", json={"title": "a", "columnId": col["id"], "done": True})
+    r = client.post("/api/cards/archive-done", json={"columnId": col["id"]})
+    assert r.status_code == 200 and r.json()["archived"] == 1
+```
+
+The `client` fixture (conftest, system-managed) gives you a fresh in-memory
+DB per run. Call paths WITH `/api`. Never seed fake data outside tests.
+
+## 4. One-off data calls outside components
+
+```ts
+import { data } from '../services/data'
+import type { Card } from '../types.gen'
+
+const all = await data.list<Card>('cards', { orderBy: 'createdAt', order: 'desc' })
+await data.bulkCreate<Card>('cards', rows)   // one transaction
+```
+
+Custom endpoints still go through ApiService:
+
+```ts
+await ApiService.request('POST', '/cards/archive-done', { columnId: 3 })
 ```

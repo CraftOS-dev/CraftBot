@@ -12,8 +12,12 @@ interface MainViewProps {
  * This is the template scaffold. Rebuild it as YOUR app's layout wireframe
  * (Phase 1.5): keep the AppShell/Section assembly — the layout kit owns
  * page structure, gutters, and spacing — and replace the sections below
- * with one <Section> per planned region, each holding SkeletonCard /
- * SkeletonRow placeholders until its real component takes over.
+ * with one <Section> per planned region, each holding Skeleton presets
+ * shaped like the future content. Use ONLY the Skeleton presets
+ * (SkeletonBox, SkeletonCircle, SkeletonText, SkeletonChip, SkeletonCard,
+ * SkeletonRow, SkeletonStack) — they are adaptive (never overflow) and
+ * self-spacing. NEVER hand-make wireframe markup: no inline styles, no
+ * <style> blocks, no px sizes, no DIY shimmer divs.
  */
 export function MainView({ controller }: MainViewProps) {
   // CRAFTBOT:TEMPLATE-PLACEHOLDER — explicit sentinel: while this comment

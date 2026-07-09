@@ -65,6 +65,7 @@ function hasLocalTheme(projectId: string): boolean {
   try { return localStorage.getItem(`livingui-theme-${projectId}`) !== null } catch { return false }
 }
 
+
 // Origin of the embedded app, for postMessage target/source verification.
 function projectOrigin(url?: string): string | null {
   if (!url) return null

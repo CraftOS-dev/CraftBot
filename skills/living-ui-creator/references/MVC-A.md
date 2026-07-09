@@ -4,29 +4,63 @@ The Living UI pattern for building agent-aware web applications.
 
 ## The Pattern
 
+The APP is four layers (MVC-A). The AGENT is not a layer of the app — it
+is CraftBot, an external process, and it reaches the app through ONE tool:
+the `livingui` CLI.
+
 ```
+CRAFTBOT AGENT                     (external — never part of the app)
+    │
+    │  run_shell: livingui <project> ...
+    ▼
+livingui CLI                       (the agent's ONLY way to operate a
+    │                               running Living UI)
+    ├── select/insert/sql…  ──────► the app's database (works even stopped)
+    ├── api / run / snapshot ─────► the app's backend over HTTP
+    └── restart / status ────────► the CraftBot platform (lifecycle)
+    ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  M - MODEL (Backend + SQLite)                               │
-│  Source of truth. Persists data. Exposes REST API.          │
+│  THE LIVING UI APP                                          │
+│                                                             │
+│  M - MODEL (schema.json → engine → SQLite + REST CRUD)      │
+│  Source of truth. Persists data. Generated API.             │
 ├─────────────────────────────────────────────────────────────┤
 │  V - VIEW (React Frontend)                                  │
 │  Stateless UI. Renders data. Captures user input.           │
 ├─────────────────────────────────────────────────────────────┤
-│  C - CONTROLLER (AppController)                             │
+│  C - CONTROLLER (useEntities / AppController)               │
 │  Orchestrates. Calls APIs. Manages local state cache.       │
 ├─────────────────────────────────────────────────────────────┤
-│  A - AGENT (HTTP API Layer)                                 │
-│  GET /api/ui-snapshot - Observe UI state                    │
-│  GET /api/ui-screenshot - Visual observation                │
-│  POST /api/action - Trigger actions                         │
+│  A - AGENT INTERFACE (the app's HTTP surface FOR the agent) │
+│  GET /api/ui-snapshot     - Observe UI state                │
+│  GET /api/ui-screenshot   - Visual observation              │
+│  GET/PUT /api/state       - Application data                │
+│  POST /api/action         - Trigger named actions           │
+│  (system_routes.py — built into every app, never edited)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
+Read it top-down: the agent invokes the CLI; the CLI talks to the app's
+database, its HTTP endpoints (generated CRUD, custom ops, and the A-layer
+routes), or the platform. The A layer is NOT the agent — it is the part of
+the app that exists so an agent can observe and drive it.
+
+## The Model is DECLARED, not coded
+
+Entities live in `config/schema.json`; the backend engine materializes the
+SQLAlchemy models and a full REST CRUD API per entity (list with filters +
+ordering, get, create, update, delete, bulk) at startup. `GET
+/api/_meta/schema` returns the schema and generated routes. Hand-written
+code is only for BEHAVIOR: custom endpoints in `routes.py`, declared as ops
+in `config/operations.json`.
+
 ## Agent Communication Protocol
 
-**All agent communication uses HTTP** - no WebSocket required.
+**All agent communication uses HTTP** (via the CLI) - no WebSocket required.
 
-### Standard Agent Endpoints
+### The A Layer: Standard Agent-Interface Endpoints
+
+Built into every app by `system_routes.py` (system-managed — never edit):
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -35,7 +69,9 @@ The Living UI pattern for building agent-aware web applications.
 | `/api/ui-snapshot` | GET | Get UI state (DOM, text, inputs) |
 | `/api/ui-screenshot` | GET | Get UI screenshot (PNG base64) |
 | `/api/action` | POST | Trigger named action |
-| `/api/items` | GET/POST | CRUD operations |
+
+Entity CRUD is NOT listed here because it is generated per entity from
+`config/schema.json` (`/api/<plural>` + bulk/search/stats).
 
 ### UI Snapshot (GET /api/ui-snapshot)
 
@@ -78,8 +114,9 @@ Returns a screenshot of the current UI:
 livingui <project> run <op> --param value
 ```
 
-Built-in actions: `reset`, `increment`, `decrement`
-Custom actions can be added in `routes.py`.
+Built-in actions: `reset`, `increment`, `decrement`.
+App-specific verbs are real endpoints in `routes.py`, declared as ops in
+`config/operations.json`.
 
 ---
 
@@ -106,27 +143,35 @@ Custom actions can be added in `routes.py`.
 - **Medium:** Multiple components, forms, lists
 - **Complex:** Multi-view, navigation, rich interactions
 
-### Controller Layer (AppController)
+### Controller Layer (useEntities / AppController)
 
-**ALWAYS NEEDED** - manages state flow between View and Model:
-- Fetches data from backend
-- Handles user actions
-- Updates local state cache
+The standard controller is PROVIDED: `useEntities<T>(plural, filters)` from
+`services/data.ts` handles fetch/create/update/remove with auto-refresh —
+most apps need nothing more. `AppController.ts` is OPTIONAL, for
+app-specific orchestration beyond entity CRUD (multi-step flows, cross-
+component coordination, custom-endpoint calls via ApiService).
 
-### Agent Layer (HTTP APIs)
+### Agent Interface Layer (A)
 
-**ALWAYS AVAILABLE** - The standard endpoints are built-in:
+**ALWAYS AVAILABLE** - the standard endpoints are built-in via
+`system_routes.py`; the agent never has to build its own access:
 - `/api/ui-snapshot` - Automatic UI state capture
 - `/api/ui-screenshot` - On-demand screenshots
 - `/api/state` - Application data
 - `/api/action` - Trigger actions
 
+Imported (external) apps get `/api/ui-snapshot` and `/api/ui-screenshot`
+too — served by the platform's sidecar proxy, which injects the capture
+script into the app's HTML without touching its source. Their `/api/state`
+and `/api/action` equivalents are whatever ops the importer declared in
+`config/operations.json`.
+
 ---
 
 ## Architecture Decision Matrix
 
-| App Type | Database | Backend API | Frontend | Agent APIs |
-|----------|----------|-------------|----------|------------|
+| App Type | Database | Backend API | Frontend | Agent Interface |
+|----------|----------|-------------|----------|-----------------|
 | Todo/Task list | ✓ | ✓ | ✓ | ✓ (built-in) |
 | Dashboard (live data) | ✓ | ✓ | ✓ | ✓ |
 | Calculator | - | - | ✓ | ✓ |
@@ -184,11 +229,13 @@ def get_weather():
     return response.json()
 ```
 
-**Best for:** External APIs, API keys, caching needed
+**Best for:** External APIs, API keys, caching needed. Data from
+CraftBot-connected services (GitHub, Google, Slack, ...) goes through
+`services/integration_client.py` — see INTEGRATIONS.md.
 
 ### Option B: Agent-Fetched Data
 
-Agent fetches data and posts to Living UI via API.
+Agent fetches data and pushes it into the Living UI:
 
 ```
 # Agent fetches external data, then pushes it into the Living UI
@@ -205,20 +252,25 @@ livingui <project> api PUT /api/state --data '{"data": {"weather": {"temp": 72}}
 
 | File | Responsibility |
 |------|----------------|
-| `models.py` | SQLAlchemy models, data schema |
-| `routes.py` | REST API endpoints (including agent APIs) |
-| `database.py` | DB connection (rarely edit) |
-| `main.py` | FastAPI app setup (rarely edit) |
+| `config/schema.json` | THE data layer — entities are declared here |
+| `engine.py` | schema.json → models + CRUD API (SYSTEM — never edit) |
+| `models.py` | Re-exports engine + system models (SYSTEM — never edit) |
+| `system_routes.py` | The A layer: /state /action /ui-* (SYSTEM — never edit) |
+| `routes.py` | CUSTOM behavior endpoints ONLY — edit this |
+| `database.py` | DB connection, .env DATABASE_URL (SYSTEM — never edit) |
+| `main.py` | FastAPI app setup (SYSTEM — never edit) |
 
 ### Frontend Files
 
 | File | Responsibility |
 |------|----------------|
-| `AppController.ts` | State management, API calls |
-| `types.ts` | TypeScript interfaces |
-| `components/` | React UI components |
-| `services/UICapture.ts` | UI snapshot/screenshot capture |
-| `services/ApiService.ts` | Backend API client |
+| `types.gen.ts` | GENERATED entity types — import, never edit |
+| `types.ts` | App-specific NON-entity types only |
+| `services/data.ts` | Generic CRUD client + useEntities (SYSTEM — use, never edit) |
+| `services/ApiService.ts` | Client for CUSTOM endpoints only |
+| `services/UICapture.ts` | UI snapshot/screenshot capture (SYSTEM) |
+| `AppController.ts` | OPTIONAL app-specific orchestration |
+| `components/` | React UI components — edit/add here |
 
 ### Data Flow
 
@@ -227,49 +279,62 @@ User Action
     ↓
 React Component
     ↓
-AppController.method()
+useEntities.create/update/remove   (entity CRUD — the standard path)
+  or AppController → ApiService    (custom endpoints only)
     ↓
-ApiService.call()
+Backend Route (generated CRUD, or routes.py)
     ↓
-Backend Route
-    ↓
-SQLite Database
+Database
     ↓
 Response flows back up
 
 On meaningful events (state changes, user interactions):
-UICapture → POST /api/ui-snapshot → Agent can GET
+UICapture → POST /api/ui-snapshot → agent reads via `livingui snapshot`
 ```
 
 ---
 
-## Quick Reference: Agent API Usage
+## The CLI (how agents actually operate the app)
 
-Replace `PORT` with the backend port from `config/manifest.json`.
+Everything above is reachable through ONE tool: `livingui`. Agents never
+curl, never open the DB, never start servers by hand.
+
+Universal built-ins (work on EVERY Living UI, no declaration needed):
+
+| Command | Purpose |
+|---|---|
+| `livingui <project> --help` | The app's tables, declared ops, commands |
+| `select/count/insert/update/delete/sql` | Direct data plane (works even when the app is stopped) |
+| `schema` | Tables + columns as they exist on disk |
+| `api GET /api/...` | Call any backend endpoint |
+| `run <op> --params-file p.json` | Execute a declared operation |
+| `jobs` / `job <id>` | Long-running op status |
+| `ui` / `snapshot` / `screenshot` | Observe the running UI |
+| `status` / `logs --tail 50` / `restart` / `migrate` | Lifecycle + diagnostics |
+
+App-specific verbs come from `config/operations.json` (see the executor
+recipes in that file). The contract: **what is declared there IS the app's
+control surface** — an undeclared capability does not exist for any future
+agent. CRUD never needs an op; the data commands and generated REST cover
+every schema entity automatically.
+
+## Quick Reference: Operating an App
 
 ```bash
-# Get UI state
-curl http://localhost:PORT/api/ui-snapshot
+# Get UI state (what the user sees)
+livingui <project> snapshot
 
-# Get screenshot
-curl http://localhost:PORT/api/ui-screenshot
+# Get a screenshot (then view it with describe_image)
+livingui <project> screenshot --out shot.png
 
-# Get app data
-curl http://localhost:PORT/api/state
+# Get / update the generic app state
+livingui <project> api GET /api/state
+livingui <project> api PUT /api/state --data '{"data": {"key": "value"}}'
 
-# Update app data
-curl -X PUT http://localhost:PORT/api/state \
-  -H "Content-Type: application/json" \
-  -d '{"data": {"key": "value"}}'
+# Trigger a named action / declared op
+livingui <project> run reset
 
-# Trigger action
-curl -X POST http://localhost:PORT/api/action \
-  -H "Content-Type: application/json" \
-  -d '{"action": "reset"}'
-
-# CRUD items
-curl http://localhost:PORT/api/items
-curl -X POST http://localhost:PORT/api/items \
-  -H "Content-Type: application/json" \
-  -d '{"title": "New Item"}'
+# Entity CRUD (any schema entity, running or stopped)
+livingui <project> select cards --where '{"status": "open"}'
+livingui <project> insert cards --file rows.json
 ```

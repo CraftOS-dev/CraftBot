@@ -4,7 +4,7 @@
 
 ## 1. Build Verification
 
-### 1.1 Backend Compiles
+### 1.1 Backend Compiles (read-only check, safe to run)
 ```bash
 cd backend && python -c "from models import *; from routes import *; print('Backend OK')"
 ```
@@ -12,16 +12,14 @@ cd backend && python -c "from models import *; from routes import *; print('Back
 - [ ] No import errors
 - [ ] No syntax errors
 
-### 1.2 Frontend Builds
-```bash
-npm run build
-```
-- [ ] Command exits with **code 0** (not just "ran")
-- [ ] No TypeScript errors
-- [ ] No compilation warnings that indicate bugs
-- [ ] `dist/` folder is created
+### 1.2 Frontend Type-Clean
+You do NOT run `npm run build` manually — `living_ui_validate` builds the
+frontend, and every write already returned the complete tsc error list.
+- [ ] The LAST write-result feedback reported zero TYPE ERRORS
+- [ ] No react-hooks lint findings left unfixed
 
-**If build fails:** Read the error message carefully. Fix ALL errors. Rebuild. Repeat until success.
+**If validation's build step fails:** fix ALL the errors it lists, then
+validate again.
 
 ## 2. Functional Verification
 
@@ -50,9 +48,8 @@ This is **critical**. Test this flow:
 - [ ] No data loss occurs
 
 **If state is lost:** Your backend integration is broken. Check:
-- Is AppController calling backend APIs?
-- Are routes saving to database?
-- Is `db.commit()` being called?
+- Do components read via `useEntities`/`data` (not local-only useState)?
+- Are custom routes saving to the database (`db.commit()` called)?
 
 ## 3. UI/UX Verification
 
@@ -88,8 +85,9 @@ This is **critical**. Test this flow:
 ## 4. Error Handling Verification
 
 ### 4.1 No Console Errors
-Open browser dev tools (F12) → Console tab:
-- [ ] No red error messages
+Read `backend/logs/frontend_console.log` (the platform captures the
+browser console — validation's runtime.logs step reads it too):
+- [ ] No ERROR entries
 - [ ] No unhandled promise rejections
 - [ ] No "undefined" or "null" errors
 - [ ] No CORS errors
@@ -151,28 +149,27 @@ Ask yourself:
 ### 8.1 Ready to Notify
 Before calling `living_ui_notify_ready`:
 - [ ] ALL above sections pass
-- [ ] Build succeeded (exit code 0)
-- [ ] Tested in browser manually
-- [ ] No dev server left running
+- [ ] `living_ui_validate` PASSED (notify_ready refuses without it)
+- [ ] Design self-review PASSED (references/DESIGN_REVIEW.md)
 
 ### 8.2 Correct Parameters
-- [ ] `project_id` is from task instruction (NOT task session ID)
-- [ ] `port` matches `config/manifest.json`
-- [ ] `url` is correctly formatted
+- [ ] `project_id` is from task instruction (NOT task session ID) — the
+      only parameter notify_ready takes
 
 ---
 
 ## Quick Verification Commands
 
 ```bash
-# 1. Verify backend
+# 1. Verify backend imports (read-only)
 cd backend && python -c "from models import *; from routes import *; print('OK')"
 
-# 2. Build frontend
-npm run build
+# 2. Inspect what the user sees / recent runtime errors
+livingui <project> snapshot
+livingui <project> logs --tail 50
 
-# 3. Check build succeeded
-echo $?  # Should print 0
+# 3. Everything else: living_ui_validate runs install/tests/build/smoke/
+#    runtime-logs/design and returns the complete error list
 ```
 
 ## Common Issues & Fixes
@@ -183,9 +180,9 @@ echo $?  # Should print 0
 - Rebuild
 
 ### State lost on refresh
-- Check AppController.initialize() fetches from backend
+- Check components read via useEntities/data (not local-only state)
 - Check routes call db.commit() after changes
-- Check models have to_dict() method
+- Check entities are declared in config/schema.json (models are generated)
 
 ### UI looks broken
 - Check CSS imports in components

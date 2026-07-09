@@ -14,12 +14,25 @@ Import any external app into CraftBot's Living UI system. The app gets lifecycle
 ## Workflow
 
 1. **Detect** — Analyze the app source to determine runtime, build, and start commands
-2. **Configure** — Generate the launch configuration
+2. **Configure** — Generate the launch configuration; find where the app
+   stores its data (`data_config`)
 3. **Import** — Call `living_ui_import_external` to register the project
-4. **Launch** — Run `living_ui_validate` until it passes, then `living_ui_notify_ready` (or let the user launch from the UI)
-5. **Document** — Create LIVING_UI.md describing the app
-6. **Construct the CLI** — Create config/operations.json (+ wrapper scripts if
-   needed) so the app is fully operable via `livingui`; verify with `--help`
+4. **Document** — Create LIVING_UI.md describing the app
+5. **Construct the CLI** — Create config/operations.json (+ wrapper scripts if
+   needed) so the app is fully operable via `livingui`; mark read-only ops
+   `"safe": true`
+6. **Launch** — Run `living_ui_validate` until it passes, then
+   `living_ui_notify_ready`. Validation ENFORCES steps 4–5: it refuses the
+   import unless LIVING_UI.md exists, operations are declared, and every op
+   marked `"safe": true` executes successfully against the running app
+   (at least one is required).
+
+What the platform gives every imported app for free (via the sidecar proxy —
+never modify the app's source for these): `livingui <project> snapshot` /
+`screenshot` (UI observation), frontend console capture to
+`logs/frontend_console.log`, health checks, lifecycle (`status/logs/restart`),
+and `api` passthrough. Your job is ONLY the parts that need code
+understanding: the ops manifest, the data declaration, and the docs.
 
 ## Step 1: Detect App Type
 
@@ -75,6 +88,22 @@ Check in this order:
 | Non-web app (background service) | `process_alive` | Just check if process is running |
 | TCP service | `tcp` | Check if port is listening |
 
+## Step 3.5: Find the App's Data Store (data_config)
+
+While reading the code, find where the app persists data — this powers the
+CLI's data commands (`select`, `count`, `sql`, `schema`) on the imported app:
+
+- **SQLite file** (most common in self-hosted apps): pass
+  `data_config={"sqlite": "relative/path/to.db"}` (relative to the project
+  root after import). Check the README, config files, and code for the path.
+- **External DB URL** (Postgres/MySQL): `data_config={"url": "postgresql://..."}`
+- **Writable?** Default is READ-ONLY — safe. Only add `"writable": true` if
+  you verified the app tolerates external writes (simple schema, no in-memory
+  cache that would go stale). When in doubt, leave read-only and expose writes
+  as declared ops through the app's own API instead.
+- **No inspectable store** (flat files, proprietary format)? Omit data_config
+  and expose reads via ops.
+
 ## Step 4: Call the Import Action
 
 ```
@@ -89,6 +118,7 @@ living_ui_import_external(
     health_url="http://localhost:{{PORT}}",
     port_env_var="",
     project_id="<the project_id from the task instruction, if provided>",
+    data_config={"sqlite": "data/glance.db"},
 )
 ```
 
@@ -110,11 +140,12 @@ After importing, create a `LIVING_UI.md` in the project directory documenting:
 ## Step 6: Construct the App's CLI Interface (MANDATORY)
 
 Every Living UI is operated later through the `livingui` CLI
-(`livingui <project> --help` → tables + operations). Imported third-party
-apps have no managed database, so **the operations you declare in
-`config/operations.json` ARE the app's entire CLI — without them the user
+(`livingui <project> --help` → tables + operations). For imported
+third-party apps the control surface is what YOU construct: the declared
+`data_config` powers the data commands, and **the operations you declare in
+`config/operations.json` ARE the app's verbs — without them the user
 can see the app but no agent can ever operate it. An import without a
-constructed CLI interface is a FAILED import.**
+constructed CLI interface is a FAILED import** (validation enforces this).
 
 Build it in three steps:
 
@@ -123,10 +154,13 @@ Build it in three steps:
    want automated: create/list/export its core objects, rebuild, sync,
    backup, report.
 2. **Map each function to an executor:**
-   - **FastAPI backend?** Launch it once, then `livingui <project> ops-sync
-     --write` generates the ops from its OpenAPI — curate descriptions and
-     run `ops-check`. Only hand-author what the generator can't see.
-   - **REST API** → `http` executors for its endpoints
+   - **App serves an OpenAPI/Swagger spec?** (FastAPI, Express+swagger,
+     Spring, ...) Launch it once, then `livingui <project> ops-sync --write`
+     — it probes the standard spec locations (`/openapi.json`,
+     `/swagger.json`, `/v3/api-docs`, ...); use `--openapi-url <URL>` for
+     non-standard ones. Curate descriptions and run `ops-check`. Only
+     hand-author what the generator can't see.
+   - **REST API without a spec** → `http` executors for its endpoints
    - **Its own CLI / build tools** → `shell` executors (declared command with
      `{param}` placeholders; `"mode": "job"` for anything over ~60s). Prefer
      `cli-anything-<app>` harness commands for desktop apps.
@@ -136,8 +170,11 @@ Build it in three steps:
      part of the import, not optional polish.
    - **Config-file driven** → declare a `reload`/`apply` op if the app has one
 3. **Minimum viable CLI** — every import must declare at least:
-   a `status`-style read op (or document the health URL), the app's 2–5 core
-   domain verbs, and any export/backup capability it has.
+   a `status`-style read op, the app's 2–5 core domain verbs, and any
+   export/backup capability it has. Mark every READ-ONLY op `"safe": true`
+   (with param defaults that make it runnable as-is) — validation executes
+   the safe ops end-to-end and REFUSES the import if none exist or any
+   fails. Never mark side-effecting ops safe.
 
 Format spec: `skills/living-ui-creator/references/OPERATIONS.md`. Example for
 an imported static-site generator:
@@ -145,6 +182,12 @@ an imported static-site generator:
 ```json
 {
   "operations": {
+    "list_posts": {
+      "description": "List the site's content files with dates and titles",
+      "params": {},
+      "executor": {"type": "shell", "cmd": "hugo list all", "timeout": 60},
+      "safe": true
+    },
     "rebuild_site": {
       "description": "Rebuild the static site after content changes",
       "params": {},
@@ -154,10 +197,13 @@ an imported static-site generator:
 }
 ```
 
-**Verify before finishing**: run
-`livingui <project_id> --help` via run_shell — the
-OPERATIONS section must cover the app's main functions — then fire one safe
-read-style op end-to-end. Only then is the import complete.
+**Verify before finishing**: `living_ui_validate` runs these gates for real
+(LIVING_UI.md present, ops declared, safe ops executed against the running
+app) and returns step `import.adoption` with exact errors if any fail. Also
+run `livingui <project_id> --help` via run_shell — the OPERATIONS section
+must cover the app's main functions — and `livingui <project_id> select
+<table> --limit 3` if you declared a data_config. Only then is the import
+complete.
 
 ## Examples
 

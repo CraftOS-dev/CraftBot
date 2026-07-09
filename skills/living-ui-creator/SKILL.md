@@ -1,6 +1,6 @@
 ---
 name: living-ui-creator
-description: Create custom Living UI applications with backend-first architecture. Scaffolds, develops, tests, and launches dynamic web apps with persistent state.
+description: Create custom Living UI applications with a declared (schema-driven) backend. Scaffolds, develops, tests, and launches dynamic web apps with persistent state.
 action-sets:
   - file_operations
   - code_execution
@@ -13,7 +13,10 @@ Create interactive web applications that persist state and survive page reloads.
 
 ## Architecture Overview
 
-Living UI uses a **backend-first, stateless frontend** pattern:
+Living UI uses a **declared backend, stateless frontend** pattern —
+the backend is CONFIGURATION, not code: entities go in config/schema.json
+and a pre-tested engine materializes the models and REST CRUD API. You
+hand-write only custom behavior endpoints and the frontend.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -33,6 +36,25 @@ Living UI uses a **backend-first, stateless frontend** pattern:
 ```
 
 **Key Principle**: Frontend is a dumb view. Backend owns all state.
+
+## Reference Index (read the right file BEFORE acting)
+
+SKILL.md is the workflow; the details live in references/. When a step
+touches a topic below, READ that file first — do not improvise from
+memory:
+
+| When you are about to... | Read |
+|---|---|
+| Declare entities / query the generated API / use files, schedules, secrets, AI, Supabase | [BACKEND.md](references/BACKEND.md) |
+| Write ANY frontend component (exact preset props, layout kit, styling, theming) | [COMPONENTS.md](references/COMPONENTS.md) |
+| Write schema/route/test/component code (copy-paste patterns) | [EXAMPLES.md](references/EXAMPLES.md) |
+| Call external services (Google, Slack, Discord...) or in-app AI | [INTEGRATIONS.md](references/INTEGRATIONS.md) |
+| Declare/curate the app's operations or schedules | [OPERATIONS.md](references/OPERATIONS.md) |
+| Add login / multiple users | [Auth module README](../../data/living_ui_modules/auth/README.md) |
+| Decide which layer owns a behavior | [MVC-A.md](references/MVC-A.md) |
+| Run the Phase 10 design self-review | [DESIGN_REVIEW.md](references/DESIGN_REVIEW.md) |
+| Judge whether the app is "done" | [STANDARDS.md](references/STANDARDS.md), [VERIFY.md](references/VERIFY.md) |
+| Debug a failure (logs, common errors) | [TROUBLESHOOTING.md](references/TROUBLESHOOTING.md) |
 
 ## Architecture Decision
 
@@ -54,6 +76,62 @@ Before coding, determine what your app needs:
 **Default:** Most apps need all layers (DB + Backend + Frontend).
 **Agent APIs are built-in** - no extra work needed.
 
+## The Backend Is Declared, Not Coded (MANDATORY)
+
+Declare every entity in `config/schema.json`; the engine materializes the
+models AND the full REST API per entity — list (filters, `?q=` search,
+range filters, orderBy/limit/offset), create/bulk, get/update/delete,
+`/_stats` aggregations, `/api/_meta/schema`. You NEVER write models.py or
+CRUD routes. Automatic per entity: `id`, `createdAt`, `updatedAt` (never
+declare them); camelCase wire format.
+
+```json
+{
+  "entities": {
+    "Card": {
+      "fields": {
+        "title": {"type": "string", "required": true},
+        "status": {"type": "enum", "values": ["todo", "done"], "default": "todo"},
+        "dueDate": {"type": "datetime"},
+        "columnId": {"type": "ref", "entity": "BoardColumn", "required": true}
+      }
+    }
+  }
+}
+```
+
+Field types: string, text, integer, float, boolean, datetime, json, ref,
+enum (+ `"unique": true`). Full field spec, the complete generated API
+surface, and the query params: **references/BACKEND.md**.
+
+**`routes.py` is for BEHAVIOR only** (multi-entity transactions, computed
+aggregations, external fetches) — Pydantic bodies always, one-line
+docstrings, paths WITHOUT `/api`. See references/EXAMPLES.md.
+
+Hard rules (details + recipes in references/BACKEND.md):
+- **Every entity needs a WORKING INGRESS** — user forms, bridge pull
+  from a connected service (+ a scheduled sync op), file import, or
+  computed. Inbound webhooks are NOT an ingress (the app runs on
+  localhost; external services can never reach it). External-data apps
+  MUST build the bridge pull — an app that can never contain data is a
+  failed build.
+- **Dependencies are the PLATFORM's job** — NEVER run `npm install`/`pip
+  install`; early "Cannot find module" notes on template deps mean the
+  platform install is still running (a second npm CORRUPTS node_modules).
+  New packages: add to package.json/requirements.txt.
+- **Schema renames/removals are SAFE** — the platform reconciles the DB;
+  never hand-edit or delete living_ui.db.
+- **File storage is built in** — system `/api/files` routes +
+  `<FileUpload>`/`<ImageInput>` presets; never hand-roll uploads.
+- **Ops can run on a schedule** — `"schedule": "every 15m" | "hourly" |
+  "daily 09:00"` in operations.json (references/OPERATIONS.md).
+- **Secrets live ONLY in backend/.env** — `services/secrets.get_secret`;
+  never hardcoded, never echoed. Stripe/payments recipe: BACKEND.md.
+- **In-app AI is one call** — `await integration.llm(prompt)` /
+  `.describe_image(url)` (references/INTEGRATIONS.md).
+- **External database (Supabase/Postgres)** — one line in backend/.env:
+  `DATABASE_URL=postgresql://...`; full recipe + safety rules: BACKEND.md.
+
 See [MVC-A.md](references/MVC-A.md) for detailed architecture guidance.
 
 ## Multi-User / Auth Support
@@ -66,76 +144,42 @@ If the app needs multiple users, login, teams, or shared data:
 
 ## Directory Structure
 
-```
-project_root/
-├── backend/                    # Python FastAPI backend
-│   ├── main.py                 # FastAPI app entry point (rarely edit)
-│   ├── models.py               # SQLAlchemy models - EDIT THIS for data
-│   ├── routes.py               # API endpoints - EDIT THIS for actions
-│   ├── database.py             # DB connection (rarely edit)
-│   └── living_ui.db            # SQLite database (auto-created)
-│
-├── frontend/                   # React TypeScript frontend
-│   ├── main.tsx                # Entry point (rarely edit)
-│   ├── App.tsx                 # Main app component
-│   ├── AppController.ts        # State management & backend communication
-│   ├── types.ts                # TypeScript interfaces - EDIT THIS
-│   ├── components/             # React components - EDIT/ADD HERE
-│   │   ├── ui/                 # Pre-built UI components (USE THESE)
-│   │   │   └── index.tsx       # Button, Card, Input, Modal, etc.
-│   │   └── MainView.tsx        # Main UI component
-│   ├── services/               # API & UI capture (rarely edit)
-│   │   ├── ApiService.ts       # Backend API client
-│   │   └── UICapture.ts        # UI snapshot/screenshot for agent
-│   └── styles/global.css       # CraftBot design tokens
-│
-├── config/manifest.json        # Project metadata (port info here)
-├── index.html
-├── package.json
-├── vite.config.ts
-└── LIVING_UI.md                # Project documentation - UPDATE THIS
-```
+The full annotated tree lives in **references/BACKEND.md**. The files YOU
+edit: `config/schema.json` (entities), `backend/routes.py` (custom
+behavior), `backend/tests/`, `frontend/components/` + `MainView.tsx`,
+`config/operations.json` (via ops-sync), `LIVING_UI.md`. Everything marked
+SYSTEM is never edited.
 
 ## UI Components (MANDATORY)
 
-Use preset components for ALL standard UI elements — `Button`, `Card`, `Input`, `Modal`, `Alert`, `Table`, etc.
-Do NOT create custom buttons, inputs, cards, or write custom CSS for standard elements.
-
-The page itself is built from the **Layout Kit** (same import): `AppShell`,
-`Section`, `CardGrid`, `EmptyState`, `SkeletonCard`, `SkeletonRow`,
-`Toolbar`, `IconBadge`, `StatCard`, `SplitView`. Never hand-roll page scaffolding (gutters, max-width,
-headers, section spacing) — the kit owns it.
+Use preset components for ALL standard UI elements; the page itself is
+built from the Layout Kit (`AppShell`, `Section`, `CardGrid`, and the
+Skeleton shape set: Box/Circle/Text/Chip/Card/Row/Stack — all adaptive,
+never px-sized).
+Never hand-roll buttons/inputs/cards/page scaffolding.
 
 ```typescript
-import { Button, Card, Input, Alert, Table, Modal } from './components/ui'
-import { AppShell, Section, CardGrid, EmptyState, SkeletonCard } from './components/ui'
+import { Button, Input, Modal, EntityForm, EntityTable, toast,
+         AppShell, Section, CardGrid, EmptyState, SkeletonCard } from './components/ui'
 ```
 
-**EXACT prop names (do NOT guess — wrong props fail the TS build at validation):**
-
-| Component | Props |
-|---|---|
-| `Button` | `variant`('primary'\|'secondary'\|'danger'\|'ghost'), `size`, `loading`, `fullWidth`, `icon`, `disabled`, `onClick` |
-| `Input` | `label?`, `error?`, `hint?` + native input props (`value`, `onChange`, `placeholder`, ...) |
-| `Select` | `label?`, `error?`, `hint?`, `options: {value,label}[]`, `placeholder?` |
-| `Toggle` | `checked`, `onChange:(checked)=>void`, `label?`, `disabled?` |
-| `Card` | `children`, `padding?`('none'\|'sm'\|'md'\|'lg') — NO `title` prop; put headings in children |
-| `Alert` | `variant`, `title?`, `children`, `onClose?` |
-| `Badge` | `children`, `variant?`, `size?`, `dot?` |
-| `Modal` | `open` (NOT `isOpen`), `onClose`, `title?`, `children`, `footer?`, `size?` |
-| `Table` | `columns: TableColumn[]`, `data`, `emptyMessage?`, `onRowClick?`, `rowKey?` |
-| `EmptyState` | `icon?`, `title?`, `message` (NOT `description`), `action?` (one ReactNode) |
-| `Tabs` | `children`, `defaultTab?`, `onChange?` |
-| `AppShell` | `sidebar?`, `children`, `maxWidth?` — NO header prop |
-| `Section` | `title?`, `meta?`, `actions?`, `children` |
-| `CardGrid` | `children`, `minWidth?` |
-| `SkeletonCard` | `count?`, `height?` — `SkeletonRow`: `count?` |
-| `Toolbar` | `children`, `end?` (right-aligned group) — one row of controls |
-| `IconBadge` | `icon` (lucide element), `color?`, `size?` — colored icon holder |
-| `StatCard` | `icon?`, `value`, `label`, `color?` — icon + big number + label |
-| `SplitView` | `children` (main), `aside`, `asideWidth?` — main + side column |
-
-See [COMPONENTS.md](references/COMPONENTS.md) for full reference, icons (lucide-react), and toasts (react-toastify).
+- **Read references/COMPONENTS.md → "Exact Props Cheat-Sheet" BEFORE
+  writing any component** — wrong/guessed props fail the TS build at
+  validation. It lists every preset (forms, tables, overlays, charts,
+  uploads, hooks) with exact prop names.
+- **Schema-aware presets FIRST**: `<EntityForm entity="Card"/>` IS the
+  create/edit form; `<EntityTable entity="Card" searchable pageSize={25}/>`
+  IS the data table; `useConfirm()` (never browser confirm), `toast` on
+  every mutation.
+- **Accent discipline**: the orange accent = ONE primary action per view +
+  active states only; vary dashboards with semantic colors
+  (COMPONENTS.md → Accent Discipline).
+- **The HOST owns theming**: never render a theme picker/style switcher/
+  dark-mode toggle in the app; `setDefaultStyle('glass')` at the top of
+  App.tsx is the only theming call allowed (COMPONENTS.md → Style Packs).
+- **Style with token-mapped Tailwind utilities** (`bg-surface`, `text-ink`,
+  `border-line`, `rounded-token`, ...) — never hardcode colors/radius/
+  shadow/spacing; class map in COMPONENTS.md → Styling with Tailwind.
 
 ## Agent API (Built-in)
 
@@ -176,12 +220,12 @@ and an absolute `project_path`. There are two cases:
 
 **CRITICAL — file path rule (applies to ALL phases):**
 - Treat `project_path` as the base for **every** file operation. The relative paths in
-  this skill (`backend/models.py`, `frontend/components/`, `LIVING_UI.md`, etc.) are
+  this skill (`config/schema.json`, `frontend/components/`, `LIVING_UI.md`, etc.) are
   relative to `project_path`.
 - When calling `write_file`, `read_file`, or running tests, use the **absolute path**:
-  `{project_path}/backend/models.py`, `{project_path}/frontend/components/MainView.tsx`,
+  `{project_path}/config/schema.json`, `{project_path}/frontend/components/MainView.tsx`,
   `cd {project_path}/backend && python -m pytest tests/`.
-- **NEVER write to bare relative paths** like `backend/models.py` — they land in the
+- **NEVER write to bare relative paths** like `config/schema.json` — they land in the
   CraftBot process directory, scattering files at the wrong root and breaking launch.
 
 ### Before You Start: Read and Apply Global Config
@@ -273,15 +317,30 @@ There is NO page header: the page starts directly with its content
 Sections — no title band.
 
 1. **Rewrite `frontend/components/MainView.tsx` as a TEXTLESS kit assembly**:
-   `<AppShell>` with one `<Section>` per planned
-   region (NO `title`/`meta`), each holding `Skeleton*` blocks ARRANGED TO
-   MATCH that component's intended shape — a tabs row books a thin
-   `<SkeletonRow count={1} />`, a card grid books `<CardGrid><SkeletonCard
-   count={6} /></CardGrid>`, a stats strip books a row of short skeleton
-   blocks. The wireframe contains **NO text, NO titles, NO labels, NO
-   interactive elements** — it purely covers each component's area and
-   general layout. Sidebar layouts use AppShell's `sidebar` prop with
-   skeleton blocks.
+   `<AppShell>` with one `<Section>` per planned region (NO `title`/`meta`),
+   each holding Skeleton presets ARRANGED TO MATCH that component's
+   intended shape. **Use ONLY these presets — the complete wireframe
+   vocabulary:**
+   - `SkeletonBox` (`ratio?`) — any rectangle: toolbar strip (`ratio={8}`),
+     chart area (`ratio={2}`), square tile (`ratio={1}`)
+   - `SkeletonCircle` (`size?`) — avatars, icon spots
+   - `SkeletonText` (`lines?`) — paragraph placeholder
+   - `SkeletonChip` (`count?`) — filter/tag pill row
+   - `SkeletonCard` (`count?`, `lines?`, `media?`) — content cards (in
+     `<CardGrid>`)
+   - `SkeletonRow` (`count?`) — list/table rows
+   - `SkeletonStack` — groups mixed shapes with consistent spacing
+   Examples: tabs row → `<SkeletonChip count={4} />`; card grid →
+   `<CardGrid><SkeletonCard count={6} /></CardGrid>`; stats strip →
+   `<CardGrid minWidth={160}><SkeletonBox count={4} ratio={2.5} /></CardGrid>`;
+   sidebar → AppShell's `sidebar` prop with `<SkeletonStack>` of rows.
+   **NEVER hand-make wireframe markup** — no custom divs with inline
+   styles, no `<style>` blocks, no px widths/heights, no DIY shimmer.
+   The presets are adaptive (they size from their container and cannot
+   overflow) and space themselves; custom markup is flagged at write time
+   and causes the overflow/stuck-together layouts that fail validation.
+   The wireframe contains **NO text, NO titles, NO labels, NO interactive
+   elements** — it purely covers each component's area and general layout.
 2. **The wireframe only BOOKS space — every part of it MUST be replaced.**
    Each Section's skeletons are replaced by the feature that owns that
    region, which also adds the real Section `title`/`meta`/`actions`
@@ -311,14 +370,18 @@ way you would in any codebase. There is **NO forced backend-then-frontend
 order** and no fixed action list — you decide how to sequence the work.
 What matters:
 
-- **READ before you write.** Read the files you're about to change
-  (`backend/models.py`, `backend/routes.py`, `frontend/AppController.ts`,
-  the component files) and `LIVING_UI.md` for project-specific notes;
-  follow the conventions already there.
+- **READ before you write.** Read `config/schema.json`, the files you're
+  about to change (`backend/routes.py`, `frontend/AppController.ts`, the
+  component files) and `LIVING_UI.md` for project-specific notes; follow
+  the conventions already there.
 - **Build INCREMENTALLY so the preview keeps changing.** Take one
   capability all the way to working — its data, endpoints, and UI —
   mounting each component as you write it, before moving to the next.
   Don't do all backend then all frontend.
+- **FIX WRITE-RESULT FEEDBACK IMMEDIATELY.** After every frontend code
+  write the platform runs the project's own `tsc --noEmit` and appends the
+  COMPLETE type-error list to your write result. Fix all of them in your
+  next step — type errors compound and every one will fail validation.
 - **RUN tests / lint / the build when it helps you** catch a problem early
   (find the project's commands first). You're not required to per
   capability — `living_ui_validate` runs the full suite at the end, so
@@ -328,25 +391,36 @@ What matters:
   updates. Renders-but-does-nothing is not done.
 
 The pieces a capability typically needs (adapt — a capability reusing
-existing models touches only the frontend ones):
+existing entities touches only the frontend ones):
 
-- **`backend/tests/test_*.py`** — tests for the endpoints. Routes declare
-  paths WITHOUT `/api`; tests call WITH `/api`. Assert camelCase (matching
-  `to_dict()`). Tests MUST NOT depend on live internet — external-fetch
+- **`config/schema.json`** — declare the capability's entities (see "The
+  Backend Is Declared"). This alone creates the models and the whole CRUD
+  API. Never declare `id`/`createdAt`/`updatedAt`.
+- **`backend/routes.py`** — ONLY if the capability needs behavior beyond
+  CRUD. Absolute imports, one-line docstrings, paths WITHOUT `/api`,
+  request bodies as Pydantic models (never a bare Dict — the smoke tests
+  probe endpoints from their OpenAPI schema). Declare the op in
+  `config/operations.json`.
+- **`backend/tests/test_*.py`** — tests for YOUR custom endpoints only
+  (generated CRUD is pre-tested). Tests call paths WITH `/api`; assert
+  camelCase. Tests MUST NOT depend on live internet — external-fetch
   endpoints degrade gracefully (return `{"fetched": 0}`-style, never 500);
   test the graceful path. NEVER seed fake/sample data to pass a test.
-- **`backend/models.py`** — read it first, then `write_file` the COMPLETE
-  updated file with your model added. NEVER append with `stream_edit`
-  anchors — end-of-file edits corrupt this file. No `metadata` column;
-  always a `to_dict()` returning ALL fields (camelCase).
-- **`backend/routes.py`** — same whole-file approach; absolute imports,
-  one-line docstrings, no `/api` prefix.
-- **`frontend/types.ts`** — interfaces matching `to_dict()` exactly.
-- **`frontend/AppController.ts`** — methods for the endpoints. Backend URL:
-  `const BACKEND_URL = (window as any).__CRAFTBOT_BACKEND_URL__ || 'http://localhost:3101'`
-- **`frontend/components/<Component>.tsx`** — FINAL form: real fetch calls
-  through the controller, real handlers on every control, empty states,
-  preset controls (real `Modal`/form — never `prompt()`/`confirm()`),
+- **Entity types are GENERATED** — `frontend/types.gen.ts` is regenerated
+  from schema.json on every schema write. Import from it
+  (`import type { Card } from '../types.gen'`); NEVER hand-write entity
+  interfaces. App-specific non-entity types go in types.ts.
+- **Data plumbing is PROVIDED** — `useEntities<Card>('cards', {filters})`
+  from `../services/data` gives items/loading/error + create/update/remove
+  with auto-refresh; `data.list/create/bulkCreate/update/remove` for
+  one-off calls. NEVER hand-write per-entity fetch methods in
+  ApiService/AppController; ApiService is only for CUSTOM endpoints.
+- **`frontend/components/<Component>.tsx`** — FINAL form: reach for the
+  schema-aware presets FIRST — `<EntityForm entity="Card" …/>` for every
+  create/edit form, `<EntityTable entity="Card" …/>` for data tables,
+  `useConfirm()` for confirmations, `SortableList` for drag-reorder —
+  then `useEntities`/`data` for custom layouts. Real handlers on every
+  control, empty states, preset controls (never `prompt()`/`confirm()`),
   scoped `<style>` block. The full flow ships WIRED; a capability spanning
   several components wires them together here.
 - **`frontend/components/MainView.tsx`** — import and mount the
@@ -368,10 +442,10 @@ apps with unmounted components or leftover Skeletons in MainView.
 
 After all features are live, review your code (by reading, NOT by running
 pytest — validation runs the suite):
-- Backend routes use **absolute imports** (`from models import ...` NOT `from . import ...`)
-- Backend `routes.py` does NOT add `/api` prefix to route paths
-- All `to_dict()` methods return all fields
-- TypeScript types match backend model output
+- Custom routes use **absolute imports** (`from models import ...` NOT `from . import ...`)
+- Custom `routes.py` paths do NOT add the `/api` prefix
+- Every custom route has a one-line docstring and an op in operations.json
+- TypeScript types match the schema's camelCase fields
 - Components import correctly from relative paths
 
 **DO NOT run:** `npm run dev`, `npm run build`, `npm run preview`, or `uvicorn` manually.
@@ -419,52 +493,18 @@ your code and you curate it:
 The launch pipeline enforces this: manifest errors (dead routes, undeclared
 path params, broken templates) BLOCK the launch with exact fixes; uncovered
 routes surface as warnings. Plain CRUD needs no ops — the CLI's built-in
-data commands cover every table automatically. Also give every list
-resource a bulk-create endpoint (`POST /api/{resource}/bulk` accepting a
-JSON array, inserting all rows in one transaction).
-
+data commands cover every schema entity automatically, and every entity
+already has a generated bulk endpoint (`POST /api/<plural>/bulk`).
 ### Phase 10: Review, Validate, then Launch (MANDATORY — three steps, in order)
 
 **Step 1 — Visual design self-review (look at your own app BEFORE validating).**
 
-While you build, the live preview continuously saves a screenshot of your
-app to `{project_path}/logs/design_preview.png`. LOOK at it before you
-spend a validation run:
-
-```
-describe_image(
-  image_path="{project_path}/logs/design_preview.png",
-  prompt="You are an experienced UI design reviewer looking at a screenshot
-of a web app that was JUST BUILT and has NO USER DATA YET. Your job is to
-find GENUINE DEFECTS — things a reasonable user would object to because
-they look broken, unfinished, or make the app hard to use — while
-respecting INTENTIONAL DESIGN DECISIONS. Before flagging anything, ask:
-'is this a bug, or is this a choice a competent designer plausibly made
-on purpose?' Conventional design patterns (visual hierarchy through
-muted/secondary styling, whitespace as breathing room, empty states in an
-app that has no data yet, restrained color palettes, de-emphasized
-metadata) are NOT defects. A region that is empty because the app is
-waiting for user content is fine IF it communicates that state; it is a
-defect only if it renders as broken or unexplained dead space. DO report:
-text clipped, cut off, or overlapping; elements colliding or misaligned;
-sections that render as raw/unstyled/broken; text genuinely unreadable
-against its background; controls that look unfinished or misplaced;
-inconsistency between elements that should look alike; a UI that reads as
-an unstyled wall of text with no visual structure, icons, or accents for
-its scope. For each defect: say WHERE it is, WHY it is a defect rather
-than a plausible design choice, and what a user would complain about.
-Verdict: PASS unless there are genuine defects — do not fail the app for
-defensible design decisions or for the absence of data it doesn't have
-yet."
-)
-```
-
-If the review lists a genuine defect: fix the layout/CSS/visual design,
-wait a moment for the preview screenshot to refresh, and re-review. Repeat
-until PASS. Trust the reviewer's decision/defect distinction — do not
-"fix" things it explicitly identified as plausible design choices. If
-`design_preview.png` does not exist (preview never open), skip this step —
-the platform's design gate still applies.
+While you build, the live preview saves a screenshot of your app to
+`{project_path}/logs/design_preview.png`. Run `describe_image` on it with
+the EXACT reviewer prompt from **references/DESIGN_REVIEW.md** (it encodes
+the defect-vs-design-decision distinction — do not ad-lib the prompt).
+Fix genuine defects, wait for the screenshot to refresh, re-review until
+PASS. If design_preview.png does not exist, skip this step.
 
 **Step 2 — `living_ui_validate(project_id=...)` until it PASSES.**
 
@@ -517,17 +557,6 @@ living_ui_notify_ready(project_id="<PROJECT_ID>") # only works after a pass
 
 When something goes wrong, read the log files and check [TROUBLESHOOTING.md](references/TROUBLESHOOTING.md).
 
-## Files Summary
-
-| File | Purpose | When to Edit |
-|------|---------|--------------|
-| `backend/models.py` | Database models | Define data entities |
-| `backend/routes.py` | API endpoints | Add CRUD operations |
-| `frontend/types.ts` | TypeScript types | Match backend models |
-| `frontend/components/` | UI components | Build the interface |
-| `frontend/AppController.ts` | State management | Connect UI to backend |
-| `LIVING_UI.md` | Documentation | Document your app |
-
 ## Quality & Completion
 
 See [STANDARDS.md](references/STANDARDS.md) for quality requirements and [VERIFY.md](references/VERIFY.md) for the pre-launch checklist.
@@ -540,7 +569,9 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 
 - NEVER write to bare relative paths (`backend/models.py`) — always use the absolute `{project_path}/...` so files land in the project, not the CraftBot root
 - NEVER skip Step 0 — you must have a registered `project_id`/`project_path` (from the task instruction or `living_ui_scaffold`) before writing any code
-- NEVER use `metadata` as a column name in SQLAlchemy
+- NEVER edit system-managed backend files: `models.py`, `engine.py`, `system_models.py`, `system_routes.py`, `database.py`, `main.py` — data lives in `config/schema.json`
+- NEVER hand-write CRUD models or routes — declare entities in `config/schema.json`; the engine generates both, pre-tested
+- NEVER declare `id`, `createdAt`, or `updatedAt` in schema.json — the engine provides them
 - NEVER use relative imports in backend code (`from . import` or `from .models import`)
 - NEVER add `/api` prefix to route paths in `routes.py` (the router prefix handles this)
 - NEVER run `npm run dev`, `npm run build`, `npm run preview`, or `uvicorn` manually
@@ -552,7 +583,7 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - NEVER use browser dialogs (`prompt()`, `confirm()`, `alert()`) for user input or confirmation — use the preset `Modal` and form components; a native dialog is an unfinished feature
 - NEVER seed fake/sample/demo data to make tests pass or to showcase UI — empty states are the no-data content
 - NEVER make tests depend on live internet — external fetches degrade gracefully and tests cover the non-network paths
-- NEVER append to models.py/routes.py with stream_edit — read the file, then write_file the complete updated file
+- NEVER edit `tailwind.config.js` / `postcss.config.js` (system-managed; the token-mapped classes are already wired)
 - NEVER ignore a test you ran that came back red, and NEVER seed fake data to make one pass — validation runs the full suite and refuses red tests, sending you back
 - NEVER write a static stub or draft version of a component — every component is written ONCE, in its final live form (real fetch calls, real handlers). Placeholder handlers like `onClick={() => {}}` are a violation
 - NEVER use `stream_edit` for new files or large rewrites — `write_file` with the complete final content; `stream_edit` is only for small local changes (a few lines)
@@ -578,12 +609,14 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 
 ## References
 
-- [UI Components](references/COMPONENTS.md) - Preset components, icons, toasts
-- [External Integrations](references/INTEGRATIONS.md) - Integration bridge (Google, Discord, etc.)
+- [Declared Backend](references/BACKEND.md) - Schema spec, generated API, files/schedules/secrets/AI/Supabase, project layout
+- [UI Components](references/COMPONENTS.md) - EXACT preset props, layout kit, styling, theming, icons, toasts
+- [Code Examples](references/EXAMPLES.md) - Complete code examples for each phase
+- [External Integrations](references/INTEGRATIONS.md) - Integration bridge, in-app AI, notification recipes
+- [Operations Manifest](references/OPERATIONS.md) - Declaring the app's verbs + schedules (config/operations.json)
 - [Auth Module](../../data/living_ui_modules/auth/README.md) - Multi-user auth, membership, invites
 - [MVC-A Architecture](references/MVC-A.md) - When to use each layer, agent data access methods
-- [Operations Manifest](references/OPERATIONS.md) - Declaring the app's verbs (config/operations.json)
+- [Design Self-Review](references/DESIGN_REVIEW.md) - The exact Phase 10 reviewer prompt
 - [Quality Standards](references/STANDARDS.md) - Professional standards for Living UIs
-- [Code Examples](references/EXAMPLES.md) - Complete code examples for each phase
 - [Verification Checklist](references/VERIFY.md) - QA checklist before launch (REQUIRED)
 - [Troubleshooting](references/TROUBLESHOOTING.md) - Debug common issues, log files

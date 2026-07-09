@@ -83,12 +83,73 @@ class DataPlaneError(Exception):
     """A user-facing data plane failure (bad input, missing table, etc.)."""
 
 
-def resolve_db_path(project: Any) -> Optional[Path]:
-    """Return the project's SQLite path, or None if it doesn't have one."""
+# A data source is either the local SQLite file (Path) or an external
+# database URL (str — e.g. Supabase Postgres, from backend/.env). Every
+# public function below accepts both; str dispatches to the SQLAlchemy
+# adapter at the bottom of this module.
+DataSource = Any  # Union[Path, str]
+
+
+def resolve_db_path(project: Any) -> Optional[DataSource]:
+    """Return the project's data source: the external DATABASE_URL when
+    backend/.env configures one (Supabase/Postgres), else the local SQLite
+    path, else the manifest-declared data source (imported third-party
+    apps), else None."""
     if not project or not getattr(project, "path", None):
         return None
+    from .migration import external_database_url
+
+    url = external_database_url(Path(project.path))
+    if url:
+        return url
     db_path = Path(project.path) / "backend" / "living_ui.db"
-    return db_path if db_path.exists() else None
+    if db_path.exists():
+        return db_path
+    declared = manifest_data_config(Path(project.path))
+    if declared.get("url"):
+        return str(declared["url"])
+    if declared.get("sqlite"):
+        candidate = Path(project.path) / declared["sqlite"]
+        return candidate if candidate.exists() else None
+    return None
+
+
+def manifest_data_config(project_path: Path) -> Dict[str, Any]:
+    """The manifest-declared data source for imported apps.
+
+    ``config/manifest.json`` may carry a ``data`` block written during
+    import — the importer agent finds where the third-party app stores its
+    data and declares it so the data commands work:
+
+        "data": {"sqlite": "data/app.db", "writable": false}
+        "data": {"url": "postgresql://...", "writable": false}
+
+    ``writable`` defaults to false: writing to a third-party app's database
+    behind its back is how you corrupt it — an explicit opt-in is required
+    after the agent has verified the app tolerates external writes.
+    Native projects don't use this (their DB is platform-managed).
+    """
+    manifest_path = project_path / "config" / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    data = manifest.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def data_source_writable(project: Any) -> bool:
+    """Whether write commands may touch this project's data source.
+
+    Native projects own their database — always writable. Imported apps
+    are writable only when their manifest data block opts in.
+    """
+    if getattr(project, "project_type", "native") == "native":
+        return True
+    declared = manifest_data_config(Path(project.path))
+    return bool(declared.get("writable"))
 
 
 def _connect(db_path: Path, read_only: bool) -> sqlite3.Connection:
@@ -150,8 +211,10 @@ def _require_columns(
         )
 
 
-def introspect_schema(db_path: Path) -> Dict[str, Any]:
+def introspect_schema(db_path: DataSource) -> Dict[str, Any]:
     """Return the full database schema with row counts (compact form)."""
+    if isinstance(db_path, str):
+        return _sa_introspect_schema(db_path)
     with _connect(db_path, read_only=True) as conn:
         tables: Dict[str, Any] = {}
         for table in _table_names(conn):
@@ -285,7 +348,7 @@ def _compile_order_by(
 
 
 def select_rows(
-    db_path: Path,
+    db_path: DataSource,
     table: str,
     where: Optional[Dict[str, Any]] = None,
     columns: Optional[List[str]] = None,
@@ -293,6 +356,8 @@ def select_rows(
     limit: Optional[int] = None,
     offset: int = 0,
 ) -> Dict[str, Any]:
+    if isinstance(db_path, str):
+        return _sa_select_rows(db_path, table, where, columns, order_by, limit, offset)
     with _connect(db_path, read_only=True) as conn:
         table_columns = _require_table(conn, table)
         if columns:
@@ -333,8 +398,10 @@ def select_rows(
 
 
 def count_rows(
-    db_path: Path, table: str, where: Optional[Dict[str, Any]] = None
+    db_path: DataSource, table: str, where: Optional[Dict[str, Any]] = None
 ) -> int:
+    if isinstance(db_path, str):
+        return _sa_count_rows(db_path, table, where)
     with _connect(db_path, read_only=True) as conn:
         table_columns = _require_table(conn, table)
         where_sql, params = compile_where(where, table, table_columns)
@@ -388,7 +455,9 @@ def _prepare_insert_rows(
     return all_keys, values, autofilled
 
 
-def insert_rows(db_path: Path, table: str, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def insert_rows(db_path: DataSource, table: str, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if isinstance(db_path, str):
+        return _sa_write(db_path, 'insert', table, rows=rows)
     with _connect(db_path, read_only=False) as conn:
         table_columns = _require_table(conn, table)
         keys, values, autofilled = _prepare_insert_rows(rows, table, table_columns)
@@ -406,7 +475,7 @@ def insert_rows(db_path: Path, table: str, rows: List[Dict[str, Any]]) -> Dict[s
 
 
 def update_rows(
-    db_path: Path,
+    db_path: DataSource,
     table: str,
     values: Dict[str, Any],
     where: Optional[Dict[str, Any]] = None,
@@ -418,6 +487,10 @@ def update_rows(
         raise DataPlaneError(
             "Refusing to update every row: pass a 'where' filter, or set "
             "confirm_full_table=true if you really mean the whole table."
+        )
+    if isinstance(db_path, str):
+        return _sa_write(
+            db_path, 'update', table, values=values, where=where,
         )
     backup_path = backup_db(db_path)
     with _connect(db_path, read_only=False) as conn:
@@ -439,7 +512,7 @@ def update_rows(
 
 
 def delete_rows(
-    db_path: Path,
+    db_path: DataSource,
     table: str,
     where: Optional[Dict[str, Any]] = None,
     confirm_full_table: bool = False,
@@ -449,6 +522,8 @@ def delete_rows(
             "Refusing to delete every row: pass a 'where' filter, or set "
             "confirm_full_table=true if you really mean the whole table."
         )
+    if isinstance(db_path, str):
+        return _sa_write(db_path, 'delete', table, where=where)
     backup_path = backup_db(db_path)
     with _connect(db_path, read_only=False) as conn:
         table_columns = _require_table(conn, table)
@@ -466,8 +541,10 @@ def delete_rows(
 
 
 def upsert_rows(
-    db_path: Path, table: str, rows: List[Dict[str, Any]], key_columns: List[str]
+    db_path: DataSource, table: str, rows: List[Dict[str, Any]], key_columns: List[str]
 ) -> Dict[str, Any]:
+    if isinstance(db_path, str):
+        return _sa_write(db_path, 'upsert', table, rows=rows, key_columns=key_columns)
     if not isinstance(key_columns, list) or not key_columns:
         raise DataPlaneError("'key_columns' must be a non-empty list.")
     backup_path = backup_db(db_path)
@@ -516,7 +593,7 @@ def upsert_rows(
 
 
 def run_sql(
-    db_path: Path,
+    db_path: DataSource,
     sql: str,
     params: Optional[Any] = None,
     write: bool = False,
@@ -530,6 +607,8 @@ def run_sql(
         raise DataPlaneError("'sql' is required.")
     sql = sql.strip()
     bind = params if params is not None else []
+    if isinstance(db_path, str):
+        return _sa_run_sql(db_path, sql, bind, write)
 
     if not write:
         with _connect(db_path, read_only=True) as conn:
@@ -570,4 +649,329 @@ def run_sql(
     return {
         "affected": affected,
         "backup": str(backup_path) if backup_path else None,
+    }
+
+
+# ===========================================================================
+# External-database adapter (SQLAlchemy) — Supabase / Postgres / any URL
+#
+# Same public behavior as the SQLite fast path above, with two documented
+# differences: file snapshots are impossible for a remote database (results
+# carry "backup": None), and read-mode raw SQL is guarded by running inside
+# a transaction that is always rolled back instead of a mode=ro file handle.
+# ===========================================================================
+
+_SA_ENGINES: Dict[str, Any] = {}
+
+
+def _sa_engine(url: str):
+    engine = _SA_ENGINES.get(url)
+    if engine is None:
+        from sqlalchemy import create_engine
+
+        kwargs: Dict[str, Any] = {"pool_pre_ping": True}
+        if url.startswith("sqlite"):
+            kwargs = {"connect_args": {"check_same_thread": False}}
+        engine = create_engine(url, **kwargs)
+        _SA_ENGINES[url] = engine
+    return engine
+
+
+def _sa_table_columns(engine, table: str) -> List[Dict[str, Any]]:
+    from sqlalchemy import inspect as sa_inspect
+
+    insp = sa_inspect(engine)
+    pks = set()
+    try:
+        pks = set(insp.get_pk_constraint(table).get("constrained_columns") or [])
+    except Exception:
+        pass
+    return [
+        {
+            "name": c["name"],
+            "type": str(c.get("type", "")),
+            "notNull": not c.get("nullable", True),
+            "primaryKey": c["name"] in pks,
+            "default": c.get("default"),
+        }
+        for c in insp.get_columns(table)
+    ]
+
+
+def _sa_require_table(engine, table: str) -> List[Dict[str, Any]]:
+    from sqlalchemy import inspect as sa_inspect
+
+    if not isinstance(table, str) or not table:
+        raise DataPlaneError("'table' is required.")
+    names = sorted(sa_inspect(engine).get_table_names())
+    if table not in names:
+        raise DataPlaneError(
+            f"Table '{table}' not found. Available tables: {', '.join(names) or '(none)'}"
+        )
+    return _sa_table_columns(engine, table)
+
+
+def _qmark_to_named(sql: str, params: List[Any]) -> Tuple[str, Dict[str, Any]]:
+    """Convert our generated qmark-placeholder SQL to named binds for
+    SQLAlchemy text(). Only used on SQL this module builds itself, where
+    a question mark can never appear inside a literal."""
+    out: List[str] = []
+    bound: Dict[str, Any] = {}
+    i = 0
+    for ch in sql:
+        if ch == "?":
+            name = f"p{i}"
+            bound[name] = params[i]
+            out.append(f":{name}")
+            i += 1
+        else:
+            out.append(ch)
+    if i != len(params):
+        raise DataPlaneError("Parameter count mismatch in compiled SQL.")
+    return "".join(out), bound
+
+
+def _sa_introspect_schema(url: str) -> Dict[str, Any]:
+    from sqlalchemy import inspect as sa_inspect, text
+
+    engine = _sa_engine(url)
+    tables: Dict[str, Any] = {}
+    with engine.connect() as conn:
+        for table in sorted(sa_inspect(engine).get_table_names()):
+            columns = _sa_table_columns(engine, table)
+            count = conn.execute(text(f'SELECT COUNT(*) AS n FROM "{table}"')).scalar()
+            tables[table] = {
+                "rowCount": int(count or 0),
+                "columns": {
+                    c["name"]: (
+                        c["type"]
+                        + (" PK" if c["primaryKey"] else "")
+                        + (" NOT NULL" if c["notNull"] and not c["primaryKey"] else "")
+                    ).strip()
+                    for c in columns
+                },
+            }
+        conn.rollback()
+    return tables
+
+
+def _sa_select_rows(
+    url: str,
+    table: str,
+    where: Optional[Dict[str, Any]] = None,
+    columns: Optional[List[str]] = None,
+    order_by: Any = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    from sqlalchemy import text
+
+    engine = _sa_engine(url)
+    table_columns = _sa_require_table(engine, table)
+    if columns:
+        _require_columns(columns, table, table_columns)
+        select_list = ", ".join(f'"{c}"' for c in columns)
+    else:
+        select_list = "*"
+    where_sql, params = compile_where(where, table, table_columns)
+    order_sql = _compile_order_by(order_by, table, table_columns)
+
+    effective_limit = DEFAULT_SELECT_LIMIT if limit is None else int(limit)
+    truncated_note = None
+    if effective_limit > MAX_SELECT_LIMIT:
+        truncated_note = f"limit clamped to {MAX_SELECT_LIMIT}"
+        effective_limit = MAX_SELECT_LIMIT
+
+    sql = f'SELECT {select_list} FROM "{table}"'
+    if where_sql:
+        sql += f" WHERE {where_sql}"
+    sql += order_sql
+    named_sql, bound = _qmark_to_named(sql, params)
+    named_sql += " LIMIT :__limit OFFSET :__offset"
+    bound["__limit"] = effective_limit
+    bound["__offset"] = int(offset)
+
+    count_sql = f'SELECT COUNT(*) AS n FROM "{table}"'
+    if where_sql:
+        count_sql += f" WHERE {where_sql}"
+    count_named, count_bound = _qmark_to_named(count_sql, params)
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(named_sql), bound).mappings().all()
+        total = conn.execute(text(count_named), count_bound).scalar()
+        conn.rollback()
+
+    result = {
+        "rows": [dict(r) for r in rows],
+        "returned": len(rows),
+        "total_matching": int(total or 0),
+    }
+    if truncated_note:
+        result["note"] = truncated_note
+    return result
+
+
+def _sa_count_rows(url: str, table: str, where: Optional[Dict[str, Any]] = None) -> int:
+    from sqlalchemy import text
+
+    engine = _sa_engine(url)
+    table_columns = _sa_require_table(engine, table)
+    where_sql, params = compile_where(where, table, table_columns)
+    sql = f'SELECT COUNT(*) AS n FROM "{table}"'
+    if where_sql:
+        sql += f" WHERE {where_sql}"
+    named_sql, bound = _qmark_to_named(sql, params)
+    with engine.connect() as conn:
+        total = conn.execute(text(named_sql), bound).scalar()
+        conn.rollback()
+    return int(total or 0)
+
+
+def _sa_write(
+    url: str,
+    kind: str,
+    table: str,
+    rows: Optional[List[Dict[str, Any]]] = None,
+    values: Optional[Dict[str, Any]] = None,
+    where: Optional[Dict[str, Any]] = None,
+    key_columns: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """insert/update/delete/upsert against an external database. The
+    where/confirm guards already ran in the public wrappers."""
+    from sqlalchemy import text
+
+    engine = _sa_engine(url)
+    table_columns = _sa_require_table(engine, table)
+    note = "backup skipped (external database)"
+
+    if kind in ("insert", "upsert"):
+        keys, value_rows, autofilled = _prepare_insert_rows(
+            rows or [], table, table_columns
+        )
+        column_list = ", ".join(f'"{k}"' for k in keys)
+        placeholders = ", ".join(f":{k}" for k in keys)
+        sql = f'INSERT INTO "{table}" ({column_list}) VALUES ({placeholders})'
+        if kind == "upsert":
+            if not isinstance(key_columns, list) or not key_columns:
+                raise DataPlaneError("'key_columns' must be a non-empty list.")
+            _require_columns(key_columns, table, table_columns)
+            missing_keys = [k for k in key_columns if k not in keys]
+            if missing_keys:
+                raise DataPlaneError(
+                    f"Every row must include the key column(s) {missing_keys} for upsert."
+                )
+            conflict_cols = ", ".join(f'"{k}"' for k in key_columns)
+            update_cols = [k for k in keys if k not in key_columns]
+            if update_cols:
+                update_sql = ", ".join(f'"{k}" = excluded."{k}"' for k in update_cols)
+                sql += f" ON CONFLICT({conflict_cols}) DO UPDATE SET {update_sql}"
+            else:
+                sql += f" ON CONFLICT({conflict_cols}) DO NOTHING"
+        bind_rows = [dict(zip(keys, vr)) for vr in value_rows]
+        try:
+            with engine.begin() as conn:
+                result = conn.execute(text(sql), bind_rows)
+                affected = result.rowcount
+        except Exception as e:
+            raise DataPlaneError(f"SQL error: {e}")
+        if affected is None or affected < 0:
+            affected = len(bind_rows)
+        out: Dict[str, Any] = (
+            {"inserted": affected, "last_row_id": None}
+            if kind == "insert"
+            else {"affected": affected}
+        )
+        out["backup"] = None
+        out["note"] = note
+        if autofilled:
+            out["autofilled_columns"] = autofilled
+        return out
+
+    if kind == "update":
+        _require_columns(list((values or {}).keys()), table, table_columns)
+        where_sql, where_params = compile_where(where, table, table_columns)
+        set_sql = ", ".join(f'"{k}" = :__set_{k}' for k in (values or {}))
+        sql = f'UPDATE "{table}" SET {set_sql}'
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        named_sql, bound = _qmark_to_named(sql, where_params)
+        for k, v in (values or {}).items():
+            bound[f"__set_{k}"] = _adapt_value(v)
+        try:
+            with engine.begin() as conn:
+                affected = conn.execute(text(named_sql), bound).rowcount
+        except Exception as e:
+            raise DataPlaneError(f"SQL error: {e}")
+        return {"updated": affected, "backup": None, "note": note}
+
+    if kind == "delete":
+        where_sql, params = compile_where(where, table, table_columns)
+        sql = f'DELETE FROM "{table}"'
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+        named_sql, bound = _qmark_to_named(sql, params)
+        try:
+            with engine.begin() as conn:
+                affected = conn.execute(text(named_sql), bound).rowcount
+        except Exception as e:
+            raise DataPlaneError(f"SQL error: {e}")
+        return {"deleted": affected, "backup": None, "note": note}
+
+    raise DataPlaneError(f"Unknown write kind '{kind}'.")
+
+
+def _sa_run_sql(url: str, sql: str, bind: Any, write: bool) -> Dict[str, Any]:
+    from sqlalchemy import text
+
+    engine = _sa_engine(url)
+    if isinstance(bind, dict):
+        params: Any = bind
+        named_sql = sql
+    elif isinstance(bind, list) and bind:
+        named_sql, params = _qmark_to_named(sql, bind)
+    else:
+        named_sql, params = sql, {}
+
+    if not write:
+        # Read guard for remote databases: everything runs inside a
+        # transaction that is ALWAYS rolled back — an accidental write
+        # statement leaves no trace.
+        with engine.connect() as conn:
+            try:
+                cursor = conn.execute(text(named_sql), params)
+                rows = (
+                    cursor.mappings().fetchmany(MAX_SELECT_LIMIT + 1)
+                    if cursor.returns_rows
+                    else []
+                )
+            except Exception as e:
+                raise DataPlaneError(f"SQL error: {e}")
+            finally:
+                conn.rollback()
+        truncated = len(rows) > MAX_SELECT_LIMIT
+        rows = rows[:MAX_SELECT_LIMIT]
+        result: Dict[str, Any] = {
+            "rows": [dict(r) for r in rows],
+            "returned": len(rows),
+        }
+        if truncated:
+            result["note"] = f"result truncated to {MAX_SELECT_LIMIT} rows"
+        return result
+
+    body = sql.rstrip().rstrip(";")
+    if ";" in body:
+        raise DataPlaneError(
+            "Write mode accepts a single SQL statement (no ';' separators)."
+        )
+    try:
+        with engine.begin() as conn:
+            affected = conn.execute(text(named_sql), params).rowcount
+    except DataPlaneError:
+        raise
+    except Exception as e:
+        raise DataPlaneError(f"SQL error: {e}")
+    return {
+        "affected": affected,
+        "backup": None,
+        "note": "backup skipped (external database)",
     }

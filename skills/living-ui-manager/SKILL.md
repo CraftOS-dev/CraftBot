@@ -113,9 +113,9 @@ livingui habit-tracker restart      # full pipeline (migrates automatically firs
 livingui habit-tracker start | stop
 ```
 
-After ANY models.py edit: `restart` (or `migrate` for the DB alone) BEFORE
-seeding data into new columns/tables. `--help` warns about schema drift and
-prints the fix.
+After ANY schema change (`config/schema.json` edit): `restart` (or
+`migrate` for the DB alone) BEFORE seeding data into new columns/tables.
+`--help` warns about schema drift and prints the fix.
 
 ### Observe
 
@@ -128,13 +128,35 @@ livingui habit-tracker ui --data '{"type": "refresh"}'   # drive the live iframe
 ## If no capability exists
 
 When `--help` shows no operation, no endpoint, and no table that fits, the
-app needs code. Read `backend/routes.py` / `backend/models.py`, add the
-capability following existing patterns (with a one-line docstring — it
-becomes the op description), update `LIVING_UI.md`, then
-`livingui <project> restart`. New model columns are migrated automatically
-at restart. Then register the capability: `livingui <project> ops-sync
---write`, curate the description, `ops-check` until clean — an undeclared
-capability is invisible.
+app needs code. A new entity/field is DECLARED in `config/schema.json`
+(CRUD API + types regenerate automatically); new behavior is a custom
+endpoint in `backend/routes.py` following existing patterns (with a
+one-line docstring — it becomes the op description). Update `LIVING_UI.md`,
+then `livingui <project> restart`. Schema changes are migrated
+automatically at restart. Then register the capability:
+`livingui <project> ops-sync --write`, curate the description, `ops-check`
+until clean — an undeclared capability is invisible. For bigger changes,
+that's the living-ui-modify skill's job.
+
+## Imported (external) apps
+
+`livingui ls` shows TYPE `external` for imported third-party apps. The same
+CLI operates them — `--help`, `select`/`sql` (when the import declared a
+data source), `run`, `api`, `snapshot`/`screenshot`, lifecycle — but:
+
+- **Their data source is READ-ONLY by default.** `insert/update/delete/sql
+  --write` refuse unless the manifest's data block has `"writable": true`.
+  Write through the app's declared ops (`run`) or its API (`api`) instead —
+  that runs the app's real logic.
+- **"If no capability exists" works differently**: do NOT edit the app's
+  source like a native backend. Declare a new op in
+  `config/operations.json` — an `http` executor for an endpoint the app
+  already has, or a `shell` executor (wrapper script in
+  `<project>/scripts/` if needed) — then `restart`. If the app serves an
+  OpenAPI/Swagger spec, `ops-sync --write` generates ops for you
+  (`--openapi-url <URL>` for non-standard spec locations).
+- `snapshot`/`screenshot` need the app open in the browser at least once
+  (the sidecar's capture script runs in the page).
 
 ## Rules
 

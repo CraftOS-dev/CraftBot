@@ -254,6 +254,15 @@ def _classify_file_action(
     kind = "file_write" if action_name == "write_file" else "file_edit"
     entities = _extract_entities(rel, content)
     label = _label_for_file(action_name, rel, area, entities)
+    # Schema write -> regenerate frontend/types.gen.ts so entity types are
+    # always in lockstep with the backend (never hand-written). Fail-silent.
+    if rel.replace("\\", "/").lower() == "config/schema.json":
+        try:
+            from .typegen import regenerate_types
+
+            regenerate_types(Path(project.path))
+        except Exception:
+            pass
     event = _build_event(
         run_id,
         kind,

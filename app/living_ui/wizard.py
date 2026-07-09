@@ -266,6 +266,23 @@ INTERVIEW_SYSTEM_PROMPT = """You are a requirements interviewer for a web-app bu
 The user described an app and picked configuration options; your questions close the \
 gaps between that input and a complete, buildable specification.
 
+PLATFORM REALITY (questions, options, and the final spec MUST fit it):
+- The app runs LOCALLY on the user's machine (localhost). External services \
+CANNOT reach it: never propose inbound webhooks, callback URLs, or "install \
+a GitHub App" style mechanisms for getting data in.
+- CraftBot already has the user's connected accounts (GitHub, Google, Slack, \
+Discord, Notion, ...) reachable through a built-in ZERO-KEY bridge. External \
+data is PULLED through that bridge — on load, on refresh, or on a schedule. \
+NEVER propose OAuth flows, personal access tokens, API-key entry, or any \
+credential handling; the platform forbids asking users for keys.
+- Available building blocks: a declared database (local SQLite; optional \
+user-provided Postgres/Supabase), file uploads, scheduled operations \
+("every 15m" / "daily HH:MM"), in-app AI (summarize/classify), CSV/JSON \
+export, a CLI operations surface, and an optional email+password multi-user \
+module (no third-party login).
+- "Real-time updates" translates to periodic refresh or scheduled bridge \
+sync — offer/write THAT, never webhooks.
+
 Rules:
 - Ask ONLY what the description and configuration leave genuinely open. Never ask \
 something the input already answers.
@@ -336,6 +353,29 @@ You receive the user's app description, their configuration choices, description
 their reference files, and their interview answers. Rewrite ALL of it into ONE \
 comprehensive, binding specification the builder agent will implement exactly.
 
+PLATFORM REALITY (questions, options, and the final spec MUST fit it):
+- The app runs LOCALLY on the user's machine (localhost). External services \
+CANNOT reach it: never propose inbound webhooks, callback URLs, or "install \
+a GitHub App" style mechanisms for getting data in.
+- CraftBot already has the user's connected accounts (GitHub, Google, Slack, \
+Discord, Notion, ...) reachable through a built-in ZERO-KEY bridge. External \
+data is PULLED through that bridge — on load, on refresh, or on a schedule. \
+NEVER propose OAuth flows, personal access tokens, API-key entry, or any \
+credential handling; the platform forbids asking users for keys.
+- Available building blocks: a declared database (local SQLite; optional \
+user-provided Postgres/Supabase), file uploads, scheduled operations \
+("every 15m" / "daily HH:MM"), in-app AI (summarize/classify), CSV/JSON \
+export, a CLI operations surface, and an optional email+password multi-user \
+module (no third-party login).
+- "Real-time updates" translates to periodic refresh or scheduled bridge \
+sync — offer/write THAT, never webhooks.
+
+The spec is BINDING and the builder cannot question it, so it must be \
+implementable exactly as written. If an interview answer implies a mechanism \
+the platform cannot execute (inbound webhooks, OAuth, token entry), translate \
+the INTENT into the platform's equivalent (bridge pull on load/refresh plus a \
+scheduled sync operation) and write THAT.
+
 The document is markdown with EXACTLY these sections:
 
 # <App name> — Requirements
@@ -350,7 +390,12 @@ scope the user asked for — nothing vague, nothing invented beyond their intent
 
 ## Data
 Every entity the app manages: fields (with types), relationships, and lifecycle \
-(how records are created/updated/deleted through the UI).
+(how records are created/updated/deleted through the UI). For EVERY entity, \
+state its INGRESS — how records actually enter the app: user forms, pull from \
+a named connected service via the bridge (on load/refresh and/or a scheduled \
+sync), file import, or computed from other entities. An app whose purpose is \
+displaying external data MUST specify the bridge pull and a scheduled sync \
+operation — a spec with no working ingress is unimplementable.
 
 ## Design
 The binding visual contract: the chosen layout translated into concrete regions, \

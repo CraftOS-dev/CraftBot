@@ -241,12 +241,16 @@ async def living_ui_validate(input_data: dict) -> dict:
                 ),
             }
         errors = result.get("errors", [])
-        errors_str = "\n".join(errors[:10])
+        numbered = "\n".join(f"{i + 1}. {e}" for i, e in enumerate(errors))
         return {
             "status": "error",
             "message": f"Validation failed at step: {result.get('step', 'unknown')}",
-            "test_errors": errors[:10],
-            "details": f"Fix these errors and call living_ui_validate again:\n{errors_str}",
+            "test_errors": errors,
+            "details": (
+                f"Validation found {len(errors)} distinct problem(s) — this is "
+                f"the COMPLETE list. Fix ALL of them in as few batched steps "
+                f"as possible, then call living_ui_validate once:\n{numbered}"
+            ),
         }
     except Exception as e:
         return {"status": "error", "message": f"Validation failed: {str(e)}"}
@@ -599,6 +603,16 @@ async def living_ui_report_progress(input_data: dict) -> dict:
             ),
             "example": "a1b2c3d4",
         },
+        "data_config": {
+            "type": "object",
+            "description": (
+                "Where the app stores its data, so livingui data commands "
+                "(select/sql/schema) work on it: {\"sqlite\": \"relative/path.db\"} "
+                "or {\"url\": \"postgresql://...\"}. Read-only unless it also has "
+                "\"writable\": true. Omit if the app has no inspectable store."
+            ),
+            "example": {"sqlite": "data/app.db"},
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -625,6 +639,7 @@ async def living_ui_import_external(input_data: dict) -> dict:
             health_url=input_data.get("health_url", ""),
             port_env_var=input_data.get("port_env_var", "PORT"),
             project_id=input_data.get("project_id") or None,
+            data_config=input_data.get("data_config") or None,
         )
         return result
     except Exception as e:

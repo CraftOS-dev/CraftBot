@@ -38,6 +38,7 @@ SKIP_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
 SKIP_API_PREFIXES = (
     "/api/ui-snapshot",
     "/api/ui-screenshot",
+    "/api/files",  # multipart system routes — not JSON-probeable
 )
 
 
@@ -86,6 +87,16 @@ def _generate_value(schema: Dict[str, Any], definitions: Dict[str, Any]) -> Any:
         ref_name = schema["$ref"].split("/")[-1]
         ref_schema = definitions.get(ref_name, {})
         return generate_payload_from_schema(ref_schema, definitions)
+
+    # anyOf / oneOf (e.g. Optional[int] -> anyOf[integer, null]) must be
+    # resolved BEFORE defaulting the type to string, or every optional
+    # non-string field gets probed with "test" and 422s.
+    if "type" not in schema:
+        for key in ("anyOf", "oneOf"):
+            if key in schema:
+                for variant in schema[key]:
+                    if variant.get("type") != "null":
+                        return _generate_value(variant, definitions)
 
     field_type = schema.get("type", "string")
 

@@ -1,11 +1,70 @@
 {
-  "$comment": "Declared operations — the app's verbs, discoverable and callable by the CraftBot agent via the livingui CLI (livingui <project> --help / run <op>). Declare an op for every side-effectful capability (anything beyond plain CRUD). Executor types: http (backend endpoint), sql (parameterized statement), shell (declared command run in the project dir; use mode 'job' for long-running work). See the living-ui-creator skill's OPERATIONS.md reference for the full spec.",
+  "$comment": "Declared operations — the app's VERBS, discoverable and callable by the CraftBot agent via the livingui CLI (`livingui <project> --help` lists them; `livingui <project> run <op> --params-file p.json` executes). Plain CRUD needs NO ops: every entity in config/schema.json already has generated REST endpoints AND the CLI's built-in data commands (select/count/insert/update/delete/sql) work on its tables directly. Declare an op for every side-effectful capability beyond CRUD — typically one op per custom route in routes.py, plus sql/shell ops where no route is needed. Write descriptions that say WHEN to use the op; agents choose ops by reading them. Full spec: the living-ui-creator skill's OPERATIONS.md. Ops may also declare \"schedule\": \"every 15m\" | \"every 2h\" | \"hourly\" | \"daily HH:MM\" — the platform runs them automatically while the app is running (no params passed; defaults must suffice; results in logs/schedule.log).",
+  "$executor_recipes": {
+    "http": {
+      "$how": "params become the JSON body (query params for GET/DELETE). Pair with a custom route in routes.py.",
+      "description": "Archive every card whose status is done. Use when the user asks to clean up the board.",
+      "params": {},
+      "executor": {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/cards/archive-done"
+      },
+      "mode": "sync"
+    },
+    "sql": {
+      "$how": "params bind as :named parameters — never string-substituted. No route needed.",
+      "description": "Move every card from one column to another in a single statement.",
+      "params": {
+        "fromId": "int",
+        "toId": "int"
+      },
+      "executor": {
+        "type": "sql",
+        "sql": "UPDATE card SET column_id = :toId WHERE column_id = :fromId",
+        "mode": "write"
+      }
+    },
+    "shell": {
+      "$how": "declared command caged in the project dir; {param} values are validated and quoted. Use mode 'job' for long-running work, then poll with `livingui <project> job <id>`.",
+      "description": "Export all data to a timestamped JSON file under exports/.",
+      "params": {},
+      "executor": {
+        "type": "shell",
+        "cmd": "python export_data.py",
+        "cwd": "backend"
+      },
+      "mode": "job"
+    }
+  },
   "operations": {
     "reset": {
-      "description": "Reset the application state to empty",
+      "description": "Reset the application state to empty. Use when the user asks to clear everything or start over.",
+      "params": {
+        "action": {
+          "type": "string",
+          "default": "reset"
+        }
+      },
+      "executor": {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/action"
+      },
+      "mode": "sync"
+    },
+    "export": {
+      "description": "Export every table to a timestamped JSON file under exports/. Use for backups or when the user asks to export their data.",
       "params": {},
-      "executor": {"type": "http", "method": "POST", "path": "/api/action"},
+      "executor": {
+        "type": "shell",
+        "cmd": "python export_data.py",
+        "cwd": "backend"
+      },
       "mode": "sync"
     }
-  }
+  },
+  "ignore_routes": [
+    "GET /api/_meta/schema"
+  ]
 }

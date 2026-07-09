@@ -42,7 +42,7 @@ SYSTEM_PATHS = {
     "/api/ui-snapshot",
     "/api/ui-screenshot",
 }
-SYSTEM_PREFIXES = ("/api/items",)
+SYSTEM_PREFIXES = ("/api/items", "/api/files")
 
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
@@ -56,16 +56,43 @@ _TYPE_MAP = {
 }
 
 
-def fetch_openapi(backend_url: str, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
-    """Fetch the backend's OpenAPI spec. None when unreachable."""
-    if not backend_url:
+# Spec locations probed in order. FastAPI serves /openapi.json; the rest
+# cover common conventions of imported third-party apps (Express/swagger,
+# Spring, Rails/grape).
+OPENAPI_CANDIDATE_PATHS = (
+    "/openapi.json",
+    "/swagger.json",
+    "/api/openapi.json",
+    "/api/swagger.json",
+    "/v3/api-docs",
+    "/api-docs",
+)
+
+
+def fetch_openapi(
+    backend_url: str, timeout: float = 5.0, spec_url: str = ""
+) -> Optional[Dict[str, Any]]:
+    """Fetch an OpenAPI spec. None when unreachable.
+
+    Probes the common spec locations on ``backend_url``; ``spec_url``
+    (absolute) skips probing — for apps that serve their spec somewhere
+    non-standard.
+    """
+    if spec_url:
+        candidates = [spec_url]
+    elif backend_url:
+        candidates = [backend_url.rstrip("/") + p for p in OPENAPI_CANDIDATE_PATHS]
+    else:
         return None
-    try:
-        url = backend_url.rstrip("/") + "/openapi.json"
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return None
+    for url in candidates:
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                spec = json.loads(resp.read().decode("utf-8"))
+            if isinstance(spec, dict) and isinstance(spec.get("paths"), dict):
+                return spec
+        except Exception:
+            continue
+    return None
 
 
 def _resolve_ref(spec: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -131,6 +158,11 @@ def classify_route(
     if not segments or segments[0] != "api":
         return "system"
     rest = segments[1:]
+
+    # Engine-internal segments (e.g. /api/_meta/schema, /api/cards/_stats)
+    # are infrastructure, not app verbs — never op candidates.
+    if any(s.startswith("_") for s in rest):
+        return "system"
 
     if len(rest) == 1 and not _is_param_segment(rest[0]):
         if method == "GET":

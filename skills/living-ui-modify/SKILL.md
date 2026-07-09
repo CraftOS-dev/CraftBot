@@ -20,6 +20,8 @@ Do NOT guess at what's wrong — the logs tell you exactly what failed.
 2. Read `{project.path}/backend/logs/frontend_console.log` — frontend errors and failed API calls
 3. Read the most recent `{project.path}/backend/logs/backend_*.log` — request-level errors
 
+(Full log-file table: the creator skill's `references/TROUBLESHOOTING.md`.)
+
 Only after reading the logs should you identify the root cause and make targeted fixes.
 
 ## Workflow
@@ -36,7 +38,8 @@ Read `agent_file_system/GLOBAL_LIVING_UI.md` for global design preferences and r
 
 ### Phase 1: Identify the Living UI
 
-Read the project registry:
+`livingui ls` (via run_shell) lists every project with id, status, and type —
+or read the registry file:
 
 ```
 File: agent_file_system/workspace/living_ui_projects.json
@@ -58,73 +61,82 @@ actually intend to change:
 1. **`{project.path}/LIVING_UI.md`** - overview, data models, API endpoints, components
 2. **Source files relevant to the change:**
 
-| What to change | Read first |
-|----------------|------------|
-| Data models / DB schema | `backend/models.py` |
-| API endpoints / backend logic | `backend/routes.py` |
-| TypeScript types | `frontend/types.ts` |
+| What to change | Read/edit |
+|----------------|-----------|
+| Entities / DB schema | `config/schema.json` (THE data layer — declared, not coded) |
+| Custom endpoints / backend behavior | `backend/routes.py` |
+| App-specific NON-entity types | `frontend/types.ts` (entity types are GENERATED in `types.gen.ts` — import, never edit) |
 | UI components | `frontend/components/MainView.tsx` and relevant component files |
-| State management / API calls | `frontend/AppController.ts` |
+| Custom-endpoint calls / orchestration | `frontend/services/ApiService.ts` usage, optional `AppController.ts` |
+| Declared operations | `config/operations.json` |
 | Port / project config | `config/manifest.json` |
 
 Understand the existing patterns, naming conventions, and code style before editing.
 
 ### Phase 3: Plan Changes
 
-Identify all files that need modification. Changes often cascade:
+Identify all files that need modification. Changes cascade much less than
+they used to — the schema is declarative and entity types are generated:
 
 ```
-New data field  → models.py → routes.py → types.ts → AppController.ts → Component
-New feature     → models.py → routes.py → types.ts → AppController.ts → New component → MainView.tsx
-UI-only change  → Component file(s) only
-Bug fix         → Whichever file has the bug
+New entity/field  → config/schema.json (types.gen.ts + CRUD API regenerate
+                    automatically) → component edits only
+New behavior      → routes.py (+ test) → declare op → component/ApiService
+UI-only change    → Component file(s) only
+Bug fix           → Whichever file has the bug (logs first!)
 ```
 
 If the change adds or removes a side-effectful capability (an endpoint that
 DOES something beyond CRUD), also update `config/operations.json` so the
-capability stays discoverable in `livingui <project> --help` — see the
-living-ui-creator skill's `references/OPERATIONS.md` for the format.
+capability stays discoverable in `livingui <project> --help` — after the
+restart, `livingui <project> ops-sync --write` generates it from the route,
+then curate the description and run `ops-check`. Format:
+`references/OPERATIONS.md` in the creator skill.
 
-Schema changes: new model columns/tables are migrated automatically when the
-project restarts (`livingui <project_id> restart`, or the `living_ui_restart`
-action). Restart BEFORE seeding data into new columns — never seed first.
+Schema changes: new fields/entities are migrated automatically when the
+project restarts (`livingui <project_id> restart`). Restart BEFORE seeding
+data into new columns — never seed first.
 
 ### Phase 4: Make Changes
 
 #### Backend Changes
 
-**Edit: `backend/models.py`**
+**Edit: `config/schema.json`** — entities are DECLARED here; the engine
+materializes models and full REST CRUD (list/filter/search/stats/bulk) at
+startup. You never write a model class or CRUD route.
 
-- Add/modify SQLAlchemy models
-- NEVER use `metadata` as column name (SQLAlchemy reserved)
-- Always include `to_dict()` method for JSON serialization
-- If adding a new model, new table is auto-created on restart
-
-```python
-# Adding a field to existing model
-class Todo(Base):
-    __tablename__ = "todos"
-    # ... existing fields ...
-    priority = Column(String(20), default="medium")  # NEW FIELD
-
-    def to_dict(self):
-        return {
-            # ... existing fields ...
-            "priority": self.priority,  # ADD TO DICT
-        }
+```json
+{
+  "entities": {
+    "Todo": {
+      "fields": {
+        "title":    {"type": "string", "required": true},
+        "priority": {"type": "enum", "values": ["low", "medium", "high"], "default": "medium"},
+        "done":     {"type": "boolean", "default": false}
+      }
+    }
+  }
+}
 ```
 
-**Edit: `backend/routes.py`**
+- `id`, `createdAt`, `updatedAt` are automatic — never declare them
+- NEVER use `metadata` as a field name (SQLAlchemy reserved)
+- Full field-type reference: creator skill `references/BACKEND.md`
+- Writing schema.json auto-regenerates `frontend/types.gen.ts`
 
-- Add/modify API endpoints
-- If model name conflicts with Python built-ins, use alias: `from models import List as ListModel`
-- Always call `db.commit()` after write operations
-- Return proper HTTP status codes (404 for not found, etc.)
+**Edit: `backend/routes.py`** — CUSTOM behavior only (the one backend file
+you hand-write):
+
+- One-line docstring on every route (it becomes the op description)
+- Always call `db.commit()` after write operations (generated CRUD commits
+  automatically; this applies to routes.py only)
+- Return camelCase keys and proper HTTP status codes
 
 ```python
-# Adding a new endpoint
 @router.post("/todos/{todo_id}/archive")
 def archive_todo(todo_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Archive one todo so it leaves the active list."""
+    from models import Todo
     todo = db.query(Todo).filter(Todo.id == todo_id).first()
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -137,9 +149,9 @@ def archive_todo(todo_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 **Edit: `backend/tests/`**
 
-- Update existing tests if you changed models or routes
+- Update existing tests if you changed the schema or routes
 - Add new tests for any new endpoints or business logic
-- Tests use a temp in-memory DB (`conftest.py` handles this)
+- Tests use a temp DB (`conftest.py` handles this)
 - The launch pipeline runs `pytest tests/` and blocks if tests fail
 
 ```python
@@ -153,79 +165,74 @@ def test_archive_todo(client):
 
 #### Frontend Changes
 
-**Edit: `frontend/types.ts`**
-
-- Keep TypeScript interfaces in sync with backend models
-- Use camelCase in types (backend `to_dict()` should output camelCase)
+**Entity types are GENERATED** — import from `types.gen.ts`, never
+hand-write or edit them. Only app-specific NON-entity types live in
+`types.ts`.
 
 ```typescript
-export interface Todo {
-  id: number
-  title: string
-  priority: string  // NEW FIELD
-}
+import type { Todo } from '../types.gen'
 ```
 
-**Edit: `frontend/AppController.ts`**
-
-- Add methods for new backend endpoints
-- Follow existing patterns for API calls and state updates
-- For the backend URL, use: `const BACKEND_URL = (window as any).__CRAFTBOT_BACKEND_URL__ || 'http://localhost:3101'`
-- NEVER hardcode a specific port — the port may change between launches
+**Data plumbing is PROVIDED** — `useEntities<T>(plural)` from
+`services/data.ts` handles fetch/create/update/remove with auto-refresh.
+Custom endpoints go through `ApiService`. Never hand-roll fetch + backend
+URL plumbing.
 
 ```typescript
-async archiveTodo(id: number): Promise<void> {
-  await fetch(`${this.backendUrl}/todos/${id}/archive`, { method: 'POST' })
-  await this.fetchTodos()  // Refresh list
-}
+const todos = useEntities<Todo>('todos')          // route plural
+// <EntityForm entity="Todo" />                    // SCHEMA name — not the plural!
+await ApiService.post(`/todos/${id}/archive`, {}) // custom endpoint
 ```
 
 **Edit: `frontend/components/`**
 
 - Modify existing or create new React components
-- **Use preset UI components** - import from `./components/ui`:
-
-| Category | Components |
-|----------|------------|
-| **Forms** | `Input`, `Textarea`, `Select`, `Checkbox`, `Toggle` |
-| **Buttons** | `Button` (variants: primary, secondary, danger, ghost) |
-| **Layout** | `Card`, `Container`, `Divider` |
-| **Feedback** | `Alert`, `Badge`, `EmptyState`, `toast` (react-toastify) |
-| **Data** | `Table`, `List`, `ListItem` |
-| **Overlays** | `Modal`, `Tabs`, `TabList`, `Tab`, `TabPanel` |
+- **Use preset UI components** — ~65 presets in `./components/ui` (forms,
+  tables, overlays, charts, skeletons, EntityForm/EntityTable, upload,
+  toast...). Full API: creator skill `references/COMPONENTS.md`.
 
 ```tsx
-import { Button, Card, Badge, Modal } from './components/ui'
-import { toast } from 'react-toastify'
+import { Button, Card, Badge, Modal, toast } from './components/ui'
 
-// Use toast for user feedback on actions
+// Use toast for user feedback on actions (do NOT install react-toastify)
 toast.success('Item updated')
 toast.error('Failed to delete')
 ```
 
+- **Every frontend write returns the COMPLETE current TypeScript/lint error
+  list in the write result.** Fix all of them in your next step — do not
+  run tsc in a loop.
+
 **Edit: `frontend/components/MainView.tsx`**
 
 - Wire new components into the main view
-- Connect event handlers to controller methods
+- Connect every control to a real handler (no stubs)
 
 ### Phase 5: Review Code
 
 Review your changes for correctness before restarting:
 - Backend routes use **absolute imports** (`from models import ...` NOT `from . import ...`)
 - Backend `routes.py` does NOT add `/api` prefix to route paths
-- All `to_dict()` methods return all fields
+- Entity types imported from `types.gen.ts`, not hand-written
+- Write-result feedback is clean (no outstanding tsc/lint errors)
 
-**DO NOT** run `npm run build`, `python -c "from models import *"`, or start servers manually.
+A read-only import check is fine while debugging
+(`cd backend && python -c "from models import *; from routes import *"`),
+but **DO NOT** run `npm run build` or start servers manually — the restart
+pipeline builds and verifies.
 
 ### Phase 6: Restart
 
-Use the `living_ui_restart` action to apply changes:
+Apply the changes with the CLI:
 
 ```
-living_ui_restart(project_id="{project.id}")
+livingui <project_id> restart
 ```
 
-This stops both backend and frontend, runs the launch pipeline (install dependencies, run tests, build frontend, health checks), and relaunches on the same ports. If there are errors, it reports them.
+(or the `living_ui_restart` action — same pipeline). This stops both
+servers, runs the launch pipeline (migrate, install, tests, build, health
+checks, smoke tests), and relaunches on the same ports. If there are
+errors, it reports them — read ALL of them before fixing.
 
 **DO NOT** use `living_ui_notify_ready` — it's for initial launch only.
 **DO NOT** start uvicorn or npm preview manually.
@@ -234,37 +241,66 @@ This stops both backend and frontend, runs the launch pipeline (install dependen
 
 **Edit: `{project.path}/LIVING_UI.md`** — you MUST update all affected sections:
 
-- **Data Model** table if models changed (add/remove/modify rows)
+- **Data Model** table if the schema changed (add/remove/modify rows)
 - **API Endpoints** table if routes changed (add/remove/modify rows)
 - **Frontend Components** table if components added/removed
 - **Key Files** table if new files created
 - Remove any remaining HTML comments (`<!-- ... -->`) or placeholder data
-- **DO NOT call `living_ui_restart` until LIVING_UI.md is updated**
+- **DO NOT restart until LIVING_UI.md is updated**
 
 ## Directory Structure
 
 ```
 {project.path}/
 ├── backend/
-│   ├── main.py          # FastAPI entry point (rarely edit)
-│   ├── models.py        # SQLAlchemy models
-│   ├── routes.py        # API endpoints
-│   ├── database.py      # DB connection (rarely edit)
-│   └── living_ui.db     # SQLite database
+│   ├── main.py            # FastAPI setup (SYSTEM — never edit)
+│   ├── engine.py          # schema.json → models + CRUD API (SYSTEM — never edit)
+│   ├── models.py          # Re-exports engine + system models (SYSTEM — never edit)
+│   ├── system_routes.py   # A-layer: /state /action /ui-* (SYSTEM — never edit)
+│   ├── files_routes.py    # File storage API (SYSTEM — never edit)
+│   ├── routes.py          # CUSTOM endpoints — edit this
+│   ├── database.py        # DB connection, .env DATABASE_URL (SYSTEM — never edit)
+│   ├── services/          # integration_client.py, secrets.py
+│   ├── tests/             # pytest suite — add tests here
+│   ├── .env               # secrets (DATABASE_URL, API keys) — never print
+│   └── living_ui.db       # SQLite database
 ├── frontend/
-│   ├── App.tsx           # Root component (rarely edit)
-│   ├── AppController.ts  # State management & API calls
-│   ├── types.ts          # TypeScript interfaces
+│   ├── App.tsx            # Root component (rarely edit)
+│   ├── AppController.ts   # OPTIONAL app-specific orchestration
+│   ├── types.gen.ts       # GENERATED entity types — import, never edit
+│   ├── schema.gen.ts      # GENERATED entity metadata — never edit
+│   ├── types.ts           # App-specific NON-entity types only
 │   ├── components/
-│   │   ├── ui/index.tsx  # Preset components (DO NOT edit)
-│   │   └── MainView.tsx  # Main UI component
+│   │   ├── ui/            # Preset components (SYSTEM — never edit)
+│   │   └── MainView.tsx   # Main UI component
 │   ├── services/
-│   │   ├── ApiService.ts # Backend HTTP client
-│   │   └── UICapture.ts  # UI capture for agent (rarely edit)
-│   └── styles/global.css # Design tokens (rarely edit)
-├── config/manifest.json  # Ports and project metadata
-└── LIVING_UI.md          # Documentation index
+│   │   ├── data.ts        # useEntities + CRUD client (SYSTEM — never edit)
+│   │   ├── ApiService.ts  # Client for CUSTOM endpoints
+│   │   └── UICapture.ts   # UI capture for agent (SYSTEM — never edit)
+│   └── styles/            # global.css tokens + themes.css style packs (rarely edit)
+├── config/
+│   ├── schema.json        # THE data layer — entities declared here
+│   ├── operations.json    # Declared ops = the app's CLI verbs
+│   └── manifest.json      # Ports and project metadata
+└── LIVING_UI.md           # Documentation index
 ```
+
+## Imported (external) apps
+
+`livingui ls` shows TYPE `external` for imported third-party apps. Modifying
+them is allowed HERE (import itself never touches app source), but:
+
+- Keep changes minimal and local to the app's own patterns — you are editing
+  someone else's codebase, not a template you know.
+- The structure above does NOT apply — read the app's own layout first;
+  `LIVING_UI.md` (written at import) is the map.
+- After adding any capability, declare it in `config/operations.json`
+  (`ops-sync --write` if the app serves an OpenAPI spec) — an undeclared
+  capability is invisible to every future agent.
+- Their manifest data block is READ-ONLY by default — write through the
+  app's own API/ops unless `"writable": true` was verified and set.
+- `livingui <project> restart` relaunches through the app's manifest
+  pipeline (install/start/health) just like native restarts.
 
 ## External Integrations (Google, Discord, Slack, etc.)
 
@@ -285,22 +321,29 @@ result = await integration.request(
     method="GET",
     url="https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
 )
+
+# In-app AI (CraftBot's LLM interface — no API key)
+text = await integration.llm("Summarize this: ...")
+caption = await integration.describe_image(image_b64)
 ```
 
 **Available:** google_workspace, slack, discord, notion, telegram, github, jira, linkedin, twitter, outlook, whatsapp
 
-If `integration_client.py` doesn't exist in the project, create it from the template at `backend/services/integration_client.py`.
+If `integration_client.py` doesn't exist in the project (older projects), copy it from the template's `backend/services/integration_client.py`. Recipes: creator skill `references/INTEGRATIONS.md`.
 
 ## FORBIDDEN Actions
 
 - NEVER implement OAuth or credential management — use the integration bridge
 - NEVER ask users for API keys — CraftBot already has their connected accounts
-- NEVER use `metadata` as a SQLAlchemy column name
+- NEVER edit SYSTEM files: `engine.py`, `models.py`, `main.py`, `database.py`,
+  `system_routes.py`, `files_routes.py`, `types.gen.ts`, `schema.gen.ts`,
+  `services/data.ts`, `components/ui/`
+- NEVER hand-write entity types or declare `id`/`createdAt`/`updatedAt`/`metadata` fields
+- NEVER install or import `react-toastify` — `toast` comes from `./components/ui`
 - NEVER use relative imports in backend code (`from . import` or `from .models import`)
 - NEVER add `/api` prefix to route paths in `routes.py` (the router prefix handles this)
 - NEVER run `npm run dev`, `npm run build`, `npm run preview`, or `uvicorn` manually
-- NEVER store important state only in React (use backend)
-- NEVER edit `frontend/components/ui/index.tsx` (preset components)
+- NEVER store important state only in React (use the backend)
 - NEVER use `send_message` - this is a background task
 
 ## Debugging & Logs
@@ -311,21 +354,24 @@ When something goes wrong, check these log files in the project directory:
 |----------|----------|
 | `backend/logs/subprocess_output.log` | Uvicorn startup output, crashes, stack traces |
 | `backend/logs/backend_*.log` | Backend app-level logs (requests, errors, SQL) |
-| `backend/logs/frontend_console.log` | Frontend console errors, warnings, app logs, and network requests (fetch method, URL, status, request/response bodies) |
+| `backend/logs/frontend_console.log` | Frontend console errors, warnings, app logs, and network requests (fetch method, URL, status) |
 | `backend/logs/health_status.json` | Health checker status (last check, failures) |
-| `logs/frontend_output.log` | Vite preview server output |
+| `logs/schedule.log` | Scheduled-op results |
 
-**Read these logs first** when debugging issues after modifications.
+**Read these logs first** when debugging issues after modifications. Full
+table + diagnostics: creator skill `references/TROUBLESHOOTING.md`.
 
 ## Quality Checklist
 
-Before calling `living_ui_restart`:
+Before restarting:
 
+- [ ] Schema changes declared in `config/schema.json` (not models.py)
 - [ ] Backend uses absolute imports (`from models import ...`)
-- [ ] Route paths don't have `/api` prefix (e.g., `@router.get("/items")`)
-- [ ] New endpoints handle errors (404 for not found, etc.)
-- [ ] `to_dict()` updated if model fields changed
-- [ ] Types in `types.ts` match backend output
+- [ ] Route paths don't have `/api` prefix (e.g., `@router.get("/todos/archive")`)
+- [ ] New endpoints handle errors (404 for not found, etc.) and have docstrings
+- [ ] Entity types imported from `types.gen.ts`
+- [ ] Write-result tsc/lint feedback is clean
+- [ ] New/changed capabilities declared in `config/operations.json` (ops-sync after restart)
 - [ ] LIVING_UI.md updated with changes
 - [ ] (Pipeline handles build/test verification automatically)
 
@@ -333,8 +379,11 @@ Before calling `living_ui_restart`:
 
 These reference files from the creator skill also apply to modifications:
 
+- [Backend Deep-Dive](../living-ui-creator/references/BACKEND.md) - schema.json field types, engine API, external DB, file storage
 - [Quality Standards](../living-ui-creator/references/STANDARDS.md) - UI, backend, and code quality standards
 - [Code Examples](../living-ui-creator/references/EXAMPLES.md) - Complete code examples for each layer
 - [Component Reference](../living-ui-creator/references/COMPONENTS.md) - Full preset component API reference
+- [Operations Manifest](../living-ui-creator/references/OPERATIONS.md) - declared ops format, safe flag, schedules
+- [MVC-A Architecture](../living-ui-creator/references/MVC-A.md) - layers, CLI, agent interface
 - [Troubleshooting](../living-ui-creator/references/TROUBLESHOOTING.md) - Common errors and fixes
 - [Verification Checklist](../living-ui-creator/references/VERIFY.md) - Detailed QA checklist

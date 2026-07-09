@@ -22,6 +22,7 @@ import React, {
   useContext,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 // =============================================================================
 // BUTTON
@@ -87,11 +88,16 @@ const buttonStyles: Record<string, React.CSSProperties> = {
   },
 }
 
+/**
+ * Accent discipline: Button defaults to `secondary`. Reserve
+ * `variant="primary"` for THE single main action of a view (one per
+ * screen/modal) — everything else stays neutral.
+ */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
       children,
-      variant = 'primary',
+      variant = 'secondary',
       size = 'md',
       loading = false,
       fullWidth = false,
@@ -109,8 +115,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
     const hoverStyles: Record<ButtonVariant, React.CSSProperties> = {
       primary: { backgroundColor: 'var(--color-primary-hover)' },
-      secondary: { backgroundColor: 'var(--color-gray-700)' },
-      danger: { backgroundColor: '#DC2626' },
+      secondary: { backgroundColor: 'var(--bg-hover)' },
+      danger: { backgroundColor: 'var(--color-error-hover)' },
       ghost: { backgroundColor: 'var(--bg-tertiary)' },
     }
 
@@ -140,7 +146,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         }}
         {...props}
       >
-        {loading && <Spinner size={size === 'sm' ? 12 : size === 'lg' ? 18 : 14} />}
+        {loading && (
+          <Spinner
+            size={size === 'sm' ? 12 : size === 'lg' ? 18 : 14}
+            color={
+              variant === 'primary' || variant === 'danger'
+                ? 'var(--color-white)'
+                : undefined
+            }
+          />
+        )}
         {!loading && icon && iconPosition === 'left' && icon}
         {children}
         {!loading && icon && iconPosition === 'right' && icon}
@@ -152,22 +167,26 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = 'Button'
 
 // =============================================================================
-// SPINNER (Internal)
+// SPINNER
 // =============================================================================
 
-interface SpinnerProps {
+export interface SpinnerProps {
   size?: number
+  /** Ring color (defaults to the accent). Set to white on colored surfaces. */
+  color?: string
 }
 
-function Spinner({ size = 16 }: SpinnerProps) {
+export function Spinner({ size = 16, color = 'var(--color-primary)' }: SpinnerProps) {
   return (
     <span
+      role="status"
+      aria-label="Loading"
       style={{
         display: 'inline-block',
         width: size,
         height: size,
-        border: '2px solid var(--border-primary)',
-        borderTopColor: 'var(--color-primary)',
+        border: `2px solid color-mix(in srgb, ${color} 30%, transparent)`,
+        borderTopColor: color,
         borderRadius: '50%',
         animation: 'spin 0.8s linear infinite',
       }}
@@ -199,10 +218,21 @@ const inputBaseStyle: React.CSSProperties = {
   outline: 'none',
 }
 
+/** Visible focus state for form fields (inline styles defeat the global
+ * :focus-visible rule, so fields manage their own ring). */
+function fieldFocusStyle(focused: boolean, error?: string): React.CSSProperties {
+  if (!focused) return error ? { borderColor: 'var(--color-error)' } : {}
+  return {
+    borderColor: error ? 'var(--color-error)' : 'var(--color-primary)',
+    boxShadow: `0 0 0 3px ${error ? 'var(--color-error-light)' : 'var(--color-primary-light)'}`,
+  }
+}
+
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, id, style, ...props }, ref) => {
+  ({ label, error, hint, id, style, onFocus, onBlur, ...props }, ref) => {
     const generatedId = useId()
     const inputId = id || generatedId
+    const [focused, setFocused] = useState(false)
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -223,8 +253,16 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           id={inputId}
           style={{
             ...inputBaseStyle,
-            ...(error && { borderColor: 'var(--color-error)' }),
+            ...fieldFocusStyle(focused, error),
             ...style,
+          }}
+          onFocus={(e) => {
+            setFocused(true)
+            onFocus?.(e)
+          }}
+          onBlur={(e) => {
+            setFocused(false)
+            onBlur?.(e)
           }}
           {...props}
         />
@@ -256,9 +294,10 @@ export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, hint, id, style, rows = 4, ...props }, ref) => {
+  ({ label, error, hint, id, style, rows = 4, onFocus, onBlur, ...props }, ref) => {
     const generatedId = useId()
     const inputId = id || generatedId
+    const [focused, setFocused] = useState(false)
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -283,8 +322,16 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
             height: 'auto',
             padding: 'var(--space-2) var(--space-3)',
             resize: 'vertical',
-            ...(error && { borderColor: 'var(--color-error)' }),
+            ...fieldFocusStyle(focused, error),
             ...style,
+          }}
+          onFocus={(e) => {
+            setFocused(true)
+            onFocus?.(e)
+          }}
+          onBlur={(e) => {
+            setFocused(false)
+            onBlur?.(e)
           }}
           {...props}
         />
@@ -324,9 +371,10 @@ export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, hint, options, placeholder, id, style, ...props }, ref) => {
+  ({ label, error, hint, options, placeholder, id, style, onFocus, onBlur, ...props }, ref) => {
     const generatedId = useId()
     const inputId = id || generatedId
+    const [focused, setFocused] = useState(false)
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -342,28 +390,53 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             {label}
           </label>
         )}
-        <select
-          ref={ref}
-          id={inputId}
-          style={{
-            ...inputBaseStyle,
-            cursor: 'pointer',
-            ...(error && { borderColor: 'var(--color-error)' }),
-            ...style,
-          }}
-          {...props}
-        >
-          {placeholder && (
-            <option value="" disabled>
-              {placeholder}
-            </option>
-          )}
-          {options.map((option) => (
-            <option key={option.value} value={option.value} disabled={option.disabled}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <div style={{ position: 'relative' }}>
+          <select
+            ref={ref}
+            id={inputId}
+            style={{
+              ...inputBaseStyle,
+              cursor: 'pointer',
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+              paddingRight: 'var(--space-8)',
+              ...fieldFocusStyle(focused, error),
+              ...style,
+            }}
+            onFocus={(e) => {
+              setFocused(true)
+              onFocus?.(e)
+            }}
+            onBlur={(e) => {
+              setFocused(false)
+              onBlur?.(e)
+            }}
+            {...props}
+          >
+            {placeholder && (
+              <option value="" disabled>
+                {placeholder}
+              </option>
+            )}
+            {options.map((option) => (
+              <option key={option.value} value={option.value} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            size={14}
+            style={{
+              position: 'absolute',
+              right: 'var(--space-3)',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              pointerEvents: 'none',
+              color: 'var(--text-secondary)',
+            }}
+          />
+        </div>
         {hint && !error && (
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
             {hint}
@@ -481,6 +554,7 @@ export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
             height: 16,
             backgroundColor: 'var(--color-white)',
             borderRadius: '50%',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
             transition: 'var(--transition-base)',
           }}
         />
@@ -518,6 +592,7 @@ export function Card({ children, padding = 'md', className, style }: CardProps) 
       className={className}
       style={{
         backgroundColor: 'var(--bg-secondary)',
+        backdropFilter: 'var(--surface-backdrop)',
         border: '1px solid var(--border-primary)',
         borderRadius: 'var(--radius-lg)',
         padding: cardPadding[padding],
@@ -599,18 +674,20 @@ export function Alert({ variant, title, children, onClose }: AlertProps) {
       {onClose && (
         <button
           onClick={onClose}
+          className="hover:bg-raised rounded-token"
           style={{
             background: 'none',
             border: 'none',
             cursor: 'pointer',
             color: colors.text,
-            padding: 0,
-            fontSize: '18px',
-            lineHeight: 1,
+            padding: 'var(--space-1)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            alignSelf: 'flex-start',
           }}
           aria-label="Close alert"
         >
-          ×
+          <X size={16} />
         </button>
       )}
     </div>
@@ -749,6 +826,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: 'var(--bg-secondary)',
+          backdropFilter: 'var(--surface-backdrop)',
           border: '1px solid var(--border-primary)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-lg)',
@@ -779,18 +857,21 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
             </h2>
             <button
               onClick={onClose}
+              className="hover:bg-raised hover:text-ink rounded-token"
               style={{
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
                 color: 'var(--text-secondary)',
-                fontSize: '20px',
-                lineHeight: 1,
-                padding: 'var(--space-1)',
+                padding: 'var(--space-2)',
+                margin: 'calc(var(--space-2) * -1)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                transition: 'var(--transition-fast)',
               }}
               aria-label="Close modal"
             >
-              ×
+              <X size={18} />
             </button>
           </div>
         )}
@@ -1186,20 +1267,14 @@ export interface ListProps {
 export function List({ children, dividers = true }: ListProps) {
   return (
     <ul
+      className={dividers ? 'ui-list-divided' : undefined}
       style={{
         listStyle: 'none',
         margin: 0,
         padding: 0,
       }}
     >
-      {React.Children.map(children, (child, index) => (
-        <>
-          {child}
-          {dividers && index < React.Children.count(children) - 1 && (
-            <Divider spacing="sm" />
-          )}
-        </>
-      ))}
+      {children}
     </ul>
   )
 }
@@ -1236,11 +1311,193 @@ export function ListItem({ children, onClick, active }: ListItemProps) {
 }
 
 // =============================================================================
-// EXPORTS
+// COLLAPSIBLE — expandable content group (settings sections, FAQ, details)
 // =============================================================================
 
-export type {
-  SpinnerProps,
+export interface CollapsibleProps {
+  title: ReactNode
+  children: ReactNode
+  /** Start expanded (default false). */
+  defaultOpen?: boolean
+}
+
+export function Collapsible({ title, children, defaultOpen = false }: CollapsibleProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border-primary)',
+        borderRadius: 'var(--radius-md)',
+        backgroundColor: 'var(--bg-secondary)',
+        overflow: 'hidden',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="hover:bg-raised"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 'var(--space-2)',
+          width: '100%',
+          padding: 'var(--space-3) var(--space-4)',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 'var(--font-size-base)',
+          fontWeight: 'var(--font-weight-medium)' as any,
+          color: 'var(--text-primary)',
+          textAlign: 'left',
+          transition: 'var(--transition-fast)',
+        }}
+      >
+        {title}
+        <ChevronDown
+          size={14}
+          style={{
+            color: 'var(--text-secondary)',
+            transform: open ? 'rotate(180deg)' : 'none',
+            transition: 'var(--transition-base)',
+            flexShrink: 0,
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            borderTop: '1px solid var(--border-primary)',
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =============================================================================
+// PAGINATION — prev/next paging for server-side limit/offset lists
+// =============================================================================
+
+export interface PaginationProps {
+  /** Zero-based page index. */
+  page: number
+  onPage: (page: number) => void
+  /** Whether a next page exists (e.g. `items.length === pageSize`). */
+  hasNext: boolean
+  /** Optional total item count, shown when known. */
+  total?: number
+  pageSize?: number
+}
+
+export function Pagination({ page, onPage, hasNext, total, pageSize }: PaginationProps) {
+  const from = pageSize !== undefined ? page * pageSize + 1 : undefined
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 'var(--space-2)',
+        fontSize: 'var(--font-size-sm)',
+        color: 'var(--text-secondary)',
+      }}
+    >
+      <span>
+        {total !== undefined && pageSize !== undefined
+          ? `${Math.min(from!, total)}–${Math.min((page + 1) * pageSize, total)} of ${total}`
+          : `Page ${page + 1}`}
+      </span>
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={<ChevronLeft size={14} />}
+        disabled={page === 0}
+        onClick={() => onPage(page - 1)}
+        aria-label="Previous page"
+      />
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={<ChevronRight size={14} />}
+        disabled={!hasNext}
+        onClick={() => onPage(page + 1)}
+        aria-label="Next page"
+      />
+    </div>
+  )
+}
+
+// =============================================================================
+// PROGRESS BAR
+// =============================================================================
+
+export interface ProgressBarProps {
+  /** Current value. */
+  value: number
+  /** Maximum (default 100). */
+  max?: number
+  color?: string
+  /** Bar thickness in px (default 6). */
+  height?: number
+}
+
+export function ProgressBar({ value, max = 100, color = 'var(--color-primary)', height = 6 }: ProgressBarProps) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0
+  return (
+    <div
+      role="progressbar"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      style={{
+        width: '100%',
+        height,
+        backgroundColor: 'var(--bg-tertiary)',
+        borderRadius: 'var(--radius-full)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          width: `${pct}%`,
+          height: '100%',
+          backgroundColor: color,
+          borderRadius: 'var(--radius-full)',
+          transition: 'width var(--transition-slow)',
+        }}
+      />
+    </div>
+  )
+}
+
+// =============================================================================
+// KBD — keyboard shortcut hint (pairs with useHotkey)
+// =============================================================================
+
+export function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--font-size-xs)',
+        color: 'var(--text-secondary)',
+        backgroundColor: 'var(--bg-tertiary)',
+        border: '1px solid var(--border-primary)',
+        borderBottomWidth: 2,
+        borderRadius: 'var(--radius-sm)',
+        padding: '1px var(--space-1)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </kbd>
+  )
 }
 
 // =============================================================================
@@ -1256,8 +1513,13 @@ export {
   IconBadge,
   StatCard,
   SplitView,
+  SkeletonBox,
+  SkeletonCircle,
+  SkeletonText,
+  SkeletonChip,
   SkeletonCard,
   SkeletonRow,
+  SkeletonStack,
 } from './layout'
 export type {
   AppShellProps,
@@ -1267,6 +1529,44 @@ export type {
   IconBadgeProps,
   StatCardProps,
   SplitViewProps,
+  SkeletonBoxProps,
+  SkeletonCircleProps,
+  SkeletonTextProps,
+  SkeletonChipProps,
   SkeletonCardProps,
   SkeletonRowProps,
+  SkeletonStackProps,
 } from './layout'
+
+// ── Preset extensions: confirmation, form inputs, drag-reorder, hooks ──────
+export { ConfirmDialog, useConfirm } from './confirm'
+export type { ConfirmDialogProps } from './confirm'
+export { NumberInput, DateInput, SearchInput, TagInput } from './forms'
+export type { NumberInputProps, DateInputProps, SearchInputProps, TagInputProps } from './forms'
+export { SortableList, reorderAndSave } from './dnd'
+export type { SortableListProps } from './dnd'
+export { useDebounce, useHotkey } from './hooks'
+
+// ── Feedback + overlays + controls ──────────────────────────────────────────
+export { toast, ToastHost } from './toast'
+export type { ToastVariant, ToastItem } from './toast'
+export { DropdownMenu } from './menu'
+export type { DropdownMenuProps, DropdownMenuItem } from './menu'
+export { Drawer } from './drawer'
+export type { DrawerProps } from './drawer'
+export { Tooltip } from './tooltip'
+export type { TooltipProps } from './tooltip'
+export { SegmentedControl } from './segmented'
+export type { SegmentedControlProps, SegmentedOption } from './segmented'
+export { Sparkline, MiniBarChart } from './charts'
+export type { SparklineProps, MiniBarChartProps, MiniBarChartDatum } from './charts'
+export { Avatar } from './avatar'
+export type { AvatarProps } from './avatar'
+export { getStyle, setDefaultStyle } from './theme'
+export type { ThemeStyle } from './theme'
+export { FileUpload, ImageInput } from './upload'
+export type { FileUploadProps, ImageInputProps } from './upload'
+
+// ── Schema-aware presets: one-line forms/tables from config/schema.json ────
+export { EntityForm, EntityTable } from './entity'
+export type { EntityFormProps, EntityTableProps } from './entity'

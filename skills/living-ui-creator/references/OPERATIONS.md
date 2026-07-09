@@ -23,7 +23,8 @@ Declare ops for behavior: "render", "publish", "recalculate", "make_move",
       "description": "One line: what this does and when to use it",
       "params": { ... },
       "executor": { ... },
-      "mode": "sync" | "job"
+      "mode": "sync" | "job",
+      "safe": true
     }
   }
 }
@@ -36,6 +37,10 @@ Declare ops for behavior: "render", "publish", "recalculate", "make_move",
   spawns detached with logged output and returns a `job_id` — the agent polls
   with the built-in `job.status` op. Use `job` for anything that can exceed
   ~60 seconds (renders, exports, builds).
+- `safe`: mark `true` on READ-ONLY ops (status, list, report). Validation
+  executes every safe op end-to-end to prove the control surface works — for
+  imported external apps at least one safe op is REQUIRED, and its defaults
+  must satisfy its params. NEVER mark an op with side effects as safe.
 
 ## Params
 
@@ -160,3 +165,24 @@ http for rules-engine moves.
 - Keep `description` accurate — the agent chooses ops by reading it.
 - Document the op briefly in LIVING_UI.md's capability section too, but this
   file is the machine-read source of truth.
+
+## Scheduled Operations
+
+Any op may declare a `"schedule"` — the platform runs it automatically
+while the app is running:
+
+```json
+"daily_digest": {
+  "description": "Email the user a summary of open tasks every morning.",
+  "params": {},
+  "executor": {"type": "http", "method": "POST", "path": "/api/digest/send"},
+  "mode": "sync",
+  "schedule": "daily 09:00"
+}
+```
+
+Supported: `"every 15m"`, `"every 2h"`, `"hourly"`, `"daily HH:MM"`
+(local time). Scheduled runs pass NO params — every required param needs
+a default. Results append to `logs/schedule.log`; last-run state is
+`logs/schedule_state.json` (both readable when debugging "did it fire?").
+The op also stays manually runnable via `livingui <project> run <op>`.

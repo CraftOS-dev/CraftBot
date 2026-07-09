@@ -20,9 +20,9 @@
 
 ## Data Model
 
-### Backend Models (backend/models.py)
+### Entities (config/schema.json)
 
-<!-- Agent: List the SQLAlchemy models you created -->
+<!-- Agent: List the entities you declared in config/schema.json -->
 
 | Model | Purpose | Key Fields |
 |-------|---------|------------|
@@ -53,7 +53,7 @@
 
 | File | Purpose |
 |------|---------|
-| backend/models.py | Database models |
+| config/schema.json | Declared entities -> generated models + CRUD API |
 | backend/routes.py | API endpoints |
 | frontend/types.ts | TypeScript interfaces |
 | frontend/AppController.ts | State management |

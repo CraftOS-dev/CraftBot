@@ -3,9 +3,23 @@
  * Based on CraftBot Browser Interface
  *
  * Dark mode by default, with light mode support via [data-theme="light"]
+ *
+ * Tailwind is available UTILITIES-ONLY (preflight disabled - this file and
+ * the preset components own the base styles). Token-mapped classes like
+ * bg-primary / bg-surface / text-ink-secondary / border-line follow the
+ * active theme automatically. Style component internals with utilities
+ * instead of hand-written <style> blocks wherever they suffice.
  */
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
+  /* Native widget chrome (date pickers, select popups, spinners) follows
+     the active theme — without this the browser renders them light. */
+  color-scheme: dark;
+
   /* Colors - Primary (Orange accent) */
   --color-primary: #FF4F18;
   --color-primary-hover: #E64515;
@@ -18,6 +32,7 @@
   --color-warning: #EAB308;
   --color-warning-light: rgba(234, 179, 8, 0.15);
   --color-error: #EF4444;
+  --color-error-hover: #DC2626;
   --color-error-light: rgba(239, 68, 68, 0.15);
   --color-info: #3B82F6;
   --color-info-light: rgba(59, 130, 246, 0.15);
@@ -40,11 +55,15 @@
   --bg-primary: var(--color-black);
   --bg-secondary: var(--color-gray-900);
   --bg-tertiary: var(--color-gray-800);
+  --bg-hover: var(--color-gray-700);
   --text-primary: var(--color-white);
   --text-secondary: var(--color-gray-400);
   --text-muted: var(--color-gray-500);
   --border-primary: var(--color-gray-700);
   --border-secondary: var(--color-gray-800);
+  --scrollbar-thumb: var(--color-gray-700);
+  --scrollbar-thumb-hover: var(--color-gray-600);
+  --shimmer: rgba(255, 255, 255, 0.06);
 
   /* Typography */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -106,18 +125,29 @@
 
   /* Overlay */
   --overlay-color: rgba(0, 0, 0, 0.6);
+
+  /* Style-pack hooks (overridden by [data-style] themes in themes.css).
+     Surfaces apply --surface-backdrop as backdrop-filter; the page applies
+     --page-backdrop as a background-image layer over --bg-primary. */
+  --surface-backdrop: none;
+  --page-backdrop: none;
 }
 
 /* Light Mode */
 [data-theme="light"] {
+  color-scheme: light;
   --bg-primary: var(--color-white);
   --bg-secondary: var(--color-gray-50);
   --bg-tertiary: var(--color-gray-100);
+  --bg-hover: var(--color-gray-200);
   --text-primary: var(--color-gray-900);
   --text-secondary: var(--color-gray-600);
   --text-muted: var(--color-gray-500);
   --border-primary: var(--color-gray-200);
   --border-secondary: var(--color-gray-300);
+  --scrollbar-thumb: var(--color-gray-300);
+  --scrollbar-thumb-hover: var(--color-gray-400);
+  --shimmer: rgba(0, 0, 0, 0.05);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
@@ -143,6 +173,9 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
   background-color: var(--bg-primary);
+  background-image: var(--page-backdrop);
+  background-attachment: fixed;
+  background-size: cover;
   color: var(--text-primary);
   line-height: var(--line-height-normal);
   min-height: 100vh;
@@ -155,7 +188,7 @@ body {
   flex-direction: column;
 }
 
-/* Scrollbar Styling */
+/* Scrollbar Styling (themed) */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -166,18 +199,40 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-gray-700);
+  background: var(--scrollbar-thumb);
   border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-gray-600);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-gray-700) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Form field text hints follow the theme */
+::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* Chrome autofill: keep the themed field colors instead of the yellow/white flash */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset;
+  -webkit-text-fill-color: var(--text-primary);
+  caret-color: var(--text-primary);
+}
+
+/* List with dividers (used by the List preset — valid HTML, no <hr> in <ul>) */
+.ui-list-divided > li + li {
+  border-top: 1px solid var(--border-primary);
 }
 
 /* Focus Ring */
@@ -232,5 +287,27 @@ body {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
