@@ -68,6 +68,20 @@ const messagesSlice = createSlice({
         entry.optionSelected = value
       }
     },
+    markQuestionsAnswered(
+      state,
+      action: PayloadAction<{ messageId: string; answers?: Record<string, string>; declined?: boolean }>
+    ) {
+      const { messageId, answers, declined } = action.payload
+      const entry = state.entities[messageId]
+      if (entry && !entry.questionAnswers && !entry.questionsDeclined) {
+        if (declined) {
+          entry.questionsDeclined = true
+        } else {
+          entry.questionAnswers = answers
+        }
+      }
+    },
   },
 })
 
@@ -79,6 +93,7 @@ export const {
   clear,
   setLoadingOlder,
   markOptionSelected,
+  markQuestionsAnswered,
 } = messagesSlice.actions
 
 export const messagesAdapter = adapter

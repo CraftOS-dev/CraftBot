@@ -19,6 +19,7 @@ import {
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
   markOptionSelected as messagesMarkOptionSelected,
+  markQuestionsAnswered as messagesMarkQuestionsAnswered,
   clear as messagesClear,
 } from '../store/slices/messagesSlice'
 import {
@@ -219,6 +220,13 @@ interface WebSocketContextType extends WebSocketState {
   pullOllamaModel: (model: string) => void
   // Option click (interactive buttons in chat)
   sendOptionClick: (value: string, sessionId?: string, messageId?: string) => void
+  // Clarifying-question batch answers (agent-asked Q&A stepper in chat)
+  sendQuestionAnswers: (
+    messageId: string,
+    sessionId: string | undefined,
+    answers: Record<string, string> | undefined,
+    declined: boolean
+  ) => void
   // Agent profile picture
   uploadAgentProfilePicture: (name: string, mimeType: string, contentBase64: string) => void
   removeAgentProfilePicture: () => void
@@ -498,6 +506,21 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const sendQuestionAnswers = useCallback((
+    messageId: string,
+    sessionId: string | undefined,
+    answers: Record<string, string> | undefined,
+    declined: boolean
+  ) => {
+    // Optimistically resolve the stepper locally, same reasoning as sendOptionClick.
+    dispatch(messagesMarkQuestionsAnswered({ messageId, answers, declined }))
+    if (client.isConnected) {
+      client.sendString(JSON.stringify({
+        type: 'question_answers_submit', messageId, sessionId, answers, declined,
+      }))
+    }
+  }, [])
+
   const uploadAgentProfilePicture = useCallback(
     (name: string, mimeType: string, contentBase64: string) => {
       if (client.isConnected) {
@@ -771,6 +794,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         enhancePrompt,
         clearEnhancedPrompt,
         sendOptionClick,
+        sendQuestionAnswers,
         uploadAgentProfilePicture,
         removeAgentProfilePicture,
         // Living UI methods

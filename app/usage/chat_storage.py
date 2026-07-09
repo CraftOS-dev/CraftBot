@@ -35,6 +35,9 @@ class StoredChatMessage:
     task_session_id: Optional[str] = None
     options: Optional[List[Dict[str, Any]]] = None
     option_selected: Optional[str] = None
+    questions: Optional[List[Dict[str, Any]]] = None
+    question_answers: Optional[Dict[str, str]] = None
+    questions_declined: Optional[bool] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -53,6 +56,12 @@ class StoredChatMessage:
             result["options"] = self.options
         if self.option_selected:
             result["optionSelected"] = self.option_selected
+        if self.questions:
+            result["questions"] = self.questions
+        if self.question_answers:
+            result["questionAnswers"] = self.question_answers
+        if self.questions_declined:
+            result["questionsDeclined"] = self.questions_declined
         return result
 
 
@@ -131,6 +140,24 @@ class ChatStorage:
                     ADD COLUMN option_selected TEXT
                 """)
                 logger.info("[ChatStorage] Migrated: added option_selected column")
+            if "questions" not in columns:
+                cursor.execute("""
+                    ALTER TABLE chat_messages
+                    ADD COLUMN questions TEXT
+                """)
+                logger.info("[ChatStorage] Migrated: added questions column")
+            if "question_answers" not in columns:
+                cursor.execute("""
+                    ALTER TABLE chat_messages
+                    ADD COLUMN question_answers TEXT
+                """)
+                logger.info("[ChatStorage] Migrated: added question_answers column")
+            if "questions_declined" not in columns:
+                cursor.execute("""
+                    ALTER TABLE chat_messages
+                    ADD COLUMN questions_declined INTEGER
+                """)
+                logger.info("[ChatStorage] Migrated: added questions_declined column")
 
             conn.commit()
 
@@ -149,8 +176,8 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected, questions, question_answers, questions_declined)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     message.message_id,
@@ -162,6 +189,9 @@ class ChatStorage:
                     message.task_session_id,
                     json.dumps(message.options) if message.options else None,
                     message.option_selected,
+                    json.dumps(message.questions) if message.questions else None,
+                    json.dumps(message.question_answers) if message.question_answers else None,
+                    message.questions_declined,
                 ),
             )
             conn.commit()
@@ -186,7 +216,7 @@ class ChatStorage:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
+                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected, questions, question_answers, questions_declined
                 FROM chat_messages
                 ORDER BY timestamp ASC
                 LIMIT ? OFFSET ?
@@ -206,6 +236,9 @@ class ChatStorage:
                     task_session_id=row[6],
                     options=json.loads(row[7]) if row[7] else None,
                     option_selected=row[8],
+                    questions=json.loads(row[9]) if row[9] else None,
+                    question_answers=json.loads(row[10]) if row[10] else None,
+                    questions_declined=bool(row[11]) if row[11] is not None else None,
                 )
                 for row in rows
             ]
@@ -225,7 +258,7 @@ class ChatStorage:
             # Get last N messages ordered by timestamp DESC, then reverse
             cursor.execute(
                 """
-                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
+                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected, questions, question_answers, questions_declined
                 FROM chat_messages
                 ORDER BY timestamp DESC
                 LIMIT ?
@@ -245,6 +278,9 @@ class ChatStorage:
                     task_session_id=row[6],
                     options=json.loads(row[7]) if row[7] else None,
                     option_selected=row[8],
+                    questions=json.loads(row[9]) if row[9] else None,
+                    question_answers=json.loads(row[10]) if row[10] else None,
+                    questions_declined=bool(row[11]) if row[11] is not None else None,
                 )
                 for row in rows
             ]
@@ -287,6 +323,32 @@ class ChatStorage:
             conn.commit()
             return cursor.rowcount > 0
 
+    def update_question_answers(
+        self,
+        message_id: str,
+        answers: Optional[Dict[str, str]],
+        declined: bool,
+    ) -> bool:
+        """
+        Record the resolution of a clarifying-question batch on a message.
+
+        Args:
+            message_id: The message ID to update.
+            answers: Answer text per question id, or None if declined.
+            declined: True if the user escaped out of the batch instead of answering.
+
+        Returns:
+            True if the message was updated, False if not found.
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE chat_messages SET question_answers = ?, questions_declined = ? WHERE message_id = ?",
+                (json.dumps(answers) if answers else None, declined, message_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
     def delete_message(self, message_id: str) -> bool:
         """
         Delete a message by ID.
@@ -324,7 +386,7 @@ class ChatStorage:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
+                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected, questions, question_answers, questions_declined
                 FROM chat_messages
                 WHERE timestamp < ?
                 ORDER BY timestamp DESC
@@ -345,6 +407,9 @@ class ChatStorage:
                     task_session_id=row[6],
                     options=json.loads(row[7]) if row[7] else None,
                     option_selected=row[8],
+                    questions=json.loads(row[9]) if row[9] else None,
+                    question_answers=json.loads(row[10]) if row[10] else None,
+                    questions_declined=bool(row[11]) if row[11] is not None else None,
                 )
                 for row in rows
             ]

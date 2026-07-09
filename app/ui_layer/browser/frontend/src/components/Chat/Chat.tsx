@@ -104,6 +104,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     sendMessage,
     sendCommand,
     sendOptionClick,
+    sendQuestionAnswers,
     openFile,
     openFolder,
     lastSeenMessageId,
@@ -726,6 +727,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                       onOpenFolder={openFolder}
                       onReply={handleChatReply}
                       onOptionClick={sendOptionClick}
+                      onQuestionAnswers={sendQuestionAnswers}
                     />
                   </div>
                 )
