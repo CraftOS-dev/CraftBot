@@ -15,7 +15,12 @@ from app.ui_layer.components.protocols import (
     InputComponentProtocol,
     FootageComponentProtocol,
 )
-from app.ui_layer.components.types import ChatMessage, ChatMessageOption, ActionItem
+from app.ui_layer.components.types import (
+    ChatMessage,
+    ChatMessageOption,
+    ChatMessageQuestion,
+    ActionItem,
+)
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -547,6 +552,7 @@ class InterfaceAdapter(ABC):
         style: str,
         task_session_id: Optional[str] = None,
         options: Optional[List[ChatMessageOption]] = None,
+        questions: Optional[List[ChatMessageQuestion]] = None,
         client_id: Optional[str] = None,
     ) -> None:
         """
@@ -558,6 +564,7 @@ class InterfaceAdapter(ABC):
             style: Style identifier
             task_session_id: Optional task session ID for reply feature
             options: Optional list of interactive options/buttons
+            questions: Optional batch of clarifying questions to ask the user
             client_id: Optional client-generated UUID for reconciling with optimistic UI
         """
         import time
@@ -570,6 +577,7 @@ class InterfaceAdapter(ABC):
                 timestamp=time.time(),
                 task_session_id=task_session_id,
                 options=options,
+                questions=questions,
                 client_id=client_id,
             )
         )

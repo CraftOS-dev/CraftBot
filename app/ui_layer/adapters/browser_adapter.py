@@ -232,6 +232,27 @@ class BrowserChatComponent(ChatComponentProtocol):
                         )
                         for o in stored.options
                     ]
+                questions = None
+                if stored.questions:
+                    from app.ui_layer.components.types import (
+                        ChatMessageOption,
+                        ChatMessageQuestion,
+                    )
+
+                    questions = [
+                        ChatMessageQuestion(
+                            id=q.get("id", ""),
+                            text=q.get("text", ""),
+                            choices=[
+                                ChatMessageOption(
+                                    label=c.get("label", ""), value=c.get("value", "")
+                                )
+                                for c in q.get("choices", [])
+                            ],
+                            multi_select=q.get("multiSelect", False),
+                        )
+                        for q in stored.questions
+                    ]
                 self._messages.append(
                     ChatMessage(
                         sender=stored.sender,
@@ -243,6 +264,9 @@ class BrowserChatComponent(ChatComponentProtocol):
                         task_session_id=stored.task_session_id,
                         options=options,
                         option_selected=stored.option_selected,
+                        questions=questions,
+                        question_answers=stored.question_answers,
+                        questions_declined=stored.questions_declined,
                     )
                 )
         except Exception:
@@ -276,6 +300,20 @@ class BrowserChatComponent(ChatComponentProtocol):
                         {"label": o.label, "value": o.value, "style": o.style}
                         for o in message.options
                     ]
+                questions_data = None
+                if message.questions:
+                    questions_data = [
+                        {
+                            "id": q.id,
+                            "text": q.text,
+                            "choices": [
+                                {"label": c.label, "value": c.value}
+                                for c in q.choices
+                            ],
+                            "multiSelect": q.multi_select,
+                        }
+                        for q in message.questions
+                    ]
                 stored = StoredChatMessage(
                     message_id=message.message_id
                     or f"{message.sender}:{message.timestamp}",
@@ -286,6 +324,9 @@ class BrowserChatComponent(ChatComponentProtocol):
                     attachments=attachments_data,
                     task_session_id=message.task_session_id,
                     options=options_data,
+                    questions=questions_data,
+                    question_answers=message.question_answers,
+                    questions_declined=message.questions_declined,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -329,6 +370,24 @@ class BrowserChatComponent(ChatComponentProtocol):
             ]
         if message.option_selected:
             message_data["optionSelected"] = message.option_selected
+
+        # Include clarifying-question batch if present
+        if message.questions:
+            message_data["questions"] = [
+                {
+                    "id": q.id,
+                    "text": q.text,
+                    "choices": [
+                        {"label": c.label, "value": c.value} for c in q.choices
+                    ],
+                    "multiSelect": q.multi_select,
+                }
+                for q in message.questions
+            ]
+        if message.question_answers:
+            message_data["questionAnswers"] = message.question_answers
+        if message.questions_declined:
+            message_data["questionsDeclined"] = message.questions_declined
 
         await self._adapter._broadcast(
             {
@@ -396,6 +455,27 @@ class BrowserChatComponent(ChatComponentProtocol):
                         )
                         for o in s.options
                     ]
+                questions = None
+                if s.questions:
+                    from app.ui_layer.components.types import (
+                        ChatMessageOption,
+                        ChatMessageQuestion,
+                    )
+
+                    questions = [
+                        ChatMessageQuestion(
+                            id=q.get("id", ""),
+                            text=q.get("text", ""),
+                            choices=[
+                                ChatMessageOption(
+                                    label=c.get("label", ""), value=c.get("value", "")
+                                )
+                                for c in q.get("choices", [])
+                            ],
+                            multi_select=q.get("multiSelect", False),
+                        )
+                        for q in s.questions
+                    ]
                 messages.append(
                     ChatMessage(
                         sender=s.sender,
@@ -404,8 +484,12 @@ class BrowserChatComponent(ChatComponentProtocol):
                         timestamp=s.timestamp,
                         message_id=s.message_id,
                         attachments=attachments,
+                        task_session_id=s.task_session_id,
                         options=options,
                         option_selected=s.option_selected,
+                        questions=questions,
+                        question_answers=s.question_answers,
+                        questions_declined=s.questions_declined,
                     )
                 )
             return messages
@@ -1642,6 +1726,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = data.get("sessionId", "")
             message_id = data.get("messageId", "")
             await self._handle_option_click(value, session_id, message_id)
+
+        elif msg_type == "question_answers_submit":
+            session_id = data.get("sessionId", "")
+            message_id = data.get("messageId", "")
+            answers = data.get("answers")
+            declined = bool(data.get("declined", False))
+            await self._handle_question_answers_submit(
+                session_id, message_id, answers, declined
+            )
 
         # Settings operations
         elif msg_type == "settings_get":
@@ -4057,6 +4150,57 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(
                 f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
+            )
+
+    async def _handle_question_answers_submit(
+        self,
+        session_id: str,
+        message_id: str,
+        answers: Optional[Dict[str, str]],
+        declined: bool,
+    ) -> None:
+        """Handle the user resolving a batch of agent-asked clarifying questions.
+
+        Persists the resolution, then resumes the parked task the same way a
+        normal reply to a waiting task does (see ``submit_message``'s
+        ``reply_context`` handling) — no separate resume path needed.
+        """
+        try:
+            question_text_by_id: Dict[str, str] = {}
+            if self._chat and message_id:
+                for m in self._chat._messages:
+                    if m.message_id == message_id:
+                        if m.questions:
+                            question_text_by_id = {q.id: q.text for q in m.questions}
+                        m.question_answers = answers if not declined else None
+                        m.questions_declined = declined
+                        break
+                if self._chat._storage:
+                    try:
+                        self._chat._storage.update_question_answers(
+                            message_id, answers if not declined else None, declined
+                        )
+                    except Exception:
+                        pass
+
+            if declined:
+                resume_text = "The user declined to answer."
+            elif answers:
+                lines = [
+                    f"{i + 1}. {question_text_by_id.get(qid, qid)} → {answer}"
+                    for i, (qid, answer) in enumerate(answers.items())
+                ]
+                resume_text = "Answered clarifying questions:\n" + "\n".join(lines)
+            else:
+                resume_text = "The user declined to answer."
+
+            await self.submit_message(
+                resume_text, reply_context={"sessionId": session_id}
+            )
+        except Exception as e:
+            logger.error(
+                f"[QUESTION_ANSWERS] Error handling question answers: {e}",
+                exc_info=True,
             )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -8815,6 +8959,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     **(
                         {"optionSelected": m.option_selected}
                         if m.option_selected
+                        else {}
+                    ),
+                    **(
+                        {
+                            "questions": [
+                                {
+                                    "id": q.id,
+                                    "text": q.text,
+                                    "choices": [
+                                        {"label": c.label, "value": c.value}
+                                        for c in q.choices
+                                    ],
+                                    "multiSelect": q.multi_select,
+                                }
+                                for q in m.questions
+                            ]
+                        }
+                        if m.questions
+                        else {}
+                    ),
+                    **(
+                        {"questionAnswers": m.question_answers}
+                        if m.question_answers
+                        else {}
+                    ),
+                    **(
+                        {"questionsDeclined": m.questions_declined}
+                        if m.questions_declined
                         else {}
                     ),
                 }

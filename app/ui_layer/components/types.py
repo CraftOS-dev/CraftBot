@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Dict
 import time
 
 
@@ -46,6 +46,26 @@ class ChatMessageOption:
 
 
 @dataclass
+class ChatMessageQuestion:
+    """
+    Data structure for one clarifying question in a batch asked by the agent.
+
+    Attributes:
+        id: Stable identifier for this question within the batch (e.g. "q1")
+        text: The question text shown to the user
+        choices: Multiple-choice options; the frontend always adds an
+            implicit free-text "Other" option after these
+        multi_select: If True, the user can pick more than one choice
+            (checkboxes); if False, picking one answers the question (radio)
+    """
+
+    id: str
+    text: str
+    choices: List[ChatMessageOption] = field(default_factory=list)
+    multi_select: bool = False
+
+
+@dataclass
 class ChatMessage:
     """
     Data structure for a chat message.
@@ -62,6 +82,9 @@ class ChatMessage:
         task_session_id: Optional task session ID for reply feature
         options: Optional list of interactive options/buttons
         option_selected: Value of the option that was selected, if any
+        questions: Optional batch of clarifying questions the agent is waiting on
+        question_answers: Answer text per question id, once submitted
+        questions_declined: True if the user escaped out of the question batch
     """
 
     sender: str
@@ -73,6 +96,9 @@ class ChatMessage:
     task_session_id: Optional[str] = None
     options: Optional[List[ChatMessageOption]] = None
     option_selected: Optional[str] = None
+    questions: Optional[List[ChatMessageQuestion]] = None
+    question_answers: Optional[Dict[str, str]] = None
+    questions_declined: Optional[bool] = None
     # Client-generated UUID from the sender; echoed back so the browser can
     # reconcile optimistic-pending messages with the server-acknowledged copy.
     client_id: Optional[str] = None

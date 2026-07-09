@@ -18,6 +18,13 @@ export interface ChatMessageOption {
   style?: 'primary' | 'danger' | 'default'
 }
 
+export interface ChatMessageQuestion {
+  id: string
+  text: string
+  choices: ChatMessageOption[]
+  multiSelect?: boolean
+}
+
 export interface ChatMessage {
   sender: string
   content: string
@@ -28,6 +35,9 @@ export interface ChatMessage {
   taskSessionId?: string  // Links message to a task session for reply feature
   options?: ChatMessageOption[]
   optionSelected?: string  // Value of the option that was selected
+  questions?: ChatMessageQuestion[]  // Batch of clarifying questions the agent is waiting on
+  questionAnswers?: Record<string, string>  // Answer text per question id, once submitted
+  questionsDeclined?: boolean  // True if the user escaped the batch without answering
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment
 }
