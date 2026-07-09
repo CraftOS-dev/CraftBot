@@ -290,7 +290,12 @@ class LivingUIManager:
                             f"[LIVING_UI:WATCHDOG] {project.name} ({project_id}) restarted successfully"
                         )
                         retry_counts.pop(project_id, None)
-                        self._save_projects()
+                        try:
+                            self._save_projects()
+                        except Exception:
+                            logger.exception(
+                                "[LIVING_UI:WATCHDOG] Restart succeeded but state could not be persisted"
+                            )
 
             except asyncio.CancelledError:
                 break
@@ -439,7 +444,12 @@ class LivingUIManager:
         project.error = f"{crash_str} crashed after {len(self.WATCHDOG_RETRY_DELAYS)} restart attempts"
         project.process = None
         project.backend_process = None
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI:WATCHDOG] Failed to persist crash state during escalation"
+            )
 
         # Create agent task to investigate and fix
         if not self._task_manager or not self._trigger_queue:
@@ -511,7 +521,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 await self._trigger_queue.put(trigger)
 
             project.task_id = task_id
-            self._save_projects()
+            try:
+                self._save_projects()
+            except Exception:
+                logger.exception(
+                    "[LIVING_UI:WATCHDOG] Failed to persist crash task association"
+                )
+
             logger.info(
                 f"[LIVING_UI:WATCHDOG] Created fix task {task_id} for {project.name} ({project_id})"
             )
@@ -585,6 +601,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"[LIVING_UI] Failed to save projects: {e}")
+            raise
 
     def _allocate_port(self) -> int:
         """Allocate a free port for a Living UI project.
@@ -1053,7 +1070,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 logger.error(f"[LIVING_UI:PIPELINE]   {err}")
             project.status = "error"
             project.error = f"{len(all_errors)} validation error(s)"
-            self._save_projects()
+            try:
+                self._save_projects()
+            except Exception:
+                logger.exception(
+                    "[LIVING_UI] Failed to persist validation error state for project %s",
+                    project.id,
+                )
             return {"status": "error", "step": "validation", "errors": all_errors}
 
         logger.info("[LIVING_UI:PIPELINE] All validation passed, starting servers...")
@@ -1205,7 +1228,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         # === SUCCESS ===
         project.status = "running"
         project.error = None
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.error(
+                "[LIVING_UI] Project running but state not persisted — restart will lose it"
+            )
+            return {
+                "status": "success",
+                "url": project.url,
+                "backend_url": project.backend_url,
+                "port": project.port,
+                "warning": "state_not_persisted",
+            }
         self._save_launch_timestamp(project_path)
 
         logger.info(
@@ -1344,7 +1379,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         project.status = "running"
         project.error = None
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.error(
+                "[LIVING_UI] Project running but state not persisted — restart will lose it"
+            )
+            return {
+                "status": "success",
+                "url": project.url,
+                "backend_url": project.backend_url,
+                "port": project.port,
+                "warning": "state_not_persisted",
+            }
         self._save_launch_timestamp(project_path)
 
         logger.info(
@@ -2164,7 +2211,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 project.backend_process = None
                 project.url = None
                 project.backend_url = None
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.error("[LIVING_UI] Failed to persist startup cleanup state")
 
         logger.info("[LIVING_UI] Startup cleanup complete")
 
@@ -2271,8 +2321,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         )
 
         self.projects[project_id] = project
-        self._save_projects()
-
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Failed to persist newly created project %s",
+                project_id,
+            )
         logger.info(f"[LIVING_UI] Created project: {name} ({project_id})")
         return project
 
@@ -2464,7 +2519,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             )
 
             self.projects[project_id] = project
-            self._save_projects()
+            try:
+                self._save_projects()
+            except Exception:
+                logger.exception(
+                    "[LIVING_UI:MARKETPLACE] Failed to persist project %s",
+                    project_id,
+                )
 
             logger.info(
                 f"[LIVING_UI:MARKETPLACE] Created project: {app_name} ({project_id})"
@@ -2511,7 +2572,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             self.projects[project_id].status = status
             if error:
                 self.projects[project_id].error = error
-            self._save_projects()
+
+            try:
+                self._save_projects()
+            except Exception:
+                logger.exception(
+                    "[LIVING_UI] Failed to persist status update for project %s",
+                    project_id,
+                )
 
     def set_project_task(self, project_id: str, task_id: str) -> None:
         """Associate a task ID with a project."""
@@ -2845,7 +2913,18 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         project.backend_url = f"http://localhost:{app_port}"
         project.status = "running"
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Project running but state not persisted — restart will lose it"
+            )
+            return {
+                "status": "success",
+                "url": project.url,
+                "port": proxy_port,
+                "warning": "state_not_persisted",
+            }
 
         logger.info(f"[LIVING_UI:PIPELINE] App ready: {project.url}")
         return {
@@ -3037,7 +3116,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if existing and existing.task_id:
             project.task_id = existing.task_id
         self.projects[project_id] = project
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Failed to persist imported external app %s",
+                project_id,
+            )
 
         logger.info(f"[LIVING_UI] Imported external app: {name} ({project_id})")
         return {
@@ -3136,7 +3221,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             await self.stop_backend(project_id)
 
         project.status = "stopped"
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Failed to persist stopped state for project %s",
+                project_id,
+            )
 
         logger.info(f"[LIVING_UI] Stopped project: {project_id}")
         return True
@@ -3179,7 +3270,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         # Remove from registry
         del self.projects[project_id]
-        self._save_projects()
+
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Failed to persist deletion of project %s",
+                project_id,
+            )
 
         logger.info(f"[LIVING_UI] Deleted project: {project_id}")
         return True
@@ -3358,7 +3456,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if existing and existing.task_id:
             project.task_id = existing.task_id
         self.projects[project_id] = project
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Failed to persist imported project %s",
+                project_id,
+            )
 
         logger.info(f"[LIVING_UI] Imported project '{name}' ({project_id}) from ZIP")
         return project
@@ -3548,7 +3652,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if url:
             project.tunnel_process = proc
             project.tunnel_url = url
-            self._save_projects()
+            try:
+                self._save_projects()
+            except Exception:
+                logger.exception(
+                    "[LIVING_UI] Failed to persist tunnel state for project %s",
+                    project_id,
+                )
             logger.info(f"[LIVING_UI] Tunnel started for {project.name}: {url}")
             return url
         else:
@@ -3565,7 +3675,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             self._terminate_process(project.tunnel_process)
             project.tunnel_process = None
         project.tunnel_url = None
-        self._save_projects()
+        try:
+            self._save_projects()
+        except Exception:
+            logger.exception(
+                "[LIVING_UI] Failed to persist stopped tunnel state for project %s",
+                project_id,
+            )
+
         logger.info(f"[LIVING_UI] Tunnel stopped for {project.name}")
 
     async def _parse_cloudflare_url(
@@ -3626,5 +3743,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     f"[LIVING_UI] Auto-launching: {project.name} ({project_id})"
                 )
                 project.status = "launching"
-                self._save_projects()
+                try:
+                    self._save_projects()
+                except Exception:
+                    logger.exception(
+                        "[LIVING_UI] Failed to persist launching state for project %s",
+                        project_id,
+                    )
                 await self.launch_project(project_id)
