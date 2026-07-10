@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Modal } from './Modal'
+import { MarkdownContent } from './MarkdownContent'
 import styles from './AttachmentPreviewModal.module.css'
 
 // A single shape that covers both pre-send attachments (base64 in memory)
@@ -33,7 +34,8 @@ function classify(att: AttachmentPreviewItem) {
     || TEXT_MIMES.has(att.type)
     || TEXT_EXT_RE.test(att.name)
   )
-  return { isImage, isPdf, isText }
+  const isMarkdown = isText && att.name.toLowerCase().endsWith('.md')
+  return { isImage, isPdf, isText, isMarkdown }
 }
 
 function formatFileSize(bytes: number): string {
@@ -45,7 +47,10 @@ function formatFileSize(bytes: number): string {
 }
 
 export function AttachmentPreviewModal({ isOpen, attachment, onClose }: AttachmentPreviewModalProps) {
-  const kind = attachment ? classify(attachment) : null
+  // Memoized: classify() returns a new object each call, and an unstable
+  // identity here would re-trigger the fetch effect below on every render
+  // it itself causes (infinite fetch/abort loop).
+  const kind = useMemo(() => (attachment ? classify(attachment) : null), [attachment])
 
   const imageSrc = useMemo(() => {
     if (!attachment || !kind?.isImage) return null
@@ -74,8 +79,10 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
   const [textContent, setTextContent] = useState<string | null>(null)
   const [textLoading, setTextLoading] = useState(false)
   const [textError, setTextError] = useState<string | null>(null)
+  const [mdView, setMdView] = useState<'preview' | 'source'>('preview')
 
   useEffect(() => {
+    setMdView('preview')
     if (!attachment || !kind?.isText) {
       setTextContent(null)
       setTextLoading(false)
@@ -125,6 +132,7 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
       {kind.isText && lineCount > 0 && <> · {lineCount} line{lineCount !== 1 ? 's' : ''}</>}
     </>
   )
+  const showMarkdownToggle = kind.isMarkdown && textContent != null
 
   return (
     <Modal
@@ -134,7 +142,27 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
       size="auto"
       contentClassName={styles.modal}
     >
-      <div className={styles.metaBar}>{meta}</div>
+      <div className={styles.metaBar}>
+        {meta}
+        {showMarkdownToggle && (
+          <div className={styles.viewToggle}>
+            <button
+              type="button"
+              className={mdView === 'preview' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
+              onClick={() => setMdView('preview')}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              className={mdView === 'source' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
+              onClick={() => setMdView('source')}
+            >
+              Source
+            </button>
+          </div>
+        )}
+      </div>
       <div className={styles.viewer}>
         {kind.isImage && imageSrc && (
           <img src={imageSrc} alt={attachment.name} className={styles.image} />
@@ -148,7 +176,11 @@ export function AttachmentPreviewModal({ isOpen, attachment, onClose }: Attachme
           ) : textError ? (
             <div className={styles.message}>{textError}</div>
           ) : textContent != null ? (
-            <pre className={styles.text}>{textContent}</pre>
+            showMarkdownToggle && mdView === 'preview' ? (
+              <MarkdownContent content={textContent} className={styles.markdownPreview} />
+            ) : (
+              <pre className={styles.text}>{textContent}</pre>
+            )
           ) : null
         )}
         {!kind.isImage && !kind.isPdf && !kind.isText && (
