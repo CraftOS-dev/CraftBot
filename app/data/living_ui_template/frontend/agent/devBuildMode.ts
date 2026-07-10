@@ -112,8 +112,13 @@ function persistLedgerSoon() {
   }, 500)
 }
 
-/** Structural fingerprint: tag + child-index path from #root. Stable across
- * re-renders of the same structure; new structure = new fingerprint. */
+/** Structural fingerprint: tag + first-class + child-index path from #root.
+ * Stable across re-renders of the same component (classes are static in
+ * this codebase); new structure = new fingerprint. The class token is
+ * load-bearing: without it, a real component that replaces a wireframe
+ * skeleton at the same DOM position collides with the skeleton's
+ * fingerprint and is treated as "already revealed" — no reveal animation
+ * and no dock showcase for the entire replaced subtree. */
 function fingerprintOf(el: Element, root: Element): string {
   const parts: string[] = []
   let node: Element | null = el
@@ -122,7 +127,8 @@ function fingerprintOf(el: Element, root: Element): string {
     if (!parent) break
     let idx = 0
     for (let c = node.previousElementSibling; c; c = c.previousElementSibling) idx++
-    parts.push(`${node.tagName}:${idx}`)
+    const cls = node.classList.length > 0 ? `.${node.classList[0]}` : ''
+    parts.push(`${node.tagName}${cls}:${idx}`)
     node = parent
   }
   return parts.reverse().join('/')
@@ -201,6 +207,7 @@ const drainTick = guarded(() => {
   if (!item || !item.el.isConnected) {
     draining = queue.length > 0
     if (draining) setTimeout(drainTick, revealDelay())
+    else scheduleShowcase()
     return
   }
   markRevealed(item.el, item.fp)
@@ -210,14 +217,356 @@ const drainTick = guarded(() => {
     () => item!.el.classList.remove(ANIM_BLOCK, ANIM_LEAF),
     { once: true },
   )
+  if (item.isBlock) burstRoots.push(item.el)
   narrate(item.el, item.isBlock)
   lastProgressAt = Date.now()
   if (queue.length > 0) {
     setTimeout(drainTick, item.isBlock ? Math.max(revealDelay(), 200) : revealDelay())
   } else {
     draining = false
+    scheduleShowcase()
   }
 })
+
+// ── component showcase ──────────────────────────────────────────────────────
+// After a reveal burst settles, rasterize the newly arrived components and
+// send them to the host dock, which plays them one after another in place
+// of the code snippet — the user watches their app's actual parts appear.
+// All numbers below are geometry/pacing bounds for the dock's small
+// landscape stage, not policy: they define what can be LEGIBLY rendered.
+
+const SHOWCASE_LEDGER_KEY = 'craftbot-showcase-ledger'
+// Let the reveal animations (≤460ms) finish before rasterizing.
+const SHOWCASE_SETTLE_MS = 500
+// Beyond ~3:1 either way the render is an illegible strip (e.g. a whole
+// nav bar) — recurse into its children (its buttons etc.) instead.
+const SHOWCASE_MAX_ASPECT = 3.2
+// Below this an element is a fragment (bare icon, divider), not a
+// component. Sits BELOW standard control height — 36px buttons/inputs
+// are legitimate showcase items — and above bare-icon size (~24px).
+const SHOWCASE_MIN_EDGE_PX = 28
+// Above this fraction of the viewport it IS the page — which the live
+// preview already shows; recurse into children instead.
+const SHOWCASE_MAX_VIEWPORT_FRACTION = 0.65
+// Bounded recursion/work per burst; extras are simply not shown.
+const SHOWCASE_MAX_DEPTH = 4
+const SHOWCASE_MAX_PER_BURST = 5
+// Rasterization edge cap — the dock displays smaller than this anyway.
+const SHOWCASE_MAX_EDGE_PX = 560
+// Small components are RE-RENDERED (not upscaled) at up to this scale so
+// the dock can zoom them to fill its stage without blur.
+const SHOWCASE_MAX_CAPTURE_SCALE = 3
+
+const burstRoots: HTMLElement[] = []
+const showcaseLedger = new Set<string>()
+let showcaseTimer: number | undefined
+let showcaseBusy = false
+
+function loadShowcaseLedger() {
+  try {
+    const raw = sessionStorage.getItem(SHOWCASE_LEDGER_KEY)
+    if (raw) JSON.parse(raw).forEach((fp: string) => showcaseLedger.add(fp))
+  } catch {
+    /* fresh start is fine */
+  }
+}
+
+function persistShowcaseLedger() {
+  try {
+    sessionStorage.setItem(
+      SHOWCASE_LEDGER_KEY,
+      JSON.stringify(Array.from(showcaseLedger).slice(-LEDGER_MAX)),
+    )
+  } catch {
+    /* quota — re-showcasing after reload is cosmetic */
+  }
+}
+
+function showcaseSuitability(el: HTMLElement): 'fit' | 'too-big' | 'unfit' {
+  const rect = el.getBoundingClientRect()
+  if (rect.width < SHOWCASE_MIN_EDGE_PX || rect.height < SHOWCASE_MIN_EDGE_PX) {
+    return 'unfit'
+  }
+  const vw = window.innerWidth || 1
+  const vh = window.innerHeight || 1
+  if (rect.width * rect.height > vw * vh * SHOWCASE_MAX_VIEWPORT_FRACTION) {
+    return 'too-big'
+  }
+  const aspect = rect.width / Math.max(rect.height, 1)
+  if (aspect > SHOWCASE_MAX_ASPECT || aspect < 1 / SHOWCASE_MAX_ASPECT) {
+    // An illegible strip (nav bar, tall rail) — show what's inside instead.
+    return 'too-big'
+  }
+  return 'fit'
+}
+
+/** Collect showable elements: a fit element is taken whole; an oversized or
+ * strip-shaped one is descended into (its cards, buttons, forms). */
+function collectShowcaseCandidates(
+  el: HTMLElement,
+  depth: number,
+  out: HTMLElement[],
+) {
+  if (out.length >= SHOWCASE_MAX_PER_BURST || depth > SHOWCASE_MAX_DEPTH) return
+  // Skeletons are placeholders (wireframe / loading), never a built component.
+  if (el.classList.contains(LK_CLASSES.skeleton)) return
+  const fit = showcaseSuitability(el)
+  if (fit === 'fit') {
+    if (!el.querySelector('.' + LK_CLASSES.skeleton)) out.push(el)
+    return
+  }
+  if (fit === 'too-big') {
+    for (const child of Array.from(el.children)) {
+      if (child instanceof HTMLElement) {
+        collectShowcaseCandidates(child, depth + 1, out)
+      }
+    }
+  }
+}
+
+function showcaseLabelFor(el: HTMLElement): string {
+  const heading = el.querySelector('h1, h2, h3, h4')
+  const text = (heading?.textContent || '').trim()
+  if (text) return text.slice(0, 40)
+  if (el.querySelector('form, input, select, textarea')) return 'Form'
+  if (el.querySelector('table')) return 'Table'
+  if (el.tagName === 'BUTTON') return (el.textContent || '').trim().slice(0, 40)
+  return ''
+}
+
+/** Rasterize elements and send them to the dock. Shared by the burst
+ * showcase (#root arrivals) and the surface tour (portal contents). */
+async function rasterizeAndPost(
+  els: HTMLElement[],
+  root: Element | null,
+  labelFallback = '',
+) {
+  if (showcaseBusy || dead) return
+  showcaseBusy = true
+  try {
+    const mod: any = await import('html2canvas')
+    const html2canvas = mod.default || mod
+    const bodyBg = getComputedStyle(document.body).backgroundColor
+    for (const el of els.slice(0, SHOWCASE_MAX_PER_BURST)) {
+      if (dead || !el.isConnected) continue
+      if (root) {
+        const fp = fingerprintOf(el, root)
+        if (showcaseLedger.has(fp)) continue
+        showcaseLedger.add(fp)
+      }
+      const rect = el.getBoundingClientRect()
+      const canvas = await html2canvas(el, {
+        logging: false,
+        backgroundColor: bodyBg,
+        // Downscale big elements to the cap; RE-RENDER small ones larger
+        // (crisp — html2canvas redraws the DOM, it doesn't upscale pixels)
+        // so the dock can zoom them to fill its stage.
+        scale: Math.min(
+          SHOWCASE_MAX_EDGE_PX / Math.max(rect.width, rect.height, 1),
+          SHOWCASE_MAX_CAPTURE_SCALE,
+        ),
+      })
+      post('craftbot-dev-component', {
+        dataUrl: canvas.toDataURL('image/png'),
+        width: canvas.width,
+        height: canvas.height,
+        // The element's ON-SCREEN size: the dock displays at this size (or
+        // smaller), so the high-res capture renders crisp, never blown up.
+        cssWidth: Math.round(rect.width),
+        cssHeight: Math.round(rect.height),
+        label: showcaseLabelFor(el) || labelFallback,
+      })
+    }
+    persistShowcaseLedger()
+  } finally {
+    showcaseBusy = false
+  }
+}
+
+const processShowcase = guarded(() => {
+  void (async () => {
+    if (showcaseBusy || dead) return
+    const root = document.getElementById('root')
+    if (!root) return
+    const burst = burstRoots.splice(0)
+    // Topmost new blocks only — children of another burst root are already
+    // inside their parent's picture.
+    const set = new Set(burst)
+    const tops = burst.filter(el => {
+      if (!el.isConnected) return false
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (set.has(p)) return false
+      }
+      return true
+    })
+    const candidates: HTMLElement[] = []
+    for (const el of tops) collectShowcaseCandidates(el, 0, candidates)
+
+    const fresh = candidates.filter(el => !showcaseLedger.has(fingerprintOf(el, root)))
+    if (fresh.length > 0) await rasterizeAndPost(fresh, root)
+    scheduleTour() // new content may include newly registered hidden surfaces
+  })().catch(() => {
+    showcaseBusy = false /* showcase is best-effort, never break the engine */
+  })
+})
+
+function scheduleShowcase() {
+  if (dead) return
+  if (showcaseTimer) clearTimeout(showcaseTimer)
+  showcaseTimer = window.setTimeout(processShowcase, SHOWCASE_SETTLE_MS)
+}
+
+// ── surface tour ────────────────────────────────────────────────────────────
+// Hidden surfaces (modals, drawers, menus, inactive tabs) never appear in
+// the resting page. The overlay presets register dev-only open/close handles
+// (components/ui/devtour.ts); the tour briefly opens each newly registered
+// one — the REAL component renders in its REAL context, the dock narrates
+// and captures it — then closes and moves on. Fail-open everywhere: any
+// error hides the surface and stops; the tour is cosmetic, never load-
+// bearing. Ledger in sessionStorage: each surface tours once, not per HMR.
+
+const TOUR_LEDGER_KEY = 'craftbot-tour-ledger'
+// Let the surface's mount animation and content render before capturing.
+const TOUR_MOUNT_MS = 650
+// How long an opened surface stays up once its content is visible.
+const TOUR_HOLD_MS = 2600
+// Breath between two toured surfaces.
+const TOUR_GAP_MS = 450
+// Never tour while the user is actively interacting with the preview.
+const TOUR_USER_IDLE_MS = 4000
+// Bounded wait for reveals inside a toured surface (fail-open: proceed).
+const TOUR_SETTLE_TIMEOUT_MS = 6000
+const TOUR_SETTLE_POLL_MS = 200
+// Debounce after a burst/registration before the tour steps in.
+const TOUR_START_DELAY_MS = 900
+
+interface DevSurface {
+  kind: string
+  label: () => string
+  show: () => void
+  hide: () => void
+  node: () => HTMLElement | null
+}
+
+const surfaces: DevSurface[] = []
+const tourLedger = new Set<string>()
+let touring = false
+let tourTimer: number | undefined
+let lastUserInputAt = 0
+
+function loadTourLedger() {
+  try {
+    const raw = sessionStorage.getItem(TOUR_LEDGER_KEY)
+    if (raw) JSON.parse(raw).forEach((k: string) => tourLedger.add(k))
+  } catch {
+    /* fresh start is fine */
+  }
+}
+
+function persistTourLedger() {
+  try {
+    sessionStorage.setItem(
+      TOUR_LEDGER_KEY,
+      JSON.stringify(Array.from(tourLedger).slice(-LEDGER_MAX)),
+    )
+  } catch {
+    /* quota — re-touring after reload is cosmetic */
+  }
+}
+
+function surfaceKey(s: DevSurface): string {
+  return `${s.kind}:${s.label()}`
+}
+
+function installSurfaceRegistry() {
+  ;(window as any).__CB_DEV_SURFACES__ = {
+    register(handle: DevSurface) {
+      surfaces.push(handle)
+      scheduleTour()
+      return () => {
+        const i = surfaces.indexOf(handle)
+        if (i !== -1) surfaces.splice(i, 1)
+      }
+    },
+  }
+  const markInput = () => {
+    lastUserInputAt = Date.now()
+  }
+  window.addEventListener('pointerdown', markInput, true)
+  window.addEventListener('keydown', markInput, true)
+  window.addEventListener('wheel', markInput, { capture: true, passive: true })
+}
+
+function sleep(ms: number) {
+  return new Promise<void>(resolve => setTimeout(resolve, ms))
+}
+
+async function waitForRevealSettle(timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const hidden = document.querySelector(`#root *:not([${REVEAL_ATTR}])`)
+    if (!hidden && queue.length === 0 && !showcaseBusy) return
+    await sleep(TOUR_SETTLE_POLL_MS)
+  }
+}
+
+function scheduleTour() {
+  if (dead || touring) return
+  if (tourTimer) clearTimeout(tourTimer)
+  tourTimer = window.setTimeout(() => void runTour(), TOUR_START_DELAY_MS)
+}
+
+async function runTour() {
+  if (touring || dead) return
+  // The user is driving — stay out of the way and try again later.
+  if (Date.now() - lastUserInputAt < TOUR_USER_IDLE_MS) {
+    scheduleTour()
+    return
+  }
+  let next: DevSurface | undefined
+  try {
+    next = surfaces.find(s => !tourLedger.has(surfaceKey(s)))
+  } catch {
+    return
+  }
+  if (!next) return
+  touring = true
+  let shown = false
+  try {
+    tourLedger.add(surfaceKey(next))
+    persistTourLedger()
+    post('craftbot-dev-reveal', { label: `Showing: ${next.label()}` })
+    next.show()
+    shown = true
+    await sleep(TOUR_MOUNT_MS)
+    // Inline surfaces (tabs, menus) mount inside #root — let the reveal
+    // choreography (and its burst showcase) play out first.
+    await waitForRevealSettle(TOUR_SETTLE_TIMEOUT_MS)
+    // Portal surfaces (modals, drawers) live OUTSIDE #root where the
+    // reveal engine can't see them — capture them directly.
+    const el = next.node()
+    if (el && el.isConnected) {
+      const candidates: HTMLElement[] = []
+      collectShowcaseCandidates(el, 0, candidates)
+      await rasterizeAndPost(
+        candidates.length > 0 ? candidates : [el],
+        document.getElementById('root'),
+        next.label(),
+      )
+    }
+    await sleep(TOUR_HOLD_MS)
+  } catch {
+    /* fail-open: close and continue below */
+  }
+  try {
+    if (shown) next.hide()
+  } catch {
+    /* never block */
+  }
+  touring = false
+  await sleep(TOUR_GAP_MS)
+  scheduleTour() // more untoured surfaces may remain
+}
 
 // ── scanning (initial mount, HMR commits, reload) ───────────────────────────
 
@@ -362,8 +711,9 @@ let snapshotRestored = false
 
 const saveSnapshot = guarded(() => {
   // Never snapshot the fallback itself (engine restore or the root error
-  // boundary showing the previous snapshot).
-  if (snapshotRestored || (window as any).__CB_APP_CRASHED__) return
+  // boundary showing the previous snapshot), nor a mid-tour state (a
+  // toured tab/menu is not the resting page).
+  if (snapshotRestored || touring || (window as any).__CB_APP_CRASHED__) return
   const root = document.getElementById('root')
   if (!root || root.childElementCount === 0) return
   if (root.querySelector(`*:not([${REVEAL_ATTR}])`)) return // mid-reveal
@@ -520,6 +870,7 @@ async function captureScreenshotSoon() {
 function installDesignTelemetry() {
   setInterval(
     guarded(() => {
+      if (touring) return // a toured surface is open — not the resting page
       const hidden = document.querySelector(`#root *:not([${REVEAL_ATTR}])`)
       if (hidden) return // layout still assembling — measure when settled
       saveSnapshot()
@@ -534,6 +885,9 @@ function installDesignTelemetry() {
 
 try {
   loadLedger()
+  loadShowcaseLedger()
+  loadTourLedger()
+  installSurfaceRegistry()
   installStaging()
   installFetchFallback()
   installHmrRelay()

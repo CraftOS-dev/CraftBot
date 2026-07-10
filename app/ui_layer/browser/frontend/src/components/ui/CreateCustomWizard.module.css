@@ -46,9 +46,9 @@
 }
 
 .label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
 }
 
 .required {
@@ -96,12 +96,12 @@
 
 .hint {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .wordCount {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   white-space: nowrap;
 }
 
@@ -126,14 +126,14 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: border-color 120ms ease, color 120ms ease;
 }
 
 .layoutCard:hover {
-  border-color: var(--text-muted);
-  color: var(--text-secondary);
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .layoutCardActive {
@@ -145,6 +145,38 @@
   width: 64px;
   height: 44px;
   display: block;
+}
+
+/* — theme picker (mirrors the Living UI theme modal's presets) — */
+
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+
+.themeCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.themeCard:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.themeCardActive {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
 }
 
 .layoutLabel {
@@ -213,7 +245,7 @@
 }
 
 .iconSquareChevron {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
@@ -251,9 +283,9 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
 }
 
@@ -264,7 +296,7 @@
 .advancedHint {
   font-weight: 400;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   margin-left: var(--space-1);
 }
 
@@ -289,9 +321,9 @@
 
 .advancedLabel {
   flex: 0 0 128px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
 }
 
 .advancedOptions {
@@ -382,14 +414,14 @@
   padding: var(--space-3);
   border: 1px dashed var(--border-primary);
   border-radius: var(--radius-md);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: border-color 120ms ease;
 }
 
 .dropZone:hover {
-  border-color: var(--text-muted);
+  border-color: var(--text-secondary);
 }
 
 .dropIcon {

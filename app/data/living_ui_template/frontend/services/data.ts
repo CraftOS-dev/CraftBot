@@ -62,19 +62,58 @@ function query(params?: ListParams): string {
   return q ? `?${q}` : ''
 }
 
+// ── Change bus ──────────────────────────────────────────────────────────────
+// Every mutation announces which plural changed; every mounted useEntities
+// instance for that plural refreshes. This is what makes a create in one
+// component appear instantly in every list that shows the entity — no
+// lifted state, no context, no manual wiring. '*' refreshes everything
+// (used by ApiService after custom-endpoint mutations, which may touch any
+// entity).
+
+type ChangeListener = (plural: string) => void
+const changeListeners = new Set<ChangeListener>()
+
+/** Announce that an entity list changed ('*' = unknown/any). Components
+ * never need this — the data client and ApiService call it automatically;
+ * call it manually only after mutating through some other channel. */
+export function notifyEntitiesChanged(plural: string = '*'): void {
+  for (const listener of changeListeners) {
+    try {
+      listener(plural)
+    } catch {
+      /* one bad listener must not break the rest */
+    }
+  }
+}
+
 /** One-off calls (outside React, or in AppController/custom logic). */
 export const data = {
   list: <T>(plural: string, params?: ListParams) =>
     request<T[]>('GET', `/${plural}${query(params)}`),
   get: <T>(plural: string, id: number) => request<T>('GET', `/${plural}/${id}`),
-  create: <T>(plural: string, values: Partial<T>) =>
-    request<T>('POST', `/${plural}`, values),
-  bulkCreate: <T>(plural: string, rows: Partial<T>[]) =>
-    request<T[]>('POST', `/${plural}/bulk`, rows),
-  update: <T>(plural: string, id: number, values: Partial<T>) =>
-    request<T>('PUT', `/${plural}/${id}`, values),
-  remove: (plural: string, id: number) =>
-    request<{ status: string; deleted: number }>('DELETE', `/${plural}/${id}`),
+  create: async <T>(plural: string, values: Partial<T>) => {
+    const created = await request<T>('POST', `/${plural}`, values)
+    notifyEntitiesChanged(plural)
+    return created
+  },
+  bulkCreate: async <T>(plural: string, rows: Partial<T>[]) => {
+    const created = await request<T[]>('POST', `/${plural}/bulk`, rows)
+    notifyEntitiesChanged(plural)
+    return created
+  },
+  update: async <T>(plural: string, id: number, values: Partial<T>) => {
+    const updated = await request<T>('PUT', `/${plural}/${id}`, values)
+    notifyEntitiesChanged(plural)
+    return updated
+  },
+  remove: async (plural: string, id: number) => {
+    const result = await request<{ status: string; deleted: number }>(
+      'DELETE',
+      `/${plural}/${id}`,
+    )
+    notifyEntitiesChanged(plural)
+    return result
+  },
 }
 
 // ── File storage (system routes — see backend/files_routes.py) ─────────────
@@ -160,6 +199,19 @@ export function useEntities<T extends { id: number }>(
     setLoading(true)
     void refresh()
   }, [refresh])
+
+  // Cross-component sync: refresh when ANY code mutates this entity —
+  // another component's useEntities, raw data.* calls, or an ApiService
+  // custom-endpoint mutation ('*').
+  useEffect(() => {
+    const listener: ChangeListener = (changed) => {
+      if (changed === '*' || changed === plural) void refresh()
+    }
+    changeListeners.add(listener)
+    return () => {
+      changeListeners.delete(listener)
+    }
+  }, [plural, refresh])
 
   return useMemo(
     () => ({

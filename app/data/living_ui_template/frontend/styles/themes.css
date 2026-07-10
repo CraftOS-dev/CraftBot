@@ -7,8 +7,11 @@
  *
  * Every component reads design tokens, so a pack restyles the WHOLE app —
  * shape (radius), depth (shadows, blur), density (spacing, control
- * heights), and surfaces — with zero component changes. Users switch packs
- * with the <ThemeStylePicker /> preset (persisted per browser).
+ * heights), surfaces AND palette — with zero component changes. Each pack
+ * is a committed visual identity, not a tweak: Modern is airy indigo,
+ * Glass is aurora glassmorphism with cyan, Classic is flat warm
+ * amber-on-charcoal. The host applies the pack via the craftbot-theme
+ * protocol (data-style on <html>).
  *
  * Rules for packs:
  *  - override TOKENS only; never target component classes
@@ -18,88 +21,175 @@
  */
 
 /* ============================================================================
- * MODERN — soft and roomy: large radii, deeper soft shadows, more air
+ * MODERN — airy indigo: soft large radii, deep soft shadows, generous air,
+ * indigo-violet accent on cool blue-tinted surfaces
  * ========================================================================== */
 
 [data-style="modern"] {
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
+  /* palette (dark) */
+  --bg-primary: #12141D;
+  --bg-secondary: #1A1D2A;
+  --bg-tertiary: #232738;
+  --bg-hover: #2C3147;
+  --text-primary: #ECEEF8;
+  --text-secondary: #9BA1BC;
+  --text-muted: #565D7A;
+  --border-primary: #2A2F45;
+  --border-secondary: #232738;
+  --color-primary: #7C8AFF;
+  --color-primary-hover: #6575FF;
+  --color-primary-light: rgba(124, 138, 255, 0.16);
+  --color-primary-subtle: rgba(124, 138, 255, 0.09);
+  --scrollbar-thumb: #2E3450;
+  --scrollbar-thumb-hover: #3A4160;
+  --shimmer: rgba(255, 255, 255, 0.06);
+  --page-backdrop: radial-gradient(
+    900px 480px at 50% -20%,
+    rgba(124, 138, 255, 0.08),
+    transparent 65%
+  );
+  /* shape & rhythm */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --shadow-sm: 0 2px 6px rgba(8, 10, 20, 0.35);
+  --shadow-md: 0 10px 28px rgba(8, 10, 20, 0.45);
+  --shadow-lg: 0 24px 60px rgba(8, 10, 20, 0.55);
   --space-3: 0.875rem;
   --space-4: 1.125rem;
-  --input-height-sm: 30px;
-  --input-height-md: 38px;
-  --input-height-lg: 44px;
-  --transition-base: 180ms ease;
+  --space-6: 1.75rem;
+  --space-8: 2.25rem;
+  --input-height-sm: 32px;
+  --input-height-md: 40px;
+  --input-height-lg: 46px;
+  --transition-base: 200ms ease;
 }
 
 [data-style="modern"][data-theme="light"] {
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.12);
+  --bg-primary: #F4F5FB;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #EDEFF7;
+  --bg-hover: #E3E6F2;
+  --text-primary: #23263A;
+  --text-secondary: #5A5F7A;
+  --text-muted: #8B90AA;
+  --border-primary: #E2E5F1;
+  --border-secondary: #D6DAEA;
+  --color-primary: #5B6AF0;
+  --color-primary-hover: #4A59E8;
+  --color-primary-light: rgba(91, 106, 240, 0.14);
+  --color-primary-subtle: rgba(91, 106, 240, 0.08);
+  --scrollbar-thumb: #D6DAEA;
+  --scrollbar-thumb-hover: #C2C7DE;
+  --shimmer: rgba(35, 38, 58, 0.05);
+  --page-backdrop: radial-gradient(
+    900px 480px at 50% -20%,
+    rgba(91, 106, 240, 0.07),
+    transparent 65%
+  );
+  --shadow-sm: 0 2px 6px rgba(35, 38, 90, 0.06);
+  --shadow-md: 0 10px 28px rgba(35, 38, 90, 0.09);
+  --shadow-lg: 0 24px 60px rgba(35, 38, 90, 0.13);
 }
 
 /* ============================================================================
- * GLASS — translucent blurred surfaces over a tinted page backdrop
+ * GLASS — aurora glassmorphism: deeply translucent blurred surfaces floating
+ * over a vivid violet/cyan/pink backdrop, cyan accent
  * ========================================================================== */
 
 [data-style="glass"] {
-  --bg-secondary: rgba(23, 23, 23, 0.6);
-  --bg-tertiary: rgba(38, 38, 38, 0.55);
-  --bg-hover: rgba(64, 64, 64, 0.6);
-  --border-primary: rgba(255, 255, 255, 0.1);
-  --border-secondary: rgba(255, 255, 255, 0.06);
-  --surface-backdrop: blur(14px) saturate(1.4);
+  /* palette (dark) */
+  --bg-primary: #0B0E1C;
+  --bg-secondary: rgba(255, 255, 255, 0.08);
+  --bg-tertiary: rgba(255, 255, 255, 0.12);
+  --bg-hover: rgba(255, 255, 255, 0.17);
+  --text-primary: #F5F7FE;
+  --text-secondary: #B9C0D8;
+  --text-muted: #6E7692;
+  --border-primary: rgba(255, 255, 255, 0.16);
+  --border-secondary: rgba(255, 255, 255, 0.09);
+  --color-primary: #22D3EE;
+  --color-primary-hover: #06C3E6;
+  --color-primary-light: rgba(34, 211, 238, 0.18);
+  --color-primary-subtle: rgba(34, 211, 238, 0.10);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
+  --shimmer: rgba(255, 255, 255, 0.09);
+  --overlay-color: rgba(2, 6, 23, 0.55);
+  --surface-backdrop: blur(20px) saturate(1.5);
   --page-backdrop:
-    radial-gradient(1000px 600px at 12% -10%, rgba(255, 79, 24, 0.13), transparent 60%),
-    radial-gradient(900px 600px at 100% 20%, rgba(59, 130, 246, 0.12), transparent 55%),
-    radial-gradient(700px 500px at 40% 110%, rgba(34, 197, 94, 0.08), transparent 60%);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 22px;
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
-  --overlay-color: rgba(0, 0, 0, 0.45);
+    radial-gradient(1100px 700px at 8% -12%, rgba(124, 58, 237, 0.28), transparent 60%),
+    radial-gradient(1000px 650px at 104% 18%, rgba(34, 211, 238, 0.22), transparent 55%),
+    radial-gradient(800px 560px at 45% 115%, rgba(236, 72, 153, 0.18), transparent 60%);
+  /* shape & rhythm */
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 26px;
+  --shadow-sm: 0 4px 12px rgba(2, 6, 23, 0.35);
+  --shadow-md: 0 12px 32px rgba(2, 6, 23, 0.45);
+  --shadow-lg: 0 28px 70px rgba(2, 6, 23, 0.6);
 }
 
 [data-style="glass"][data-theme="light"] {
-  --bg-secondary: rgba(255, 255, 255, 0.6);
-  --bg-tertiary: rgba(245, 245, 245, 0.65);
-  --bg-hover: rgba(229, 229, 229, 0.7);
-  --border-primary: rgba(0, 0, 0, 0.08);
-  --border-secondary: rgba(0, 0, 0, 0.05);
+  --bg-primary: #E8EEFA;
+  --bg-secondary: rgba(255, 255, 255, 0.62);
+  --bg-tertiary: rgba(255, 255, 255, 0.74);
+  --bg-hover: rgba(255, 255, 255, 0.85);
+  --text-primary: #1B2140;
+  --text-secondary: #4A5273;
+  --text-muted: #7C84A3;
+  --border-primary: rgba(30, 41, 82, 0.14);
+  --border-secondary: rgba(30, 41, 82, 0.08);
+  --color-primary: #0891B2;
+  --color-primary-hover: #0E7490;
+  --color-primary-light: rgba(8, 145, 178, 0.14);
+  --color-primary-subtle: rgba(8, 145, 178, 0.08);
+  --scrollbar-thumb: rgba(30, 41, 82, 0.18);
+  --scrollbar-thumb-hover: rgba(30, 41, 82, 0.30);
+  --shimmer: rgba(27, 33, 64, 0.06);
+  --overlay-color: rgba(27, 33, 64, 0.3);
   --page-backdrop:
-    radial-gradient(1000px 600px at 12% -10%, rgba(255, 79, 24, 0.1), transparent 60%),
-    radial-gradient(900px 600px at 100% 20%, rgba(59, 130, 246, 0.1), transparent 55%),
-    radial-gradient(700px 500px at 40% 110%, rgba(34, 197, 94, 0.07), transparent 60%);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.12);
-  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
-  --overlay-color: rgba(0, 0, 0, 0.3);
+    radial-gradient(1100px 700px at 8% -12%, rgba(124, 58, 237, 0.14), transparent 60%),
+    radial-gradient(1000px 650px at 104% 18%, rgba(6, 182, 212, 0.14), transparent 55%),
+    radial-gradient(800px 560px at 45% 115%, rgba(236, 72, 153, 0.10), transparent 60%);
+  --shadow-sm: 0 4px 12px rgba(27, 33, 64, 0.07);
+  --shadow-md: 0 12px 32px rgba(27, 33, 64, 0.10);
+  --shadow-lg: 0 28px 70px rgba(27, 33, 64, 0.15);
 }
 
 /* ============================================================================
- * CLASSIC — flat, bordered, dense: near-square corners, no shadows
+ * CLASSIC — flat, bordered, dense: warm amber-on-charcoal, near-square
+ * corners, visible hairline borders, NO shadows, compact rhythm
  * ========================================================================== */
 
 [data-style="classic"] {
+  /* palette (dark) — warm charcoal + amber, retro-professional */
+  --bg-primary: #131311;
+  --bg-secondary: #1C1B17;
+  --bg-tertiary: #24221C;
+  --bg-hover: #2E2B23;
+  --text-primary: #F1EDE2;
+  --text-secondary: #B5AE9B;
+  --text-muted: #6E6858;
+  --border-primary: #3A362B;
+  --border-secondary: #2C2921;
+  --color-primary: #E8A317;
+  --color-primary-hover: #D19412;
+  --color-primary-light: rgba(232, 163, 23, 0.16);
+  --color-primary-subtle: rgba(232, 163, 23, 0.09);
+  --scrollbar-thumb: #3A362B;
+  --scrollbar-thumb-hover: #4A4536;
+  --shimmer: rgba(241, 237, 226, 0.05);
+  /* shape & rhythm — fully flat and dense */
   --radius-sm: 2px;
   --radius-md: 3px;
   --radius-lg: 4px;
   --radius-xl: 6px;
   --shadow-sm: none;
-  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-md: none;
+  --shadow-lg: none;
   --space-3: 0.625rem;
   --space-4: 0.875rem;
   --space-6: 1.25rem;
@@ -113,7 +203,24 @@
 }
 
 [data-style="classic"][data-theme="light"] {
-  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.12);
-  --border-primary: var(--color-gray-300);
+  /* warm paper + ink */
+  --bg-primary: #EFEDE6;
+  --bg-secondary: #FAF9F4;
+  --bg-tertiary: #E6E3D8;
+  --bg-hover: #DDD9CC;
+  --text-primary: #26231B;
+  --text-secondary: #5C574A;
+  --text-muted: #8A8474;
+  --border-primary: #CFCABB;
+  --border-secondary: #DCD8CB;
+  --color-primary: #B45309;
+  --color-primary-hover: #92400C;
+  --color-primary-light: rgba(180, 83, 9, 0.13);
+  --color-primary-subtle: rgba(180, 83, 9, 0.07);
+  --scrollbar-thumb: #CFCABB;
+  --scrollbar-thumb-hover: #BEB8A6;
+  --shimmer: rgba(38, 35, 27, 0.05);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
 }

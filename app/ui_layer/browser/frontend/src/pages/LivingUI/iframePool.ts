@@ -68,6 +68,16 @@ export function getOrCreateIframe(id: string, src: string): HTMLIFrameElement {
   if (!iframe) {
     iframe = document.createElement('iframe')
     iframe.src = src
+    // Living UIs are cross-origin (localhost:<port>); without explicit
+    // delegation the browser auto-denies permission-gated APIs inside the
+    // iframe (geolocation etc.) without ever prompting the user. Note:
+    // the Notifications API cannot be delegated at all (browsers hard-deny
+    // it in cross-origin iframes) — apps use in-app toasts instead.
+    // Deliberately excluded: usb, serial, bluetooth, payment.
+    iframe.allow =
+      'geolocation; camera; microphone; clipboard-read; clipboard-write; ' +
+      'fullscreen; autoplay; picture-in-picture; display-capture; ' +
+      'web-share; screen-wake-lock'
     // Remember the requested src separately: refreshIframe() transiently
     // blanks iframe.src, so it can't be trusted for change detection.
     iframe.dataset.craftbotSrc = src

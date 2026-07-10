@@ -438,7 +438,7 @@
 
 .hint {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .modalFooter {
@@ -455,7 +455,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
 
@@ -491,7 +491,7 @@
 }
 
 .dropZoneIcon {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .dropZoneLabel {
@@ -504,7 +504,7 @@
 .dropZoneSub {
   margin: 0;
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 /* Responsive */

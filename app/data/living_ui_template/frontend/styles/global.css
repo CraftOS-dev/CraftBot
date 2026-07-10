@@ -94,6 +94,10 @@
   --space-10: 2.5rem;  /* 40px */
   --space-12: 3rem;    /* 48px */
 
+  /* Typographic measure: the comfortable line length for long-form
+     reading (AppShell readingWidth). ch units track the font. */
+  --measure-reading: 72ch;
+
   /* Border Radius */
   --radius-sm: 4px;
   --radius-md: 6px;

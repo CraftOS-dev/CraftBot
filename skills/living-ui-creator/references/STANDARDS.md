@@ -40,12 +40,10 @@ Every Living UI **MUST** work on:
 
 **Implementation:**
 ```css
-/* Use flexible layouts */
+/* Fill the container — the AppShell owns page gutters; never add your
+   own max-width cap (it exposes the backdrop as side margins) */
 .container {
   width: 100%;
-  max-width: 1200px;
-  padding: 0 16px;
-  margin: 0 auto;
 }
 
 /* Use CSS Grid or Flexbox */

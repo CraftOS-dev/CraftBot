@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { Button } from './Button'
 import { LIVING_UI_ICONS } from './LivingUIIcon'
+import { PRESET_THEMES, ThemeMiniPreview } from '../../pages/LivingUI/LivingUIThemeModal'
 import styles from './CreateCustomWizard.module.css'
 
 /**
@@ -126,7 +127,6 @@ function LayoutSilhouette({ id }: { id: string }) {
   )
 }
 
-const ACCENT_SWATCHES = ['#FF4F18', '#2E7CF6', '#12B76A', '#9B51E0', '#F2B417', '#E5484D']
 
 const OPTION_GROUPS: { key: string; label: string; choices: { value: string; label: string }[] }[] = [
   {
@@ -142,15 +142,6 @@ const OPTION_GROUPS: { key: string; label: string; choices: { value: string; lab
     key: 'style',
     label: 'Design style',
     choices: ['Minimalist', 'Professional', 'Playful', 'Bold', 'Compact & dense'].map(v => ({ value: v, label: v })),
-  },
-  {
-    key: 'colorMode',
-    label: 'Color mode',
-    choices: [
-      { value: 'dark', label: 'Dark' },
-      { value: 'light', label: 'Light' },
-      { value: 'system', label: 'System' },
-    ],
   },
   {
     key: 'fontSize',
@@ -172,11 +163,6 @@ const OPTION_GROUPS: { key: string; label: string; choices: { value: string; lab
     label: 'Motion',
     choices: ['None', 'Subtle', 'Lively'].map(v => ({ value: v, label: v })),
   },
-  {
-    key: 'device',
-    label: 'Target device',
-    choices: ['Desktop-first', 'Mobile-friendly', 'Both'].map(v => ({ value: v, label: v })),
-  },
 ]
 
 function newWizardId(): string {
@@ -195,11 +181,11 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
   const [description, setDescription] = useState('')
   const [errors, setErrors] = useState<{ name?: string; description?: string }>({})
   const [layout, setLayout] = useState('free')
+  const [uiTheme, setUiTheme] = useState('craftbot')
   const [iconChoice, setIconChoice] = useState<string | null>(null)
   const [iconFile, setIconFile] = useState<File | null>(null)
   const [iconPreview, setIconPreview] = useState<string | null>(null)
   const [options, setOptions] = useState<Record<string, string>>({})
-  const [accent, setAccent] = useState<string | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [iconOpen, setIconOpen] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -300,11 +286,11 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
 
   const buildConfig = () => {
     const opts: Record<string, unknown> = { ...options }
-    if (accent) opts.accent = accent
     return {
       name: name.trim(),
       description: description.trim(),
       layout,
+      uiTheme,
       icon: iconFile ? null : iconChoice, // an uploaded icon wins server-side
       options: opts,
       attachments: files.map(f => ({ name: f.name, kind: 'reference' })),
@@ -611,10 +597,6 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
               maxLength={50}
             />
           </div>
-          <span className={styles.hint}>
-            The square is your app's icon — pick one or upload a favicon; an
-            upload also becomes the app's browser-tab icon.
-          </span>
           {errors.name && <span className={styles.errorText}>{errors.name}</span>}
         </div>
 
@@ -631,7 +613,6 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
             rows={6}
           />
           <div className={styles.fieldFooter}>
-            <span className={styles.hint}>You'll refine details in a short interview next.</span>
             <span className={`${styles.wordCount} ${wordCount > MAX_WORDS ? styles.wordCountError : ''}`}>
               {wordCount.toLocaleString()} / {MAX_WORDS.toLocaleString()} words
             </span>
@@ -698,6 +679,24 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
             ))}
           </div>
         </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.label}>Theme</label>
+          <div className={styles.themeGrid}>
+            {PRESET_THEMES.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                className={`${styles.themeCard} ${uiTheme === t.id ? styles.themeCardActive : ''}`}
+                onClick={() => setUiTheme(t.id)}
+                title={t.hint || t.label}
+              >
+                <ThemeMiniPreview style={t.style} swatches={t.swatches} />
+                <span className={styles.layoutLabel}>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <div className={styles.advanced}>
           <button
             type="button"
@@ -742,28 +741,6 @@ export function CreateCustomWizard({ send, onMessage, onClose, onCreated }: Crea
                 </div>
               ))}
 
-              <div className={styles.advancedRow}>
-                <label className={styles.advancedLabel}>Accent color</label>
-                <div className={styles.advancedOptions}>
-                  <button
-                    type="button"
-                    className={`${styles.chip} ${!accent ? styles.chipDefaultOn : ''}`}
-                    onClick={() => setAccent(null)}
-                  >
-                    Agent decides
-                  </button>
-                  {ACCENT_SWATCHES.map(color => (
-                    <button
-                      key={color}
-                      type="button"
-                      className={`${styles.swatch} ${accent === color ? styles.swatchActive : ''}`}
-                      style={{ background: color }}
-                      onClick={() => setAccent(prev => (prev === color ? null : color))}
-                      title={color}
-                    />
-                  ))}
-                </div>
-              </div>
             </div>
           )}
         </div>

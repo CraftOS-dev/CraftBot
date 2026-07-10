@@ -9,9 +9,10 @@
  *   </Drawer>
  */
 
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useDevSurface } from './devtour'
 
 export interface DrawerProps {
   open: boolean
@@ -34,24 +35,38 @@ export function Drawer({
   side = 'right',
   width = 420,
 }: DrawerProps) {
+  // Build-time tour (dev only): the engine may force this drawer open to
+  // show its contents; closing a toured drawer only clears the force flag.
+  const [devOpen, setDevOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useDevSurface(
+    'drawer',
+    title || 'Drawer',
+    () => setDevOpen(true),
+    () => setDevOpen(false),
+    () => panelRef.current,
+  )
+  const effectiveOpen = open || devOpen
+  const close = devOpen && !open ? () => setDevOpen(false) : onClose
+
   useEffect(() => {
-    if (open) {
+    if (effectiveOpen) {
       document.body.style.overflow = 'hidden'
     }
     return () => {
       document.body.style.overflow = ''
     }
-  }, [open])
+  }, [effectiveOpen])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) onClose()
+      if (e.key === 'Escape' && effectiveOpen) close()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [effectiveOpen, close])
 
-  if (!open) return null
+  if (!effectiveOpen) return null
 
   return createPortal(
     <div
@@ -64,7 +79,7 @@ export function Drawer({
       }}
     >
       <div
-        onClick={onClose}
+        onClick={close}
         style={{
           position: 'absolute',
           inset: 0,
@@ -73,6 +88,7 @@ export function Drawer({
         }}
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         style={{
@@ -114,7 +130,7 @@ export function Drawer({
             {title}
           </h2>
           <button
-            onClick={onClose}
+            onClick={close}
             className="hover:bg-raised hover:text-ink rounded-token"
             style={{
               background: 'none',

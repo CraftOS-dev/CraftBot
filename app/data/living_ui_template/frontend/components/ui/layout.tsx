@@ -33,7 +33,9 @@ export const LK_CLASSES = {
 } as const
 
 // =============================================================================
-// AppShell — full-page frame: gutters, max-width, rhythm, overflow discipline
+// AppShell — full-page frame: gutters, rhythm, overflow discipline.
+// Fills its container by default; readingWidth opts into the
+// --measure-reading token cap; fullBleed removes the gutters entirely.
 // =============================================================================
 
 export interface AppShellProps {
@@ -41,14 +43,30 @@ export interface AppShellProps {
   sidebar?: ReactNode
   /** Page content — typically a stack of <Section>s. */
   children: ReactNode
-  /** Content max width in px (default 1200). */
-  maxWidth?: number
+  /**
+   * OPT-IN reading-width cap (the --measure-reading design token). By
+   * default the app FILLS its container (the Living UI tab) — set this
+   * only for long-form reading content where full-width lines hurt
+   * readability. Ignored when fullBleed.
+   */
+  readingWidth?: boolean
+  /**
+   * Edge-to-edge mode for board/canvas/map/calendar apps: no gutters at
+   * all — the content owns the whole viewport and paints its own
+   * background. The default (no props) fills the container WITH gutters.
+   */
+  fullBleed?: boolean
 }
 
-export function AppShell({ sidebar, children, maxWidth = 1200 }: AppShellProps) {
+export function AppShell({ sidebar, children, readingWidth = false, fullBleed = false }: AppShellProps) {
+  const shellClass = fullBleed
+    ? 'lk-shell lk-shell-bleed'
+    : readingWidth
+      ? 'lk-shell lk-shell-reading'
+      : 'lk-shell'
   return (
-    <div className="lk-shell">
-      <div className="lk-shell-body" style={{ maxWidth: `${maxWidth}px` }}>
+    <div className={shellClass}>
+      <div className="lk-shell-body">
         {sidebar && <aside className="lk-shell-sidebar">{sidebar}</aside>}
         <main className="lk-shell-main">{children}</main>
       </div>
@@ -75,11 +93,32 @@ export function AppShell({ sidebar, children, maxWidth = 1200 }: AppShellProps) 
           flex: 1;
           min-width: 0;
         }
+        .lk-shell-reading .lk-shell-body {
+          max-width: var(--measure-reading);
+        }
+        .lk-shell-bleed .lk-shell-body {
+          max-width: none;
+          padding: 0;
+          gap: 0;
+          align-items: stretch;
+        }
+        .lk-shell-bleed .lk-shell-main {
+          gap: 0;
+        }
+        .lk-shell-bleed .lk-shell-main > * {
+          flex: 1;
+          min-height: 0;
+        }
         .lk-shell-sidebar {
           flex: 0 0 240px;
           position: sticky;
           top: var(--space-6);
           min-width: 0;
+        }
+        .lk-shell-bleed .lk-shell-sidebar {
+          position: sticky;
+          top: 0;
+          align-self: stretch;
         }
         .lk-shell-main {
           flex: 1;
@@ -94,8 +133,13 @@ export function AppShell({ sidebar, children, maxWidth = 1200 }: AppShellProps) 
             padding: var(--space-4) var(--space-4) var(--space-8);
             gap: var(--space-4);
           }
+          .lk-shell-bleed .lk-shell-body {
+            padding: 0;
+            gap: 0;
+          }
           .lk-shell-sidebar { position: static; flex: none; width: 100%; }
           .lk-shell-main { gap: var(--space-6); }
+          .lk-shell-bleed .lk-shell-main { gap: 0; }
         }
       `}</style>
     </div>

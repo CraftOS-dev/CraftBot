@@ -138,6 +138,48 @@ aggregations, external fetches, domain verbs. One-line docstring on every
 route; declare each as an op in `config/operations.json` (executor recipes
 are embedded in that file).
 
+### External public APIs (weather, news, prices, location)
+
+ALL external data is fetched by the backend — never by frontend `fetch()`
+(CORS) and never via browser permissions (`navigator.geolocation` auto-fails
+in the embedded tab). The pattern: keyless public API + in-memory cache +
+graceful offline degrade.
+
+```python
+import time
+import httpx
+
+_cache: dict = {}
+CACHE_TTL_SECONDS = 600  # one named refresh window — tune here, nowhere else
+
+@router.get("/weather")
+async def get_weather():
+    """Current weather for the user's location (IP-based, cached)."""
+    cached = _cache.get("weather")
+    if cached and time.time() - cached["at"] < CACHE_TTL_SECONDS:
+        return cached["data"]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            loc = (await client.get("https://ipapi.co/json/")).json()
+            wx = (await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={"latitude": loc["latitude"], "longitude": loc["longitude"],
+                        "current_weather": True},
+            )).json()
+        data = {"city": loc.get("city"), **wx.get("current_weather", {})}
+        _cache["weather"] = {"at": time.time(), "data": data}
+        return data
+    except Exception:
+        # Offline/rate-limited: last known value, never a 500
+        return cached["data"] if cached else {"unavailable": True}
+```
+
+Same shape for news/quotes/prices: pick a keyless API, fetch in the
+backend, cache with a timestamp, return the stale value when the network
+fails. A user-entered location setting (persisted in the schema) always
+beats detection. Data from CONNECTED services (Gmail, GitHub, Slack...)
+goes through the integration bridge instead — see INTEGRATIONS.md.
+
 See [MVC-A.md](references/MVC-A.md) for detailed architecture guidance.
 
 ## Directory Structure

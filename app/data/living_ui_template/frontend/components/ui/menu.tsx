@@ -16,6 +16,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react'
+import { useDevSurface } from './devtour'
 
 export interface DropdownMenuItem {
   label: string
@@ -36,6 +37,15 @@ export interface DropdownMenuProps {
 export function DropdownMenu({ trigger, items, align = 'right' }: DropdownMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  // Build-time tour (dev only): briefly open the menu to show its items.
+  // Renders inline (inside #root), so the reveal engine captures it itself.
+  useDevSurface(
+    'menu',
+    items[0]?.label ? `Menu (${items[0].label}…)` : 'Menu',
+    () => setOpen(true),
+    () => setOpen(false),
+  )
 
   useEffect(() => {
     if (!open) return

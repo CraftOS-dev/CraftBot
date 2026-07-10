@@ -232,6 +232,14 @@ def _render_config(config: Dict[str, Any], image_notes: List[str]) -> str:
         "",
         f"Layout choice: {LAYOUT_LABELS.get(config.get('layout') or 'free', 'Free layout — the agent decides')}",
     ]
+    ui_theme = str(config.get("uiTheme") or "").strip()
+    if ui_theme and ui_theme != "craftbot":
+        lines.append(
+            f"UI theme (user-picked): {ui_theme} — the host applies this "
+            "theme's palette/style to the app automatically. Harmonize your "
+            "design accents, imagery, and emphasis colors with it; NEVER "
+            "hardcode palette overrides that would fight the theme."
+        )
     options = config.get("options") or {}
     option_labels = {
         "access": "Access / accounts",
@@ -282,6 +290,12 @@ export, a CLI operations surface, and an optional email+password multi-user \
 module (no third-party login).
 - "Real-time updates" translates to periodic refresh or scheduled bridge \
 sync — offer/write THAT, never webhooks.
+- Browser permission prompts (location, notifications, camera) are \
+unreliable in the embedded tab: location comes from a keyless backend IP \
+lookup or a user-entered setting — never design a feature that depends on \
+the user granting a browser permission. Public data (weather, news, \
+prices) is fetched by the BACKEND from keyless public APIs, cached, \
+degrading gracefully offline.
 
 Rules:
 - Ask ONLY what the description and configuration leave genuinely open. Never ask \
@@ -369,6 +383,12 @@ export, a CLI operations surface, and an optional email+password multi-user \
 module (no third-party login).
 - "Real-time updates" translates to periodic refresh or scheduled bridge \
 sync — offer/write THAT, never webhooks.
+- Browser permission prompts (location, notifications, camera) are \
+unreliable in the embedded tab: location comes from a keyless backend IP \
+lookup or a user-entered setting — never design a feature that depends on \
+the user granting a browser permission. Public data (weather, news, \
+prices) is fetched by the BACKEND from keyless public APIs, cached, \
+degrading gracefully offline.
 
 The spec is BINDING and the builder cannot question it, so it must be \
 implementable exactly as written. If an interview answer implies a mechanism \

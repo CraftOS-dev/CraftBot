@@ -58,9 +58,12 @@ Never declare `id`, `createdAt`, `updatedAt` — they are automatic.
 import { EntityForm, EntityTable, Modal, toast } from './ui'
 
 // Create/edit form — generated from the schema (validation, ref dropdowns):
+{/* onSaved fires AFTER EntityForm has already saved — close/toast only,
+    NEVER call create/update in it (double-save). Lists refresh on their
+    own via the change bus. */}
 <Modal open={adding} onClose={close} title="New card">
   <EntityForm entity="Card" defaults={{ columnId: col.id }}
-              onSaved={() => { close(); cards.refresh(); toast.success('Card created') }}
+              onSaved={() => { close(); toast.success('Card created') }}
               onCancel={close} />
 </Modal>
 
@@ -122,7 +125,11 @@ export function ColumnView({ column }: { column: BoardColumn }) {
 Notes: real `Modal` (never `prompt()`), Tailwind token classes for
 internals (`bg-raised`, `border-line`, `text-ink`, `rounded-token`),
 `useEntities` handles fetch/create/remove/refresh — no ApiService edits,
-no AppController plumbing, no hand-written entity types.
+no AppController plumbing, no hand-written entity types. Mutations
+propagate to EVERY mounted `useEntities` list automatically (a create in a
+form component appears instantly in a sibling list component) — never lift
+entity state to "sync" components, and never keep entity rows in local
+`useState`.
 
 ## 3. Custom behavior endpoint — `backend/routes.py` (only beyond CRUD)
 

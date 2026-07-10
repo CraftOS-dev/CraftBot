@@ -18,11 +18,13 @@ import React, {
   useState,
   useEffect,
   useId,
+  useRef,
   createContext,
   useContext,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { useDevSurface } from './devtour'
 
 // =============================================================================
 // BUTTON
@@ -770,26 +772,40 @@ const modalSizes = {
 }
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
+  // Build-time tour (dev only): the engine may force this modal open to
+  // show its contents; closing a toured modal only clears the force flag.
+  const [devOpen, setDevOpen] = useState(false)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useDevSurface(
+    'modal',
+    title || 'Dialog',
+    () => setDevOpen(true),
+    () => setDevOpen(false),
+    () => dialogRef.current,
+  )
+  const effectiveOpen = open || devOpen
+  const close = devOpen && !open ? () => setDevOpen(false) : onClose
+
   useEffect(() => {
-    if (open) {
+    if (effectiveOpen) {
       document.body.style.overflow = 'hidden'
     }
     return () => {
       document.body.style.overflow = ''
     }
-  }, [open])
+  }, [effectiveOpen])
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) {
-        onClose()
+      if (e.key === 'Escape' && effectiveOpen) {
+        close()
       }
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [open, onClose])
+  }, [effectiveOpen, close])
 
-  if (!open) return null
+  if (!effectiveOpen) return null
 
   return createPortal(
     <div
@@ -805,7 +821,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
     >
       {/* Backdrop */}
       <div
-        onClick={onClose}
+        onClick={close}
         style={{
           position: 'absolute',
           inset: 0,
@@ -815,6 +831,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
       />
       {/* Dialog */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'modal-title' : undefined}
@@ -856,7 +873,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
               {title}
             </h2>
             <button
-              onClick={onClose}
+              onClick={close}
               className="hover:bg-raised hover:text-ink rounded-token"
               style={{
                 background: 'none',
@@ -1156,6 +1173,10 @@ export function Divider({ orientation = 'horizontal', spacing = 'md' }: DividerP
 interface TabsContextValue {
   activeTab: string
   setActiveTab: (id: string) => void
+  /** Build-time tour (dev only): switch tabs WITHOUT firing the app's
+   * onChange, remembering/restoring the user's tab. */
+  devShowTab: (id: string) => void
+  devRestoreTab: () => void
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null)
@@ -1168,14 +1189,32 @@ export interface TabsProps {
 
 export function Tabs({ children, defaultTab, onChange }: TabsProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || '')
+  const devPrevTab = useRef<string | null>(null)
 
   const handleTabChange = (id: string) => {
+    devPrevTab.current = null // a real selection wins over any tour restore
     setActiveTab(id)
     onChange?.(id)
   }
 
+  const devShowTab = (id: string) => {
+    setActiveTab(prev => {
+      if (devPrevTab.current === null) devPrevTab.current = prev
+      return id
+    })
+  }
+  const devRestoreTab = () => {
+    setActiveTab(prev => {
+      const restored = devPrevTab.current ?? prev
+      devPrevTab.current = null
+      return restored
+    })
+  }
+
   return (
-    <TabsContext.Provider value={{ activeTab, setActiveTab: handleTabChange }}>
+    <TabsContext.Provider
+      value={{ activeTab, setActiveTab: handleTabChange, devShowTab, devRestoreTab }}
+    >
       {children}
     </TabsContext.Provider>
   )
@@ -1245,6 +1284,14 @@ export interface TabPanelProps {
 export function TabPanel({ id, children }: TabPanelProps) {
   const context = useContext(TabsContext)
   if (!context) throw new Error('TabPanel must be used within Tabs')
+
+  // Build-time tour (dev only): briefly show this tab's content.
+  useDevSurface(
+    'tab',
+    `${id} tab`,
+    () => context.devShowTab(id),
+    () => context.devRestoreTab(),
+  )
 
   if (context.activeTab !== id) return null
 

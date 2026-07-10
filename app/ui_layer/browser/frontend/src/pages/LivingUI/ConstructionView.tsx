@@ -180,6 +180,30 @@ function eventIcon(e: LivingUIBuildEvent): JSX.Element {
 
 const NARRATION_TTL_MS = 4000
 
+// ── component showcase (dock stage) ─────────────────────────────────────────
+// Rendered components arrive from the dev-iframe reveal engine
+// ('craftbot-dev-component') and play sequentially in the dock, taking the
+// place of the feed rows + code snippet. Components outrank code.
+
+interface ShowcaseItem {
+  id: number
+  dataUrl: string
+  width: number
+  height: number
+  /** On-screen size of the captured element — displayed at this size or
+   * smaller (never zoomed). */
+  cssWidth: number
+  cssHeight: number
+  label: string
+}
+
+// Each component stays on stage long enough to actually SEE it; a full
+// burst (engine caps at 5) plays out in under ~45s.
+const SHOWCASE_DISPLAY_MS = 8000
+// Backlog cap — beyond this the oldest unshown drop (the live preview
+// already contains them).
+const SHOWCASE_QUEUE_MAX = 8
+
 export function ConstructionView({ project, todos, events }: Props) {
   const displayed = usePacedEvents(events)
 
@@ -191,6 +215,9 @@ export function ConstructionView({ project, todos, events }: Props) {
   const [hmrStatus, setHmrStatus] = useState<'ok' | 'updating' | 'error'>('ok')
   const [narration, setNarration] = useState<{ label: string; at: number } | null>(null)
   const [collapsed, setCollapsed] = useState(false)
+  const [showcase, setShowcase] = useState<ShowcaseItem | null>(null)
+  const showcaseQueue = useRef<ShowcaseItem[]>([])
+  const showcaseIdRef = useRef(0)
   const devKey = devIframeKey(project.id)
   const isLaunching = project.status !== 'creating'
 
@@ -267,6 +294,16 @@ export function ConstructionView({ project, todos, events }: Props) {
     }
   }, [devKey, project.devUrl, showPreview])
 
+  // Showcase player: each component holds the stage for SHOWCASE_DISPLAY_MS,
+  // then the next queued one takes over; empty queue → code snippet returns.
+  useEffect(() => {
+    if (!showcase) return
+    const t = setTimeout(() => {
+      setShowcase(showcaseQueue.current.shift() ?? null)
+    }, SHOWCASE_DISPLAY_MS)
+    return () => clearTimeout(t)
+  }, [showcase])
+
   // Messages from the engine: HMR status (rebuild shimmer / error veil) and
   // reveal narration (activity line).
   useEffect(() => {
@@ -280,6 +317,31 @@ export function ConstructionView({ project, todos, events }: Props) {
       } else if (e.data?.type === 'craftbot-dev-reveal') {
         if (typeof e.data.label === 'string' && e.data.label) {
           setNarration({ label: e.data.label, at: Date.now() })
+        }
+      } else if (e.data?.type === 'craftbot-dev-component') {
+        // A freshly built component, rasterized by the reveal engine.
+        if (
+          typeof e.data.dataUrl === 'string' &&
+          e.data.dataUrl.startsWith('data:image/')
+        ) {
+          const item: ShowcaseItem = {
+            id: ++showcaseIdRef.current,
+            dataUrl: e.data.dataUrl,
+            width: Number(e.data.width) || 0,
+            height: Number(e.data.height) || 0,
+            cssWidth: Number(e.data.cssWidth) || Number(e.data.width) || 0,
+            cssHeight: Number(e.data.cssHeight) || Number(e.data.height) || 0,
+            label: typeof e.data.label === 'string' ? e.data.label : '',
+          }
+          showcaseQueue.current.push(item)
+          if (showcaseQueue.current.length > SHOWCASE_QUEUE_MAX) {
+            showcaseQueue.current.splice(
+              0,
+              showcaseQueue.current.length - SHOWCASE_QUEUE_MAX,
+            )
+          }
+          // Start playing immediately if the stage is free.
+          setShowcase(cur => cur ?? showcaseQueue.current.shift() ?? null)
         }
       } else if (e.data?.type === 'craftbot-dev-metrics') {
         // Rendered-layout measurements → backend design gate
@@ -410,20 +472,45 @@ export function ConstructionView({ project, todos, events }: Props) {
               </div>
             )}
 
-            {feed.length > 0 && (
-              <div className={styles.railFeed}>
-                {feed.map(({ event: e, count }) => (
-                  <div key={e.id} className={styles.feedItem}>
-                    <span className={styles.feedIcon}>{eventIcon(e)}</span>
-                    <span className={styles.feedLabel}>{e.label}</span>
-                    {count > 1 && <span className={styles.feedCount}>×{count}</span>}
-                  </div>
-                ))}
+            {showcase ? (
+              /* A freshly built component holds the stage — the feed rows and
+                 code snippet step aside; key remount replays the entrance. */
+              <div key={showcase.id} className={styles.showcasePane}>
+                {/* Original on-screen size or smaller — the max-* rules in
+                    CSS cap it to the stage; never zoomed up. */}
+                <img
+                  className={styles.showcaseImg}
+                  src={showcase.dataUrl}
+                  alt={showcase.label || 'New component'}
+                  draggable={false}
+                  style={
+                    showcase.cssWidth > 0
+                      ? { width: showcase.cssWidth }
+                      : undefined
+                  }
+                />
+                <span className={styles.showcaseCaption}>
+                  {showcase.label ? `Built: ${showcase.label}` : 'New component'}
+                </span>
               </div>
-            )}
+            ) : (
+              <div className={styles.dockSwapIn}>
+                {feed.length > 0 && (
+                  <div className={styles.railFeed}>
+                    {feed.map(({ event: e, count }) => (
+                      <div key={e.id} className={styles.feedItem}>
+                        <span className={styles.feedIcon}>{eventIcon(e)}</span>
+                        <span className={styles.feedLabel}>{e.label}</span>
+                        {count > 1 && <span className={styles.feedCount}>×{count}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-            {latestSnippet && (
-              <CodePeek file={latestSnippet.file} snippet={latestSnippet.snippet} />
+                {latestSnippet && (
+                  <CodePeek file={latestSnippet.file} snippet={latestSnippet.snippet} />
+                )}
+              </div>
             )}
           </>
         )}

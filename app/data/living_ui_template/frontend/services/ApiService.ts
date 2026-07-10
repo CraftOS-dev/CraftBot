@@ -6,6 +6,8 @@
  * page reloads and tab switches.
  */
 
+import { notifyEntitiesChanged } from './data'
+
 // Backend URL — detected from manifest at runtime, falls back to creation-time port
 const BACKEND_URL = (window as any).__CRAFTBOT_BACKEND_URL__ || 'http://localhost:{{BACKEND_PORT}}'
 
@@ -25,6 +27,44 @@ class ApiServiceClass {
 
   constructor() {
     this.baseUrl = BACKEND_URL
+  }
+
+  /**
+   * Call a CUSTOM endpoint from routes.py (path WITHOUT the /api prefix):
+   *
+   *   const stats = await ApiService.request('GET', '/cards/_stats?groupBy=status')
+   *   await ApiService.request('POST', '/cards/archive-done', { columnId: 3 })
+   *
+   * Mutating calls automatically refresh every mounted useEntities list, so
+   * custom-endpoint changes appear in the UI without manual wiring.
+   */
+  async request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    const response = await fetch(`${this.baseUrl}/api${path}`, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+    if (!response.ok) {
+      let detail = `${response.status}`
+      try {
+        const data = await response.json()
+        detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail ?? data)
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(`${method} /api${path} failed: ${detail}`)
+    }
+    let result: T = undefined as T
+    try {
+      result = (await response.json()) as T
+    } catch {
+      /* empty body (204 etc.) */
+    }
+    if (method.toUpperCase() !== 'GET') {
+      // A custom endpoint may touch any entity — refresh all mounted lists.
+      notifyEntitiesChanged('*')
+    }
+    return result
   }
 
   /**
@@ -136,7 +176,10 @@ class ApiServiceClass {
     if (!response.ok) {
       throw new Error(`Failed to execute action: ${response.statusText}`)
     }
-    return response.json()
+    const result = await response.json()
+    // Actions mutate state — refresh every mounted entity list.
+    notifyEntitiesChanged('*')
+    return result
   }
 }
 

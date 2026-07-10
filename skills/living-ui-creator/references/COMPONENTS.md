@@ -26,7 +26,7 @@ import { Button, Input, Textarea, Select, Checkbox, Toggle, Card, Container, Div
 | `Table` | `columns: TableColumn[]`, `data`, `emptyMessage?`, `onRowClick?`, `rowKey?` |
 | `EmptyState` | `icon?`, `title?`, `message` (NOT `description`), `action?` (one ReactNode) |
 | `Tabs` | `children`, `defaultTab?`, `onChange?` |
-| `AppShell` | `sidebar?`, `children`, `maxWidth?` — NO header prop |
+| `AppShell` | `sidebar?`, `children`, `readingWidth?`, `fullBleed?` — NO header prop. Default FILLS the container with gutters (right for nearly every app); `fullBleed` = zero gutters (board/canvas/own-background apps); `readingWidth` = opt-in line-length cap via the `--measure-reading` token (long-form text only) |
 | `Section` | `title?`, `meta?`, `actions?`, `children` |
 | `CardGrid` | `children`, `minWidth?` |
 | `SkeletonBox` | `count?`, `ratio?` (width/height proportion, e.g. 3 = strip, 1 = square) — the generic wireframe rectangle, adaptive width |
@@ -93,7 +93,20 @@ import { AppShell, Section, CardGrid, SkeletonCard, EmptyState, Button } from '.
 </AppShell>
 ```
 
-- `AppShell` props: `sidebar?` (240px sticky column), `children`, `maxWidth?` — NO page header: pages start with their content Sections
+- `AppShell` props: `sidebar?` (sticky side column), `children`, `readingWidth?`, `fullBleed?` — NO page header: pages start with their content Sections
+- **Shell modes** (the wireframe always uses plain `<AppShell>`; opt-ins are
+  applied when the first real region lands):
+  - **Default (no props) — FILLS the Living UI container with gutters.**
+    Right for nearly every app: dashboards, lists, forms, CRUD, settings.
+    There is no max-width cap by default — the app owns its tab.
+  - `<AppShell fullBleed>` — ZERO gutters, for board/canvas/kanban/map apps.
+  - `<AppShell readingWidth>` — line-length cap via the `--measure-reading`
+    design token, ONLY for long-form text where full-width lines hurt
+    readability. Never invent width numbers — widths are tokens.
+  - **Background rule:** if your app paints its own full background, it must
+    use `fullBleed` (or style the AppShell level) — NEVER paint a background
+    on an inner wrapper; it stops at the content boundary and exposes the
+    backdrop as margins.
 - `Section` props: `title?`, `meta?` (counts/hints), `actions?`, `children`
 - `CardGrid` props: `minWidth?` (px, default 260) — responsive auto-fill grid
 - `SkeletonCard` props: `count?`, `height?` | `SkeletonRow` props: `count?` — wireframe placeholders (Phase 1.5) and loading states
@@ -365,10 +378,17 @@ display inline.
 ```tsx
 <Modal open={adding} onClose={close} title="New card">
   <EntityForm entity="Card" defaults={{ columnId: col.id }}
-              onSaved={() => { close(); cards.refresh() }} onCancel={close} />
+              onSaved={() => { toast.success('Card created'); close() }}
+              onCancel={close} />
 </Modal>
 <EntityForm entity="Card" initial={card} onSaved={onSaved} />  // edit mode
 ```
+
+**`onSaved` fires AFTER the form has ALREADY saved** (it receives the saved
+item, id included). Use it to close the modal / toast / navigate ONLY —
+calling `create`/`update` inside `onSaved` saves a SECOND time and
+duplicates the record. No manual `refresh()` needed either: mutations
+propagate to every mounted `useEntities` list automatically.
 
 **EntityTable** — sortable table over the generated API with row actions
 and confirmed deletes:
@@ -400,6 +420,18 @@ datetime fields), `TagInput` (string[] — json array fields), `SearchInput`
 
 **Hooks** — `useHotkey('ctrl+k', openSearch)` (global shortcut, ignores
 typing for plain keys), `useDebounce(value, ms)`.
+
+**Mutations propagate automatically.** Any mutation — another component's
+`useEntities`, `EntityForm`, raw `data.create/update/remove`, or an
+`ApiService.request` POST/PUT/DELETE — refreshes every mounted
+`useEntities` list for that entity instantly. Therefore:
+- NEVER lift entity state into props/context/parent callbacks to "sync"
+  components — each component reads its own `useEntities(plural)` and
+  stays current for free.
+- NEVER tell the user to refresh, and never build a manual "reload" step
+  after create/delete — if a created item doesn't appear instantly, the
+  component is holding entity data in local `useState` (the bug), not
+  reading `useEntities`.
 
 ## Feedback, Overlays, and Dashboard Presets
 
@@ -476,10 +508,14 @@ overrides in `frontend/styles/themes.css` (system-managed — never edit):
 
 | Pack | Look |
 |---|---|
-| `default` | The CraftBot baseline |
-| `modern` | Larger radii, deeper soft shadows, roomier spacing |
-| `glass` | Translucent blurred surfaces over a tinted page backdrop |
-| `classic` | Near-square corners, flat borders, dense spacing |
+| `default` | The CraftBot baseline (dark charcoal, orange accent) |
+| `modern` | Airy indigo: cool blue-tinted surfaces, indigo-violet accent, large soft radii/shadows, generous air |
+| `glass` | Aurora glassmorphism: deeply translucent blurred surfaces over a violet/cyan/pink backdrop, cyan accent |
+| `classic` | Flat warm amber-on-charcoal (paper-and-ink in light mode): near-square corners, visible borders, NO shadows, dense |
+
+Each pack carries its OWN palette and follows light/dark mode — do not
+assume the CraftBot orange when a pack is active; accents come from
+`var(--color-primary)` like everything else.
 
 **The HOST owns theming.** Users pick a THEME from the Living UI top
 bar's theme picker in CraftBot — each theme bundles a style pack with a

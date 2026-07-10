@@ -138,6 +138,9 @@ export interface EntityFormProps<T> {
   /** Field names to hide (they submit from defaults/initial unchanged). */
   exclude?: string[]
   submitLabel?: string
+  /** Fires AFTER EntityForm has ALREADY saved, with the saved item (id set).
+   * Use it to close the modal / toast / navigate ONLY — calling
+   * create/update in here saves AGAIN and duplicates the record. */
   onSaved?: (item: T) => void
   onCancel?: () => void
 }

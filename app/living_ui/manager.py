@@ -1166,6 +1166,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     "step": "design.review",
                     "errors": design_errors,
                 }
+            # Visual judgment gate: the VLM reviews the resting-page
+            # screenshot like a human design reviewer — no thresholds,
+            # deliberate minimal/full-bleed layouts pass; unfinished-looking
+            # pages are refused with the reviewer's specific reasons.
+            judgment_errors = await asyncio.to_thread(
+                self._design_judgment_errors, project
+            )
+            if judgment_errors:
+                return {
+                    "status": "error",
+                    "step": "design.judgment",
+                    "errors": judgment_errors,
+                }
 
         # Load manifest
         manifest_path = project_path / "config" / "manifest.json"
@@ -3336,6 +3349,101 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return project.design_metrics_at * 1000 >= last_frontend_ms
         except Exception:
             return True
+
+    # The ONLY design policy is this reviewed rubric — judgment, not
+    # geometry. Edge-to-edge banners, minimal pages, and sparse empty
+    # states all pass when they look deliberate; there is no threshold
+    # deciding what users may or may not do with their layout.
+    DESIGN_JUDGMENT_PROMPT = (
+        "You are reviewing a screenshot of a web app's RESTING page (what a "
+        "user sees on first open, often before any data exists).\n"
+        "Verdict: does this read as a DESIGNED application at rest?\n\n"
+        "PASS when the page shows deliberate design: clear structure, "
+        "breathing room, a designed empty state (a centered/hero'd 'no data "
+        "yet' moment is great). Intentional minimalism, edge-to-edge / "
+        "full-bleed content, banners touching the viewport edge, and sparse "
+        "pages are all FINE when they look deliberate.\n\n"
+        "FAIL only for unfinished-looking layouts a human reviewer would "
+        "bounce on sight: content welded into one corner while the rest of "
+        "the screen is an empty void, stray unstructured fragments with no "
+        "page composition, controls crammed against edges with no "
+        "intentional layout, or a page that looks half-loaded or broken.\n\n"
+        'Respond with STRICT JSON only: {"pass": true, "problems": []} or '
+        '{"pass": false, "problems": ["specific, actionable problem", ...]}'
+    )
+
+    def _design_screenshot_current(
+        self, project: "LivingUIProject", shot: Path
+    ) -> bool:
+        """The screenshot is current when captured AFTER the last frontend
+        change — same derivation as _design_metrics_current."""
+        try:
+            from .construction_events import get_buffered_events
+
+            last_frontend_ms = max(
+                (
+                    e.get("ts", 0)
+                    for e in get_buffered_events(project.id)
+                    if e.get("area") == "frontend"
+                ),
+                default=0,
+            )
+            return shot.stat().st_mtime * 1000 >= last_frontend_ms
+        except Exception:
+            return True
+
+    def _design_judgment_errors(self, project: "LivingUIProject") -> List[str]:
+        """Visual judgment gate: the platform VLM reviews the resting-page
+        screenshot (logs/design_preview.png, captured live by the dev
+        preview) the way a human design reviewer would. Complements the
+        mechanical gate: facts there, judgment here. Fail-open everywhere —
+        a missing/stale screenshot, an unavailable VLM, or a malformed
+        verdict never blocks a launch (a judgment gate must not brick
+        builds when the judge is out)."""
+        try:
+            shot = Path(project.path) / "logs" / "design_preview.png"
+            if not shot.exists():
+                logger.info(
+                    "[LIVING_UI:PIPELINE] design.judgment skipped: no "
+                    "design_preview.png (headless build)"
+                )
+                return []
+            if not self._design_screenshot_current(project, shot):
+                logger.info(
+                    "[LIVING_UI:PIPELINE] design.judgment skipped: screenshot "
+                    "predates the last frontend change"
+                )
+                return []
+            from app.internal_action_interface import InternalActionInterface as IAI
+
+            if IAI.vlm_interface is None:
+                logger.info(
+                    "[LIVING_UI:PIPELINE] design.judgment skipped: VLM unavailable"
+                )
+                return []
+            raw = IAI.describe_image(str(shot), self.DESIGN_JUDGMENT_PROMPT)
+            match = re.search(r"\{.*\}", raw or "", re.S)
+            verdict = json.loads(match.group(0)) if match else None
+            if not isinstance(verdict, dict) or verdict.get("pass") is not False:
+                return []
+            problems = [
+                str(p).strip()
+                for p in (verdict.get("problems") or [])
+                if str(p).strip()
+            ]
+            if not problems:
+                return []  # a refusal without actionable reasons is malformed
+            return (
+                ["DESIGN (visual review of the rendered resting page):"]
+                + [f"- {p}" for p in problems]
+                + [
+                    "Fix the layout (watch the live preview update), then "
+                    "run living_ui_validate again."
+                ]
+            )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:PIPELINE] design.judgment skipped: {e}")
+            return []
 
     def design_review_errors(self, project: "LivingUIProject") -> List[str]:
         """Deterministic design gate from real rendered-layout metrics.

@@ -2990,6 +2990,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 icon=icon,
             )
 
+            # The wizard's theme pick becomes the project's default display
+            # theme — the Living UI page adopts it (absent a local override)
+            # and pushes it to the app via the craftbot-theme protocol.
+            ui_theme = str(config.get("uiTheme") or "").strip()
+            if ui_theme:
+                self._living_ui_manager.set_project_ui_theme(
+                    project.id, {"themeId": ui_theme}
+                )
+
             # Staged files: uploaded icon → project root, references →
             # <project>/reference/. An uploaded icon wins over a lucide pick.
             moved = wizard.move_staging_into_project(

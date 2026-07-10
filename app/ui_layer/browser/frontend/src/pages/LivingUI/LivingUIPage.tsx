@@ -234,12 +234,17 @@ export function LivingUIPage() {
 
   // When the iframe finishes loading it sends 'craftbot-theme-request'. Reply
   // with the saved per-project theme so the palette persists across refreshes.
+  // The DEV-PREVIEW iframe (Construction View) sends the same request on
+  // every Vite reload — answering it is what makes the app being BUILT
+  // render in the user's chosen theme, not just the finished app.
   useEffect(() => {
     if (!projectId) return
     const onIframeReady = (e: MessageEvent) => {
       if (e.data?.type !== 'craftbot-theme-request' || !e.source) return
-      if (e.source !== getIframeWindow(projectId)) return
-      const expectedOrigin = projectOrigin(project?.url)
+      const isProd = e.source === getIframeWindow(projectId)
+      const isDev = e.source === getIframeWindow(devIframeKey(projectId))
+      if (!isProd && !isDev) return
+      const expectedOrigin = projectOrigin(isProd ? project?.url : project?.devUrl)
       if (expectedOrigin && e.origin !== expectedOrigin) return
       ;(e.source as Window).postMessage(
         buildThemeMessage(livingUITheme, appTheme, livingUICustomColors),
@@ -248,7 +253,7 @@ export function LivingUIPage() {
     }
     window.addEventListener('message', onIframeReady)
     return () => window.removeEventListener('message', onIframeReady)
-  }, [projectId, livingUITheme, livingUICustomColors, appTheme, project?.url])
+  }, [projectId, livingUITheme, livingUICustomColors, appTheme, project?.url, project?.devUrl])
 
   const handleThemeSelect = (themeId: LivingUIThemeId, colors?: LivingUICustomColors) => {
     if (!projectId) return

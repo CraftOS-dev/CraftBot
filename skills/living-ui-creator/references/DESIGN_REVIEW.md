@@ -1,6 +1,13 @@
 # Design Self-Review (Phase 10, Step 1)
 
 Run this BEFORE `living_ui_validate` — look at your own app first.
+
+> Validation ALSO reviews this screenshot itself (`design.judgment` step):
+> the platform VLM judges whether the resting page reads as a designed
+> application — unfinished-looking layouts (content welded into a corner
+> over a void, stray unstructured fragments) are REFUSED with specific
+> reasons. Deliberate minimalism and full-bleed layouts pass. Doing this
+> self-review first means you never lose a validation run to it.
 Use the describe_image call below with the prompt EXACTLY as written
 (it encodes the defect-vs-design-decision distinction; ad-libbed
 prompts produce false failures).

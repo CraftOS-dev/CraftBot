@@ -316,10 +316,22 @@ warning note.
 There is NO page header: the page starts directly with its content
 Sections — no title band.
 
+0. **Shell mode — the default is almost always right.** Plain `<AppShell>`
+   FILLS the Living UI container with comfortable gutters (no max-width) —
+   correct for dashboards, lists, forms, CRUD, nearly everything. Two
+   opt-ins for the exceptions, applied when the first REAL region lands
+   (the wireframe itself always uses plain `<AppShell>`):
+   - `<AppShell fullBleed>` — ZERO gutters, for board/canvas/kanban/map
+     apps and any app that paints its own full background (a background on
+     an inner wrapper inside the default frame stops at the content edge
+     and looks broken — if the app paints one, it must be fullBleed).
+   - `<AppShell readingWidth>` — caps lines at the `--measure-reading`
+     token, ONLY for long-form text (articles, notes readers). Never
+     invent your own width numbers.
 1. **Rewrite `frontend/components/MainView.tsx` as a TEXTLESS kit assembly**:
-   `<AppShell>` with one `<Section>` per planned region (NO `title`/`meta`),
-   each holding Skeleton presets ARRANGED TO MATCH that component's
-   intended shape. **Use ONLY these presets — the complete wireframe
+   plain `<AppShell>` with one `<Section>` per planned region (NO
+   `title`/`meta`), each holding Skeleton presets ARRANGED TO MATCH that
+   component's intended shape. **Use ONLY these presets — the complete wireframe
    vocabulary:**
    - `SkeletonBox` (`ratio?`) — any rectangle: toolbar strip (`ratio={8}`),
      chart area (`ratio={2}`), square tile (`ratio={1}`)
@@ -533,8 +545,15 @@ validation pass, so run `living_ui_validate` once more after curation.
 Validation also measures the real rendered layout (step `design.review`):
 pages that overflow horizontally, clip text, render empty Sections, or
 contain ZERO icons/images are REFUSED with specifics. (These are
-absence/presence facts about the page — visual judgment is YOUR job in
-this review step.)
+absence/presence facts about the page.)
+
+And it LOOKS at the page (step `design.judgment`): the platform VLM
+reviews the resting-page screenshot like a human design reviewer —
+unfinished-looking layouts (content welded into a corner over an empty
+void, stray fragments with no page composition) are REFUSED with the
+reviewer's specific reasons. Deliberate minimalism and full-bleed layouts
+pass. Your Step 1 self-review catches this BEFORE it costs a validation
+run.
 
 **Step 3 — `living_ui_notify_ready(project_id=...)` to present the app.**
 
@@ -565,6 +584,34 @@ See [STANDARDS.md](references/STANDARDS.md) for quality requirements and [VERIFY
 
 CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs access them via a built-in bridge — never build OAuth or store credentials yourself. See [INTEGRATIONS.md](references/INTEGRATIONS.md).
 
+## External Data & Device APIs (weather, news, location, ...)
+
+The app runs in a cross-origin iframe on localhost. Two patterns fail there
+and must never be load-bearing:
+
+1. **Frontend `fetch()` to third-party APIs** — CORS blocks most of them.
+   ALL external data is fetched by the BACKEND: a `routes.py` endpoint using
+   `httpx` (already in requirements), returning cached/normalized JSON to the
+   frontend. No CORS, no keys exposed, degrades gracefully offline (return
+   the last cached value or an empty payload — never a 500).
+2. **Browser permission APIs** (`navigator.geolocation`, notifications,
+   camera) — permission prompts inside the embedded tab are unreliable.
+   A denied permission must NEVER be a dead-end error state.
+   - **Location: default to backend IP-based lookup** (keyless, no prompt):
+     `GET https://ipapi.co/json/` or `http://ip-api.com/json/` from a
+     routes.py endpoint → `{lat, lon, city}`.
+   - Browser geolocation is at most an optional refinement that silently
+     falls back to the IP result.
+   - Let the user override (a location field persisted in the schema) —
+     settings beat detection.
+
+Solved recipe — weather without any API key: backend endpoint does IP lookup
+→ `https://api.open-meteo.com/v1/forecast?latitude=..&longitude=..&current_weather=true`
+→ cache the JSON in memory with a timestamp and re-fetch only when stale
+(e.g. 10+ min) → frontend reads YOUR endpoint via ApiService. News, quotes,
+prices: same shape — pick a keyless/public API, fetch in the backend, cache,
+degrade gracefully.
+
 ## FORBIDDEN Actions
 
 - NEVER write to bare relative paths (`backend/models.py`) — always use the absolute `{project_path}/...` so files land in the project, not the CraftBot root
@@ -583,6 +630,7 @@ CraftBot has connected services (Google, Discord, Slack, etc.). Living UIs acces
 - NEVER use browser dialogs (`prompt()`, `confirm()`, `alert()`) for user input or confirmation — use the preset `Modal` and form components; a native dialog is an unfinished feature
 - NEVER seed fake/sample/demo data to make tests pass or to showcase UI — empty states are the no-data content
 - NEVER make tests depend on live internet — external fetches degrade gracefully and tests cover the non-network paths
+- NEVER fetch third-party APIs from the frontend (CORS) and NEVER make a browser permission (`navigator.geolocation`, notifications) load-bearing — external data comes from a backend endpoint; location defaults to backend IP lookup (see External Data & Device APIs)
 - NEVER edit `tailwind.config.js` / `postcss.config.js` (system-managed; the token-mapped classes are already wired)
 - NEVER ignore a test you ran that came back red, and NEVER seed fake data to make one pass — validation runs the full suite and refuses red tests, sending you back
 - NEVER write a static stub or draft version of a component — every component is written ONCE, in its final live form (real fetch calls, real handlers). Placeholder handlers like `onClick={() => {}}` are a violation

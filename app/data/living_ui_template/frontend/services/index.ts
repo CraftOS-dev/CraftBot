@@ -84,5 +84,5 @@ export class ApiClient {
 }
 
 // Generic CRUD client + React hook for schema entities (see data.ts)
-export { data, useEntities } from './data'
+export { data, useEntities, notifyEntitiesChanged } from './data'
 export type { EntityStore, ListParams } from './data'
