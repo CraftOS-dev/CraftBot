@@ -25,6 +25,9 @@
   --color-primary-hover: #E64515;
   --color-primary-light: rgba(255, 79, 24, 0.15);
   --color-primary-subtle: rgba(255, 79, 24, 0.08);
+  /* Text/icon color ON a --color-primary surface. Style packs with light
+     accents (chartreuse, white, sage ink) override this to a dark value. */
+  --color-on-primary: #FFFFFF;
 
   /* Colors - Semantic */
   --color-success: #22C55E;

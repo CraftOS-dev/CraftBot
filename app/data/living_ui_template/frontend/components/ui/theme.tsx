@@ -15,9 +15,12 @@
  * overrides one.
  */
 
-export type ThemeStyle = 'default' | 'modern' | 'glass' | 'classic'
+export type ThemeStyle =
+  | 'default' | 'modern' | 'glass' | 'classic'
+  | 'velvet' | 'ink' | 'acid' | 'blueprint'
+  | 'brutalist' | 'drafting' | 'clay' | 'atelier'
 
-const STYLES: ThemeStyle[] = ['default', 'modern', 'glass', 'classic']
+const STYLES: ThemeStyle[] = ['default', 'modern', 'glass', 'classic', 'velvet', 'ink', 'acid', 'blueprint', 'brutalist', 'drafting', 'clay', 'atelier']
 
 /** Cache of the last host-sent style, written by the theme-sync script in
  * index.html (flash-free boot). Its presence means the host has spoken. */

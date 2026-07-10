@@ -503,19 +503,30 @@ semantic color (`--color-info`, `--color-success`, `--color-warning`,
 
 ## Style Packs (multi-theme)
 
-Beyond light/dark mode, the app has four DESIGN LANGUAGES defined as token
-overrides in `frontend/styles/themes.css` (system-managed — never edit):
+Beyond light/dark mode, the app has twelve DESIGN LANGUAGES defined as
+token overrides in `frontend/styles/themes.css` (system-managed — never
+edit):
 
 | Pack | Look |
 |---|---|
 | `default` | The CraftBot baseline (dark charcoal, orange accent) |
 | `modern` | Airy indigo: cool blue-tinted surfaces, indigo-violet accent, large soft radii/shadows, generous air |
-| `glass` | Aurora glassmorphism: deeply translucent blurred surfaces over a violet/cyan/pink backdrop, cyan accent |
+| `glass` | Aurora glassmorphism: translucent blurred surfaces over a violet/cyan/pink backdrop, cyan accent |
 | `classic` | Flat warm amber-on-charcoal (paper-and-ink in light mode): near-square corners, visible borders, NO shadows, dense |
+| `velvet` | Warm editorial glass: frosted cards over a cream scene with a soft orange glow, pill-soft shapes |
+| `ink` | Playful monochrome: black IS the accent (inverts to white-on-black in dark mode), white cards, friendly radii |
+| `acid` | Organic neo-swiss: warm greige canvas, blob-rounded white cards, chartreuse accent with DARK text on it |
+| `blueprint` | Engineering datasheet: ruled grid paper, monospace type, hairline borders, sharp corners, safety-orange CTAs |
+| `brutalist` | Cyber-brutalism: hard black borders, offset block shadows, zero radius, violet accent (acid green in dark) |
+| `drafting` | Technical monoline sketch: sage drafting paper, outline-only surfaces (card = page + ink border), no shadows |
+| `clay` | Neumorphism: one soft material, depth from dual light/dark shadows instead of borders, extruded pills |
+| `atelier` | Studio minimalism: silver gradient environment, hairline panels, near-black selected states |
 
 Each pack carries its OWN palette and follows light/dark mode — do not
 assume the CraftBot orange when a pack is active; accents come from
-`var(--color-primary)` like everything else.
+`var(--color-primary)`, and text on a primary surface from
+`var(--color-on-primary)` (several packs have LIGHT accents where white
+button text would be unreadable — never hardcode white on primary).
 
 **The HOST owns theming.** Users pick a THEME from the Living UI top
 bar's theme picker in CraftBot — each theme bundles a style pack with a

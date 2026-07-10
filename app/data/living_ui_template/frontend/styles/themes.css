@@ -224,3 +224,465 @@
   --shadow-md: none;
   --shadow-lg: none;
 }
+
+/* ============================================================================
+ * VELVET — warm editorial glass: frosted cards over a cream/blush scene with
+ * a soft orange glow, pill-soft shapes, quiet type
+ * ========================================================================== */
+
+[data-style="velvet"] {
+  --bg-primary: #191114;
+  --bg-secondary: rgba(255, 240, 230, 0.07);
+  --bg-tertiary: rgba(255, 240, 230, 0.11);
+  --bg-hover: rgba(255, 240, 230, 0.16);
+  --text-primary: #F7EFE9;
+  --text-secondary: #C9BCB2;
+  --text-muted: #8A7C71;
+  --border-primary: rgba(255, 235, 220, 0.14);
+  --border-secondary: rgba(255, 235, 220, 0.08);
+  --color-primary: #FF8A4C;
+  --color-primary-hover: #FF7733;
+  --color-primary-light: rgba(255, 138, 76, 0.18);
+  --color-primary-subtle: rgba(255, 138, 76, 0.10);
+  --scrollbar-thumb: rgba(255, 235, 220, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 235, 220, 0.28);
+  --shimmer: rgba(255, 240, 230, 0.08);
+  --overlay-color: rgba(25, 12, 8, 0.55);
+  --surface-backdrop: blur(18px) saturate(1.25);
+  --page-backdrop:
+    radial-gradient(700px 520px at 70% 30%, rgba(255, 122, 40, 0.22), transparent 60%),
+    radial-gradient(900px 600px at 10% 90%, rgba(215, 120, 90, 0.14), transparent 60%);
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 30px;
+  --shadow-sm: 0 4px 14px rgba(20, 8, 4, 0.30);
+  --shadow-md: 0 14px 38px rgba(20, 8, 4, 0.38);
+  --shadow-lg: 0 28px 70px rgba(20, 8, 4, 0.48);
+  --transition-base: 200ms ease;
+}
+
+[data-style="velvet"][data-theme="light"] {
+  --bg-primary: #F4E9DF;
+  --bg-secondary: rgba(255, 255, 255, 0.55);
+  --bg-tertiary: rgba(255, 255, 255, 0.72);
+  --bg-hover: rgba(255, 255, 255, 0.88);
+  --text-primary: #3A2E26;
+  --text-secondary: #7A6A5D;
+  --text-muted: #A3958A;
+  --border-primary: rgba(120, 80, 50, 0.15);
+  --border-secondary: rgba(120, 80, 50, 0.08);
+  --color-primary: #F06F2A;
+  --color-primary-hover: #DD5E1C;
+  --color-primary-light: rgba(240, 111, 42, 0.14);
+  --color-primary-subtle: rgba(240, 111, 42, 0.08);
+  --scrollbar-thumb: rgba(120, 80, 50, 0.20);
+  --scrollbar-thumb-hover: rgba(120, 80, 50, 0.32);
+  --shimmer: rgba(58, 46, 38, 0.06);
+  --overlay-color: rgba(58, 30, 15, 0.30);
+  --page-backdrop:
+    radial-gradient(700px 520px at 70% 30%, rgba(255, 138, 60, 0.28), transparent 60%),
+    radial-gradient(900px 600px at 10% 90%, rgba(230, 160, 130, 0.20), transparent 60%);
+  --shadow-sm: 0 4px 14px rgba(90, 50, 25, 0.10);
+  --shadow-md: 0 14px 38px rgba(90, 50, 25, 0.14);
+  --shadow-lg: 0 28px 70px rgba(90, 50, 25, 0.20);
+}
+
+/* ============================================================================
+ * INK — playful monochrome: black IS the accent; white cards, friendly big
+ * radii, tiny soft shadows. Dark mode inverts to white-on-black.
+ * ========================================================================== */
+
+[data-style="ink"] {
+  --bg-primary: #101010;
+  --bg-secondary: #1A1A1A;
+  --bg-tertiary: #242424;
+  --bg-hover: #2E2E2E;
+  --text-primary: #F5F5F3;
+  --text-secondary: #A8A8A4;
+  --text-muted: #5E5E5A;
+  --border-primary: #2A2A28;
+  --border-secondary: #222220;
+  --color-primary: #F5F5F3;
+  --color-primary-hover: #FFFFFF;
+  --color-primary-light: rgba(245, 245, 243, 0.12);
+  --color-primary-subtle: rgba(245, 245, 243, 0.07);
+  --color-on-primary: #111111;
+  --scrollbar-thumb: #2E2E2E;
+  --scrollbar-thumb-hover: #3C3C3C;
+  --shimmer: rgba(245, 245, 243, 0.06);
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 26px;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.50);
+}
+
+[data-style="ink"][data-theme="light"] {
+  --bg-primary: #F3F3F1;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #ECECEA;
+  --bg-hover: #E2E2DF;
+  --text-primary: #111111;
+  --text-secondary: #555552;
+  --text-muted: #99998F;
+  --border-primary: #E4E4E1;
+  --border-secondary: #ECECEA;
+  --color-primary: #111111;
+  --color-primary-hover: #000000;
+  --color-primary-light: rgba(17, 17, 17, 0.08);
+  --color-primary-subtle: rgba(17, 17, 17, 0.05);
+  --color-on-primary: #FFFFFF;
+  --scrollbar-thumb: #DDDDD9;
+  --scrollbar-thumb-hover: #C9C9C4;
+  --shimmer: rgba(17, 17, 17, 0.05);
+  --shadow-sm: 0 2px 8px rgba(17, 17, 17, 0.06);
+  --shadow-md: 0 6px 18px rgba(17, 17, 17, 0.08);
+  --shadow-lg: 0 14px 40px rgba(17, 17, 17, 0.12);
+}
+
+/* ============================================================================
+ * ACID — organic neo-swiss: warm greige canvas, white blob-rounded cards,
+ * chartreuse accent with dark text on it, pill-everything
+ * ========================================================================== */
+
+[data-style="acid"] {
+  --bg-primary: #14150E;
+  --bg-secondary: #1E2015;
+  --bg-tertiary: #282A1C;
+  --bg-hover: #33361F;
+  --text-primary: #F2F2E8;
+  --text-secondary: #A9AA96;
+  --text-muted: #6C6D5B;
+  --border-primary: #333524;
+  --border-secondary: #282A1B;
+  --color-primary: #D8F21D;
+  --color-primary-hover: #E7FF2E;
+  --color-primary-light: rgba(216, 242, 29, 0.14);
+  --color-primary-subtle: rgba(216, 242, 29, 0.08);
+  --color-on-primary: #14150E;
+  --scrollbar-thumb: #333524;
+  --scrollbar-thumb-hover: #454833;
+  --shimmer: rgba(242, 242, 232, 0.06);
+  --radius-sm: 16px;
+  --radius-md: 22px;
+  --radius-lg: 28px;
+  --radius-xl: 34px;
+  --shadow-sm: none;
+  --shadow-md: 0 6px 18px rgba(8, 9, 4, 0.35);
+  --shadow-lg: 0 16px 44px rgba(8, 9, 4, 0.45);
+  --space-4: 1.125rem;
+  --space-6: 1.75rem;
+}
+
+[data-style="acid"][data-theme="light"] {
+  --bg-primary: #DCD9CE;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #EFEDE4;
+  --bg-hover: #E5E2D6;
+  --text-primary: #17170F;
+  --text-secondary: #585647;
+  --text-muted: #8B8975;
+  --border-primary: #CBC8B9;
+  --border-secondary: #DDDACD;
+  --color-primary: #D8F21D;
+  --color-primary-hover: #C9E20F;
+  --color-primary-light: rgba(216, 242, 29, 0.30);
+  --color-primary-subtle: rgba(216, 242, 29, 0.16);
+  --color-on-primary: #17170F;
+  --scrollbar-thumb: #C4C1B2;
+  --scrollbar-thumb-hover: #B0AD9C;
+  --shimmer: rgba(23, 23, 15, 0.05);
+  --shadow-sm: none;
+  --shadow-md: 0 6px 18px rgba(60, 58, 40, 0.10);
+  --shadow-lg: 0 16px 44px rgba(60, 58, 40, 0.14);
+}
+
+/* ============================================================================
+ * BLUEPRINT — engineering datasheet: ruled grid paper, monospace type,
+ * hairline table borders, sharp corners, safety-orange CTAs, zero shadows
+ * ========================================================================== */
+
+[data-style="blueprint"] {
+  --font-sans: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --bg-primary: #101116;
+  --bg-secondary: #171923;
+  --bg-tertiary: #1F2230;
+  --bg-hover: #262A3C;
+  --text-primary: #E8E9F2;
+  --text-secondary: #9EA1B8;
+  --text-muted: #5E617A;
+  --border-primary: #2E3145;
+  --border-secondary: #262838;
+  --color-primary: #FF6A2A;
+  --color-primary-hover: #FF5712;
+  --color-primary-light: rgba(255, 106, 42, 0.16);
+  --color-primary-subtle: rgba(255, 106, 42, 0.09);
+  --scrollbar-thumb: #2E3145;
+  --scrollbar-thumb-hover: #3C4059;
+  --shimmer: rgba(232, 233, 242, 0.05);
+  --page-backdrop:
+    repeating-linear-gradient(0deg, rgba(140, 160, 255, 0.06) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(140, 160, 255, 0.06) 0 1px, transparent 1px 24px);
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 3px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --space-3: 0.625rem;
+  --space-4: 0.875rem;
+  --input-height-sm: 26px;
+  --input-height-md: 30px;
+  --input-height-lg: 36px;
+  --font-size-base: 0.8125rem;
+  --transition-base: 80ms ease;
+  --transition-fast: 60ms ease;
+}
+
+[data-style="blueprint"][data-theme="light"] {
+  --bg-primary: #F4F3EF;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #EDECE7;
+  --bg-hover: #E7E5DE;
+  --text-primary: #16161A;
+  --text-secondary: #4E4E56;
+  --text-muted: #8A8A92;
+  --border-primary: #C9C9CF;
+  --border-secondary: #DDDDE2;
+  --color-primary: #F25C1A;
+  --color-primary-hover: #DD4E10;
+  --color-primary-light: rgba(242, 92, 26, 0.13);
+  --color-primary-subtle: rgba(242, 92, 26, 0.07);
+  --scrollbar-thumb: #C9C9CF;
+  --scrollbar-thumb-hover: #B2B2BA;
+  --shimmer: rgba(22, 22, 26, 0.05);
+  --page-backdrop:
+    repeating-linear-gradient(0deg, rgba(60, 60, 90, 0.07) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(60, 60, 90, 0.07) 0 1px, transparent 1px 24px);
+}
+
+/* ============================================================================
+ * BRUTALIST — cyber-brutalism: stark canvas, thick hard borders, offset
+ * block shadows, zero radius, violet accent (acid green in dark mode)
+ * ========================================================================== */
+
+[data-style="brutalist"] {
+  --bg-primary: #0C0C0C;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1F1F1F;
+  --bg-hover: #292929;
+  --text-primary: #F6F6F6;
+  --text-secondary: #B0B0B0;
+  --text-muted: #6A6A6A;
+  --border-primary: #F6F6F6;
+  --border-secondary: #6A6A6A;
+  --color-primary: #A3E635;
+  --color-primary-hover: #B8F84A;
+  --color-primary-light: rgba(163, 230, 53, 0.16);
+  --color-primary-subtle: rgba(163, 230, 53, 0.09);
+  --color-on-primary: #0C0C0C;
+  --scrollbar-thumb: #3C3C3C;
+  --scrollbar-thumb-hover: #525252;
+  --shimmer: rgba(246, 246, 246, 0.07);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --shadow-sm: 2px 2px 0 rgba(246, 246, 246, 0.9);
+  --shadow-md: 4px 4px 0 rgba(246, 246, 246, 0.9);
+  --shadow-lg: 8px 8px 0 rgba(246, 246, 246, 0.9);
+  --transition-base: 50ms linear;
+  --transition-fast: 50ms linear;
+}
+
+[data-style="brutalist"][data-theme="light"] {
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F4F4F4;
+  --bg-hover: #EDEDED;
+  --text-primary: #0A0A0A;
+  --text-secondary: #3A3A3A;
+  --text-muted: #7A7A7A;
+  --border-primary: #0A0A0A;
+  --border-secondary: #444444;
+  --color-primary: #7C3AED;
+  --color-primary-hover: #6D28D9;
+  --color-primary-light: rgba(124, 58, 237, 0.13);
+  --color-primary-subtle: rgba(124, 58, 237, 0.07);
+  --color-on-primary: #FFFFFF;
+  --scrollbar-thumb: #C4C4C4;
+  --scrollbar-thumb-hover: #A0A0A0;
+  --shimmer: rgba(10, 10, 10, 0.06);
+  --shadow-sm: 2px 2px 0 #0A0A0A;
+  --shadow-md: 4px 4px 0 #0A0A0A;
+  --shadow-lg: 8px 8px 0 #0A0A0A;
+}
+
+/* ============================================================================
+ * DRAFTING — technical monoline sketch: pale sage drafting paper, outline-
+ * only surfaces (cards = page + strong ink border), zero shadows, ink accent
+ * ========================================================================== */
+
+[data-style="drafting"] {
+  --bg-primary: #171B14;
+  --bg-secondary: #171B14;
+  --bg-tertiary: #202619;
+  --bg-hover: #29301F;
+  --text-primary: #D9E0D1;
+  --text-secondary: #9AA38E;
+  --text-muted: #626B57;
+  --border-primary: #8A947E;
+  --border-secondary: #49523E;
+  --color-primary: #C7D1BC;
+  --color-primary-hover: #D9E0D1;
+  --color-primary-light: rgba(199, 209, 188, 0.14);
+  --color-primary-subtle: rgba(199, 209, 188, 0.08);
+  --color-on-primary: #171B14;
+  --scrollbar-thumb: #49523E;
+  --scrollbar-thumb-hover: #626B57;
+  --shimmer: rgba(217, 224, 209, 0.06);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --transition-base: 120ms ease;
+}
+
+[data-style="drafting"][data-theme="light"] {
+  --bg-primary: #E9EDE4;
+  --bg-secondary: #E9EDE4;
+  --bg-tertiary: #E1E6DB;
+  --bg-hover: #D8DECF;
+  --text-primary: #2E3528;
+  --text-secondary: #5C6552;
+  --text-muted: #8B9480;
+  --border-primary: #3A4232;
+  --border-secondary: #7A8370;
+  --color-primary: #3A4232;
+  --color-primary-hover: #2E3528;
+  --color-primary-light: rgba(58, 66, 50, 0.12);
+  --color-primary-subtle: rgba(58, 66, 50, 0.07);
+  --color-on-primary: #E9EDE4;
+  --scrollbar-thumb: #B8BFAC;
+  --scrollbar-thumb-hover: #9DA590;
+  --shimmer: rgba(46, 53, 40, 0.05);
+}
+
+/* ============================================================================
+ * CLAY — neumorphism: one soft material, depth from dual light/dark shadows
+ * instead of borders, extruded pills, muted periwinkle accent
+ * ========================================================================== */
+
+[data-style="clay"] {
+  --bg-primary: #23262E;
+  --bg-secondary: #23262E;
+  --bg-tertiary: #282C35;
+  --bg-hover: #2E323C;
+  --text-primary: #DFE2EA;
+  --text-secondary: #9BA0AD;
+  --text-muted: #5F6470;
+  --border-primary: rgba(255, 255, 255, 0.05);
+  --border-secondary: rgba(255, 255, 255, 0.03);
+  --color-primary: #7C93FF;
+  --color-primary-hover: #6B84FF;
+  --color-primary-light: rgba(124, 147, 255, 0.15);
+  --color-primary-subtle: rgba(124, 147, 255, 0.08);
+  --scrollbar-thumb: #333845;
+  --scrollbar-thumb-hover: #414757;
+  --shimmer: rgba(223, 226, 234, 0.05);
+  --radius-sm: 16px;
+  --radius-md: 22px;
+  --radius-lg: 28px;
+  --radius-xl: 34px;
+  --shadow-sm: 4px 4px 8px rgba(10, 12, 18, 0.6), -4px -4px 8px rgba(60, 66, 82, 0.45);
+  --shadow-md: 7px 7px 14px rgba(10, 12, 18, 0.65), -7px -7px 14px rgba(60, 66, 82, 0.5);
+  --shadow-lg: 12px 12px 24px rgba(10, 12, 18, 0.7), -12px -12px 24px rgba(60, 66, 82, 0.55);
+  --transition-base: 180ms ease;
+}
+
+[data-style="clay"][data-theme="light"] {
+  --bg-primary: #E4E6EC;
+  --bg-secondary: #E4E6EC;
+  --bg-tertiary: #DDE0E8;
+  --bg-hover: #D5D9E3;
+  --text-primary: #3A3F4C;
+  --text-secondary: #6C7280;
+  --text-muted: #9CA1AE;
+  --border-primary: rgba(58, 63, 76, 0.06);
+  --border-secondary: rgba(58, 63, 76, 0.04);
+  --color-primary: #5B7CFA;
+  --color-primary-hover: #4A6BF0;
+  --color-primary-light: rgba(91, 124, 250, 0.13);
+  --color-primary-subtle: rgba(91, 124, 250, 0.07);
+  --scrollbar-thumb: #C9CDD9;
+  --scrollbar-thumb-hover: #B4B9C9;
+  --shimmer: rgba(58, 63, 76, 0.05);
+  --shadow-sm: 4px 4px 8px rgba(163, 169, 184, 0.55), -4px -4px 8px rgba(255, 255, 255, 0.85);
+  --shadow-md: 7px 7px 14px rgba(163, 169, 184, 0.6), -7px -7px 14px rgba(255, 255, 255, 0.9);
+  --shadow-lg: 12px 12px 24px rgba(163, 169, 184, 0.65), -12px -12px 24px rgba(255, 255, 255, 0.95);
+}
+
+/* ============================================================================
+ * ATELIER — studio minimalism: cool silver gradient environment, hairline
+ * panels without heavy card chrome, near-black selected states
+ * ========================================================================== */
+
+[data-style="atelier"] {
+  --bg-primary: #121316;
+  --bg-secondary: #1A1B20;
+  --bg-tertiary: #212228;
+  --bg-hover: #292A31;
+  --text-primary: #ECEDF0;
+  --text-secondary: #9FA3AB;
+  --text-muted: #5C6068;
+  --border-primary: #2A2C33;
+  --border-secondary: #222329;
+  --color-primary: #E8E9EC;
+  --color-primary-hover: #FFFFFF;
+  --color-primary-light: rgba(232, 233, 236, 0.10);
+  --color-primary-subtle: rgba(232, 233, 236, 0.06);
+  --color-on-primary: #121316;
+  --scrollbar-thumb: #2A2C33;
+  --scrollbar-thumb-hover: #383A43;
+  --shimmer: rgba(236, 237, 240, 0.05);
+  --page-backdrop: linear-gradient(180deg, rgba(46, 48, 56, 0.5) 0%, rgba(10, 11, 13, 0.6) 100%);
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.40);
+  --transition-base: 160ms ease;
+}
+
+[data-style="atelier"][data-theme="light"] {
+  --bg-primary: #EDEFF2;
+  --bg-secondary: #F8F9FB;
+  --bg-tertiary: #EFF1F4;
+  --bg-hover: #E6E9EE;
+  --text-primary: #1C1E22;
+  --text-secondary: #585D66;
+  --text-muted: #9AA0A9;
+  --border-primary: #D8DCE2;
+  --border-secondary: #E4E7EC;
+  --color-primary: #17181B;
+  --color-primary-hover: #000000;
+  --color-primary-light: rgba(23, 24, 27, 0.08);
+  --color-primary-subtle: rgba(23, 24, 27, 0.05);
+  --color-on-primary: #FFFFFF;
+  --scrollbar-thumb: #D0D4DB;
+  --scrollbar-thumb-hover: #B9BEC7;
+  --shimmer: rgba(28, 30, 34, 0.05);
+  --page-backdrop: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(200, 206, 216, 0.55) 100%);
+  --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.06);
+  --shadow-md: 0 4px 12px rgba(20, 22, 26, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 22, 26, 0.12);
+}

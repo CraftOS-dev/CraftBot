@@ -102,13 +102,13 @@
 
     <!-- CraftBot theme sync — the HOST owns theming. Applies mode
          (light/dark, always following the browser interface), the style
-         pack (data-style: default|modern|glass|classic — chosen in the
+         pack (data-style: default|modern|glass|classic|velvet|ink|acid|blueprint|brutalist|drafting|clay|atelier — chosen in the
          Living UI top bar's theme picker), and CSS palette vars from
          parent-frame messages. localStorage only CACHES the last host-sent
          style for a flash-free boot; a fresh message always wins. -->
     <script>
     (function() {
-      var STYLES = ['default', 'modern', 'glass', 'classic'];
+      var STYLES = ['default', 'modern', 'glass', 'classic', 'velvet', 'ink', 'acid', 'blueprint', 'brutalist', 'drafting', 'clay', 'atelier'];
       function cachedStyle() {
         try { var s = localStorage.getItem('livingui-style'); return STYLES.indexOf(s) !== -1 ? s : null; } catch(e) { return null; }
       }

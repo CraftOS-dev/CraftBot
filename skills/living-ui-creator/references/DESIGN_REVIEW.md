@@ -20,19 +20,11 @@ spend a validation run:
 describe_image(
   image_path="{project_path}/logs/design_preview.png",
   prompt="You are an experienced UI/UX design reviewer looking at a screenshot
-of a web app that was JUST BUILT and has NO USER DATA YET. Your job is to
-find UI/UX DEFECTS — things a user would object to because
-they look broken, unfinished, or make the app hard to use — while
-respecting INTENTIONAL DESIGN DECISIONS. Before flagging anything, ask:
-'is this a bug, or is this a choice a competent designer plausibly made
-on purpose?' Conventional design patterns (visual hierarchy through
-muted/secondary styling, whitespace as breathing room, empty states in an
-app that has no data yet, restrained color palettes, de-emphasized
-metadata) are NOT defects. A region that is empty because the app is
-waiting for user content is fine IF it communicates that state; it is a
-defect only if it renders as broken or unexplained dead space. DO report:
+of a web app. Your job is to find ALL UI/UX DEFECTS — things a user would object 
+to because they look broken, unfinished, ugly or make the app hard to use. 
+Look out for:
 text clipped, cut off, or overlapping; elements colliding or misaligned;
-sections that render as raw/unstyled/broken; text unreadable
+misalignment, sections that render as raw/unstyled/broken; text unreadable
 against its background; controls that look unfinished or misplaced;
 inconsistency between elements that should look alike; a UI that reads as
 an unstyled wall of text with no visual structure, icons, or accents for
@@ -47,9 +39,11 @@ yet."
 If the review lists a genuine defect: fix the layout/CSS/visual design,
 wait a moment for the preview screenshot to refresh, and re-review. Repeat
 until PASS. Trust the reviewer's decision/defect distinction — do not
-"fix" things it explicitly identified as plausible design choices. If
-`design_preview.png` does not exist (preview never open), skip this step —
-the platform's design gate still applies.
+"fix" things it explicitly identified as plausible design choices.
+Be as strict as possible BUT do not nit pick. It is possible that
+agent might waste tokens on repeating validation that has already been
+fixed. You must compare past design reviews to check if something is fixed, 
+as the design review step has no past memory.
 
 ## Runtime-Log Check (same step, after the visual review)
 

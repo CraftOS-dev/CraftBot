@@ -58,7 +58,7 @@ const buttonStyles: Record<string, React.CSSProperties> = {
   },
   primary: {
     backgroundColor: 'var(--color-primary)',
-    color: 'var(--color-white)',
+    color: 'var(--color-on-primary)',
   },
   secondary: {
     backgroundColor: 'var(--bg-tertiary)',
@@ -152,9 +152,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           <Spinner
             size={size === 'sm' ? 12 : size === 'lg' ? 18 : 14}
             color={
-              variant === 'primary' || variant === 'danger'
-                ? 'var(--color-white)'
-                : undefined
+              variant === 'primary'
+                ? 'var(--color-on-primary)'
+                : variant === 'danger'
+                  ? 'var(--color-white)'
+                  : undefined
             }
           />
         )}
@@ -556,7 +558,7 @@ export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
             height: 16,
             backgroundColor: 'var(--color-white)',
             borderRadius: '50%',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+            boxShadow: 'var(--shadow-sm)',
             transition: 'var(--transition-base)',
           }}
         />

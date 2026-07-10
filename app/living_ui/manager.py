@@ -1242,6 +1242,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         # Ensure index.html has the CraftBot theme sync listener (self-healing for older installs)
         self._patch_theme_listener(project_path)
+        # Self-heal style packs: sync system-managed theme files from the
+        # current template so apps created before a pack existed pick it up
+        # on their next launch (the rebuild below bundles them).
+        self._sync_style_packs(project_path)
 
         # Check for single-process mode (external apps)
         app_cfg = pipeline.get("app")
@@ -2538,6 +2542,94 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 if filepath.stat().st_mtime > last_launch_time:
                     return True
         return False
+
+    # Matches the CraftBot theme-sync block in a project's index.html: the
+    # optional marker comment plus the ONE <script> that mentions
+    # 'craftbot-theme'. Older apps carry pre-style versions of this script
+    # (no data-style handling at all), so a line-level patch can't heal
+    # them — the whole block is replaced from the template.
+    _THEME_SYNC_BLOCK_RE = re.compile(
+        r"(?:<!--\s*CraftBot theme sync.*?-->\s*)?"
+        r"<script>(?:(?!</script>).)*craftbot-theme(?:(?!</script>).)*</script>",
+        re.S,
+    )
+
+    def _sync_style_packs(self, project_path: Path) -> None:
+        """Self-healing for older apps: style packs are PROJECT-resident —
+        the CSS lives in the app's themes.css and the <html data-style>
+        attribute is set by the app's own index.html sync script. An app
+        copied from the template before a pack existed has neither (the
+        oldest scripts ignore the style field entirely), so the host sets a
+        theme and nothing changes. Both artifacts are SYSTEM-managed
+        (agents never edit them), so overwriting from the current template
+        is safe by contract. Runs before the frontend build so the rebuild
+        bundles the new CSS. Fail-silent: a launch must never break over
+        cosmetics.
+        """
+        try:
+            styles_dir = project_path / "frontend" / "styles"
+            if not styles_dir.exists():
+                return  # not a template-structured (native) project
+            src = self.template_path / "frontend" / "styles" / "themes.css"
+            if src.exists():
+                dst = styles_dir / "themes.css"
+                content = src.read_text(encoding="utf-8")
+                if not dst.exists() or dst.read_text(encoding="utf-8") != content:
+                    dst.write_text(content, encoding="utf-8")
+                    logger.info(
+                        f"[LIVING_UI] Synced style packs into {project_path.name}"
+                    )
+            # Vite only bundles CSS that something imports, and the
+            # themes.css import in main.tsx postdates the oldest apps —
+            # without it the synced packs are dead CSS on disk. main.tsx is
+            # SYSTEM-managed (agents never touch it) and every era imports
+            # global.css, so a one-line additive insert is era-safe.
+            main_tsx = project_path / "frontend" / "main.tsx"
+            if main_tsx.exists():
+                main_src = main_tsx.read_text(encoding="utf-8")
+                if (
+                    "styles/themes.css" not in main_src
+                    and "import './styles/global.css'" in main_src
+                ):
+                    main_tsx.write_text(
+                        main_src.replace(
+                            "import './styles/global.css'",
+                            "import './styles/global.css'\n"
+                            "import './styles/themes.css'",
+                            1,
+                        ),
+                        encoding="utf-8",
+                    )
+                    logger.info(
+                        f"[LIVING_UI] Injected themes.css import into "
+                        f"{project_path.name}"
+                    )
+            # Replace the project's ENTIRE theme-sync script with the
+            # template's current one (mode + style + palette handling).
+            tpl_index = self.template_path / "index.html"
+            prj_index = project_path / "index.html"
+            if tpl_index.exists() and prj_index.exists():
+                tpl_block = self._THEME_SYNC_BLOCK_RE.search(
+                    tpl_index.read_text(encoding="utf-8")
+                )
+                if tpl_block:
+                    current = prj_index.read_text(encoding="utf-8")
+                    updated = self._THEME_SYNC_BLOCK_RE.sub(
+                        lambda _m: tpl_block.group(0), current, count=1
+                    )
+                    if updated == current and "craftbot-theme" not in current:
+                        # No sync script at all — inject before </body>.
+                        updated = current.replace(
+                            "</body>", tpl_block.group(0) + "\n  </body>", 1
+                        )
+                    if updated != current:
+                        prj_index.write_text(updated, encoding="utf-8")
+                        logger.info(
+                            f"[LIVING_UI] Synced theme-sync script into "
+                            f"{project_path.name}"
+                        )
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] style pack sync skipped: {e}")
 
     @staticmethod
     def _patch_theme_listener(project_path: Path) -> None:
