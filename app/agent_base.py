@@ -64,6 +64,7 @@ from craftos_integrations import (
     initialize_manager,
 )
 
+from app.data.action.constants import WAIT_FOR_REPLY_PARK_DELAY_SECONDS
 from app.internal_action_interface import InternalActionInterface
 
 from app.llm import LLMInterface
@@ -552,9 +553,9 @@ class AgentBase:
                     await self._create_new_trigger(
                         session_id,
                         {
-                            "fire_at_delay": 10800,
+                            "fire_at_delay": WAIT_FOR_REPLY_PARK_DELAY_SECONDS,
                             "wait_for_user_reply": True,
-                        },  # 3 hours
+                        },
                         STATE,
                     )
                     return
@@ -1776,7 +1777,7 @@ class AgentBase:
                 TriggerSpec(
                     source=TriggerSource.LIMIT_REACHED,
                     description="Waiting for user decision on limit reached",
-                    fire_at=time.time() + 10800,
+                    fire_at=time.time() + WAIT_FOR_REPLY_PARK_DELAY_SECONDS,
                     priority=5,
                     session_id=session_id,
                     payload={"gui_mode": STATE.gui_mode},

@@ -232,6 +232,13 @@ class BrowserChatComponent(ChatComponentProtocol):
                         )
                         for o in stored.options
                     ]
+                questions = None
+                if stored.questions:
+                    from app.ui_layer.components.types import ChatMessageQuestion
+
+                    questions = [
+                        ChatMessageQuestion.from_dict(q) for q in stored.questions
+                    ]
                 self._messages.append(
                     ChatMessage(
                         sender=stored.sender,
@@ -243,6 +250,9 @@ class BrowserChatComponent(ChatComponentProtocol):
                         task_session_id=stored.task_session_id,
                         options=options,
                         option_selected=stored.option_selected,
+                        questions=questions,
+                        question_answers=stored.question_answers,
+                        questions_declined=stored.questions_declined,
                     )
                 )
         except Exception:
@@ -252,6 +262,11 @@ class BrowserChatComponent(ChatComponentProtocol):
     async def append_message(self, message: ChatMessage) -> None:
         """Append message and broadcast to clients."""
         self._messages.append(message)
+
+        # Serialized once, shared by the storage insert and the broadcast
+        questions_data = (
+            [q.to_dict() for q in message.questions] if message.questions else None
+        )
 
         # Persist to storage
         if self._storage:
@@ -286,6 +301,9 @@ class BrowserChatComponent(ChatComponentProtocol):
                     attachments=attachments_data,
                     task_session_id=message.task_session_id,
                     options=options_data,
+                    questions=questions_data,
+                    question_answers=message.question_answers,
+                    questions_declined=message.questions_declined,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -329,6 +347,14 @@ class BrowserChatComponent(ChatComponentProtocol):
             ]
         if message.option_selected:
             message_data["optionSelected"] = message.option_selected
+
+        # Include clarifying-question batch if present
+        if questions_data:
+            message_data["questions"] = questions_data
+        if message.question_answers:
+            message_data["questionAnswers"] = message.question_answers
+        if message.questions_declined:
+            message_data["questionsDeclined"] = message.questions_declined
 
         await self._adapter._broadcast(
             {
@@ -396,6 +422,13 @@ class BrowserChatComponent(ChatComponentProtocol):
                         )
                         for o in s.options
                     ]
+                questions = None
+                if s.questions:
+                    from app.ui_layer.components.types import ChatMessageQuestion
+
+                    questions = [
+                        ChatMessageQuestion.from_dict(q) for q in s.questions
+                    ]
                 messages.append(
                     ChatMessage(
                         sender=s.sender,
@@ -404,8 +437,12 @@ class BrowserChatComponent(ChatComponentProtocol):
                         timestamp=s.timestamp,
                         message_id=s.message_id,
                         attachments=attachments,
+                        task_session_id=s.task_session_id,
                         options=options,
                         option_selected=s.option_selected,
+                        questions=questions,
+                        question_answers=s.question_answers,
+                        questions_declined=s.questions_declined,
                     )
                 )
             return messages
@@ -1100,6 +1137,10 @@ class BrowserAdapter(InterfaceAdapter):
         """Get the metrics collector for dashboard data."""
         return self._metrics_collector
 
+    def can_prompt_user(self) -> bool:
+        """A user can answer an interactive prompt when a browser tab is connected."""
+        return len(self._ws_clients) > 0
+
     async def submit_message(
         self,
         message: str,
@@ -1642,6 +1683,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = data.get("sessionId", "")
             message_id = data.get("messageId", "")
             await self._handle_option_click(value, session_id, message_id)
+
+        elif msg_type == "question_answers_submit":
+            session_id = data.get("sessionId", "")
+            message_id = data.get("messageId", "")
+            answers = data.get("answers")
+            declined = bool(data.get("declined", False))
+            await self._handle_question_answers_submit(
+                session_id, message_id, answers, declined
+            )
 
         # Settings operations
         elif msg_type == "settings_get":
@@ -4057,6 +4107,110 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.error(
                 f"[OPTION_CLICK] Error handling option click: {e}", exc_info=True
+            )
+
+    async def _handle_question_answers_submit(
+        self,
+        session_id: str,
+        message_id: str,
+        answers: Optional[Dict[str, str]],
+        declined: bool,
+    ) -> None:
+        """Handle the user resolving a batch of agent-asked clarifying questions.
+
+        Persists the resolution, then resumes the parked task the same way a
+        normal reply to a waiting task does (see ``submit_message``'s
+        ``reply_context`` handling) — no separate resume path needed.
+
+        First submission wins: the storage UPDATE only matches an unresolved
+        row, so a duplicate submit (e.g. from a second browser tab that still
+        showed the live stepper) is dropped instead of resuming the task twice.
+        """
+        try:
+            resolved_answers = answers if not declined else None
+            storage = self._chat._storage if self._chat else None
+
+            in_memory = None
+            if self._chat and message_id:
+                for m in self._chat._messages:
+                    if m.message_id == message_id:
+                        in_memory = m
+                        break
+
+            already_resolved_in_memory = in_memory is not None and (
+                in_memory.question_answers is not None
+                or in_memory.questions_declined
+            )
+            if storage:
+                claimed = False
+                try:
+                    claimed = storage.update_question_answers(
+                        message_id, resolved_answers, declined
+                    )
+                except Exception:
+                    # Storage unavailable: fall back to the in-memory guard.
+                    claimed = not already_resolved_in_memory
+                # update_question_answers returns False for a missing row too;
+                # only treat it as a duplicate when memory confirms resolution
+                # or has no unresolved copy to contradict it.
+                if not claimed and (in_memory is None or already_resolved_in_memory):
+                    logger.info(
+                        f"[QUESTION_ANSWERS] Ignoring duplicate submit for {message_id}"
+                    )
+                    return
+            elif already_resolved_in_memory:
+                return
+
+            question_text_by_id: Dict[str, str] = {}
+            if in_memory is not None:
+                if in_memory.questions:
+                    question_text_by_id = {q.id: q.text for q in in_memory.questions}
+                in_memory.question_answers = resolved_answers
+                in_memory.questions_declined = declined
+            elif storage:
+                # Message aged out of the in-memory window (e.g. answered via
+                # paginated history after a restart): recover the question
+                # texts from storage so the resume text isn't raw ids.
+                try:
+                    stored = storage.get_message(message_id)
+                    if stored and stored.questions:
+                        question_text_by_id = {
+                            q.get("id", ""): q.get("text", "")
+                            for q in stored.questions
+                        }
+                except Exception:
+                    pass
+
+            # Collapse the stepper on every connected client — the submitting
+            # tab already resolved optimistically, but other tabs would keep
+            # showing a live stepper and could submit again.
+            await self._broadcast(
+                {
+                    "type": "question_answers_resolved",
+                    "data": {
+                        "messageId": message_id,
+                        "answers": resolved_answers,
+                        "declined": declined,
+                    },
+                }
+            )
+
+            if resolved_answers:
+                lines = [
+                    f"{i + 1}. {question_text_by_id.get(qid, qid)} → {answer}"
+                    for i, (qid, answer) in enumerate(resolved_answers.items())
+                ]
+                resume_text = "Answered clarifying questions:\n" + "\n".join(lines)
+            else:
+                resume_text = "The user declined to answer."
+
+            await self.submit_message(
+                resume_text, reply_context={"sessionId": session_id}
+            )
+        except Exception as e:
+            logger.error(
+                f"[QUESTION_ANSWERS] Error handling question answers: {e}",
+                exc_info=True,
             )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -8108,6 +8262,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     ]
                 if m.option_selected:
                     msg_data["optionSelected"] = m.option_selected
+                if m.questions:
+                    msg_data["questions"] = [q.to_dict() for q in m.questions]
+                if m.question_answers:
+                    msg_data["questionAnswers"] = m.question_answers
+                if m.questions_declined:
+                    msg_data["questionsDeclined"] = m.questions_declined
                 messages_data.append(msg_data)
 
             await self._broadcast(
@@ -8815,6 +8975,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     **(
                         {"optionSelected": m.option_selected}
                         if m.option_selected
+                        else {}
+                    ),
+                    **(
+                        {"questions": [q.to_dict() for q in m.questions]}
+                        if m.questions
+                        else {}
+                    ),
+                    **(
+                        {"questionAnswers": m.question_answers}
+                        if m.question_answers
+                        else {}
+                    ),
+                    **(
+                        {"questionsDeclined": m.questions_declined}
+                        if m.questions_declined
                         else {}
                     ),
                 }

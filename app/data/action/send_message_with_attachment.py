@@ -59,6 +59,8 @@ from agent_core import action
     },
 )
 async def send_message_with_attachment(input_data: dict) -> dict:
+    from app.data.action.constants import WAIT_FOR_REPLY_PARK_DELAY_SECONDS
+
     message = input_data["message"]
     file_paths = input_data.get("file_paths", [])
     wait_for_user_reply = bool(input_data.get("wait_for_user_reply", False))
@@ -93,7 +95,7 @@ async def send_message_with_attachment(input_data: dict) -> dict:
     if simulated_mode:
         return {
             "status": "success",
-            "fire_at_delay": 10800 if wait_for_user_reply else 0,
+            "fire_at_delay": WAIT_FOR_REPLY_PARK_DELAY_SECONDS if wait_for_user_reply else 0,
             "wait_for_user_reply": wait_for_user_reply,
             "files_sent": len(file_paths),
         }
@@ -105,7 +107,7 @@ async def send_message_with_attachment(input_data: dict) -> dict:
         message, file_paths, session_id=session_id
     )
 
-    fire_at_delay = 10800 if wait_for_user_reply else 0
+    fire_at_delay = WAIT_FOR_REPLY_PARK_DELAY_SECONDS if wait_for_user_reply else 0
     files_sent = result.get("files_sent", 0)
     errors = result.get("errors")
 

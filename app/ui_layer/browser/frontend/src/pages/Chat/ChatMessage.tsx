@@ -1,6 +1,6 @@
 import React, { memo, useState, useMemo, useRef, useEffect } from 'react'
 import { Reply, Copy, Check } from 'lucide-react'
-import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
+import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton, QuestionStepper } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import styles from './ChatPage.module.css'
@@ -15,6 +15,12 @@ interface ChatMessageProps {
     fullContent: string
   ) => void
   onOptionClick?: (value: string, sessionId?: string, messageId?: string) => void
+  onQuestionAnswers?: (
+    messageId: string,
+    sessionId: string | undefined,
+    answers: Record<string, string> | undefined,
+    declined: boolean
+  ) => void
 }
 
 // Parse reply context from message content
@@ -36,6 +42,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   onOpenFolder,
   onReply,
   onOptionClick,
+  onQuestionAnswers,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -51,10 +58,14 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   }, [selected])
   const { agentProfilePictureUrl } = useWebSocket()
 
-  // Show reply for agent messages, except those presenting options that
-  // require the user to make an explicit choice via the option buttons.
+  // Show reply for agent messages, except those presenting options/questions
+  // that require the user to make an explicit choice via the buttons.
   const hasPendingOptions = !!(message.options && message.options.length > 0)
-  const canReply = message.style === 'agent' && onReply && !hasPendingOptions
+  const hasPendingQuestions = !!(
+    message.questions && message.questions.length > 0
+    && !message.questionAnswers && !message.questionsDeclined
+  )
+  const canReply = message.style === 'agent' && onReply && !hasPendingOptions && !hasPendingQuestions
   const canCopy = message.style === 'user' || message.style === 'agent'
 
   // Parse reply context for user messages
@@ -126,6 +137,16 @@ export const ChatMessageItem = memo(function ChatMessageItem({
             ))}
           </div>
         )}
+        {message.questions && message.questions.length > 0 && (
+          <QuestionStepper
+            messageId={message.messageId}
+            sessionId={message.taskSessionId}
+            questions={message.questions}
+            answers={message.questionAnswers}
+            declined={message.questionsDeclined}
+            onSubmit={(msgId, sid, ans, dec) => onQuestionAnswers?.(msgId, sid, ans, dec)}
+          />
+        )}
       </div>
       {message.attachments && message.attachments.length > 0 && (
         <div className={styles.messageAttachments}>
@@ -192,5 +213,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 }, (prev, next) =>
   prev.message.messageId === next.message.messageId
   && prev.message.optionSelected === next.message.optionSelected
+  && prev.message.questionAnswers === next.message.questionAnswers
+  && prev.message.questionsDeclined === next.message.questionsDeclined
   && prev.message.content === next.message.content
 )

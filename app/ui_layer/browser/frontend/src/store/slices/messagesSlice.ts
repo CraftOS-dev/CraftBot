@@ -68,6 +68,20 @@ const messagesSlice = createSlice({
         entry.optionSelected = value
       }
     },
+    markQuestionsAnswered(
+      state,
+      action: PayloadAction<{ messageId: string; answers?: Record<string, string>; declined?: boolean }>
+    ) {
+      const { messageId, answers, declined } = action.payload
+      const entry = state.entities[messageId]
+      if (entry && !entry.questionAnswers && !entry.questionsDeclined) {
+        if (declined) {
+          entry.questionsDeclined = true
+        } else {
+          entry.questionAnswers = answers
+        }
+      }
+    },
   },
 })
 
@@ -79,6 +93,7 @@ export const {
   clear,
   setLoadingOlder,
   markOptionSelected,
+  markQuestionsAnswered,
 } = messagesSlice.actions
 
 export const messagesAdapter = adapter
@@ -103,4 +118,13 @@ register('chat_history', (data, dispatch) => {
 
 register('chat_clear', (_data, dispatch) => {
   dispatch(clear())
+})
+
+// Another client resolved a question batch — collapse the stepper here too.
+// markQuestionsAnswered is a no-op if this tab already resolved it optimistically.
+register('question_answers_resolved', (data, dispatch) => {
+  const d = data as { messageId?: string; answers?: Record<string, string> | null; declined?: boolean } | undefined
+  if (d?.messageId) {
+    dispatch(markQuestionsAnswered({ messageId: d.messageId, answers: d.answers ?? undefined, declined: !!d.declined }))
+  }
 })

@@ -14,6 +14,9 @@ export { MarkdownContent } from './MarkdownContent'
 
 export { AttachmentDisplay } from './AttachmentDisplay'
 
+export { QuestionStepper } from './QuestionStepper'
+export type { QuestionStepperProps } from './QuestionStepper'
+
 export { AttachmentPreviewModal } from './AttachmentPreviewModal'
 export type { AttachmentPreviewModalProps, AttachmentPreviewItem } from './AttachmentPreviewModal'
 

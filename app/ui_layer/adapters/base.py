@@ -15,7 +15,12 @@ from app.ui_layer.components.protocols import (
     InputComponentProtocol,
     FootageComponentProtocol,
 )
-from app.ui_layer.components.types import ChatMessage, ChatMessageOption, ActionItem
+from app.ui_layer.components.types import (
+    ChatMessage,
+    ChatMessageOption,
+    ChatMessageQuestion,
+    ActionItem,
+)
 
 if TYPE_CHECKING:
     from app.ui_layer.controller.ui_controller import UIController
@@ -540,6 +545,17 @@ class InterfaceAdapter(ABC):
     # Helper methods
     # ─────────────────────────────────────────────────────────────────────
 
+    def can_prompt_user(self) -> bool:
+        """
+        Whether a user is present and able to answer an interactive prompt
+        (e.g. a clarifying-question stepper) right now.
+
+        Defaults to False: an adapter must explicitly declare interactive
+        capability, so actions that park a task waiting on an answer fail
+        closed on adapters that can't deliver one.
+        """
+        return False
+
     async def _display_chat_message(
         self,
         label: str,
@@ -547,6 +563,7 @@ class InterfaceAdapter(ABC):
         style: str,
         task_session_id: Optional[str] = None,
         options: Optional[List[ChatMessageOption]] = None,
+        questions: Optional[List[ChatMessageQuestion]] = None,
         client_id: Optional[str] = None,
     ) -> None:
         """
@@ -558,6 +575,7 @@ class InterfaceAdapter(ABC):
             style: Style identifier
             task_session_id: Optional task session ID for reply feature
             options: Optional list of interactive options/buttons
+            questions: Optional batch of clarifying questions to ask the user
             client_id: Optional client-generated UUID for reconciling with optimistic UI
         """
         import time
@@ -570,6 +588,7 @@ class InterfaceAdapter(ABC):
                 timestamp=time.time(),
                 task_session_id=task_session_id,
                 options=options,
+                questions=questions,
                 client_id=client_id,
             )
         )
