@@ -81,7 +81,7 @@ async def list_stripe_customers(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_customers",
         limit=input_data.get("limit", 10),
@@ -92,6 +92,19 @@ async def list_stripe_customers(input_data: dict) -> dict:
         created_lte=input_data.get("created_lte"),
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -120,17 +133,30 @@ async def get_stripe_customer(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_customer",
         customer_id=input_data["customer_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_customer",
-    description="Create a Stripe customer. At minimum pass email or name. Returns the new cus_… ID.",
+    description="Create a Stripe customer. At minimum pass email or name. Returns the new cus_… ID. Returns only {id, status}.",
     action_sets=["stripe_customers", "stripe"],
     input_schema={
         "email": {
@@ -192,13 +218,13 @@ async def get_stripe_customer(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_customer(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_customer",
         email=input_data.get("email") or None,
@@ -213,11 +239,12 @@ async def create_stripe_customer(input_data: dict) -> dict:
         tax_exempt=input_data.get("tax_exempt") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_customer",
-    description="Update a Stripe customer. 'properties' is the flat update dict (email, name, phone, address, metadata, …).",
+    description="Update a Stripe customer. 'properties' is the flat update dict (email, name, phone, address, metadata, …). Returns only {id, status}.",
     action_sets=["stripe_customers", "stripe"],
     input_schema={
         "customer_id": {
@@ -236,19 +263,20 @@ async def create_stripe_customer(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_customer(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_customer",
         customer_id=input_data["customer_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -311,7 +339,7 @@ async def search_stripe_customers(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "search_customers",
         query=input_data["query"],
@@ -319,6 +347,19 @@ async def search_stripe_customers(input_data: dict) -> dict:
         page=input_data.get("page") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 # ==================================================================
@@ -369,7 +410,7 @@ async def list_stripe_payment_intents(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_payment_intents",
         limit=input_data.get("limit", 10),
@@ -380,6 +421,19 @@ async def list_stripe_payment_intents(input_data: dict) -> dict:
         created_lte=input_data.get("created_lte") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -408,17 +462,30 @@ async def get_stripe_payment_intent(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_payment_intent",
         payment_intent_id=input_data["payment_intent_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_payment_intent",
-    description="Create a PaymentIntent. 'amount' is in the smallest currency unit ($10 USD = 1000). Defaults to automatic_payment_methods when neither payment_method nor payment_method_types is set.",
+    description="Create a PaymentIntent. 'amount' is in the smallest currency unit ($10 USD = 1000). Defaults to automatic_payment_methods when neither payment_method nor payment_method_types is set. Returns only {id, status}.",
     action_sets=["stripe_payments", "stripe"],
     input_schema={
         "amount": {
@@ -492,13 +559,13 @@ async def get_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_payment_intent(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_payment_intent",
         amount=input_data["amount"],
@@ -516,11 +583,12 @@ async def create_stripe_payment_intent(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_payment_intent",
-    description="Update a PaymentIntent's properties (amount, metadata, description, etc.). Cannot update once succeeded.",
+    description="Update a PaymentIntent's properties (amount, metadata, description, etc.). Cannot update once succeeded. Returns only {id, status}.",
     action_sets=["stripe_payments"],
     input_schema={
         "payment_intent_id": {
@@ -539,24 +607,25 @@ async def create_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_payment_intent(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_payment_intent",
         payment_intent_id=input_data["payment_intent_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="confirm_stripe_payment_intent",
-    description="Confirm a PaymentIntent server-side. For off-session repeat charges or completing a flow started client-side. May return 'requires_action' (3DS/SCA).",
+    description="Confirm a PaymentIntent server-side. For off-session repeat charges or completing a flow started client-side. May return 'requires_action' (3DS/SCA). Returns only {id, status}.",
     action_sets=["stripe_payments"],
     input_schema={
         "payment_intent_id": {
@@ -590,13 +659,13 @@ async def update_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def confirm_stripe_payment_intent(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "confirm_payment_intent",
         payment_intent_id=input_data["payment_intent_id"],
@@ -606,11 +675,12 @@ async def confirm_stripe_payment_intent(input_data: dict) -> dict:
         setup_future_usage=input_data.get("setup_future_usage") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="capture_stripe_payment_intent",
-    description="Capture funds for a PaymentIntent previously authorized with capture_method='manual'. Optional partial capture via amount_to_capture.",
+    description="Capture funds for a PaymentIntent previously authorized with capture_method='manual'. Optional partial capture via amount_to_capture. Returns only {id, status}.",
     action_sets=["stripe_payments", "stripe"],
     input_schema={
         "payment_intent_id": {
@@ -634,13 +704,13 @@ async def confirm_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def capture_stripe_payment_intent(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "capture_payment_intent",
         payment_intent_id=input_data["payment_intent_id"],
@@ -648,11 +718,12 @@ async def capture_stripe_payment_intent(input_data: dict) -> dict:
         statement_descriptor=input_data.get("statement_descriptor") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="cancel_stripe_payment_intent",
-    description="Cancel a PaymentIntent. Only allowed for PIs in requires_payment_method, requires_capture, requires_confirmation, or requires_action.",
+    description="Cancel a PaymentIntent. Only allowed for PIs in requires_payment_method, requires_capture, requires_confirmation, or requires_action. Returns only {id, status}.",
     action_sets=["stripe_payments"],
     input_schema={
         "payment_intent_id": {
@@ -671,19 +742,20 @@ async def capture_stripe_payment_intent(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def cancel_stripe_payment_intent(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "cancel_payment_intent",
         payment_intent_id=input_data["payment_intent_id"],
         cancellation_reason=input_data.get("cancellation_reason") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -722,7 +794,7 @@ async def search_stripe_payment_intents(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "search_payment_intents",
         query=input_data["query"],
@@ -730,6 +802,19 @@ async def search_stripe_payment_intents(input_data: dict) -> dict:
         page=input_data.get("page") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -775,7 +860,7 @@ async def list_stripe_charges(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_charges",
         limit=input_data.get("limit", 10),
@@ -786,6 +871,19 @@ async def list_stripe_charges(input_data: dict) -> dict:
         transfer_group=input_data.get("transfer_group") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -814,17 +912,30 @@ async def get_stripe_charge(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_charge",
         charge_id=input_data["charge_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_refund",
-    description="Refund a PaymentIntent or Charge. Pass exactly ONE of payment_intent / charge. Omit 'amount' for a full refund.",
+    description="Refund a PaymentIntent or Charge. Pass exactly ONE of payment_intent / charge. Omit 'amount' for a full refund. Returns only {id, status}.",
     action_sets=["stripe_payments", "stripe"],
     input_schema={
         "payment_intent": {
@@ -858,13 +969,13 @@ async def get_stripe_charge(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_refund(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_refund",
         payment_intent=input_data.get("payment_intent") or None,
@@ -874,6 +985,7 @@ async def create_stripe_refund(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -902,12 +1014,25 @@ async def get_stripe_refund(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_refund",
         refund_id=input_data["refund_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -948,7 +1073,7 @@ async def list_stripe_refunds(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_refunds",
         limit=input_data.get("limit", 10),
@@ -958,6 +1083,19 @@ async def list_stripe_refunds(input_data: dict) -> dict:
         charge=input_data.get("charge") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 # ==================================================================
@@ -1003,7 +1141,7 @@ async def list_stripe_payment_methods(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_payment_methods",
         customer=input_data.get("customer") or None,
@@ -1013,6 +1151,19 @@ async def list_stripe_payment_methods(input_data: dict) -> dict:
         ending_before=input_data.get("ending_before") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -1041,17 +1192,30 @@ async def get_stripe_payment_method(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_payment_method",
         payment_method_id=input_data["payment_method_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="attach_stripe_payment_method",
-    description="Attach a PaymentMethod to a Customer so it can be used for future off-session charges.",
+    description="Attach a PaymentMethod to a Customer so it can be used for future off-session charges. Returns only {id, status}.",
     action_sets=["stripe_payment_methods"],
     input_schema={
         "payment_method_id": {
@@ -1070,24 +1234,25 @@ async def get_stripe_payment_method(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def attach_stripe_payment_method(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "attach_payment_method",
         payment_method_id=input_data["payment_method_id"],
         customer=input_data["customer"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="detach_stripe_payment_method",
-    description="Detach a PaymentMethod from its Customer. Future charges against it will fail.",
+    description="Detach a PaymentMethod from its Customer. Future charges against it will fail. Returns only {id, status}.",
     action_sets=["stripe_payment_methods"],
     input_schema={
         "payment_method_id": {
@@ -1101,23 +1266,24 @@ async def attach_stripe_payment_method(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def detach_stripe_payment_method(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "detach_payment_method",
         payment_method_id=input_data["payment_method_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_payment_method",
-    description="Update a PaymentMethod's metadata or billing details. Card brand/number CANNOT be updated.",
+    description="Update a PaymentMethod's metadata or billing details. Card brand/number CANNOT be updated. Returns only {id, status}.",
     action_sets=["stripe_payment_methods"],
     input_schema={
         "payment_method_id": {
@@ -1139,19 +1305,20 @@ async def detach_stripe_payment_method(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_payment_method(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_payment_method",
         payment_method_id=input_data["payment_method_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -1197,7 +1364,7 @@ async def list_stripe_products(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_products",
         limit=input_data.get("limit", 10),
@@ -1207,6 +1374,19 @@ async def list_stripe_products(input_data: dict) -> dict:
         ids=input_data.get("ids") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -1235,17 +1415,30 @@ async def get_stripe_product(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_product",
         product_id=input_data["product_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_product",
-    description="Create a Product. Pass default_price_data to create the product and its first price atomically.",
+    description="Create a Product. Pass default_price_data to create the product and its first price atomically. Returns only {id, status}.",
     action_sets=["stripe_products", "stripe"],
     input_schema={
         "name": {
@@ -1309,13 +1502,13 @@ async def get_stripe_product(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_product(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_product",
         name=input_data["name"],
@@ -1331,11 +1524,12 @@ async def create_stripe_product(input_data: dict) -> dict:
         url=input_data.get("url") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_product",
-    description="Update a Product's properties.",
+    description="Update a Product's properties. Returns only {id, status}.",
     action_sets=["stripe_products"],
     input_schema={
         "product_id": {
@@ -1354,19 +1548,20 @@ async def create_stripe_product(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_product(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_product",
         product_id=input_data["product_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -1446,7 +1641,7 @@ async def list_stripe_prices(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_prices",
         limit=input_data.get("limit", 10),
@@ -1459,6 +1654,19 @@ async def list_stripe_prices(input_data: dict) -> dict:
         recurring_interval=input_data.get("recurring_interval") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -1487,17 +1695,30 @@ async def get_stripe_price(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_price",
         price_id=input_data["price_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_price",
-    description="Create a Price for an existing Product (or set product_data inline). Pass 'recurring' for subscriptions, omit for one-time. unit_amount is in smallest currency unit.",
+    description="Create a Price for an existing Product (or set product_data inline). Pass 'recurring' for subscriptions, omit for one-time. unit_amount is in smallest currency unit. Returns only {id, status}.",
     action_sets=["stripe_products", "stripe"],
     input_schema={
         "currency": {
@@ -1561,13 +1782,13 @@ async def get_stripe_price(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_price(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_price",
         currency=input_data.get("currency") or None,
@@ -1583,11 +1804,12 @@ async def create_stripe_price(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_price",
-    description="Update a Price. Most fields are immutable; nickname, active, metadata, tax_behavior are updatable.",
+    description="Update a Price. Most fields are immutable; nickname, active, metadata, tax_behavior are updatable. Returns only {id, status}.",
     action_sets=["stripe_products"],
     input_schema={
         "price_id": {
@@ -1606,19 +1828,20 @@ async def create_stripe_price(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_price(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_price",
         price_id=input_data["price_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -1684,7 +1907,7 @@ async def list_stripe_invoices(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_invoices",
         limit=input_data.get("limit", 10),
@@ -1698,6 +1921,19 @@ async def list_stripe_invoices(input_data: dict) -> dict:
         created_lte=input_data.get("created_lte") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -1726,17 +1962,30 @@ async def get_stripe_invoice(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_invoice",
         invoice_id=input_data["invoice_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_invoice",
-    description="Create a draft Invoice for a customer. Add line items first via create_stripe_invoice_item, then finalize via finalize_stripe_invoice.",
+    description="Create a draft Invoice for a customer. Add line items first via create_stripe_invoice_item, then finalize via finalize_stripe_invoice. Returns only {id, status}.",
     action_sets=["stripe_invoices", "stripe"],
     input_schema={
         "customer": {
@@ -1800,13 +2049,13 @@ async def get_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_invoice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_invoice",
         customer=input_data["customer"],
@@ -1823,11 +2072,12 @@ async def create_stripe_invoice(input_data: dict) -> dict:
         or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_invoice",
-    description="Update an Invoice. Most fields are only mutable while the invoice is in 'draft' status.",
+    description="Update an Invoice. Most fields are only mutable while the invoice is in 'draft' status. Returns only {id, status}.",
     action_sets=["stripe_invoices"],
     input_schema={
         "invoice_id": {
@@ -1846,19 +2096,20 @@ async def create_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_invoice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_invoice",
         invoice_id=input_data["invoice_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -1887,7 +2138,7 @@ async def delete_stripe_invoice(input_data: dict) -> dict:
 
 @action(
     name="finalize_stripe_invoice",
-    description="Finalize a draft Invoice — locks line items and computes totals. Once finalized the invoice is open and can be sent or paid.",
+    description="Finalize a draft Invoice — locks line items and computes totals. Once finalized the invoice is open and can be sent or paid. Returns only {id, status, hosted_invoice_url}.",
     action_sets=["stripe_invoices", "stripe"],
     input_schema={
         "invoice_id": {
@@ -1906,24 +2157,25 @@ async def delete_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, hosted_invoice_url}."}},
     parallelizable=False,
 )
 async def finalize_stripe_invoice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "finalize_invoice",
         invoice_id=input_data["invoice_id"],
         auto_advance=input_data.get("auto_advance"),
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "hosted_invoice_url"])
 
 
 @action(
     name="send_stripe_invoice",
-    description="Email a finalized Invoice to the customer. Only valid for invoices with collection_method='send_invoice'.",
+    description="Email a finalized Invoice to the customer. Only valid for invoices with collection_method='send_invoice'. Returns only {id, status, hosted_invoice_url}.",
     action_sets=["stripe_invoices", "stripe"],
     input_schema={
         "invoice_id": {
@@ -1937,23 +2189,24 @@ async def finalize_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, hosted_invoice_url}."}},
     parallelizable=False,
 )
 async def send_stripe_invoice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "send_invoice",
         invoice_id=input_data["invoice_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "hosted_invoice_url"])
 
 
 @action(
     name="pay_stripe_invoice",
-    description="Attempt payment on an open Invoice. Optionally specify a payment method or mark paid_out_of_band for offline payments.",
+    description="Attempt payment on an open Invoice. Optionally specify a payment method or mark paid_out_of_band for offline payments. Returns only {id, status}.",
     action_sets=["stripe_invoices"],
     input_schema={
         "invoice_id": {
@@ -1987,13 +2240,13 @@ async def send_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def pay_stripe_invoice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "pay_invoice",
         invoice_id=input_data["invoice_id"],
@@ -2003,11 +2256,12 @@ async def pay_stripe_invoice(input_data: dict) -> dict:
         forgive=input_data.get("forgive"),
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="void_stripe_invoice",
-    description="Void a finalized open Invoice. Irreversible. Use this to cancel a finalized invoice that should never be paid.",
+    description="Void a finalized open Invoice. Irreversible. Use this to cancel a finalized invoice that should never be paid. Returns only {id, status}.",
     action_sets=["stripe_invoices"],
     input_schema={
         "invoice_id": {
@@ -2021,23 +2275,24 @@ async def pay_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def void_stripe_invoice(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "void_invoice",
         invoice_id=input_data["invoice_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="mark_stripe_invoice_uncollectible",
-    description="Mark an open Invoice as uncollectible (write-off). The modern alternative to void for invoices you've decided not to collect.",
+    description="Mark an open Invoice as uncollectible (write-off). The modern alternative to void for invoices you've decided not to collect. Returns only {id, status}.",
     action_sets=["stripe_invoices"],
     input_schema={
         "invoice_id": {
@@ -2051,18 +2306,19 @@ async def void_stripe_invoice(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def mark_stripe_invoice_uncollectible(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "mark_invoice_uncollectible",
         invoice_id=input_data["invoice_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -2106,7 +2362,7 @@ async def get_stripe_upcoming_invoice(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_upcoming_invoice",
         customer=input_data.get("customer") or None,
@@ -2115,6 +2371,19 @@ async def get_stripe_upcoming_invoice(input_data: dict) -> dict:
         coupon=input_data.get("coupon") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -2160,7 +2429,7 @@ async def list_stripe_invoice_items(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_invoice_items",
         limit=input_data.get("limit", 10),
@@ -2171,11 +2440,24 @@ async def list_stripe_invoice_items(input_data: dict) -> dict:
         pending=input_data.get("pending"),
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_invoice_item",
-    description="Create an Invoice Item for a customer. If 'invoice' is set, attaches to that draft invoice; otherwise it's pending for the next invoice.",
+    description="Create an Invoice Item for a customer. If 'invoice' is set, attaches to that draft invoice; otherwise it's pending for the next invoice. Returns only {id, status}.",
     action_sets=["stripe_invoices", "stripe"],
     input_schema={
         "customer": {
@@ -2234,13 +2516,13 @@ async def list_stripe_invoice_items(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_invoice_item(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_invoice_item",
         customer=input_data["customer"],
@@ -2255,6 +2537,7 @@ async def create_stripe_invoice_item(input_data: dict) -> dict:
         tax_rates=input_data.get("tax_rates") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -2334,7 +2617,7 @@ async def list_stripe_subscriptions(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_subscriptions",
         limit=input_data.get("limit", 10),
@@ -2346,6 +2629,19 @@ async def list_stripe_subscriptions(input_data: dict) -> dict:
         collection_method=input_data.get("collection_method") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -2374,17 +2670,30 @@ async def get_stripe_subscription(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_subscription",
         subscription_id=input_data["subscription_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_subscription",
-    description="Create a Subscription for a customer. 'items' is a list like [{price: 'price_xxx', quantity: 1}]. Requires the customer to have a default payment method or one provided.",
+    description="Create a Subscription for a customer. 'items' is a list like [{price: 'price_xxx', quantity: 1}]. Requires the customer to have a default payment method or one provided. Returns only {id, status}.",
     action_sets=["stripe_subscriptions", "stripe"],
     input_schema={
         "customer": {
@@ -2463,13 +2772,13 @@ async def get_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_subscription(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_subscription",
         customer=input_data["customer"],
@@ -2488,11 +2797,12 @@ async def create_stripe_subscription(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_subscription",
-    description="Update a Subscription. To change items: pass items=[{id: 'si_…', price: 'price_xxx', quantity: 1}]. To schedule cancel at period end: properties={'cancel_at_period_end': true}.",
+    description="Update a Subscription. To change items: pass items=[{id: 'si_…', price: 'price_xxx', quantity: 1}]. To schedule cancel at period end: properties={'cancel_at_period_end': true}. Returns only {id, status}.",
     action_sets=["stripe_subscriptions"],
     input_schema={
         "subscription_id": {
@@ -2511,24 +2821,25 @@ async def create_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_subscription(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_subscription",
         subscription_id=input_data["subscription_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="cancel_stripe_subscription",
-    description="Cancel a Subscription IMMEDIATELY (DELETE). For end-of-period cancellation use update_stripe_subscription({cancel_at_period_end: true}) instead.",
+    description="Cancel a Subscription IMMEDIATELY (DELETE). For end-of-period cancellation use update_stripe_subscription({cancel_at_period_end: true}) instead. Returns only {id, status}.",
     action_sets=["stripe_subscriptions", "stripe"],
     input_schema={
         "subscription_id": {
@@ -2557,13 +2868,13 @@ async def update_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def cancel_stripe_subscription(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "cancel_subscription",
         subscription_id=input_data["subscription_id"],
@@ -2572,11 +2883,12 @@ async def cancel_stripe_subscription(input_data: dict) -> dict:
         cancellation_details=input_data.get("cancellation_details") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="resume_stripe_subscription",
-    description="Resume a paused Subscription.",
+    description="Resume a paused Subscription. Returns only {id, status}.",
     action_sets=["stripe_subscriptions"],
     input_schema={
         "subscription_id": {
@@ -2600,13 +2912,13 @@ async def cancel_stripe_subscription(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def resume_stripe_subscription(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "resume_subscription",
         subscription_id=input_data["subscription_id"],
@@ -2614,6 +2926,7 @@ async def resume_stripe_subscription(input_data: dict) -> dict:
         proration_behavior=input_data.get("proration_behavior") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -2669,7 +2982,7 @@ async def list_stripe_checkout_sessions(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_checkout_sessions",
         limit=input_data.get("limit", 10),
@@ -2681,6 +2994,19 @@ async def list_stripe_checkout_sessions(input_data: dict) -> dict:
         status=input_data.get("status") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -2709,17 +3035,30 @@ async def get_stripe_checkout_session(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_checkout_session",
         session_id=input_data["session_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_checkout_session",
-    description="Create a hosted Checkout Session. 'mode' is 'payment' (one-time), 'subscription', or 'setup'. Returns the hosted page URL in 'url'.",
+    description="Create a hosted Checkout Session. 'mode' is 'payment' (one-time), 'subscription', or 'setup'. Returns the hosted page URL in 'url'. Returns only {id, status, url}.",
     action_sets=["stripe_checkout", "stripe"],
     input_schema={
         "mode": {
@@ -2793,13 +3132,13 @@ async def get_stripe_checkout_session(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
     parallelizable=False,
 )
 async def create_stripe_checkout_session(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_checkout_session",
         mode=input_data["mode"],
@@ -2817,11 +3156,12 @@ async def create_stripe_checkout_session(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "url"])
 
 
 @action(
     name="expire_stripe_checkout_session",
-    description="Expire an open Checkout Session — the URL becomes invalid for the customer.",
+    description="Expire an open Checkout Session — the URL becomes invalid for the customer. Returns only {id, status, url}.",
     action_sets=["stripe_checkout"],
     input_schema={
         "session_id": {
@@ -2835,18 +3175,19 @@ async def create_stripe_checkout_session(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
     parallelizable=False,
 )
 async def expire_stripe_checkout_session(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "expire_checkout_session",
         session_id=input_data["session_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "url"])
 
 
 @action(
@@ -2882,7 +3223,7 @@ async def list_stripe_checkout_line_items(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_checkout_line_items",
         session_id=input_data["session_id"],
@@ -2891,6 +3232,19 @@ async def list_stripe_checkout_line_items(input_data: dict) -> dict:
         ending_before=input_data.get("ending_before") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 # ==================================================================
@@ -2931,7 +3285,7 @@ async def list_stripe_payment_links(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_payment_links",
         limit=input_data.get("limit", 10),
@@ -2940,6 +3294,19 @@ async def list_stripe_payment_links(input_data: dict) -> dict:
         active=input_data.get("active"),
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -2968,17 +3335,30 @@ async def get_stripe_payment_link(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_payment_link",
         payment_link_id=input_data["payment_link_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_payment_link",
-    description="Create a Payment Link — a shareable URL that opens Stripe's hosted checkout. Persists across sessions; useful for invoices, donations, embedded buttons.",
+    description="Create a Payment Link — a shareable URL that opens Stripe's hosted checkout. Persists across sessions; useful for invoices, donations, embedded buttons. Returns only {id, status, url}.",
     action_sets=["stripe_payment_links", "stripe"],
     input_schema={
         "line_items": {
@@ -3032,13 +3412,13 @@ async def get_stripe_payment_link(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
     parallelizable=False,
 )
 async def create_stripe_payment_link(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_payment_link",
         line_items=input_data["line_items"],
@@ -3053,11 +3433,12 @@ async def create_stripe_payment_link(input_data: dict) -> dict:
         or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "url"])
 
 
 @action(
     name="update_stripe_payment_link",
-    description="Update a Payment Link. Limited to active flag, line item quantities, after_completion, metadata, etc.",
+    description="Update a Payment Link. Limited to active flag, line item quantities, after_completion, metadata, etc. Returns only {id, status, url}.",
     action_sets=["stripe_payment_links"],
     input_schema={
         "payment_link_id": {
@@ -3076,24 +3457,25 @@ async def create_stripe_payment_link(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
     parallelizable=False,
 )
 async def update_stripe_payment_link(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_payment_link",
         payment_link_id=input_data["payment_link_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "url"])
 
 
 @action(
     name="create_stripe_billing_portal_session",
-    description="Create a Stripe Customer Portal session — short-lived URL where the customer manages their own subscriptions, payment methods, and invoices.",
+    description="Create a Stripe Customer Portal session — short-lived URL where the customer manages their own subscriptions, payment methods, and invoices. Returns only {id, status, url}.",
     action_sets=["stripe_payment_links"],
     input_schema={
         "customer": {
@@ -3122,13 +3504,13 @@ async def update_stripe_payment_link(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, url}."}},
     parallelizable=False,
 )
 async def create_stripe_billing_portal_session(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_billing_portal_session",
         customer=input_data["customer"],
@@ -3137,6 +3519,7 @@ async def create_stripe_billing_portal_session(input_data: dict) -> dict:
         locale=input_data.get("locale") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "url"])
 
 
 # ==================================================================
@@ -3172,7 +3555,7 @@ async def list_stripe_coupons(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_coupons",
         limit=input_data.get("limit", 10),
@@ -3180,6 +3563,19 @@ async def list_stripe_coupons(input_data: dict) -> dict:
         ending_before=input_data.get("ending_before") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -3208,17 +3604,30 @@ async def get_stripe_coupon(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_coupon",
         coupon_id=input_data["coupon_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_coupon",
-    description="Create a Coupon. Pass exactly ONE of amount_off (with currency) or percent_off. duration='once' charges discount one period; 'repeating' requires duration_in_months; 'forever' lasts the subscription's lifetime.",
+    description="Create a Coupon. Pass exactly ONE of amount_off (with currency) or percent_off. duration='once' charges discount one period; 'repeating' requires duration_in_months; 'forever' lasts the subscription's lifetime. Returns only {id, status}.",
     action_sets=["stripe_promotions"],
     input_schema={
         "id": {
@@ -3277,13 +3686,13 @@ async def get_stripe_coupon(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_coupon(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_coupon",
         id=input_data.get("id") or None,
@@ -3298,11 +3707,12 @@ async def create_stripe_coupon(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_coupon",
-    description="Update a Coupon. Only 'name' and 'metadata' are mutable — duration/amount/percent/currency are write-once.",
+    description="Update a Coupon. Only 'name' and 'metadata' are mutable — duration/amount/percent/currency are write-once. Returns only {id, status}.",
     action_sets=["stripe_promotions"],
     input_schema={
         "coupon_id": {
@@ -3321,19 +3731,20 @@ async def create_stripe_coupon(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_coupon(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_coupon",
         coupon_id=input_data["coupon_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -3404,7 +3815,7 @@ async def list_stripe_promotion_codes(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_promotion_codes",
         limit=input_data.get("limit", 10),
@@ -3416,11 +3827,24 @@ async def list_stripe_promotion_codes(input_data: dict) -> dict:
         customer=input_data.get("customer") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_promotion_code",
-    description="Create a Promotion Code (customer-facing string) for an existing Coupon. Optionally restrict to a customer, first-time-only, expiry, max redemptions.",
+    description="Create a Promotion Code (customer-facing string) for an existing Coupon. Optionally restrict to a customer, first-time-only, expiry, max redemptions. Returns only {id, status}.",
     action_sets=["stripe_promotions"],
     input_schema={
         "coupon": {
@@ -3469,13 +3893,13 @@ async def list_stripe_promotion_codes(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_promotion_code(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_promotion_code",
         coupon=input_data["coupon"],
@@ -3488,11 +3912,12 @@ async def create_stripe_promotion_code(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_promotion_code",
-    description="Update a Promotion Code. Only active and metadata are mutable.",
+    description="Update a Promotion Code. Only active and metadata are mutable. Returns only {id, status}.",
     action_sets=["stripe_promotions"],
     input_schema={
         "promotion_code_id": {
@@ -3511,19 +3936,20 @@ async def create_stripe_promotion_code(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_promotion_code(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_promotion_code",
         promotion_code_id=input_data["promotion_code_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -3569,7 +3995,7 @@ async def list_stripe_disputes(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_disputes",
         limit=input_data.get("limit", 10),
@@ -3579,6 +4005,19 @@ async def list_stripe_disputes(input_data: dict) -> dict:
         payment_intent=input_data.get("payment_intent") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -3607,17 +4046,30 @@ async def get_stripe_dispute(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_dispute",
         dispute_id=input_data["dispute_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="update_stripe_dispute",
-    description="Save (or submit) dispute evidence. Pass submit=True to finalize and submit to the card network — IRREVERSIBLE. Without submit, saves as draft for further edits.",
+    description="Save (or submit) dispute evidence. Pass submit=True to finalize and submit to the card network — IRREVERSIBLE. Without submit, saves as draft for further edits. Returns only {id, status}.",
     action_sets=["stripe_disputes"],
     input_schema={
         "dispute_id": {
@@ -3649,13 +4101,13 @@ async def get_stripe_dispute(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_dispute(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_dispute",
         dispute_id=input_data["dispute_id"],
@@ -3664,11 +4116,12 @@ async def update_stripe_dispute(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="close_stripe_dispute",
-    description="Forfeit a dispute — accept the chargeback as final. Once closed, cannot be reopened.",
+    description="Forfeit a dispute — accept the chargeback as final. Once closed, cannot be reopened. Returns only {id, status}.",
     action_sets=["stripe_disputes"],
     input_schema={
         "dispute_id": {
@@ -3682,18 +4135,19 @@ async def update_stripe_dispute(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def close_stripe_dispute(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "close_dispute",
         dispute_id=input_data["dispute_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -3739,7 +4193,7 @@ async def list_stripe_payouts(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_payouts",
         limit=input_data.get("limit", 10),
@@ -3749,6 +4203,19 @@ async def list_stripe_payouts(input_data: dict) -> dict:
         destination=input_data.get("destination") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -3773,17 +4240,30 @@ async def get_stripe_payout(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_payout",
         payout_id=input_data["payout_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_payout",
-    description="Trigger a payout from your Stripe balance to your bank. method='standard' (1-2 day) or 'instant' (fee, requires eligibility).",
+    description="Trigger a payout from your Stripe balance to your bank. method='standard' (1-2 day) or 'instant' (fee, requires eligibility). Returns only {id, status}.",
     action_sets=["stripe_payouts"],
     input_schema={
         "amount": {
@@ -3832,13 +4312,13 @@ async def get_stripe_payout(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_payout(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_payout",
         amount=input_data["amount"],
@@ -3851,11 +4331,12 @@ async def create_stripe_payout(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="cancel_stripe_payout",
-    description="Cancel a Payout. Only valid if status is 'pending'.",
+    description="Cancel a Payout. Only valid if status is 'pending'. Returns only {id, status}.",
     action_sets=["stripe_payouts"],
     input_schema={
         "payout_id": {"type": "string", "description": "Payout ID.", "example": "po_…"},
@@ -3865,18 +4346,19 @@ async def create_stripe_payout(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def cancel_stripe_payout(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "cancel_payout",
         payout_id=input_data["payout_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -3889,7 +4371,20 @@ async def cancel_stripe_payout(input_data: dict) -> dict:
 async def get_stripe_balance(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("stripe", "get_balance")
+    res = await run_client("stripe", "get_balance")
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -3940,7 +4435,7 @@ async def list_stripe_balance_transactions(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_balance_transactions",
         limit=input_data.get("limit", 10),
@@ -3952,6 +4447,19 @@ async def list_stripe_balance_transactions(input_data: dict) -> dict:
         payout=input_data.get("payout") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 # ==================================================================
@@ -3997,7 +4505,7 @@ async def list_stripe_quotes(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_quotes",
         limit=input_data.get("limit", 10),
@@ -4007,6 +4515,19 @@ async def list_stripe_quotes(input_data: dict) -> dict:
         status=input_data.get("status") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -4031,17 +4552,30 @@ async def get_stripe_quote(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_quote",
         quote_id=input_data["quote_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_quote",
-    description="Create a draft Quote for a customer. After creation, call finalize_stripe_quote to lock it, then send the URL or wait for accept_stripe_quote.",
+    description="Create a draft Quote for a customer. After creation, call finalize_stripe_quote to lock it, then send the URL or wait for accept_stripe_quote. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
         "customer": {
@@ -4100,13 +4634,13 @@ async def get_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def create_stripe_quote(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_quote",
         customer=input_data["customer"],
@@ -4121,11 +4655,12 @@ async def create_stripe_quote(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="update_stripe_quote",
-    description="Update a draft Quote. Once finalized most fields are locked.",
+    description="Update a draft Quote. Once finalized most fields are locked. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
         "quote_id": {"type": "string", "description": "Quote ID.", "example": "qt_…"},
@@ -4140,24 +4675,25 @@ async def create_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_quote(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_quote",
         quote_id=input_data["quote_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="finalize_stripe_quote",
-    description="Finalize a draft Quote — it becomes 'open' and is ready for the customer to accept.",
+    description="Finalize a draft Quote — it becomes 'open' and is ready for the customer to accept. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
         "quote_id": {
@@ -4176,24 +4712,25 @@ async def update_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def finalize_stripe_quote(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "finalize_quote",
         quote_id=input_data["quote_id"],
         expires_at=input_data.get("expires_at") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="accept_stripe_quote",
-    description="Accept an open Quote on the customer's behalf — creates the invoice / subscription per the quote terms.",
+    description="Accept an open Quote on the customer's behalf — creates the invoice / subscription per the quote terms. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
         "quote_id": {
@@ -4207,23 +4744,24 @@ async def finalize_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def accept_stripe_quote(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "accept_quote",
         quote_id=input_data["quote_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="cancel_stripe_quote",
-    description="Cancel a draft or open Quote. Cannot cancel an accepted quote.",
+    description="Cancel a draft or open Quote. Cannot cancel an accepted quote. Returns only {id, status}.",
     action_sets=["stripe_quotes"],
     input_schema={
         "quote_id": {"type": "string", "description": "Quote ID.", "example": "qt_…"},
@@ -4233,18 +4771,19 @@ async def accept_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def cancel_stripe_quote(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "cancel_quote",
         quote_id=input_data["quote_id"],
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -4254,9 +4793,14 @@ async def cancel_stripe_quote(input_data: dict) -> dict:
 
 @action(
     name="list_stripe_events",
-    description="List Events from the Stripe event log. Filter by type ('invoice.paid', 'customer.created', etc.) or multiple types.",
+    description="List Events from the Stripe event log. Filter by type ('invoice.paid', 'customer.created', etc.) or multiple types. Returns lean events {id, type, created, data.object.id}; set include_metadata=true for full payloads.",
     action_sets=["stripe_webhooks"],
     input_schema={
+        "include_metadata": {
+            "type": "boolean",
+            "description": "True returns full event payloads. Default false (lean).",
+            "example": False,
+        },
         "limit": {
             "type": "integer",
             "description": "Max results (1-100).",
@@ -4295,7 +4839,7 @@ async def cancel_stripe_quote(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Lean events {id, type, created, data.object.id} + has_more unless include_metadata=true."}},
 )
 async def list_stripe_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4305,7 +4849,7 @@ async def list_stripe_events(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_events",
         limit=input_data.get("limit", 10),
@@ -4318,21 +4862,48 @@ async def list_stripe_events(input_data: dict) -> dict:
         created_lte=input_data.get("created_lte") or None,
         expand=_csv(input_data.get("expand")),
     )
+    if not input_data.get("include_metadata"):
+        r = res.get("result")
+        if (
+            res.get("status") == "success"
+            and isinstance(r, dict)
+            and isinstance(r.get("data"), list)
+        ):
+            lean = []
+            for ev in r["data"]:
+                if not isinstance(ev, dict):
+                    continue
+                obj = (ev.get("data") or {}).get("object") or {}
+                lean.append(
+                    {
+                        "id": ev.get("id"),
+                        "type": ev.get("type"),
+                        "created": ev.get("created"),
+                        "data": {"object": {"id": obj.get("id")}},
+                    }
+                )
+            res = {**res, "result": {"data": lean, "has_more": r.get("has_more")}}
+    return res
 
 
 @action(
     name="get_stripe_event",
-    description="Retrieve a single Event by ID.",
+    description="Retrieve a single Event by ID. Returns lean {id, type, created, data.object.id}; set include_metadata=true for the full payload.",
     action_sets=["stripe_webhooks"],
     input_schema={
         "event_id": {"type": "string", "description": "Event ID.", "example": "evt_…"},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "True returns the full event payload. Default false (lean).",
+            "example": False,
+        },
         "expand": {
             "type": "string",
             "description": "Comma-separated fields to expand.",
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Lean {id, type, created, data.object.id} unless include_metadata=true."}},
 )
 async def get_stripe_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
@@ -4342,12 +4913,26 @@ async def get_stripe_event(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_event",
         event_id=input_data["event_id"],
         expand=_csv(input_data.get("expand")),
     )
+    if not input_data.get("include_metadata"):
+        r = res.get("result")
+        if res.get("status") == "success" and isinstance(r, dict):
+            obj = (r.get("data") or {}).get("object") or {}
+            res = {
+                **res,
+                "result": {
+                    "id": r.get("id"),
+                    "type": r.get("type"),
+                    "created": r.get("created"),
+                    "data": {"object": {"id": obj.get("id")}},
+                },
+            }
+    return res
 
 
 @action(
@@ -4378,7 +4963,7 @@ async def list_stripe_webhook_endpoints(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_webhook_endpoints",
         limit=input_data.get("limit", 10),
@@ -4386,6 +4971,19 @@ async def list_stripe_webhook_endpoints(input_data: dict) -> dict:
         ending_before=input_data.get("ending_before") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -4414,17 +5012,30 @@ async def get_stripe_webhook_endpoint(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_webhook_endpoint",
         endpoint_id=input_data["endpoint_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
     name="create_stripe_webhook_endpoint",
-    description="Register a Webhook Endpoint. URL must be publicly reachable HTTPS. 'enabled_events' must explicitly list event types or ['*'].",
+    description="Register a Webhook Endpoint. URL must be publicly reachable HTTPS. 'enabled_events' must explicitly list event types or ['*']. Returns only {id, status, secret}.",
     action_sets=["stripe_webhooks"],
     input_schema={
         "url": {
@@ -4463,13 +5074,13 @@ async def get_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status, secret}."}},
     parallelizable=False,
 )
 async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "create_webhook_endpoint",
         url=input_data["url"],
@@ -4480,11 +5091,12 @@ async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
         metadata=input_data.get("metadata") or None,
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status", "secret"])
 
 
 @action(
     name="update_stripe_webhook_endpoint",
-    description="Update a Webhook Endpoint's URL, enabled_events, description, disabled flag, etc.",
+    description="Update a Webhook Endpoint's URL, enabled_events, description, disabled flag, etc. Returns only {id, status}.",
     action_sets=["stripe_webhooks"],
     input_schema={
         "endpoint_id": {
@@ -4503,24 +5115,25 @@ async def create_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "update_webhook_endpoint",
         endpoint_id=input_data["endpoint_id"],
         properties=input_data.get("properties") or {},
         idempotency_key=input_data.get("idempotency_key") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
     name="delete_stripe_webhook_endpoint",
-    description="Delete a Webhook Endpoint. Stripe stops POSTing to its URL immediately.",
+    description="Delete a Webhook Endpoint. Stripe stops POSTing to its URL immediately. Returns only {id, status}.",
     action_sets=["stripe_webhooks"],
     input_schema={
         "endpoint_id": {
@@ -4529,17 +5142,18 @@ async def update_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": "we_…",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "delete_webhook_endpoint",
         endpoint_id=input_data["endpoint_id"],
     )
+    return pick_result(res, ["id", "status"])
 
 
 # ==================================================================
@@ -4549,7 +5163,7 @@ async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
 
 @action(
     name="upload_stripe_file",
-    description="Upload a file to Stripe (multipart). 'purpose' constrains downstream use — most commonly 'dispute_evidence' (then reference the returned file_id in update_stripe_dispute's evidence object).",
+    description="Upload a file to Stripe (multipart). 'purpose' constrains downstream use — most commonly 'dispute_evidence' (then reference the returned file_id in update_stripe_dispute's evidence object). Returns only {id, status}.",
     action_sets=["stripe_files"],
     input_schema={
         "file_path": {
@@ -4573,13 +5187,13 @@ async def delete_stripe_webhook_endpoint(input_data: dict) -> dict:
             "example": 0,
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, status}."}},
     parallelizable=False,
 )
 async def upload_stripe_file(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "upload_file",
         file_path=input_data["file_path"],
@@ -4587,6 +5201,7 @@ async def upload_stripe_file(input_data: dict) -> dict:
         link_create=input_data.get("link_create"),
         link_expires_at=input_data.get("link_expires_at") or None,
     )
+    return pick_result(res, ["id", "status"])
 
 
 @action(
@@ -4611,12 +5226,25 @@ async def get_stripe_file(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "get_file",
         file_id=input_data["file_id"],
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 @action(
@@ -4652,7 +5280,7 @@ async def list_stripe_files(input_data: dict) -> dict:
             return None
         return [s.strip() for s in str(v).split(",") if s.strip()] or None
 
-    return await run_client(
+    res = await run_client(
         "stripe",
         "list_files",
         limit=input_data.get("limit", 10),
@@ -4661,6 +5289,19 @@ async def list_stripe_files(input_data: dict) -> dict:
         purpose=input_data.get("purpose") or None,
         expand=_csv(input_data.get("expand")),
     )
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 # ==================================================================
@@ -4678,7 +5319,20 @@ async def list_stripe_files(input_data: dict) -> dict:
 async def get_stripe_account(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client("stripe", "get_account")
+    res = await run_client("stripe", "get_account")
+    r = res.get("result")
+    items = (
+        [r] + (r.get("data") if isinstance(r.get("data"), list) else [])
+        if isinstance(r, dict)
+        else []
+    )
+    for it in items:
+        if isinstance(it, dict):
+            it.pop("livemode", None)
+            it.pop("object", None)
+            if it.get("metadata") == {}:
+                it.pop("metadata", None)
+    return res
 
 
 # ==================================================================

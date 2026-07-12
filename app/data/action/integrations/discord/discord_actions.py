@@ -232,19 +232,63 @@ def unpin_discord_message(input_data: dict) -> dict:
 
 @action(
     name="list_discord_pinned_messages",
-    description="List pinned messages in a Discord channel.",
+    description="List pinned messages in a Discord channel. Lean messages by default; include_metadata=true returns raw message objects.",
     action_sets=["discord_messages", "discord"],
     input_schema={
         "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw message objects (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {messages: [{id, content, author: {id, username, bot}, timestamp, attachments?}], count}.",
+        },
+    },
 )
 def list_discord_pinned_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "discord", "list_pinned_messages", channel_id=input_data["channel_id"]
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    lean = []
+    for m in result.get("messages", []):
+        if not isinstance(m, dict):
+            continue
+        a = m.get("author") or {}
+        item = {
+            "id": m.get("id"),
+            "content": m.get("content"),
+            "author": {
+                "id": a.get("id"),
+                "username": a.get("username"),
+                "bot": a.get("bot", False),
+            },
+            "timestamp": m.get("timestamp"),
+        }
+        atts = [
+            {
+                "id": att.get("id"),
+                "filename": att.get("filename"),
+                "url": att.get("url"),
+            }
+            for att in m.get("attachments") or []
+            if isinstance(att, dict)
+        ]
+        if atts:
+            item["attachments"] = atts
+        lean.append(item)
+    return {**res, "result": {"messages": lean, "count": result.get("count", len(lean))}}
 
 
 @action(
@@ -637,7 +681,7 @@ def unarchive_discord_thread(input_data: dict) -> dict:
 
 @action(
     name="get_discord_channels",
-    description="Get all channels in a Discord guild.",
+    description="Get all channels in a Discord guild. Lean channel list by default; include_metadata=true returns raw channel objects plus type-grouped subsets.",
     action_sets=["discord_channels", "discord"],
     input_schema={
         "guild_id": {
@@ -645,15 +689,47 @@ def unarchive_discord_thread(input_data: dict) -> dict:
             "description": "Discord guild (server) ID.",
             "example": "123456789012345678",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw channel objects (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {all_channels: [{id, name, type, parent_id, position?, topic?}]}.",
+        },
+    },
 )
 def get_discord_channels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "discord", "get_guild_channels", guild_id=input_data["guild_id"]
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    lean = []
+    for c in result.get("all_channels", []):
+        if not isinstance(c, dict):
+            continue
+        ch = {
+            "id": c.get("id"),
+            "name": c.get("name"),
+            "type": c.get("type"),
+            "parent_id": c.get("parent_id"),
+        }
+        if c.get("position") is not None:
+            ch["position"] = c.get("position")
+        if c.get("topic"):
+            ch["topic"] = c.get("topic")
+        lean.append(ch)
+    return {**res, "result": {"all_channels": lean}}
 
 
 @action(
@@ -957,19 +1033,59 @@ def delete_discord_invite(input_data: dict) -> dict:
 
 @action(
     name="list_discord_webhooks",
-    description="List webhooks in a channel.",
+    description="List webhooks in a channel. Lean by default; include_metadata=true returns full raw objects. The webhook token is never returned.",
     action_sets=["discord_channels", "discord"],
     input_schema={
         "channel_id": {"type": "string", "description": "Channel ID.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw webhook objects, minus token (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {webhooks: [{id, name, type, channel_id, guild_id, application_id}], count}. Token is always omitted.",
+        },
+    },
 )
 def list_discord_webhooks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "discord", "list_channel_webhooks", channel_id=input_data["channel_id"]
     )
+    if res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    include = bool(input_data.get("include_metadata"))
+    shaped = []
+    for w in result.get("webhooks", []):
+        if not isinstance(w, dict):
+            continue
+        if include:
+            wh = {k: v for k, v in w.items() if k != "token"}
+            u = wh.get("user")
+            if isinstance(u, dict):
+                wh["user"] = {"id": u.get("id"), "username": u.get("username")}
+        else:
+            wh = {
+                "id": w.get("id"),
+                "name": w.get("name"),
+                "type": w.get("type"),
+                "channel_id": w.get("channel_id"),
+                "guild_id": w.get("guild_id"),
+                "application_id": w.get("application_id"),
+            }
+        shaped.append(wh)
+    return {
+        **res,
+        "result": {"webhooks": shaped, "count": result.get("count", len(shaped))},
+    }
 
 
 @action(
@@ -1006,19 +1122,50 @@ def create_discord_webhook(input_data: dict) -> dict:
 
 @action(
     name="get_discord_webhook",
-    description="Get a webhook by ID.",
+    description="Get a webhook by ID. Lean by default; include_metadata=true returns the full raw object. The webhook token is never returned.",
     action_sets=["discord_channels"],
     input_schema={
         "webhook_id": {"type": "string", "description": "Webhook ID.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw webhook object, minus token (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {id, name, type, channel_id, guild_id, application_id}. Token is always omitted.",
+        },
+    },
 )
 def get_discord_webhook(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "discord", "get_webhook", webhook_id=input_data["webhook_id"]
     )
+    if res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    if input_data.get("include_metadata"):
+        wh = {k: v for k, v in result.items() if k != "token"}
+        u = wh.get("user")
+        if isinstance(u, dict):
+            wh["user"] = {"id": u.get("id"), "username": u.get("username")}
+    else:
+        wh = {
+            "id": result.get("id"),
+            "name": result.get("name"),
+            "type": result.get("type"),
+            "channel_id": result.get("channel_id"),
+            "guild_id": result.get("guild_id"),
+            "application_id": result.get("application_id"),
+        }
+    return {**res, "result": wh}
 
 
 @action(
@@ -1136,7 +1283,7 @@ def execute_discord_webhook(input_data: dict) -> dict:
 
 @action(
     name="list_discord_guild_members",
-    description="List members of a guild.",
+    description="List members of a guild. Lean members by default; include_metadata=true returns raw member objects.",
     action_sets=["discord_members", "discord"],
     input_schema={
         "guild_id": {
@@ -1145,18 +1292,51 @@ def execute_discord_webhook(input_data: dict) -> dict:
             "example": "123456789012345678",
         },
         "limit": {"type": "integer", "description": "Limit.", "example": 100},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw member objects (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {members: [{user: {id, username, global_name?}, nick?, roles, joined_at}]}.",
+        },
+    },
 )
 def list_discord_guild_members(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "discord",
         "list_guild_members",
         guild_id=input_data["guild_id"],
         limit=input_data.get("limit", 100),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    lean = []
+    for m in result.get("members", []):
+        if not isinstance(m, dict):
+            continue
+        u = m.get("user") or {}
+        user = {"id": u.get("id"), "username": u.get("username")}
+        if u.get("global_name"):
+            user["global_name"] = u.get("global_name")
+        member = {
+            "user": user,
+            "roles": m.get("roles", []),
+            "joined_at": m.get("joined_at"),
+        }
+        if m.get("nick"):
+            member["nick"] = m.get("nick")
+        lean.append(member)
+    return {**res, "result": {"members": lean}}
 
 
 @action(
@@ -1454,17 +1634,48 @@ def list_discord_guilds(input_data: dict) -> dict:
 
 @action(
     name="get_discord_guild",
-    description="Get info about a Discord guild.",
+    description="Get info about a Discord guild. Lean summary by default; include_metadata=true returns the raw guild object (roles, emojis, stickers, features).",
     action_sets=["discord_guild", "discord"],
     input_schema={
         "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full raw guild object (default false = lean).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {id, name, description, owner_id, member_count?, approximate_member_count?, premium_tier?, preferred_locale?}.",
+        },
+    },
 )
 def get_discord_guild(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("discord", "get_guild", guild_id=input_data["guild_id"])
+    res = run_client_sync("discord", "get_guild", guild_id=input_data["guild_id"])
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    g = res.get("result")
+    if not isinstance(g, dict):
+        return res
+    lean = {
+        "id": g.get("id"),
+        "name": g.get("name"),
+        "description": g.get("description"),
+        "owner_id": g.get("owner_id"),
+    }
+    for k in (
+        "member_count",
+        "approximate_member_count",
+        "premium_tier",
+        "preferred_locale",
+    ):
+        if g.get(k) is not None:
+            lean[k] = g.get(k)
+    return {**res, "result": lean}
 
 
 @action(
@@ -1821,14 +2032,25 @@ def delete_discord_scheduled_event(input_data: dict) -> dict:
             "example": "",
         },
         "limit": {"type": "integer", "description": "1-100.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return raw audit log incl. users[]/webhooks[] side tables (default false = lean entries).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {audit_log_entries: [{id, action_type, user_id, target_id, reason?, changes?: [{key, old?, new?}]}]}.",
+        },
+    },
 )
 def get_discord_audit_log(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
     at = input_data.get("action_type")
-    return run_client_sync(
+    res = run_client_sync(
         "discord",
         "get_audit_log",
         guild_id=input_data["guild_id"],
@@ -1837,6 +2059,37 @@ def get_discord_audit_log(input_data: dict) -> dict:
         before=input_data.get("before") or None,
         limit=input_data.get("limit", 50),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    lean = []
+    for e in result.get("audit_log_entries", []):
+        if not isinstance(e, dict):
+            continue
+        entry = {
+            "id": e.get("id"),
+            "action_type": e.get("action_type"),
+            "user_id": e.get("user_id"),
+            "target_id": e.get("target_id"),
+        }
+        if e.get("reason"):
+            entry["reason"] = e.get("reason")
+        changes = []
+        for ch in e.get("changes") or []:
+            if not isinstance(ch, dict):
+                continue
+            c = {"key": ch.get("key")}
+            if "old_value" in ch:
+                c["old"] = ch.get("old_value")
+            if "new_value" in ch:
+                c["new"] = ch.get("new_value")
+            changes.append(c)
+        if changes:
+            entry["changes"] = changes
+        lean.append(entry)
+    return {**res, "result": {"audit_log_entries": lean}}
 
 
 @action(
@@ -2033,25 +2286,61 @@ def get_discord_user_relationships(input_data: dict) -> dict:
 
 @action(
     name="search_discord_guild_messages_as_user",
-    description="Search messages in a guild (selfbot — uses user token's search permission).",
+    description="Search messages in a guild (selfbot — uses user token's search permission). Lean flattened hits by default; include_metadata=true returns Discord's raw arrays-of-arrays.",
     action_sets=["discord_user"],
     input_schema={
         "guild_id": {"type": "string", "description": "Guild ID.", "example": ""},
         "query": {"type": "string", "description": "Search content.", "example": ""},
         "limit": {"type": "integer", "description": "Max results.", "example": 25},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return raw search result groups (default false = lean flattened hits).",
+            "example": False,
+        },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "Lean: {total_results, messages: [{id, channel_id, author: {id, username}, content, timestamp}]}.",
+        },
+    },
 )
 def search_discord_guild_messages_as_user(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "discord",
         "user_search_guild_messages",
         guild_id=input_data["guild_id"],
         query=input_data["query"],
         limit=input_data.get("limit", 25),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return res
+    hits = []
+    for group in result.get("messages", []) or []:
+        items = group if isinstance(group, list) else [group]
+        items = [m for m in items if isinstance(m, dict)]
+        marked = [m for m in items if m.get("hit")]
+        for m in marked or items:
+            a = m.get("author") or {}
+            hits.append(
+                {
+                    "id": m.get("id"),
+                    "channel_id": m.get("channel_id"),
+                    "author": {"id": a.get("id"), "username": a.get("username")},
+                    "content": m.get("content"),
+                    "timestamp": m.get("timestamp"),
+                }
+            )
+    return {
+        **res,
+        "result": {"total_results": result.get("total_results"), "messages": hits},
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

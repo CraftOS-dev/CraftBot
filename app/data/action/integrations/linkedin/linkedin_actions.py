@@ -105,43 +105,140 @@ def get_linkedin_post(input_data: dict) -> dict:
 
 @action(
     name="get_my_linkedin_posts",
-    description="Get my posts.",
+    description="Get my posts. Lean posts ({id, text, created, lifecycleState, media}) by default; include_metadata=true returns the full raw ugcPosts.",
     action_sets=["linkedin"],
-    input_schema={"count": {"type": "integer", "description": "Count.", "example": 50}},
+    input_schema={
+        "count": {"type": "integer", "description": "Count.", "example": 50},
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean posts. True: full raw ugcPosts.",
+            "example": False,
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 async def get_my_linkedin_posts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
 
-    return await with_client(
+    res = await with_client(
         "linkedin",
         lambda c: c.get_posts_by_author(
             _person_urn(c), count=input_data.get("count", 50)
         ),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    # with_client wraps the raw client return — collapse its transport envelope
+    if isinstance(body, dict) and body.get("ok") is True and "result" in body:
+        body = body["result"]
+    if not isinstance(body, dict) or "error" in body:
+        return res
+
+    posts = []
+    for el in body.get("elements", []) or []:
+        if not isinstance(el, dict):
+            continue
+        share = (el.get("specificContent") or {}).get(
+            "com.linkedin.ugc.ShareContent"
+        ) or {}
+        p = {
+            "id": el.get("id"),
+            "text": (share.get("shareCommentary") or {}).get("text"),
+            "created": (el.get("created") or {}).get("time"),
+            "lifecycleState": el.get("lifecycleState"),
+        }
+        media = share.get("media")
+        if media:
+            p["media"] = [
+                {
+                    k: v
+                    for k, v in m.items()
+                    if k in ("media", "originalUrl", "status")
+                }
+                for m in media
+                if isinstance(m, dict)
+            ]
+        posts.append(p)
+    lean = {"posts": posts}
+    if isinstance(body.get("paging"), dict):
+        pg = body["paging"]
+        lean["paging"] = {
+            "start": pg.get("start"),
+            "count": pg.get("count"),
+            "total": pg.get("total"),
+        }
+    return {**res, "result": lean}
 
 
 @action(
     name="get_linkedin_organization_posts",
-    description="Get organization posts.",
+    description="Get organization posts. Lean posts ({id, text, created, lifecycleState, media}) by default; include_metadata=true returns the full raw ugcPosts.",
     action_sets=["linkedin"],
     input_schema={
         "organization_urn": {
             "type": "string",
             "description": "Org URN.",
             "example": "urn:li:organization:123",
-        }
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean posts. True: full raw ugcPosts.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_linkedin_organization_posts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "linkedin",
         "get_posts_by_author",
         author_urn=input_data["organization_urn"],
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if isinstance(body, dict) and body.get("ok") is True and "result" in body:
+        body = body["result"]
+    if not isinstance(body, dict) or "error" in body:
+        return res
+
+    posts = []
+    for el in body.get("elements", []) or []:
+        if not isinstance(el, dict):
+            continue
+        share = (el.get("specificContent") or {}).get(
+            "com.linkedin.ugc.ShareContent"
+        ) or {}
+        p = {
+            "id": el.get("id"),
+            "text": (share.get("shareCommentary") or {}).get("text"),
+            "created": (el.get("created") or {}).get("time"),
+            "lifecycleState": el.get("lifecycleState"),
+        }
+        media = share.get("media")
+        if media:
+            p["media"] = [
+                {
+                    k: v
+                    for k, v in m.items()
+                    if k in ("media", "originalUrl", "status")
+                }
+                for m in media
+                if isinstance(m, dict)
+            ]
+        posts.append(p)
+    lean = {"posts": posts}
+    if isinstance(body.get("paging"), dict):
+        pg = body["paging"]
+        lean["paging"] = {
+            "start": pg.get("start"),
+            "count": pg.get("count"),
+            "total": pg.get("total"),
+        }
+    return {**res, "result": lean}
 
 
 @action(

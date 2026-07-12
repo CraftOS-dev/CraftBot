@@ -85,13 +85,18 @@ def list_outlook_emails(input_data: dict) -> dict:
 
 @action(
     name="get_outlook_email",
-    description="Get full details of a specific Outlook email by message ID.",
+    description="Get full details of a specific Outlook email by message ID. Body is plain text by default; set include_metadata for the HTML body.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
         "message_id": {
             "type": "string",
             "description": "Outlook message ID.",
             "example": "AAMk...",
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the HTML body instead of plain text (default false).",
+            "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -105,12 +110,13 @@ def get_outlook_email(input_data: dict) -> dict:
         unwrap_envelope=True,
         fail_message="Failed to get email.",
         message_id=input_data["message_id"],
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
 @action(
     name="read_top_outlook_emails",
-    description="Read the top N recent Outlook emails with details.",
+    description="Read the top N recent Outlook emails with details. With full_body=true, bodies are plain text by default; set include_metadata for HTML bodies.",
     action_sets=["outlook_mail", "outlook"],
     input_schema={
         "count": {
@@ -121,6 +127,11 @@ def get_outlook_email(input_data: dict) -> dict:
         "full_body": {
             "type": "boolean",
             "description": "Include full body text.",
+            "example": False,
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "With full_body, return HTML bodies instead of plain text (default false).",
             "example": False,
         },
     },
@@ -136,6 +147,7 @@ def read_top_outlook_emails(input_data: dict) -> dict:
         fail_message="Failed to read emails.",
         n=input_data.get("count", 5),
         full_body=input_data.get("full_body", False),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
@@ -978,38 +990,101 @@ def list_outlook_folder_messages(input_data: dict) -> dict:
 
 @action(
     name="get_outlook_mailbox_settings",
-    description="Get the user's mailbox settings (timezone, locale, working hours, etc.).",
+    description="Get the user's mailbox settings. Default returns {timeZone, language, workingHours, automaticRepliesSetting.status}; set include_metadata for the raw settings.",
     action_sets=["outlook_settings"],
-    input_schema={},
+    input_schema={
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the raw mailboxSettings resource (default false = lean).",
+            "example": False,
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_outlook_mailbox_settings(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "outlook",
         "get_mailbox_settings",
         unwrap_envelope=True,
         fail_message="Failed to get settings.",
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        settings = res.get("result")
+        if isinstance(settings, dict):
+            lean = {"timeZone": settings.get("timeZone")}
+            language = settings.get("language") or {}
+            if language.get("displayName"):
+                lean["language"] = {"displayName": language["displayName"]}
+            wh = settings.get("workingHours") or {}
+            if wh:
+                lean["workingHours"] = {
+                    k: wh.get(k)
+                    for k in ("daysOfWeek", "startTime", "endTime")
+                    if wh.get(k) is not None
+                }
+            ars = settings.get("automaticRepliesSetting") or {}
+            if ars.get("status"):
+                lean["automaticRepliesSetting"] = {"status": ars["status"]}
+            res = {**res, "result": lean}
+    return res
 
 
 @action(
     name="get_outlook_automatic_replies",
-    description="Get the current out-of-office / automatic reply settings.",
+    description="Get the current out-of-office / automatic reply settings. Default returns {status, schedule, reply messages as plain text}; set include_metadata for the raw setting.",
     action_sets=["outlook_settings", "outlook"],
-    input_schema={},
+    input_schema={
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the raw automaticRepliesSetting (default false = lean, HTML stripped).",
+            "example": False,
+        },
+    },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_outlook_automatic_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "outlook",
         "get_automatic_replies",
         unwrap_envelope=True,
         fail_message="Failed to get auto-replies.",
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        setting = res.get("result")
+        if isinstance(setting, dict):
+            import html
+            import re
+
+            def _strip_html(value):
+                if not isinstance(value, str):
+                    return value
+                return html.unescape(re.sub(r"<[^>]+>", "", value)).strip()
+
+            res = {
+                **res,
+                "result": {
+                    k: v
+                    for k, v in {
+                        "status": setting.get("status"),
+                        "scheduledStartDateTime": setting.get(
+                            "scheduledStartDateTime"
+                        ),
+                        "scheduledEndDateTime": setting.get("scheduledEndDateTime"),
+                        "internalReplyMessage": _strip_html(
+                            setting.get("internalReplyMessage")
+                        ),
+                        "externalReplyMessage": _strip_html(
+                            setting.get("externalReplyMessage")
+                        ),
+                    }.items()
+                    if v is not None
+                },
+            }
+    return res
 
 
 @action(
