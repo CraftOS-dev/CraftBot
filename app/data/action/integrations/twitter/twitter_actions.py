@@ -108,13 +108,18 @@ async def get_tweet(input_data: dict) -> dict:
 
 @action(
     name="lookup_tweets",
-    description="Batch-lookup up to 100 tweets by their IDs.",
+    description="Batch-lookup up to 100 tweets by their IDs. Lean tweets (id, text, created_at, author_id) by default; include_metadata=true adds public_metrics and edit history.",
     action_sets=["twitter_tweets"],
     input_schema={
         "tweet_ids": {
             "type": "array",
             "description": "List of tweet IDs (max 100).",
             "example": ["123", "456"],
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean tweets. True: full raw incl. public_metrics.",
+            "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -123,13 +128,16 @@ async def lookup_tweets(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "twitter", "lookup_tweets", tweet_ids=input_data["tweet_ids"]
+        "twitter",
+        "lookup_tweets",
+        tweet_ids=input_data["tweet_ids"],
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
 @action(
     name="search_tweets",
-    description="Search recent tweets on Twitter/X.",
+    description="Search recent tweets on Twitter/X. Lean tweets (id, text, created_at, author_id) by default; include_metadata=true adds public_metrics and edit history.",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
         "query": {
@@ -142,6 +150,11 @@ async def lookup_tweets(input_data: dict) -> dict:
             "description": "Max results (10-100).",
             "example": 10,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean tweets. True: full raw incl. public_metrics.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -151,14 +164,16 @@ async def search_tweets(input_data: dict) -> dict:
     return await with_client(
         "twitter",
         lambda c: c.search_tweets(
-            input_data["query"], max_results=input_data.get("max_results", 10)
+            input_data["query"],
+            max_results=input_data.get("max_results", 10),
+            include_metadata=bool(input_data.get("include_metadata", False)),
         ),
     )
 
 
 @action(
     name="get_twitter_timeline",
-    description="Get recent tweets from a user's timeline.",
+    description="Get recent tweets from a user's timeline. Lean tweets (id, text, created_at, author_id) by default; include_metadata=true adds public_metrics and edit history.",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
         "user_id": {
@@ -171,6 +186,11 @@ async def search_tweets(input_data: dict) -> dict:
             "description": "Max tweets to return.",
             "example": 10,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean tweets. True: full raw incl. public_metrics.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -182,12 +202,13 @@ async def get_twitter_timeline(input_data: dict) -> dict:
         "get_user_timeline",
         user_id=input_data.get("user_id") or None,
         max_results=input_data.get("max_results", 10),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
 @action(
     name="get_twitter_mentions",
-    description="Get recent mentions of a user (defaults to the authenticated user).",
+    description="Get recent mentions of a user (defaults to the authenticated user). Lean tweets (id, text, created_at, author_id) by default; include_metadata=true adds conversation_id and edit history.",
     action_sets=["twitter_tweets", "twitter"],
     input_schema={
         "user_id": {
@@ -200,6 +221,11 @@ async def get_twitter_timeline(input_data: dict) -> dict:
             "description": "Max mentions.",
             "example": 10,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean tweets. True: full raw incl. conversation_id.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -211,6 +237,7 @@ async def get_twitter_mentions(input_data: dict) -> dict:
         "get_user_mentions",
         user_id=input_data.get("user_id") or None,
         max_results=input_data.get("max_results", 10),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
@@ -442,13 +469,18 @@ async def remove_twitter_bookmark(input_data: dict) -> dict:
 
 @action(
     name="list_twitter_bookmarks",
-    description="List the authenticated user's bookmarked tweets.",
+    description="List the authenticated user's bookmarked tweets. Lean tweets (id, text, created_at, author_id) by default; include_metadata=true adds public_metrics and edit history.",
     action_sets=["twitter_engagement", "twitter"],
     input_schema={
         "max_results": {
             "type": "integer",
             "description": "Max results.",
             "example": 50,
+        },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean tweets. True: full raw incl. public_metrics.",
+            "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -457,7 +489,10 @@ async def list_twitter_bookmarks(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
     return await run_client(
-        "twitter", "list_bookmarks", max_results=input_data.get("max_results", 50)
+        "twitter",
+        "list_bookmarks",
+        max_results=input_data.get("max_results", 50),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 
@@ -970,7 +1005,7 @@ async def list_twitter_list_members(input_data: dict) -> dict:
 
 @action(
     name="list_twitter_list_tweets",
-    description="List recent tweets in a Twitter/X list.",
+    description="List recent tweets in a Twitter/X list. Lean tweets (id, text, created_at, author_id) by default; include_metadata=true adds public_metrics and edit history.",
     action_sets=["twitter_lists"],
     input_schema={
         "list_id": {
@@ -983,6 +1018,11 @@ async def list_twitter_list_members(input_data: dict) -> dict:
             "description": "Max tweets.",
             "example": 100,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean tweets. True: full raw incl. public_metrics.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
@@ -994,6 +1034,7 @@ async def list_twitter_list_tweets(input_data: dict) -> dict:
         "list_list_tweets",
         list_id=input_data["list_id"],
         max_results=input_data.get("max_results", 100),
+        include_metadata=bool(input_data.get("include_metadata", False)),
     )
 
 

@@ -40,7 +40,7 @@ def create_google_doc(input_data: dict) -> dict:
 
 @action(
     name="get_google_doc",
-    description="Fetch the full structured content of a Google Doc.",
+    description="Fetch a Google Doc. Default returns {document_id, title, text} (body flattened to plain text); set include_metadata for the raw structured JSON (needed for index-based edits).",
     action_sets=["google_docs_files", "google_docs"],
     input_schema={
         "document_id": {
@@ -52,6 +52,10 @@ def create_google_doc(input_data: dict) -> dict:
             "type": "string",
             "description": "Optional Google account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
             "example": "",
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the full structured document JSON (default false = plain text).",
+            "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -59,7 +63,7 @@ def create_google_doc(input_data: dict) -> dict:
 def get_google_doc(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "google_docs",
         "get_document",
         account=input_data.get("account"),
@@ -67,6 +71,29 @@ def get_google_doc(input_data: dict) -> dict:
         fail_message="Failed to fetch document.",
         document_id=input_data["document_id"],
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        doc = res.get("result")
+        if isinstance(doc, dict):
+            # Same flattening as the google_docs client's get_document_text.
+            text_parts = []
+            for elem in doc.get("body", {}).get("content", []) or []:
+                para = elem.get("paragraph")
+                if not para:
+                    continue
+                for run in para.get("elements") or []:
+                    tr = run.get("textRun")
+                    if tr and tr.get("content"):
+                        text_parts.append(tr["content"])
+            res = {
+                **res,
+                "result": {
+                    "document_id": doc.get("documentId")
+                    or input_data["document_id"],
+                    "title": doc.get("title", ""),
+                    "text": "".join(text_parts),
+                },
+            }
+    return res
 
 
 @action(

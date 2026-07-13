@@ -508,12 +508,32 @@ class GitHubClient(BasePlatformClient):
             },
         )
 
-    async def get_repo(self, owner_repo: str) -> Result:
+    async def get_repo(self, owner_repo: str, include_metadata: bool = True) -> Result:
+        transform = None
+        if not include_metadata:
+            transform = lambda d: {  # noqa: E731
+                "name": d.get("name"),
+                "full_name": d.get("full_name"),
+                "description": d.get("description"),
+                "private": d.get("private"),
+                "fork": d.get("fork"),
+                "default_branch": d.get("default_branch"),
+                "language": d.get("language"),
+                "stargazers_count": d.get("stargazers_count"),
+                "forks_count": d.get("forks_count"),
+                "open_issues_count": d.get("open_issues_count"),
+                "topics": d.get("topics", []),
+                "archived": d.get("archived"),
+                "pushed_at": d.get("pushed_at"),
+                "html_url": d.get("html_url"),
+                "owner": (d.get("owner") or {}).get("login"),
+            }
         return await arequest(
             "GET",
             f"{GITHUB_API}/repos/{owner_repo}",
             headers=self._headers(),
             expected=(200,),
+            transform=transform,
         )
 
     async def list_issues(
@@ -543,12 +563,33 @@ class GitHubClient(BasePlatformClient):
             },
         )
 
-    async def get_issue(self, owner_repo: str, number: int) -> Result:
+    async def get_issue(
+        self, owner_repo: str, number: int, include_metadata: bool = True
+    ) -> Result:
+        transform = None
+        if not include_metadata:
+            transform = lambda d: {  # noqa: E731
+                "number": d.get("number"),
+                "title": d.get("title"),
+                "state": d.get("state"),
+                "body": d.get("body"),
+                "user": (d.get("user") or {}).get("login"),
+                "labels": [label.get("name") for label in d.get("labels", [])],
+                "assignees": [a.get("login") for a in d.get("assignees", [])],
+                "milestone": (d.get("milestone") or {}).get("title"),
+                "comments": d.get("comments"),
+                "created_at": d.get("created_at"),
+                "updated_at": d.get("updated_at"),
+                "closed_at": d.get("closed_at"),
+                "html_url": d.get("html_url"),
+                "is_pr": "pull_request" in d,
+            }
         return await arequest(
             "GET",
             f"{GITHUB_API}/repos/{owner_repo}/issues/{number}",
             headers=self._headers(),
             expected=(200,),
+            transform=transform,
         )
 
     async def create_issue(
@@ -1022,12 +1063,46 @@ class GitHubClient(BasePlatformClient):
             },
         )
 
-    async def get_commit(self, owner_repo: str, sha: str) -> Result:
+    async def get_commit(
+        self, owner_repo: str, sha: str, include_metadata: bool = True
+    ) -> Result:
+        transform = None
+        if not include_metadata:
+
+            def _person(d: Dict[str, Any], key: str) -> Dict[str, Any]:
+                git_person = (d.get("commit") or {}).get(key) or {}
+                return {
+                    "name": git_person.get("name"),
+                    "email": git_person.get("email"),
+                    "date": git_person.get("date"),
+                    "login": (d.get(key) or {}).get("login"),
+                }
+
+            transform = lambda d: {  # noqa: E731
+                "sha": d.get("sha"),
+                "message": (d.get("commit") or {}).get("message"),
+                "author": _person(d, "author"),
+                "committer": _person(d, "committer"),
+                "stats": d.get("stats"),
+                "parents": [p.get("sha") for p in d.get("parents", [])],
+                "files": [
+                    {
+                        "filename": f.get("filename"),
+                        "status": f.get("status"),
+                        "additions": f.get("additions"),
+                        "deletions": f.get("deletions"),
+                        "patch": f.get("patch"),
+                    }
+                    for f in d.get("files", [])
+                ],
+                "html_url": d.get("html_url"),
+            }
         return await arequest(
             "GET",
             f"{GITHUB_API}/repos/{owner_repo}/commits/{sha}",
             headers=self._headers(),
             expected=(200,),
+            transform=transform,
         )
 
     async def compare_commits(self, owner_repo: str, base: str, head: str) -> Result:
@@ -1057,12 +1132,53 @@ class GitHubClient(BasePlatformClient):
     # Pull requests
     # ------------------------------------------------------------------
 
-    async def get_pull_request(self, owner_repo: str, number: int) -> Result:
+    async def get_pull_request(
+        self, owner_repo: str, number: int, include_metadata: bool = True
+    ) -> Result:
+        transform = None
+        if not include_metadata:
+            transform = lambda d: {  # noqa: E731
+                "number": d.get("number"),
+                "title": d.get("title"),
+                "state": d.get("state"),
+                "body": d.get("body"),
+                "draft": d.get("draft"),
+                "merged": d.get("merged"),
+                "mergeable": d.get("mergeable"),
+                "merged_by": (d.get("merged_by") or {}).get("login"),
+                "user": (d.get("user") or {}).get("login"),
+                "labels": [label.get("name") for label in d.get("labels", [])],
+                "assignees": [a.get("login") for a in d.get("assignees", [])],
+                "requested_reviewers": [
+                    u.get("login") for u in d.get("requested_reviewers", [])
+                ],
+                "milestone": (d.get("milestone") or {}).get("title"),
+                "base": {
+                    "ref": (d.get("base") or {}).get("ref"),
+                    "sha": (d.get("base") or {}).get("sha"),
+                },
+                "head": {
+                    "ref": (d.get("head") or {}).get("ref"),
+                    "sha": (d.get("head") or {}).get("sha"),
+                    "repo": ((d.get("head") or {}).get("repo") or {}).get("full_name"),
+                },
+                "commits": d.get("commits"),
+                "additions": d.get("additions"),
+                "deletions": d.get("deletions"),
+                "changed_files": d.get("changed_files"),
+                "comments": d.get("comments"),
+                "created_at": d.get("created_at"),
+                "updated_at": d.get("updated_at"),
+                "closed_at": d.get("closed_at"),
+                "merged_at": d.get("merged_at"),
+                "html_url": d.get("html_url"),
+            }
         return await arequest(
             "GET",
             f"{GITHUB_API}/repos/{owner_repo}/pulls/{number}",
             headers=self._headers(),
             expected=(200,),
+            transform=transform,
         )
 
     async def create_pull_request(
@@ -1756,6 +1872,7 @@ class GitHubClient(BasePlatformClient):
         release_id: Optional[int] = None,
         tag: Optional[str] = None,
         latest: bool = False,
+        include_metadata: bool = True,
     ) -> Result:
         if latest:
             url = f"{GITHUB_API}/repos/{owner_repo}/releases/latest"
@@ -1765,7 +1882,32 @@ class GitHubClient(BasePlatformClient):
             url = f"{GITHUB_API}/repos/{owner_repo}/releases/{release_id}"
         else:
             return {"error": "Must provide release_id, tag, or latest=True"}
-        return await arequest("GET", url, headers=self._headers(), expected=(200,))
+        transform = None
+        if not include_metadata:
+            transform = lambda d: {  # noqa: E731
+                "id": d.get("id"),
+                "tag_name": d.get("tag_name"),
+                "name": d.get("name"),
+                "body": d.get("body"),
+                "draft": d.get("draft"),
+                "prerelease": d.get("prerelease"),
+                "created_at": d.get("created_at"),
+                "published_at": d.get("published_at"),
+                "html_url": d.get("html_url"),
+                "author": (d.get("author") or {}).get("login"),
+                "assets": [
+                    {
+                        "name": a.get("name"),
+                        "size": a.get("size"),
+                        "download_count": a.get("download_count"),
+                        "browser_download_url": a.get("browser_download_url"),
+                    }
+                    for a in d.get("assets", [])
+                ],
+            }
+        return await arequest(
+            "GET", url, headers=self._headers(), expected=(200,), transform=transform
+        )
 
     async def create_release(
         self,
@@ -2180,12 +2322,34 @@ class GitHubClient(BasePlatformClient):
             },
         )
 
-    async def get_gist(self, gist_id: str) -> Result:
+    async def get_gist(self, gist_id: str, include_metadata: bool = True) -> Result:
+        transform = None
+        if not include_metadata:
+            transform = lambda d: {  # noqa: E731
+                "id": d.get("id"),
+                "description": d.get("description"),
+                "public": d.get("public"),
+                "html_url": d.get("html_url"),
+                "created_at": d.get("created_at"),
+                "updated_at": d.get("updated_at"),
+                "owner": (d.get("owner") or {}).get("login"),
+                "files": {
+                    name: {
+                        "filename": f.get("filename"),
+                        "language": f.get("language"),
+                        "size": f.get("size"),
+                        "truncated": f.get("truncated"),
+                        "content": f.get("content"),
+                    }
+                    for name, f in (d.get("files") or {}).items()
+                },
+            }
         return await arequest(
             "GET",
             f"{GITHUB_API}/gists/{gist_id}",
             headers=self._headers(),
             expected=(200,),
+            transform=transform,
         )
 
     async def create_gist(

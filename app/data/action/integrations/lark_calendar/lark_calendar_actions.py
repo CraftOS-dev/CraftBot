@@ -81,7 +81,7 @@ async def get_lark_calendar(input_data: dict) -> dict:
 
 @action(
     name="create_lark_calendar",
-    description="Create a new secondary Lark calendar owned by the bot.",
+    description="Create a new secondary Lark calendar owned by the bot. Returns {calendar_id, summary}.",
     action_sets=["lark_calendar_calendars", "lark_calendar"],
     input_schema={
         "summary": {
@@ -119,7 +119,7 @@ async def get_lark_calendar(input_data: dict) -> dict:
 async def create_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "create_calendar",
         summary=input_data["summary"],
@@ -128,11 +128,19 @@ async def create_lark_calendar(input_data: dict) -> dict:
         color=input_data.get("color"),
         summary_alias=input_data.get("summary_alias", ""),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        calendar = res["result"].get("calendar")
+        if isinstance(calendar, dict) and calendar.get("calendar_id"):
+            picked = {"calendar_id": calendar["calendar_id"]}
+            if calendar.get("summary"):
+                picked["summary"] = calendar["summary"]
+            res = {**res, "result": picked}
+    return res
 
 
 @action(
     name="update_lark_calendar",
-    description="Patch fields on an existing Lark calendar. Only fields you supply are changed.",
+    description="Patch fields on an existing Lark calendar. Only fields you supply are changed. Returns {calendar_id, summary}.",
     action_sets=["lark_calendar_calendars"],
     input_schema={
         "calendar_id": {
@@ -163,7 +171,7 @@ async def create_lark_calendar(input_data: dict) -> dict:
 async def update_lark_calendar(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "update_calendar",
         calendar_id=input_data["calendar_id"],
@@ -177,6 +185,14 @@ async def update_lark_calendar(input_data: dict) -> dict:
         if input_data.get("summary_alias") is not None
         else None,
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        calendar = res["result"].get("calendar")
+        if isinstance(calendar, dict) and calendar.get("calendar_id"):
+            picked = {"calendar_id": calendar["calendar_id"]}
+            if calendar.get("summary"):
+                picked["summary"] = calendar["summary"]
+            res = {**res, "result": picked}
+    return res
 
 
 @action(
@@ -293,7 +309,7 @@ async def unsubscribe_from_lark_calendar(input_data: dict) -> dict:
 
 @action(
     name="list_lark_calendar_events",
-    description="List events on a Lark calendar between two Unix timestamps (seconds).",
+    description="List events on a Lark calendar between two Unix timestamps (seconds). Returns lean events (event_id, summary, start/end, location, status); include_metadata=true for full raw.",
     action_sets=["lark_calendar_events", "lark_calendar"],
     input_schema={
         "calendar_id": {
@@ -316,6 +332,11 @@ async def unsubscribe_from_lark_calendar(input_data: dict) -> dict:
             "description": "Max events to return (capped at 1000).",
             "example": 50,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw event objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -325,7 +346,7 @@ async def unsubscribe_from_lark_calendar(input_data: dict) -> dict:
 async def list_lark_calendar_events(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "list_events",
         calendar_id=input_data["calendar_id"],
@@ -333,6 +354,41 @@ async def list_lark_calendar_events(input_data: dict) -> dict:
         end_time=input_data["end_time"],
         page_size=input_data.get("page_size", 50),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_event(e: dict) -> dict:
+        out = {}
+        keep = (
+            "event_id",
+            "summary",
+            "description",
+            "start_time",
+            "end_time",
+            "status",
+            "organizer_calendar_id",
+            "recurrence",
+            "app_link",
+        )
+        for k in keep:
+            if e.get(k) not in (None, ""):
+                out[k] = e[k]
+        location = e.get("location")
+        if isinstance(location, dict) and location.get("name"):
+            out["location"] = location["name"]
+        vchat = e.get("vchat")
+        if isinstance(vchat, dict) and vchat.get("meeting_url"):
+            out["meeting_url"] = vchat["meeting_url"]
+        return out
+
+    lean = {"items": [_lean_event(e) for e in result["items"] if isinstance(e, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 @action(
@@ -369,7 +425,7 @@ async def get_lark_calendar_event(input_data: dict) -> dict:
 
 @action(
     name="create_lark_calendar_event",
-    description="Create a new event on a Lark calendar. To invite attendees, call add_lark_event_attendees afterwards with the returned event_id.",
+    description="Create a new event on a Lark calendar. To invite attendees, call add_lark_event_attendees afterwards with the returned event_id. Returns {event_id, summary, start/end, app_link, meeting_url}.",
     action_sets=["lark_calendar_events", "lark_calendar"],
     input_schema={
         "calendar_id": {
@@ -417,7 +473,7 @@ async def get_lark_calendar_event(input_data: dict) -> dict:
 async def create_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "create_event",
         calendar_id=input_data["calendar_id"],
@@ -428,11 +484,23 @@ async def create_lark_calendar_event(input_data: dict) -> dict:
         location=input_data.get("location", ""),
         with_video_meeting=input_data.get("with_video_meeting", False),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        event = res["result"].get("event")
+        if isinstance(event, dict) and event.get("event_id"):
+            picked = {"event_id": event["event_id"]}
+            for k in ("summary", "start_time", "end_time", "app_link"):
+                if event.get(k):
+                    picked[k] = event[k]
+            vchat = event.get("vchat")
+            if isinstance(vchat, dict) and vchat.get("meeting_url"):
+                picked["meeting_url"] = vchat["meeting_url"]
+            res = {**res, "result": picked}
+    return res
 
 
 @action(
     name="update_lark_calendar_event",
-    description="Patch fields on an existing Lark calendar event. Only fields you supply are changed.",
+    description="Patch fields on an existing Lark calendar event. Only fields you supply are changed. Returns {event_id, summary, start/end, app_link, meeting_url}.",
     action_sets=["lark_calendar_events", "lark_calendar"],
     input_schema={
         "calendar_id": {
@@ -480,7 +548,7 @@ async def create_lark_calendar_event(input_data: dict) -> dict:
 async def update_lark_calendar_event(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "update_event",
         calendar_id=input_data["calendar_id"],
@@ -491,6 +559,18 @@ async def update_lark_calendar_event(input_data: dict) -> dict:
         end_time=input_data.get("end_time"),
         location=input_data.get("location"),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        event = res["result"].get("event")
+        if isinstance(event, dict) and event.get("event_id"):
+            picked = {"event_id": event["event_id"]}
+            for k in ("summary", "start_time", "end_time", "app_link"):
+                if event.get(k):
+                    picked[k] = event[k]
+            vchat = event.get("vchat")
+            if isinstance(vchat, dict) and vchat.get("meeting_url"):
+                picked["meeting_url"] = vchat["meeting_url"]
+            res = {**res, "result": picked}
+    return res
 
 
 @action(
@@ -617,7 +697,7 @@ async def rsvp_lark_calendar_event(input_data: dict) -> dict:
 
 @action(
     name="list_lark_event_instances",
-    description="List the concrete occurrences of a recurring Lark event within a time window.",
+    description="List the concrete occurrences of a recurring Lark event within a time window. Returns lean events (event_id, summary, start/end, location, status); include_metadata=true for full raw.",
     action_sets=["lark_calendar_events"],
     input_schema={
         "calendar_id": {
@@ -645,6 +725,11 @@ async def rsvp_lark_calendar_event(input_data: dict) -> dict:
             "description": "Max instances.",
             "example": 50,
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return full raw event objects (default false = lean).",
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -654,7 +739,7 @@ async def rsvp_lark_calendar_event(input_data: dict) -> dict:
 async def list_lark_event_instances(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "list_event_instances",
         calendar_id=input_data["calendar_id"],
@@ -663,6 +748,41 @@ async def list_lark_event_instances(input_data: dict) -> dict:
         end_time=input_data["end_time"],
         page_size=input_data.get("page_size", 50),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    result = res.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+        return res
+
+    def _lean_event(e: dict) -> dict:
+        out = {}
+        keep = (
+            "event_id",
+            "summary",
+            "description",
+            "start_time",
+            "end_time",
+            "status",
+            "organizer_calendar_id",
+            "recurrence",
+            "app_link",
+        )
+        for k in keep:
+            if e.get(k) not in (None, ""):
+                out[k] = e[k]
+        location = e.get("location")
+        if isinstance(location, dict) and location.get("name"):
+            out["location"] = location["name"]
+        vchat = e.get("vchat")
+        if isinstance(vchat, dict) and vchat.get("meeting_url"):
+            out["meeting_url"] = vchat["meeting_url"]
+        return out
+
+    lean = {"items": [_lean_event(e) for e in result["items"] if isinstance(e, dict)]}
+    for key in ("has_more", "page_token"):
+        if result.get(key):
+            lean[key] = result[key]
+    return {**res, "result": lean}
 
 
 # ------------------------------------------------------------------
@@ -673,7 +793,7 @@ async def list_lark_event_instances(input_data: dict) -> dict:
 
 @action(
     name="add_lark_event_attendees",
-    description="Invite attendees to a Lark calendar event. Pass user_ids (open_ids), emails (for external attendees), or chat_ids (invites everyone in a group).",
+    description="Invite attendees to a Lark calendar event. Pass user_ids (open_ids), emails (for external attendees), or chat_ids (invites everyone in a group). Returns {attendee_ids, attendees_added}.",
     action_sets=["lark_calendar_attendees", "lark_calendar"],
     input_schema={
         "calendar_id": {
@@ -716,7 +836,7 @@ async def list_lark_event_instances(input_data: dict) -> dict:
 async def add_lark_event_attendees(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "add_event_attendees",
         calendar_id=input_data["calendar_id"],
@@ -726,6 +846,19 @@ async def add_lark_event_attendees(input_data: dict) -> dict:
         chat_ids=input_data.get("chat_ids"),
         need_notification=input_data.get("need_notification", True),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        attendees = res["result"].get("attendees")
+        if isinstance(attendees, list):
+            ids = [
+                a.get("attendee_id")
+                for a in attendees
+                if isinstance(a, dict) and a.get("attendee_id")
+            ]
+            res = {
+                **res,
+                "result": {"attendee_ids": ids, "attendees_added": len(attendees)},
+            }
+    return res
 
 
 @action(
@@ -869,7 +1002,7 @@ async def list_lark_event_chat_attendee_members(input_data: dict) -> dict:
 
 @action(
     name="book_lark_meeting_room",
-    description="Attach a meeting room to a Lark calendar event as a resource attendee (effectively booking it).",
+    description="Attach a meeting room to a Lark calendar event as a resource attendee (effectively booking it). Returns {attendee_ids, attendees_added}.",
     action_sets=["lark_calendar_attendees", "lark_calendar"],
     input_schema={
         "calendar_id": {
@@ -902,7 +1035,7 @@ async def list_lark_event_chat_attendee_members(input_data: dict) -> dict:
 async def book_lark_meeting_room(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "add_meeting_room_to_event",
         calendar_id=input_data["calendar_id"],
@@ -910,6 +1043,19 @@ async def book_lark_meeting_room(input_data: dict) -> dict:
         meeting_room_id=input_data["meeting_room_id"],
         need_notification=input_data.get("need_notification", True),
     )
+    if res.get("status") == "success" and isinstance(res.get("result"), dict):
+        attendees = res["result"].get("attendees")
+        if isinstance(attendees, list):
+            ids = [
+                a.get("attendee_id")
+                for a in attendees
+                if isinstance(a, dict) and a.get("attendee_id")
+            ]
+            res = {
+                **res,
+                "result": {"attendee_ids": ids, "attendees_added": len(attendees)},
+            }
+    return res
 
 
 # ------------------------------------------------------------------
@@ -944,7 +1090,7 @@ async def list_lark_calendar_acls(input_data: dict) -> dict:
 
 @action(
     name="share_lark_calendar_with_user",
-    description="Share a Lark calendar with a user by granting them a role (owner / reader / writer / free_busy_reader).",
+    description="Share a Lark calendar with a user by granting them a role (owner / reader / writer / free_busy_reader). Returns {acl_id, role}.",
     action_sets=["lark_calendar_sharing", "lark_calendar"],
     input_schema={
         "calendar_id": {
@@ -970,15 +1116,16 @@ async def list_lark_calendar_acls(input_data: dict) -> dict:
     parallelizable=False,
 )
 async def share_lark_calendar_with_user(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "lark_calendar",
         "create_calendar_acl",
         calendar_id=input_data["calendar_id"],
         user_id=input_data["user_id"],
         role=input_data.get("role", "reader"),
     )
+    return pick_result(res, ["acl_id", "role"])
 
 
 @action(

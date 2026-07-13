@@ -34,6 +34,47 @@ JIRA_CLOUD_API = "https://api.atlassian.com/ex/jira"
 POLL_INTERVAL = 10
 RETRY_DELAY = 15
 
+# Fields requested from the API when the caller wants a lean issue payload
+# (include_metadata=False and no explicit fields list). Restricting server-side
+# avoids the full customfield_* dump Jira returns by default.
+_LEAN_ISSUE_FIELDS = [
+    "summary",
+    "description",
+    "status",
+    "assignee",
+    "priority",
+    "issuetype",
+    "labels",
+    "created",
+    "updated",
+]
+
+
+def _slim_issue(issue: Any) -> Any:
+    """Collapse an issue's verbose nested field objects to their names.
+
+    status -> status.name, assignee -> displayName, priority -> name,
+    issuetype -> name. Drops top-level ``self``/``expand`` noise. Safe on
+    non-dict input (returned unchanged).
+    """
+    if not isinstance(issue, dict):
+        return issue
+    fields = issue.get("fields")
+    if isinstance(fields, dict):
+        fields = dict(fields)
+        if isinstance(fields.get("status"), dict):
+            fields["status"] = fields["status"].get("name")
+        if isinstance(fields.get("assignee"), dict):
+            fields["assignee"] = fields["assignee"].get("displayName")
+        if isinstance(fields.get("priority"), dict):
+            fields["priority"] = fields["priority"].get("name")
+        if isinstance(fields.get("issuetype"), dict):
+            fields["issuetype"] = fields["issuetype"].get("name")
+    slim = {k: v for k, v in issue.items() if k not in ("self", "expand", "fields")}
+    if fields is not None:
+        slim["fields"] = fields
+    return slim
+
 
 @dataclass
 class JiraCredential:
@@ -594,11 +635,17 @@ class JiraClient(BasePlatformClient):
         )
 
     async def search_issues(
-        self, jql: str, max_results: int = 50, fields_list: Optional[List[str]] = None
+        self,
+        jql: str,
+        max_results: int = 50,
+        fields_list: Optional[List[str]] = None,
+        include_metadata: bool = True,
     ) -> Result:
         payload: Dict[str, Any] = {"jql": jql, "maxResults": min(max_results, 100)}
         if fields_list:
             payload["fields"] = fields_list
+        elif not include_metadata:
+            payload["fields"] = _LEAN_ISSUE_FIELDS
         return await arequest(
             "POST",
             f"{self._base_url()}/search/jql",
@@ -608,22 +655,30 @@ class JiraClient(BasePlatformClient):
             expected=(200,),
             transform=lambda d: {
                 "total": d.get("total", 0),
-                "issues": d.get("issues", []),
+                "issues": [_slim_issue(i) for i in d.get("issues", [])]
+                if not include_metadata
+                else d.get("issues", []),
             },
         )
 
     async def get_issue(
-        self, issue_key: str, fields_list: Optional[List[str]] = None
+        self,
+        issue_key: str,
+        fields_list: Optional[List[str]] = None,
+        include_metadata: bool = True,
     ) -> Result:
         params: Dict[str, Any] = {}
         if fields_list:
             params["fields"] = ",".join(fields_list)
+        elif not include_metadata:
+            params["fields"] = ",".join(_LEAN_ISSUE_FIELDS)
         return await arequest(
             "GET",
             f"{self._base_url()}/issue/{issue_key}",
             headers=self._headers(),
             params=params,
             expected=(200,),
+            transform=None if include_metadata else _slim_issue,
         )
 
     async def create_issue(
@@ -1129,12 +1184,37 @@ class JiraClient(BasePlatformClient):
             },
         )
 
-    async def get_issue_link(self, link_id: str) -> Result:
+    async def get_issue_link(
+        self, link_id: str, include_metadata: bool = True
+    ) -> Result:
+        transform = None
+        if not include_metadata:
+
+            def _link_end(issue: Any) -> Optional[Dict[str, Any]]:
+                if not isinstance(issue, dict):
+                    return None
+                fields = issue.get("fields") or {}
+                status = fields.get("status")
+                return {
+                    "key": issue.get("key"),
+                    "summary": fields.get("summary"),
+                    "status": status.get("name")
+                    if isinstance(status, dict)
+                    else status,
+                }
+
+            transform = lambda d: {  # noqa: E731
+                "id": d.get("id"),
+                "type": (d.get("type") or {}).get("name"),
+                "inwardIssue": _link_end(d.get("inwardIssue")),
+                "outwardIssue": _link_end(d.get("outwardIssue")),
+            }
         return await arequest(
             "GET",
             f"{self._base_url()}/issueLink/{link_id}",
             headers=self._headers(),
             expected=(200,),
+            transform=transform,
         )
 
     async def delete_issue_link(self, link_id: str) -> Result:
@@ -1399,11 +1479,17 @@ class JiraClient(BasePlatformClient):
         )
 
     async def get_board_issues(
-        self, board_id: int, jql: Optional[str] = None, max_results: int = 50
+        self,
+        board_id: int,
+        jql: Optional[str] = None,
+        max_results: int = 50,
+        include_metadata: bool = True,
     ) -> Result:
         params: Dict[str, Any] = {"maxResults": max_results}
         if jql:
             params["jql"] = jql
+        if not include_metadata:
+            params["fields"] = ",".join(_LEAN_ISSUE_FIELDS)
         return await arequest(
             "GET",
             f"{self._agile_base_url()}/board/{board_id}/issue",
@@ -1411,7 +1497,9 @@ class JiraClient(BasePlatformClient):
             params=params,
             expected=(200,),
             transform=lambda d: {
-                "issues": d.get("issues", []),
+                "issues": [_slim_issue(i) for i in d.get("issues", [])]
+                if not include_metadata
+                else d.get("issues", []),
                 "total": d.get("total", 0),
             },
         )
@@ -1444,15 +1532,22 @@ class JiraClient(BasePlatformClient):
             },
         )
 
-    async def get_board_backlog(self, board_id: int, max_results: int = 50) -> Result:
+    async def get_board_backlog(
+        self, board_id: int, max_results: int = 50, include_metadata: bool = True
+    ) -> Result:
+        params: Dict[str, Any] = {"maxResults": max_results}
+        if not include_metadata:
+            params["fields"] = ",".join(_LEAN_ISSUE_FIELDS)
         return await arequest(
             "GET",
             f"{self._agile_base_url()}/board/{board_id}/backlog",
             headers=self._headers(),
-            params={"maxResults": max_results},
+            params=params,
             expected=(200,),
             transform=lambda d: {
-                "issues": d.get("issues", []),
+                "issues": [_slim_issue(i) for i in d.get("issues", [])]
+                if not include_metadata
+                else d.get("issues", []),
                 "total": d.get("total", 0),
             },
         )
@@ -1468,11 +1563,17 @@ class JiraClient(BasePlatformClient):
         )
 
     async def get_sprint_issues(
-        self, sprint_id: int, jql: Optional[str] = None, max_results: int = 50
+        self,
+        sprint_id: int,
+        jql: Optional[str] = None,
+        max_results: int = 50,
+        include_metadata: bool = True,
     ) -> Result:
         params: Dict[str, Any] = {"maxResults": max_results}
         if jql:
             params["jql"] = jql
+        if not include_metadata:
+            params["fields"] = ",".join(_LEAN_ISSUE_FIELDS)
         return await arequest(
             "GET",
             f"{self._agile_base_url()}/sprint/{sprint_id}/issue",
@@ -1480,7 +1581,9 @@ class JiraClient(BasePlatformClient):
             params=params,
             expected=(200,),
             transform=lambda d: {
-                "issues": d.get("issues", []),
+                "issues": [_slim_issue(i) for i in d.get("issues", [])]
+                if not include_metadata
+                else d.get("issues", []),
                 "total": d.get("total", 0),
             },
         )
@@ -1586,16 +1689,21 @@ class JiraClient(BasePlatformClient):
         )
 
     async def get_epic_issues(
-        self, epic_id_or_key: str, max_results: int = 50
+        self, epic_id_or_key: str, max_results: int = 50, include_metadata: bool = True
     ) -> Result:
+        params: Dict[str, Any] = {"maxResults": max_results}
+        if not include_metadata:
+            params["fields"] = ",".join(_LEAN_ISSUE_FIELDS)
         return await arequest(
             "GET",
             f"{self._agile_base_url()}/epic/{epic_id_or_key}/issue",
             headers=self._headers(),
-            params={"maxResults": max_results},
+            params=params,
             expected=(200,),
             transform=lambda d: {
-                "issues": d.get("issues", []),
+                "issues": [_slim_issue(i) for i in d.get("issues", [])]
+                if not include_metadata
+                else d.get("issues", []),
                 "total": d.get("total", 0),
             },
         )

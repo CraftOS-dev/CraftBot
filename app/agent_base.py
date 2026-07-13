@@ -58,6 +58,7 @@ from app.config import (
     TELEGRAM_API_HASH,
     get_api_key,
     get_base_url,
+    is_prewarm_all_drives_enabled,
 )
 from craftos_integrations import (
     configure as _configure_integrations,
@@ -3936,6 +3937,11 @@ class AgentBase:
         self._usage_reporter = get_usage_reporter()
         self._usage_reporter.start_background_flush()
 
+        # Pre-warm the find_files index for all local drives (background,
+        # non-blocking) so the first real search doesn't pay a cold-crawl cost.
+        if is_prewarm_all_drives_enabled():
+            self._start_index_prewarm()
+
         # Configure integrations + start external comms manager
         step(6, 7, "Initializing integrations")
         await self._initialize_external_libraries()
@@ -3995,6 +4001,38 @@ class AgentBase:
 
         # Resume triggers for tasks restored from previous session
         await self._schedule_restored_task_triggers()
+
+    def _start_index_prewarm(self) -> None:
+        """Warm the find_files index for every local drive in a background thread.
+
+        Runs one drive at a time rather than one thread per drive: concurrent
+        full-drive crawls were observed contending with each other for the
+        GIL/disk with no net speedup (see app/utils/file_index.py find_files).
+        Fully non-blocking — boot() does not wait on this.
+        """
+        import threading
+
+        from app.utils import file_index
+
+        def _prewarm() -> None:
+            try:
+                drives = file_index.list_local_drives()
+            except Exception as e:
+                logger.warning(f"[FILE_INDEX] Could not enumerate local drives: {e}")
+                return
+
+            for drive in drives:
+                try:
+                    file_index.build_index(drive)
+                    file_index.start_watcher(drive)
+                except Exception as e:
+                    logger.warning(
+                        f"[FILE_INDEX] Background pre-warm failed for {drive}: {e}"
+                    )
+
+        threading.Thread(
+            target=_prewarm, daemon=True, name="file-index-prewarm"
+        ).start()
 
     async def run(
         self,

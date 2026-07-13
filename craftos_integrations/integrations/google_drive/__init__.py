@@ -291,14 +291,15 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
             transform=lambda _d: {"emptied": True},
         )
 
-    def get_drive_about(self) -> Result:
+    def get_drive_about(self, include_metadata: bool = True) -> Result:
+        fields = "user,storageQuota,maxUploadSize,canCreateDrives"
+        if include_metadata:
+            fields += ",exportFormats,importFormats"
         return http_request(
             "GET",
             f"{DRIVE_API_BASE}/about",
             headers=self._auth_header(),
-            params={
-                "fields": "user,storageQuota,maxUploadSize,exportFormats,importFormats,canCreateDrives"
-            },
+            params={"fields": fields},
             expected=(200,),
         )
 

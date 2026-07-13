@@ -523,7 +523,7 @@ def list_gmail_threads(input_data: dict) -> dict:
 
 @action(
     name="get_gmail_thread",
-    description="Get a thread (conversation) and its messages.",
+    description="Get a thread (conversation) and its messages. Default returns per-message {id, from, to, subject, date, snippet}; set include_metadata for the raw thread.",
     action_sets=["gmail_threads", "gmail"],
     input_schema={
         "thread_id": {"type": "string", "description": "Thread ID.", "example": ""},
@@ -536,6 +536,10 @@ def list_gmail_threads(input_data: dict) -> dict:
             "type": "string",
             "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
             "example": "",
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the raw thread resource (default false = lean).",
+            "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -543,7 +547,7 @@ def list_gmail_threads(input_data: dict) -> dict:
 def get_gmail_thread(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "gmail",
         "get_thread",
         account=input_data.get("account"),
@@ -552,6 +556,32 @@ def get_gmail_thread(input_data: dict) -> dict:
         thread_id=input_data["thread_id"],
         fmt=input_data.get("fmt", "metadata"),
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        thread = res.get("result")
+        if isinstance(thread, dict):
+            lean_messages = []
+            for msg in thread.get("messages", []) or []:
+                if not isinstance(msg, dict):
+                    continue
+                headers = {
+                    h.get("name", ""): h.get("value", "")
+                    for h in msg.get("payload", {}).get("headers", [])
+                }
+                lean_messages.append(
+                    {
+                        "id": msg.get("id"),
+                        "from": headers.get("From", ""),
+                        "to": headers.get("To", ""),
+                        "subject": headers.get("Subject", ""),
+                        "date": headers.get("Date", ""),
+                        "snippet": msg.get("snippet", ""),
+                    }
+                )
+            res = {
+                **res,
+                "result": {"id": thread.get("id"), "messages": lean_messages},
+            }
+    return res
 
 
 @action(
@@ -690,7 +720,7 @@ def list_gmail_drafts(input_data: dict) -> dict:
 
 @action(
     name="get_gmail_draft",
-    description="Get a Gmail draft by ID.",
+    description="Get a Gmail draft by ID. Default returns {id, message_id, to, subject, snippet}; set include_metadata for the raw draft.",
     action_sets=["gmail_drafts"],
     input_schema={
         "draft_id": {"type": "string", "description": "Draft ID.", "example": ""},
@@ -703,6 +733,10 @@ def list_gmail_drafts(input_data: dict) -> dict:
             "type": "string",
             "description": "Optional Gmail account email (or unique fragment, e.g. 'work'). Omit to use the primary account.",
             "example": "",
+        "include_metadata": {
+            "type": "boolean",
+            "description": "Return the raw draft resource (default false = lean).",
+            "example": False,
         },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -710,7 +744,7 @@ def list_gmail_drafts(input_data: dict) -> dict:
 def get_gmail_draft(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "gmail",
         "get_draft",
         account=input_data.get("account"),
@@ -719,6 +753,25 @@ def get_gmail_draft(input_data: dict) -> dict:
         draft_id=input_data["draft_id"],
         fmt=input_data.get("fmt", "metadata"),
     )
+    if not input_data.get("include_metadata") and res.get("status") == "success":
+        draft = res.get("result")
+        if isinstance(draft, dict):
+            msg = draft.get("message") or {}
+            headers = {
+                h.get("name", ""): h.get("value", "")
+                for h in msg.get("payload", {}).get("headers", [])
+            }
+            res = {
+                **res,
+                "result": {
+                    "id": draft.get("id"),
+                    "message_id": msg.get("id"),
+                    "to": headers.get("To", ""),
+                    "subject": headers.get("Subject", ""),
+                    "snippet": msg.get("snippet", ""),
+                },
+            }
+    return res
 
 
 @action(

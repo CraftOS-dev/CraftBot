@@ -56,7 +56,7 @@ async def list_hubspot_contacts(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_contacts",
         account=input_data.get("account"),
@@ -65,6 +65,17 @@ async def list_hubspot_contacts(input_data: dict) -> dict:
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         archived=input_data.get("archived", False),
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -112,7 +123,7 @@ async def get_hubspot_contact(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_contact",
-    description="Create a HubSpot contact. 'properties' is a flat dict like {email, firstname, lastname, phone, company}.",
+    description="Create a HubSpot contact. 'properties' is a flat dict like {email, firstname, lastname, phone, company}. Returns only {id}.",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
         "properties": {
@@ -130,23 +141,24 @@ async def get_hubspot_contact(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_contact(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_contact",
         account=input_data.get("account"),
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
     name="update_hubspot_contact",
-    description="Update a HubSpot contact's properties.",
+    description="Update a HubSpot contact's properties. Returns only {id}.",
     action_sets=["hubspot_contacts", "hubspot"],
     input_schema={
         "contact_id": {
@@ -165,19 +177,20 @@ async def create_hubspot_contact(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def update_hubspot_contact(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_contact",
         account=input_data.get("account"),
         contact_id=input_data["contact_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -258,7 +271,7 @@ async def search_hubspot_contacts(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "search_contacts",
         account=input_data.get("account"),
@@ -268,6 +281,17 @@ async def search_hubspot_contacts(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -308,7 +332,7 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
 
 @action(
     name="batch_create_hubspot_contacts",
-    description="Create up to 100 contacts in a single call. 'records' is a list of flat property dicts.",
+    description="Create up to 100 contacts in a single call. 'records' is a list of flat property dicts. Returns only the created ids (+ errors if any).",
     action_sets=["hubspot_contacts"],
     input_schema={
         "records": {
@@ -322,23 +346,35 @@ async def batch_get_hubspot_contacts(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."}},
     parallelizable=False,
 )
 async def batch_create_hubspot_contacts(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "batch_create_contacts",
         account=input_data.get("account"),
         records=input_data["records"],
     )
+    r = res.get("result")
+    if (
+        res.get("status") == "success"
+        and isinstance(r, dict)
+        and isinstance(r.get("results"), list)
+    ):
+        reduced = {"ids": [i.get("id") for i in r["results"] if isinstance(i, dict)]}
+        if r.get("numErrors"):
+            reduced["numErrors"] = r.get("numErrors")
+            reduced["errors"] = r.get("errors")
+        res = {**res, "result": reduced}
+    return res
 
 
 @action(
     name="merge_hubspot_contacts",
-    description="Merge two contacts. The primary contact survives; the secondary is archived with associations transferred.",
+    description="Merge two contacts. The primary contact survives; the secondary is archived with associations transferred. Returns only {id}.",
     action_sets=["hubspot_contacts"],
     input_schema={
         "primary_id": {
@@ -357,19 +393,20 @@ async def batch_create_hubspot_contacts(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def merge_hubspot_contacts(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "merge_contacts",
         account=input_data.get("account"),
         primary_id=input_data["primary_id"],
         id_to_merge=input_data["id_to_merge"],
     )
+    return pick_result(res, ["id"])
 
 
 # ==================================================================
@@ -410,7 +447,7 @@ async def list_hubspot_companies(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_companies",
         account=input_data.get("account"),
@@ -419,6 +456,17 @@ async def list_hubspot_companies(input_data: dict) -> dict:
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         archived=input_data.get("archived", False),
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -466,7 +514,7 @@ async def get_hubspot_company(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_company",
-    description="Create a HubSpot company. Typical properties: name, domain, industry, city, country.",
+    description="Create a HubSpot company. Typical properties: name, domain, industry, city, country. Returns only {id}.",
     action_sets=["hubspot_companies", "hubspot"],
     input_schema={
         "properties": {
@@ -480,23 +528,24 @@ async def get_hubspot_company(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_company(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_company",
         account=input_data.get("account"),
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
     name="update_hubspot_company",
-    description="Update a HubSpot company's properties.",
+    description="Update a HubSpot company's properties. Returns only {id}.",
     action_sets=["hubspot_companies"],
     input_schema={
         "company_id": {
@@ -515,19 +564,20 @@ async def create_hubspot_company(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def update_hubspot_company(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_company",
         account=input_data.get("account"),
         company_id=input_data["company_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -604,7 +654,7 @@ async def search_hubspot_companies(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "search_companies",
         account=input_data.get("account"),
@@ -614,6 +664,17 @@ async def search_hubspot_companies(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -654,7 +715,7 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
 
 @action(
     name="batch_create_hubspot_companies",
-    description="Create up to 100 companies in a single call.",
+    description="Create up to 100 companies in a single call. Returns only the created ids (+ errors if any).",
     action_sets=["hubspot_companies"],
     input_schema={
         "records": {
@@ -668,18 +729,30 @@ async def batch_get_hubspot_companies(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."}},
     parallelizable=False,
 )
 async def batch_create_hubspot_companies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "batch_create_companies",
         account=input_data.get("account"),
         records=input_data["records"],
     )
+    r = res.get("result")
+    if (
+        res.get("status") == "success"
+        and isinstance(r, dict)
+        and isinstance(r.get("results"), list)
+    ):
+        reduced = {"ids": [i.get("id") for i in r["results"] if isinstance(i, dict)]}
+        if r.get("numErrors"):
+            reduced["numErrors"] = r.get("numErrors")
+            reduced["errors"] = r.get("errors")
+        res = {**res, "result": reduced}
+    return res
 
 
 # ==================================================================
@@ -716,7 +789,7 @@ async def list_hubspot_deals(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_deals",
         account=input_data.get("account"),
@@ -725,6 +798,17 @@ async def list_hubspot_deals(input_data: dict) -> dict:
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         archived=input_data.get("archived", False),
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -772,7 +856,7 @@ async def get_hubspot_deal(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_deal",
-    description="Create a HubSpot deal. Typical properties: dealname, amount, dealstage, pipeline, closedate, hubspot_owner_id.",
+    description="Create a HubSpot deal. Typical properties: dealname, amount, dealstage, pipeline, closedate, hubspot_owner_id. Returns only {id}.",
     action_sets=["hubspot_deals", "hubspot"],
     input_schema={
         "properties": {
@@ -790,23 +874,24 @@ async def get_hubspot_deal(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_deal(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_deal",
         account=input_data.get("account"),
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
     name="update_hubspot_deal",
-    description="Update a HubSpot deal's properties.",
+    description="Update a HubSpot deal's properties. Returns only {id}.",
     action_sets=["hubspot_deals", "hubspot"],
     input_schema={
         "deal_id": {
@@ -825,19 +910,20 @@ async def create_hubspot_deal(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def update_hubspot_deal(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_deal",
         account=input_data.get("account"),
         deal_id=input_data["deal_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -914,7 +1000,7 @@ async def search_hubspot_deals(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "search_deals",
         account=input_data.get("account"),
@@ -924,11 +1010,22 @@ async def search_hubspot_deals(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="batch_create_hubspot_deals",
-    description="Create up to 100 deals in a single call.",
+    description="Create up to 100 deals in a single call. Returns only the created ids (+ errors if any).",
     action_sets=["hubspot_deals"],
     input_schema={
         "records": {
@@ -942,23 +1039,35 @@ async def search_hubspot_deals(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {ids, numErrors?, errors?}."}},
     parallelizable=False,
 )
 async def batch_create_hubspot_deals(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "batch_create_deals",
         account=input_data.get("account"),
         records=input_data["records"],
     )
+    r = res.get("result")
+    if (
+        res.get("status") == "success"
+        and isinstance(r, dict)
+        and isinstance(r.get("results"), list)
+    ):
+        reduced = {"ids": [i.get("id") for i in r["results"] if isinstance(i, dict)]}
+        if r.get("numErrors"):
+            reduced["numErrors"] = r.get("numErrors")
+            reduced["errors"] = r.get("errors")
+        res = {**res, "result": reduced}
+    return res
 
 
 @action(
     name="move_hubspot_deal_stage",
-    description="Move a deal to a different pipeline stage. Helper around updating the 'dealstage' property.",
+    description="Move a deal to a different pipeline stage. Helper around updating the 'dealstage' property. Returns only {id}.",
     action_sets=["hubspot_deals", "hubspot"],
     input_schema={
         "deal_id": {
@@ -977,19 +1086,20 @@ async def batch_create_hubspot_deals(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def move_hubspot_deal_stage(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "move_deal_stage",
         account=input_data.get("account"),
         deal_id=input_data["deal_id"],
         stage_id=input_data["stage_id"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1015,7 +1125,7 @@ async def move_hubspot_deal_stage(input_data: dict) -> dict:
 async def list_hubspot_deals_by_pipeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_deals_by_pipeline",
         account=input_data.get("account"),
@@ -1023,6 +1133,17 @@ async def list_hubspot_deals_by_pipeline(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 # ==================================================================
@@ -1059,7 +1180,7 @@ async def list_hubspot_tickets(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_tickets",
         account=input_data.get("account"),
@@ -1068,6 +1189,17 @@ async def list_hubspot_tickets(input_data: dict) -> dict:
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
         archived=input_data.get("archived", False),
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -1115,7 +1247,7 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_ticket",
-    description="Create a HubSpot support ticket. Typical properties: subject, content, hs_pipeline, hs_pipeline_stage, hs_ticket_priority (LOW/MEDIUM/HIGH/URGENT).",
+    description="Create a HubSpot support ticket. Typical properties: subject, content, hs_pipeline, hs_pipeline_stage, hs_ticket_priority (LOW/MEDIUM/HIGH/URGENT). Returns only {id}.",
     action_sets=["hubspot_tickets", "hubspot"],
     input_schema={
         "properties": {
@@ -1133,23 +1265,24 @@ async def get_hubspot_ticket(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_ticket(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_ticket",
         account=input_data.get("account"),
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
     name="update_hubspot_ticket",
-    description="Update a HubSpot ticket's properties.",
+    description="Update a HubSpot ticket's properties. Returns only {id}.",
     action_sets=["hubspot_tickets"],
     input_schema={
         "ticket_id": {
@@ -1168,19 +1301,20 @@ async def create_hubspot_ticket(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def update_hubspot_ticket(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_ticket",
         account=input_data.get("account"),
         ticket_id=input_data["ticket_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1257,7 +1391,7 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "search_tickets",
         account=input_data.get("account"),
@@ -1267,11 +1401,22 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="close_hubspot_ticket",
-    description="Move a ticket to its closed stage. Helper around updating 'hs_pipeline_stage'.",
+    description="Move a ticket to its closed stage. Helper around updating 'hs_pipeline_stage'. Returns only {id}.",
     action_sets=["hubspot_tickets", "hubspot"],
     input_schema={
         "ticket_id": {
@@ -1290,19 +1435,20 @@ async def search_hubspot_tickets(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def close_hubspot_ticket(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "close_ticket",
         account=input_data.get("account"),
         ticket_id=input_data["ticket_id"],
         closed_stage_id=input_data["closed_stage_id"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1328,7 +1474,7 @@ async def close_hubspot_ticket(input_data: dict) -> dict:
 async def list_hubspot_tickets_by_pipeline(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_tickets_by_pipeline",
         account=input_data.get("account"),
@@ -1336,6 +1482,17 @@ async def list_hubspot_tickets_by_pipeline(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 # ==================================================================
@@ -1367,7 +1524,7 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_tasks",
         account=input_data.get("account"),
@@ -1375,11 +1532,22 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="create_hubspot_task",
-    description="Create a HubSpot task. Optionally associate it with a contact/company/deal/ticket.",
+    description="Create a HubSpot task. Optionally associate it with a contact/company/deal/ticket. Returns only {id}.",
     action_sets=["hubspot_engagements", "hubspot"],
     input_schema={
         "subject": {
@@ -1428,13 +1596,13 @@ async def list_hubspot_tasks(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_task(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_task",
         account=input_data.get("account"),
@@ -1447,11 +1615,12 @@ async def create_hubspot_task(input_data: dict) -> dict:
         associated_object_type=input_data.get("associated_object_type") or None,
         associated_object_id=input_data.get("associated_object_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
     name="update_hubspot_task",
-    description="Update a HubSpot task. Common updates: hs_task_status, hs_task_priority, hs_task_subject.",
+    description="Update a HubSpot task. Common updates: hs_task_status, hs_task_priority, hs_task_subject. Returns only {id}.",
     action_sets=["hubspot_engagements"],
     input_schema={
         "task_id": {
@@ -1470,19 +1639,20 @@ async def create_hubspot_task(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def update_hubspot_task(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_task",
         account=input_data.get("account"),
         task_id=input_data["task_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1539,7 +1709,7 @@ async def list_hubspot_notes(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_notes",
         account=input_data.get("account"),
@@ -1547,11 +1717,22 @@ async def list_hubspot_notes(input_data: dict) -> dict:
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="create_hubspot_note",
-    description="Create a HubSpot note (typically attached to a contact/company/deal/ticket).",
+    description="Create a HubSpot note (typically attached to a contact/company/deal/ticket). Returns only {id}.",
     action_sets=["hubspot_engagements", "hubspot"],
     input_schema={
         "body": {
@@ -1576,13 +1757,13 @@ async def list_hubspot_notes(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_note(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_note",
         account=input_data.get("account"),
@@ -1591,6 +1772,7 @@ async def create_hubspot_note(input_data: dict) -> dict:
         associated_object_type=input_data.get("associated_object_type") or None,
         associated_object_id=input_data.get("associated_object_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1647,7 +1829,7 @@ async def list_hubspot_calls(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_calls",
         account=input_data.get("account"),
@@ -1655,11 +1837,22 @@ async def list_hubspot_calls(input_data: dict) -> dict:
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="log_hubspot_call",
-    description="Log a phone call as a HubSpot engagement.",
+    description="Log a phone call as a HubSpot engagement. Returns only {id}.",
     action_sets=["hubspot_engagements", "hubspot"],
     input_schema={
         "title": {
@@ -1719,13 +1912,13 @@ async def list_hubspot_calls(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def log_hubspot_call(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "log_call",
         account=input_data.get("account"),
@@ -1741,6 +1934,7 @@ async def log_hubspot_call(input_data: dict) -> dict:
         associated_object_type=input_data.get("associated_object_type") or None,
         associated_object_id=input_data.get("associated_object_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1767,7 +1961,7 @@ async def list_hubspot_emails(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_emails",
         account=input_data.get("account"),
@@ -1775,11 +1969,22 @@ async def list_hubspot_emails(input_data: dict) -> dict:
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="log_hubspot_email",
-    description="Log an email as a HubSpot engagement (for record-keeping; doesn't actually send).",
+    description="Log an email as a HubSpot engagement (for record-keeping; doesn't actually send). Returns only {id}.",
     action_sets=["hubspot_engagements"],
     input_schema={
         "subject": {
@@ -1834,13 +2039,13 @@ async def list_hubspot_emails(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def log_hubspot_email(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "log_email",
         account=input_data.get("account"),
@@ -1855,6 +2060,7 @@ async def log_hubspot_email(input_data: dict) -> dict:
         associated_object_type=input_data.get("associated_object_type") or None,
         associated_object_id=input_data.get("associated_object_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -1881,7 +2087,7 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
     props = input_data.get("properties", "")
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_meetings",
         account=input_data.get("account"),
@@ -1889,11 +2095,22 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
         after=input_data.get("after") or None,
         properties=[p.strip() for p in props.split(",") if p.strip()] or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="create_hubspot_meeting",
-    description="Create a HubSpot meeting engagement record.",
+    description="Create a HubSpot meeting engagement record. Returns only {id}.",
     action_sets=["hubspot_engagements"],
     input_schema={
         "title": {
@@ -1943,13 +2160,13 @@ async def list_hubspot_meetings(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_meeting(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_meeting",
         account=input_data.get("account"),
@@ -1963,6 +2180,7 @@ async def create_hubspot_meeting(input_data: dict) -> dict:
         associated_object_type=input_data.get("associated_object_type") or None,
         associated_object_id=input_data.get("associated_object_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -2026,13 +2244,24 @@ async def delete_hubspot_meeting(input_data: dict) -> dict:
 async def list_hubspot_lists(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_lists",
         account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         list_ids=input_data.get("list_ids") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -2062,7 +2291,7 @@ async def get_hubspot_list(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_list",
-    description="Create a HubSpot list. processing_type=MANUAL for static (you add contacts yourself); DYNAMIC for filter-based.",
+    description="Create a HubSpot list. processing_type=MANUAL for static (you add contacts yourself); DYNAMIC for filter-based. Returns only {listId}.",
     action_sets=["hubspot_lists"],
     input_schema={
         "name": {
@@ -2091,13 +2320,13 @@ async def get_hubspot_list(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {listId}."}},
     parallelizable=False,
 )
 async def create_hubspot_list(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_list",
         account=input_data.get("account"),
@@ -2106,6 +2335,13 @@ async def create_hubspot_list(input_data: dict) -> dict:
         processing_type=input_data.get("processing_type", "MANUAL"),
         filter_branch=input_data.get("filter_branch") or None,
     )
+    r = res.get("result")
+    if res.get("status") == "success" and isinstance(r, dict):
+        lst = r.get("list") if isinstance(r.get("list"), dict) else r
+        list_id = lst.get("listId") or lst.get("id")
+        if list_id is not None:
+            res = {**res, "result": {"listId": list_id}}
+    return res
 
 
 @action(
@@ -2224,12 +2460,23 @@ async def remove_contacts_from_hubspot_list(input_data: dict) -> dict:
 async def list_hubspot_pipelines(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_pipelines",
         account=input_data.get("account"),
         object_type=input_data["object_type"],
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -2269,7 +2516,7 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_pipeline",
-    description="Create a new pipeline. 'stages' is a list of {label, displayOrder, metadata:{probability,...}} dicts.",
+    description="Create a new pipeline. 'stages' is a list of {label, displayOrder, metadata:{probability,...}} dicts. Returns only {id}.",
     action_sets=["hubspot_pipelines"],
     input_schema={
         "object_type": {
@@ -2300,13 +2547,13 @@ async def get_hubspot_pipeline(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_pipeline(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_pipeline",
         account=input_data.get("account"),
@@ -2315,6 +2562,7 @@ async def create_hubspot_pipeline(input_data: dict) -> dict:
         stages=input_data["stages"],
         display_order=input_data.get("display_order", 0),
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -2343,18 +2591,29 @@ async def create_hubspot_pipeline(input_data: dict) -> dict:
 async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_pipeline_stages",
         account=input_data.get("account"),
         object_type=input_data["object_type"],
         pipeline_id=input_data["pipeline_id"],
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="update_hubspot_pipeline_stage",
-    description="Update a pipeline stage's properties (label, displayOrder, metadata).",
+    description="Update a pipeline stage's properties (label, displayOrder, metadata). Returns only {id}.",
     action_sets=["hubspot_pipelines"],
     input_schema={
         "object_type": {
@@ -2383,13 +2642,13 @@ async def list_hubspot_pipeline_stages(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_pipeline_stage",
         account=input_data.get("account"),
@@ -2398,6 +2657,7 @@ async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
         stage_id=input_data["stage_id"],
         properties=input_data["properties"],
     )
+    return pick_result(res, ["id"])
 
 
 # ==================================================================
@@ -2431,13 +2691,24 @@ async def update_hubspot_pipeline_stage(input_data: dict) -> dict:
 async def list_hubspot_owners(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_owners",
         account=input_data.get("account"),
         email=input_data.get("email") or None,
         limit=input_data.get("limit", 100),
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -2491,12 +2762,23 @@ async def get_hubspot_owner(input_data: dict) -> dict:
 async def list_hubspot_properties(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_properties",
         account=input_data.get("account"),
         object_type=input_data["object_type"],
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -2536,7 +2818,7 @@ async def get_hubspot_property(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_property",
-    description="Create a new custom property. 'definition' must include name, label, type, fieldType, groupName.",
+    description="Create a new custom property. 'definition' must include name, label, type, fieldType, groupName. Returns only {id, name, type}.",
     action_sets=["hubspot_properties"],
     input_schema={
         "object_type": {
@@ -2561,24 +2843,25 @@ async def get_hubspot_property(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, name, type}."}},
     parallelizable=False,
 )
 async def create_hubspot_property(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_property",
         account=input_data.get("account"),
         object_type=input_data["object_type"],
         definition=input_data["definition"],
     )
+    return pick_result(res, ["id", "name", "type"])
 
 
 @action(
     name="update_hubspot_property",
-    description="Update an existing property's definition (label, description, options).",
+    description="Update an existing property's definition (label, description, options). Returns only {id, name, type}.",
     action_sets=["hubspot_properties"],
     input_schema={
         "object_type": {
@@ -2602,13 +2885,13 @@ async def create_hubspot_property(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, name, type}."}},
     parallelizable=False,
 )
 async def update_hubspot_property(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "update_property",
         account=input_data.get("account"),
@@ -2616,6 +2899,7 @@ async def update_hubspot_property(input_data: dict) -> dict:
         property_name=input_data["property_name"],
         definition=input_data["definition"],
     )
+    return pick_result(res, ["id", "name", "type"])
 
 
 @action(
@@ -2675,12 +2959,23 @@ async def delete_hubspot_property(input_data: dict) -> dict:
 async def list_hubspot_property_groups(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_property_groups",
         account=input_data.get("account"),
         object_type=input_data["object_type"],
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 # ==================================================================
@@ -2690,7 +2985,7 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
 
 @action(
     name="create_hubspot_association",
-    description="Link two objects (e.g. attach a contact to a deal). Leaves association_type_id empty for the default association between the pair.",
+    description="Link two objects (e.g. attach a contact to a deal). Leaves association_type_id empty for the default association between the pair. Returns only {id}.",
     action_sets=["hubspot_associations", "hubspot"],
     input_schema={
         "from_object_type": {
@@ -2724,13 +3019,13 @@ async def list_hubspot_property_groups(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_association(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_association",
         account=input_data.get("account"),
@@ -2740,6 +3035,7 @@ async def create_hubspot_association(input_data: dict) -> dict:
         to_object_id=input_data["to_object_id"],
         association_type_id=input_data.get("association_type_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -2779,7 +3075,7 @@ async def create_hubspot_association(input_data: dict) -> dict:
 async def list_hubspot_associations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_associations",
         account=input_data.get("account"),
@@ -2789,6 +3085,17 @@ async def list_hubspot_associations(input_data: dict) -> dict:
         limit=input_data.get("limit", 100),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -2865,13 +3172,24 @@ async def delete_hubspot_association(input_data: dict) -> dict:
 async def list_hubspot_association_types(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_association_types",
         account=input_data.get("account"),
         from_object_type=input_data["from_object_type"],
         to_object_type=input_data["to_object_type"],
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 # ==================================================================
@@ -2897,13 +3215,24 @@ async def list_hubspot_association_types(input_data: dict) -> dict:
 async def list_hubspot_forms(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_forms",
         account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -2937,7 +3266,7 @@ async def get_hubspot_form(input_data: dict) -> dict:
 
 @action(
     name="submit_hubspot_form",
-    description="Programmatically submit a HubSpot form. 'fields' is a list of {name, value} dicts.",
+    description="Programmatically submit a HubSpot form. 'fields' is a list of {name, value} dicts. Returns only {id}.",
     action_sets=["hubspot_forms"],
     input_schema={
         "portal_id": {
@@ -2969,13 +3298,13 @@ async def get_hubspot_form(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def submit_hubspot_form(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "submit_form",
         account=input_data.get("account"),
@@ -2984,6 +3313,7 @@ async def submit_hubspot_form(input_data: dict) -> dict:
         fields=input_data["fields"],
         context=input_data.get("context") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -3013,7 +3343,7 @@ async def submit_hubspot_form(input_data: dict) -> dict:
 async def list_hubspot_form_submissions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_form_submissions",
         account=input_data.get("account"),
@@ -3021,6 +3351,17 @@ async def list_hubspot_form_submissions(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 # ==================================================================
@@ -3046,13 +3387,24 @@ async def list_hubspot_form_submissions(input_data: dict) -> dict:
 async def list_hubspot_marketing_emails(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_marketing_emails",
         account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -3087,7 +3439,7 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
 @action(
     name="send_hubspot_single_send",
     irreversible=True,
-    description="Send a one-off transactional email based on a pre-built marketing email template.",
+    description="Send a one-off transactional email based on a pre-built marketing email template. Returns only {id}.",
     action_sets=["hubspot_marketing_email", "hubspot"],
     input_schema={
         "email_id": {
@@ -3116,13 +3468,13 @@ async def get_hubspot_marketing_email(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def send_hubspot_single_send(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "send_single_email",
         account=input_data.get("account"),
@@ -3131,6 +3483,7 @@ async def send_hubspot_single_send(input_data: dict) -> dict:
         custom_properties=input_data.get("custom_properties") or None,
         contact_properties=input_data.get("contact_properties") or None,
     )
+    return pick_result(res, ["id"])
 
 
 @action(
@@ -3169,7 +3522,7 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
 
 @action(
     name="upload_hubspot_file",
-    description="Upload a local file to the HubSpot file manager. 'access' controls visibility: PUBLIC_INDEXABLE / PUBLIC_NOT_INDEXABLE / HIDDEN / PRIVATE.",
+    description="Upload a local file to the HubSpot file manager. 'access' controls visibility: PUBLIC_INDEXABLE / PUBLIC_NOT_INDEXABLE / HIDDEN / PRIVATE. Returns only {id, url}.",
     action_sets=["hubspot_files"],
     input_schema={
         "file_path": {
@@ -3198,13 +3551,13 @@ async def get_hubspot_marketing_email_statistics(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id, url}."}},
     parallelizable=False,
 )
 async def upload_hubspot_file(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "upload_file",
         account=input_data.get("account"),
@@ -3213,6 +3566,7 @@ async def upload_hubspot_file(input_data: dict) -> dict:
         access=input_data.get("access", "PRIVATE"),
         overwrite=input_data.get("overwrite", False),
     )
+    return pick_result(res, ["id", "url"])
 
 
 @action(
@@ -3292,13 +3646,24 @@ async def delete_hubspot_file(input_data: dict) -> dict:
 async def list_hubspot_folders(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_folders",
         account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 # ==================================================================
@@ -3324,13 +3689,24 @@ async def list_hubspot_folders(input_data: dict) -> dict:
 async def list_hubspot_conversations(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_conversations",
         account=input_data.get("account"),
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
@@ -3385,7 +3761,7 @@ async def get_hubspot_conversation(input_data: dict) -> dict:
 async def list_hubspot_conversation_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_conversation_messages",
         account=input_data.get("account"),
@@ -3393,12 +3769,23 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
         limit=input_data.get("limit", 30),
         after=input_data.get("after") or None,
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="send_hubspot_conversation_message",
     irreversible=True,
-    description="Send a message into a conversation thread. Requires the channel + channel-account IDs from the thread metadata.",
+    description="Send a message into a conversation thread. Requires the channel + channel-account IDs from the thread metadata. Returns only {id}.",
     action_sets=["hubspot_conversations"],
     input_schema={
         "thread_id": {
@@ -3445,13 +3832,13 @@ async def list_hubspot_conversation_messages(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def send_hubspot_conversation_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "send_conversation_message",
         account=input_data.get("account"),
@@ -3462,6 +3849,7 @@ async def send_hubspot_conversation_message(input_data: dict) -> dict:
         recipients=input_data["recipients"],
         sender_actor_id=input_data.get("sender_actor_id") or None,
     )
+    return pick_result(res, ["id"])
 
 
 # ==================================================================
@@ -3490,17 +3878,28 @@ async def send_hubspot_conversation_message(input_data: dict) -> dict:
 async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "list_webhook_subscriptions",
         account=input_data.get("account"),
         app_id=input_data["app_id"],
     )
+    r = res.get("result")
+    if isinstance(r, dict):
+        for it in r.get("results") or []:
+            if isinstance(it, dict):
+                it.pop("archived", None)
+                it.pop("createdAt", None)
+                it.pop("updatedAt", None)
+        nxt = (r.get("paging") or {}).get("next")
+        if isinstance(nxt, dict):
+            nxt.pop("link", None)
+    return res
 
 
 @action(
     name="create_hubspot_webhook_subscription",
-    description="Subscribe a HubSpot App to an event type (e.g. contact.creation, contact.propertyChange).",
+    description="Subscribe a HubSpot App to an event type (e.g. contact.creation, contact.propertyChange). Returns only {id}.",
     action_sets=["hubspot_webhooks"],
     input_schema={
         "app_id": {
@@ -3529,13 +3928,13 @@ async def list_hubspot_webhook_subscriptions(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={"status": {"type": "string", "example": "success"}, "result": {"type": "object", "description": "Only {id}."}},
     parallelizable=False,
 )
 async def create_hubspot_webhook_subscription(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "hubspot",
         "create_webhook_subscription",
         account=input_data.get("account"),
@@ -3544,6 +3943,7 @@ async def create_hubspot_webhook_subscription(input_data: dict) -> dict:
         property_name=input_data.get("property_name") or None,
         active=input_data.get("active", True),
     )
+    return pick_result(res, ["id"])
 
 
 @action(

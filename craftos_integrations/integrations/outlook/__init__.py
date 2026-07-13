@@ -450,7 +450,11 @@ class OutlookClient(BasePlatformClient):
             transform=_shape,
         )
 
-    def get_email(self, message_id: str) -> Result:
+    def get_email(self, message_id: str, include_metadata: bool = True) -> Result:
+        """``include_metadata=False`` asks Graph for a plain-text body via the
+        ``Prefer: outlook.body-content-type="text"`` header; the default keeps
+        the historical HTML body for existing callers."""
+
         def _shape(msg):
             from_obj = msg.get("from", {}).get("emailAddress", {})
             to_list = [
@@ -466,10 +470,13 @@ class OutlookClient(BasePlatformClient):
                 "body": msg.get("body", {}).get("content", ""),
             }
 
+        headers = self._auth_header()
+        if not include_metadata:
+            headers["Prefer"] = 'outlook.body-content-type="text"'
         return http_request(
             "GET",
             f"{GRAPH_API_BASE}/me/messages/{message_id}",
-            headers=self._auth_header(),
+            headers=headers,
             params={
                 "$select": "id,from,toRecipients,subject,body,receivedDateTime,conversationId"
             },
@@ -507,7 +514,9 @@ class OutlookClient(BasePlatformClient):
             },
         )
 
-    def read_top_emails(self, n: int = 5, full_body: bool = False) -> Result:
+    def read_top_emails(
+        self, n: int = 5, full_body: bool = False, include_metadata: bool = True
+    ) -> Result:
         listing = self.list_emails(n=n, unread_only=False)
         if "error" in listing:
             return listing
@@ -516,7 +525,7 @@ class OutlookClient(BasePlatformClient):
             return {"ok": True, "result": emails_summary}
         detailed = []
         for e_info in emails_summary:
-            detail = self.get_email(e_info["id"])
+            detail = self.get_email(e_info["id"], include_metadata=include_metadata)
             detailed.append(
                 detail.get("result", e_info) if "error" not in detail else e_info
             )
