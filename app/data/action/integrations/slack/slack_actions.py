@@ -33,13 +33,19 @@ from agent_core import action
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "{channel, ts} of the posted message.",
+        },
+    },
     parallelizable=False,
 )
 async def send_slack_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client
+    from app.data.action.integrations._helpers import pick_result, run_client
 
-    return await run_client(
+    res = await run_client(
         "slack",
         "send_message",
         account=input_data.get("account"),
@@ -47,6 +53,7 @@ async def send_slack_message(input_data: dict) -> dict:
         text=input_data["text"],
         thread_ts=input_data.get("thread_ts"),
     )
+    return pick_result(res, ["channel", "ts"])
 
 
 @action(
@@ -80,13 +87,19 @@ async def send_slack_message(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "{channel, ts} of the edited message.",
+        },
+    },
     parallelizable=False,
 )
 def update_slack_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "update_message",
         account=input_data.get("account"),
@@ -95,6 +108,7 @@ def update_slack_message(input_data: dict) -> dict:
         text=input_data["text"] if "text" in input_data else None,
         blocks=input_data["blocks"] if "blocks" in input_data else None,
     )
+    return pick_result(res, ["channel", "ts"])
 
 
 @action(
@@ -162,13 +176,19 @@ def delete_slack_message(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "{message_ts} of the ephemeral message.",
+        },
+    },
     parallelizable=False,
 )
 def send_slack_ephemeral(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "post_ephemeral",
         account=input_data.get("account"),
@@ -178,6 +198,7 @@ def send_slack_ephemeral(input_data: dict) -> dict:
         blocks=input_data["blocks"] if "blocks" in input_data else None,
         thread_ts=input_data.get("thread_ts") or None,
     )
+    return pick_result(res, ["channel", "message_ts"])
 
 
 @action(
@@ -212,13 +233,19 @@ def send_slack_ephemeral(input_data: dict) -> dict:
             "example": "",
         },
     },
-    output_schema={"status": {"type": "string", "example": "success"}},
+    output_schema={
+        "status": {"type": "string", "example": "success"},
+        "result": {
+            "type": "object",
+            "description": "{scheduled_message_id, channel, post_at}.",
+        },
+    },
     parallelizable=False,
 )
 def schedule_slack_message(input_data: dict) -> dict:
-    from app.data.action.integrations._helpers import run_client_sync
+    from app.data.action.integrations._helpers import pick_result, run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "schedule_message",
         account=input_data.get("account"),
@@ -228,6 +255,7 @@ def schedule_slack_message(input_data: dict) -> dict:
         blocks=input_data["blocks"] if "blocks" in input_data else None,
         thread_ts=input_data.get("thread_ts") or None,
     )
+    return pick_result(res, ["scheduled_message_id", "channel", "post_at"])
 
 
 @action(
@@ -330,7 +358,7 @@ def get_slack_message_permalink(input_data: dict) -> dict:
 
 @action(
     name="get_slack_thread_replies",
-    description="Get all messages in a Slack thread (the parent + all replies).",
+    description="Get all messages in a Slack thread (the parent + all replies). Lean messages (user, text, ts, thread_ts, reply_count, reactions) by default; include_metadata=true returns full raw messages (blocks, team, bot_profile, ...).",
     action_sets=["slack_messages", "slack"],
     input_schema={
         "channel": {
@@ -349,13 +377,18 @@ def get_slack_message_permalink(input_data: dict) -> dict:
             "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean messages. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def get_slack_thread_replies(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "get_thread_replies",
         account=input_data.get("account"),
@@ -363,6 +396,36 @@ def get_slack_thread_replies(input_data: dict) -> dict:
         ts=input_data["ts"],
         limit=input_data.get("limit", 100),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _lean(m: dict) -> dict:
+        out = {"user": m.get("user"), "text": m.get("text"), "ts": m.get("ts")}
+        if m.get("thread_ts"):
+            out["thread_ts"] = m["thread_ts"]
+        if m.get("reply_count") is not None:
+            out["reply_count"] = m["reply_count"]
+        if m.get("subtype"):
+            out["subtype"] = m["subtype"]
+        if m.get("reactions"):
+            out["reactions"] = [
+                {"name": r.get("name"), "count": r.get("count")}
+                for r in m["reactions"]
+                if isinstance(r, dict)
+            ]
+        return out
+
+    lean = {
+        "messages": [
+            _lean(m) for m in body.get("messages", []) or [] if isinstance(m, dict)
+        ]
+    }
+    if body.get("has_more"):
+        lean["has_more"] = True
+    return {**res, "result": lean}
 
 
 # ----- Reactions -----
@@ -607,7 +670,7 @@ def list_slack_pins(input_data: dict) -> dict:
 
 @action(
     name="list_slack_channels",
-    description="List channels in the Slack workspace.",
+    description="List channels in the Slack workspace. Lean channels (id, name, is_private, is_archived, is_member, num_members, topic, purpose) by default; include_metadata=true returns full raw channel objects.",
     action_sets=["slack_conversations", "slack"],
     input_schema={
         "limit": {
@@ -620,6 +683,11 @@ def list_slack_pins(input_data: dict) -> dict:
             "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean channels. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -629,10 +697,41 @@ def list_slack_pins(input_data: dict) -> dict:
 def list_slack_channels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "list_channels",
+    res = run_client_sync(
+        "slack",
+        "list_channels",
         account=input_data.get("account"),
         limit=input_data.get("limit", 100),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _lean(c: dict) -> dict:
+        out = {
+            "id": c.get("id"),
+            "name": c.get("name"),
+            "is_private": c.get("is_private"),
+            "is_archived": c.get("is_archived"),
+            "num_members": c.get("num_members"),
+            "topic": (c.get("topic") or {}).get("value"),
+            "purpose": (c.get("purpose") or {}).get("value"),
+        }
+        if "is_member" in c:
+            out["is_member"] = c.get("is_member")
+        return out
+
+    lean = {
+        "channels": [
+            _lean(c) for c in body.get("channels", []) or [] if isinstance(c, dict)
+        ]
+    }
+    cursor = (body.get("response_metadata") or {}).get("next_cursor")
+    if cursor:
+        lean["next_cursor"] = cursor
+    return {**res, "result": lean}
 
 
 @action(
@@ -664,7 +763,7 @@ def get_slack_channel_info(input_data: dict) -> dict:
 
 @action(
     name="get_slack_channel_history",
-    description="Get message history from a Slack channel.",
+    description="Get message history from a Slack channel. Lean messages (user, text, ts, thread_ts, reply_count, reactions) by default; include_metadata=true returns full raw messages (blocks, team, bot_profile, ...).",
     action_sets=["slack_conversations", "slack"],
     input_schema={
         "channel": {
@@ -678,6 +777,11 @@ def get_slack_channel_info(input_data: dict) -> dict:
             "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean messages. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -687,13 +791,43 @@ def get_slack_channel_info(input_data: dict) -> dict:
 def get_slack_channel_history(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "get_channel_history",
         account=input_data.get("account"),
         channel=input_data["channel"],
         limit=input_data.get("limit", 50),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _lean(m: dict) -> dict:
+        out = {"user": m.get("user"), "text": m.get("text"), "ts": m.get("ts")}
+        if m.get("thread_ts"):
+            out["thread_ts"] = m["thread_ts"]
+        if m.get("reply_count") is not None:
+            out["reply_count"] = m["reply_count"]
+        if m.get("subtype"):
+            out["subtype"] = m["subtype"]
+        if m.get("reactions"):
+            out["reactions"] = [
+                {"name": r.get("name"), "count": r.get("count")}
+                for r in m["reactions"]
+                if isinstance(r, dict)
+            ]
+        return out
+
+    lean = {
+        "messages": [
+            _lean(m) for m in body.get("messages", []) or [] if isinstance(m, dict)
+        ]
+    }
+    if body.get("has_more"):
+        lean["has_more"] = True
+    return {**res, "result": lean}
 
 
 @action(
@@ -1128,7 +1262,7 @@ def upload_slack_file(input_data: dict) -> dict:
 
 @action(
     name="list_slack_files",
-    description="List files in the workspace (optionally filter by channel, user, or types like 'images,zips').",
+    description="List files in the workspace (optionally filter by channel, user, or types like 'images,zips'). Lean files (id, name, title, mimetype, size, created, user, permalink) by default; include_metadata=true returns full raw file objects (thumbnails, share info, ...).",
     action_sets=["slack_files", "slack"],
     input_schema={
         "channel": {
@@ -1153,13 +1287,18 @@ def upload_slack_file(input_data: dict) -> dict:
             "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean files. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def list_slack_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "list_files",
         account=input_data.get("account"),
@@ -1169,6 +1308,30 @@ def list_slack_files(input_data: dict) -> dict:
         count=input_data.get("count", 100),
         page=input_data.get("page", 1),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+    lean = {
+        "files": [
+            {
+                "id": f.get("id"),
+                "name": f.get("name"),
+                "title": f.get("title"),
+                "mimetype": f.get("mimetype"),
+                "size": f.get("size"),
+                "created": f.get("created"),
+                "user": f.get("user"),
+                "permalink": f.get("permalink"),
+            }
+            for f in body.get("files", []) or []
+            if isinstance(f, dict)
+        ]
+    }
+    if isinstance(body.get("paging"), dict):
+        lean["paging"] = body["paging"]
+    return {**res, "result": lean}
 
 
 @action(
@@ -1225,7 +1388,7 @@ def delete_slack_file(input_data: dict) -> dict:
 
 @action(
     name="list_slack_users",
-    description="List users in the Slack workspace.",
+    description="List users in the Slack workspace. Lean members (id, name, real_name, display_name, email, is_bot, is_admin, tz, deleted) by default; include_metadata=true returns full raw user objects (avatar URLs, full profile, ...).",
     action_sets=["slack_users", "slack"],
     input_schema={
         "limit": {
@@ -1238,6 +1401,11 @@ def delete_slack_file(input_data: dict) -> dict:
             "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean members. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={
         "status": {"type": "string", "example": "success"},
@@ -1247,10 +1415,43 @@ def delete_slack_file(input_data: dict) -> dict:
 def list_slack_users(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync("slack", "list_users",
+    res = run_client_sync(
+        "slack",
+        "list_users",
         account=input_data.get("account"),
         limit=input_data.get("limit", 100),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict):
+        return res
+
+    def _lean(m: dict) -> dict:
+        profile = m.get("profile") or {}
+        out = {
+            "id": m.get("id"),
+            "name": m.get("name"),
+            "real_name": m.get("real_name") or profile.get("real_name"),
+            "display_name": profile.get("display_name"),
+            "email": profile.get("email"),
+            "is_bot": m.get("is_bot"),
+            "tz": m.get("tz"),
+            "deleted": m.get("deleted"),
+        }
+        if "is_admin" in m:
+            out["is_admin"] = m.get("is_admin")
+        return out
+
+    lean = {
+        "members": [
+            _lean(m) for m in body.get("members", []) or [] if isinstance(m, dict)
+        ]
+    }
+    cursor = (body.get("response_metadata") or {}).get("next_cursor")
+    if cursor:
+        lean["next_cursor"] = cursor
+    return {**res, "result": lean}
 
 
 @action(
@@ -1666,7 +1867,7 @@ def get_slack_team_info(input_data: dict) -> dict:
 
 @action(
     name="search_slack_messages",
-    description="Search for messages in the Slack workspace (requires user token / search:read).",
+    description="Search for messages in the Slack workspace (requires user token / search:read). Lean matches (user, text, ts, channel {id, name}, permalink) by default; include_metadata=true returns full raw matches (blocks, score, pagination, ...).",
     action_sets=["slack_workspace", "slack"],
     input_schema={
         "query": {
@@ -1680,19 +1881,51 @@ def get_slack_team_info(input_data: dict) -> dict:
             "description": "Optional Slack workspace name/ID (or unique fragment, e.g. 'work'). Omit to use the primary workspace.",
             "example": "",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "description": "False (default): lean matches. True: full raw.",
+            "example": False,
+        },
     },
     output_schema={"status": {"type": "string", "example": "success"}},
 )
 def search_slack_messages(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
 
-    return run_client_sync(
+    res = run_client_sync(
         "slack",
         "search_messages",
         account=input_data.get("account"),
         query=input_data["query"],
         count=input_data.get("count", 20),
     )
+    if input_data.get("include_metadata") or res.get("status") != "success":
+        return res
+    body = res.get("result")
+    if not isinstance(body, dict) or not isinstance(body.get("messages"), dict):
+        return res
+    msgs = body["messages"]
+
+    def _lean(m: dict) -> dict:
+        ch = m.get("channel") or {}
+        out = {
+            "user": m.get("user"),
+            "text": m.get("text"),
+            "ts": m.get("ts"),
+            "channel": {"id": ch.get("id"), "name": ch.get("name")},
+            "permalink": m.get("permalink"),
+        }
+        if m.get("thread_ts"):
+            out["thread_ts"] = m["thread_ts"]
+        return out
+
+    lean = {
+        "total": msgs.get("total"),
+        "matches": [
+            _lean(m) for m in msgs.get("matches", []) or [] if isinstance(m, dict)
+        ],
+    }
+    return {**res, "result": lean}
 
 
 @action(
