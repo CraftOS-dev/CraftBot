@@ -83,11 +83,12 @@ class OutlookHandler(IntegrationHandler):
         userinfo_url="https://graph.microsoft.com/v1.0/me",
         scopes=OUTLOOK_SCOPES,
         use_pkce=True,
-        # ponytail: no select_account prompt — adding a 2nd Outlook account
-        # will silently re-auth whatever MS account is signed into the
-        # browser and overwrite the primary. Add "prompt": "select_account"
-        # back to extra_auth_params if that regresses.
-        extra_auth_params={"response_mode": "query"},
+        # select_account forces Microsoft's account chooser every time.
+        # Without it the OAuth popup silently reuses whichever Microsoft
+        # account is already signed into the system browser, so "add
+        # account" would just re-authenticate the primary and overwrite it
+        # instead of letting the user pick a second one.
+        extra_auth_params={"response_mode": "query", "prompt": "select_account"},
     )
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:

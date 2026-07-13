@@ -1,5 +1,5 @@
 ---
-version: 5
+version: 4
 purpose: agent operations manual
 ---
 
@@ -841,8 +841,6 @@ When you see that, the real content is in the file at `<path>`. Retrieve it the 
 ### find_files vs list_folder
 - `list_folder`: top-level listing of a single directory.
 - `find_files`: recursive name pattern search across a tree.
-- Searching for several related name variants (e.g. "craftbot" or "craftos")? Combine them into ONE `find_files` call with `|` or `OR` in `pattern` (e.g. `*craftbot*|*craftos*`) instead of issuing multiple parallel `find_files` calls for the same base_directory.
-- Searching multiple drives/roots (e.g. C: and D:)? Same rule applies: join them with `|` in `base_directory` (e.g. `C:/|D:/`), or pass `all_drives=true` to search every local fixed drive in one call — do not fire one `find_files` call per drive.
 
 ### convert_to_markdown vs read_pdf
 - `read_pdf`: direct PDF reading with page support. By default it returns just the text/tables (lean, to save context); pass `include_metadata=true` for page count and engine info, or `mode="layout"` when you need per-word positions for a spatial/edit task.
