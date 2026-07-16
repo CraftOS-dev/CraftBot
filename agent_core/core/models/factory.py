@@ -66,8 +66,19 @@ def _create_openai_client(
     api_key: str,
     base_url: Optional[str] = None,
     default_headers: Optional[dict] = None,
+    oauth_provider: Optional[str] = None,
 ):
-    """Create an OpenAI SDK client for OpenAI-compatible providers."""
+    """Create an OpenAI SDK client for OpenAI-compatible providers.
+
+    When ``oauth_provider`` is set, the client authenticates with that
+    provider's subscription OAuth bearer, re-resolved on every request.
+    Subscription access tokens expire within hours; a token baked in at
+    construction goes stale and every call starts failing with 400
+    ("The OAuth2 access token could not be validated") until the LLM is
+    manually reinitialized. The SDK evaluates ``auth_headers`` per request,
+    so resolving through ``tokens.get_bearer`` there picks up the
+    refresh-on-expiry contract that module already implements.
+    """
     try:
         from openai import OpenAI
     except ImportError as exc:
@@ -84,7 +95,45 @@ def _create_openai_client(
         kwargs["base_url"] = base_url
     if default_headers:
         kwargs["default_headers"] = default_headers
-    return OpenAI(**kwargs)
+    if oauth_provider is None:
+        return OpenAI(**kwargs)
+
+    class _SubscriptionOpenAI(OpenAI):
+        @property
+        def auth_headers(self) -> dict:
+            try:
+                from craftos_integrations.integrations.llm_oauth.tokens import (
+                    get_bearer,
+                )
+
+                bearer = get_bearer(oauth_provider)
+                if bearer is not None:
+                    # Keep the latest good token so the fallback below and
+                    # any SDK code reading ``api_key`` stay current.
+                    self.api_key = bearer[0]
+                else:
+                    # Credential removed mid-session (user disconnected the
+                    # subscription). The token we hold is dead — fail with
+                    # an actionable message instead of an opaque 400.
+                    raise RuntimeError(
+                        f"The {oauth_provider} subscription this model was "
+                        "using has been disconnected. Save your model "
+                        "settings (or reconnect the subscription) to switch "
+                        "to API-key auth."
+                    )
+            except RuntimeError:
+                # Credential exists but refresh failed (or was removed) —
+                # surface the actionable message instead of letting a stale
+                # token 400 with an opaque provider error.
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"[FACTORY] {oauth_provider} bearer re-resolve failed; "
+                    f"using last known token: {e}"
+                )
+            return {"Authorization": f"Bearer {self.api_key}"}
+
+    return _SubscriptionOpenAI(**kwargs)
 
 
 def _create_anthropic_client(*, api_key: str):
@@ -283,6 +332,7 @@ class ModelFactory:
                     api_key=access_token,
                     base_url=sub_base_url,
                     default_headers=extra_headers,
+                    oauth_provider=provider,
                 )
                 return {
                     "provider": provider,
@@ -406,6 +456,7 @@ class ModelFactory:
                         api_key=access_token,
                         base_url=sub_base_url or resolved_base_url,
                         default_headers=extra_headers,
+                        oauth_provider=provider,
                     ),
                     "gemini_client": None,
                     "remote_url": None,

@@ -5988,9 +5988,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return None
 
     async def _handle_model_subscription_disconnect(self, provider: str) -> None:
-        """Remove stored OAuth credentials for the given provider."""
+        """Remove stored OAuth credentials for the given provider.
+
+        If the disconnected provider is the active LLM, the live interface
+        still holds a client authenticated with the (now deleted) OAuth
+        bearer, so every call would keep failing with "The OAuth2 access
+        token could not be validated" until an app restart. Reinitialize so
+        the factory rebuilds the client — falling back to the stored API key
+        now that the subscription credential is gone.
+        """
         try:
             success, message = disconnect_subscription(provider)
+            warning = None
+            if success:
+                try:
+                    from app.ui_layer.settings.provider_settings import (
+                        get_current_provider,
+                    )
+
+                    if get_current_provider() == provider:
+                        self._controller.agent.reinitialize_llm(provider)
+                        logger.info(
+                            f"[BROWSER] LLM reinitialized with provider {provider} "
+                            "after subscription disconnect (API-key mode)"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[BROWSER] LLM reinit after {provider} subscription "
+                        f"disconnect failed: {e}"
+                    )
+                    warning = (
+                        "Subscription disconnected, but the model could not be "
+                        f"reinitialized: {e}"
+                    )
             await self._broadcast(
                 {
                     "type": "model_subscription_disconnect",
@@ -5998,6 +6028,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": success,
                         "provider": provider,
                         "message": message,
+                        "warning": warning,
                         "status": get_subscription_status(provider),
                     },
                 }

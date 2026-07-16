@@ -573,11 +573,13 @@ def _classify_anthropic(exc: Exception, provider: str) -> LLMErrorInfo:
 
 
 def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorInfo:
-    """httpx.HTTPStatusError — covers Gemini and BytePlus paths.
+    """httpx.HTTPStatusError — covers Gemini, BytePlus and connection-tester paths.
 
     Gemini body: {"error":{"code":400,"message":"...","status":"INVALID_ARGUMENT",
                   "details":[{"reason":"API_KEY_INVALID",...}]}}
     BytePlus body: {"error":{"code":"AuthenticationError","message":"..."}}
+    xAI body:      {"code":"invalid-argument","error":"Incorrect API key provided..."}
+                   (``error`` is a plain string, not an object)
     """
     if httpx is None:  # pragma: no cover
         return _fallback_unknown(exc, provider or "unknown")
@@ -587,10 +589,14 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
     text = response.text if response is not None else ""
     body_dict = _safe_json(text)
 
-    err = body_dict.get("error") if isinstance(body_dict.get("error"), dict) else {}
-    raw_message = (
-        err.get("message") if isinstance(err.get("message"), str) else str(exc)
-    )
+    error_field = body_dict.get("error")
+    err = error_field if isinstance(error_field, dict) else {}
+    if isinstance(error_field, str) and error_field.strip():
+        raw_message = error_field
+    elif isinstance(err.get("message"), str):
+        raw_message = err["message"]
+    else:
+        raw_message = str(exc)
 
     # Detect Gemini specifically by reason field
     reason: Optional[str] = None
@@ -615,6 +621,15 @@ def _classify_httpx_status(exc: Exception, provider: Optional[str]) -> LLMErrorI
         category = _category_from_status(status)
         # BytePlus encodes auth errors via err.code = "AuthenticationError"
         if isinstance(err.get("code"), str) and "auth" in err["code"].lower():
+            category = ErrorCategory.AUTH
+        # xAI (Grok) returns 400 — not 401 — for rejected bearers; sniff the
+        # body the same way the OpenAI-SDK path does for BadRequestError.
+        lower = raw_message.lower()
+        if status == 400 and (
+            "api key" in lower
+            or "api_key" in lower
+            or "access token" in lower
+        ):
             category = ErrorCategory.AUTH
 
     retry_after = None

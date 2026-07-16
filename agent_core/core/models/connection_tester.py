@@ -703,8 +703,18 @@ def _test_grok(
         if response.status_code == 200:
             return _success("grok", model)
         if response.status_code in (400, 422) and model is None:
-            # Hardcoded test model probably hit a tier restriction; auth still OK.
-            return _success("grok", None)
+            # Hardcoded test model probably hit a tier restriction; auth still
+            # OK — but xAI returns 400 (not 401) for rejected bearers too
+            # ({"code":"invalid-argument","error":"Incorrect API key
+            # provided..."}), so only call it a success when the body isn't
+            # complaining about credentials.
+            lower = response.text.lower()
+            if not (
+                "api key" in lower
+                or "api_key" in lower
+                or "access token" in lower
+            ):
+                return _success("grok", None)
         response.raise_for_status()
         return {
             "success": False,
