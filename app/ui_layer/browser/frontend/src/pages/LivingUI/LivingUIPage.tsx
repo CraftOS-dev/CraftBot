@@ -74,6 +74,7 @@ export function LivingUIPage() {
   const { theme: appTheme } = useTheme()
   const dispatch = useAppDispatch()
   const pendingQuestions = useAppSelector(selectLivingUiPendingQuestions)
+  const SHOW_CHAT_STORAGE_KEY = 'craftbot-living-ui-show-chat'
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
@@ -83,7 +84,14 @@ export function LivingUIPage() {
   const [livingUICustomColors, setLivingUICustomColors] = useState<LivingUICustomColors>(
     () => (projectId ? loadLivingUICustomColors(projectId) : { ...DEFAULT_CUSTOM_COLORS })
   )
-  const [showChat, setShowChat] = useState(true)
+  // const [showChat, setShowChat] = useState(true)
+  const [showChat, setShowChat] = useState(()=> {
+    const stored = localStorage.getItem(SHOW_CHAT_STORAGE_KEY) 
+      if (stored == null) {
+        return true
+      }
+    return stored === 'true'
+  })
   const [panelWidth, setPanelWidth] = useState(350)
   const [mobileChatRatio, setMobileChatRatio] = useState(0.4)
   const [isMobile, setIsMobile] = useState(
@@ -92,6 +100,13 @@ export function LivingUIPage() {
   const [isResizing, setIsResizing] = useState(false)
   const iframePlaceholderRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    localStorage.setItem(
+      SHOW_CHAT_STORAGE_KEY,
+      showChat.toString()
+    )
+  }, [showChat])
 
   // Track viewport width for mobile/desktop layout switch
   useEffect(() => {

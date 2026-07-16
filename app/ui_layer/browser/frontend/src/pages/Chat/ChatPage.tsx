@@ -14,6 +14,12 @@ const DEFAULT_PANEL_WIDTH = 460
 const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 800
 
+
+const PANEL_WIDTH_STORAGE_KEY = 'craftbot-chat-panel-width'
+
+const clampPanelWidth = (width: number) =>
+  Math.min(Math.max(width, MIN_PANEL_WIDTH), MAX_PANEL_WIDTH)
+
 export function ChatPage() {
   const {
     actions,
@@ -45,9 +51,22 @@ export function ChatPage() {
   }, [messages])
 
   // Resizable panel state
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
+  const [panelWidth, setPanelWidth] = useState(()=> {
+      const stored = localStorage.getItem(PANEL_WIDTH_STORAGE_KEY)
+      if(stored == null) {
+          return DEFAULT_PANEL_WIDTH 
+      }
+      const width = Number(stored)
+      if (Number.isNaN(width)) {
+        return DEFAULT_PANEL_WIDTH
+      }
+      return clampPanelWidth(width)
+  })
+  
   const [isResizing, setIsResizing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const panelWidthRef = useRef(panelWidth)
+
 
   // Handle resize drag
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -56,17 +75,27 @@ export function ChatPage() {
   }, [])
 
   useEffect(() => {
+    panelWidthRef.current = panelWidth
+    
+  }, [panelWidth])
+
+  useEffect(() => {
     if (!isResizing) return
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return
       const containerRect = containerRef.current.getBoundingClientRect()
       const newWidth = containerRect.right - e.clientX
-      const clampedWidth = Math.min(Math.max(newWidth, MIN_PANEL_WIDTH), MAX_PANEL_WIDTH)
+      const clampedWidth = clampPanelWidth(newWidth)
       setPanelWidth(clampedWidth)
     }
 
     const handleMouseUp = () => {
+       localStorage.setItem(
+        PANEL_WIDTH_STORAGE_KEY,
+        panelWidthRef.current.toString()
+      )
+
       setIsResizing(false)
     }
 
