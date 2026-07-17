@@ -8,8 +8,8 @@ import type { SlashCommandAutocompleteHandle } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { selectPendingPrefill } from '../../store/selectors/chatInput'
-import { clearPendingPrefill } from '../../store/slices/chatInputSlice'
+import { selectPendingPrefill, selectDraftText } from '../../store/selectors/chatInput'
+import { clearPendingPrefill, setDraftText, clearDraftText } from '../../store/slices/chatInputSlice'
 import styles from './Chat.module.css'
 
 // Pending attachment type
@@ -132,9 +132,16 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     return messages.slice().sort((a, b) => a.timestamp - b.timestamp)
   }, [messages])
 
-  const [input, setInput] = useState('')
-  const [enhancing, setEnhancing] = useState(false)
   const dispatch = useAppDispatch()
+  const draftKey = livingUIId ?? 'main'
+  const input = useAppSelector(selectDraftText(draftKey))
+  const inputValueRef = useRef(input)
+  inputValueRef.current = input
+  const setInput = useCallback((value: string | ((prev: string) => string)) => {
+    const resolved = typeof value === 'function' ? (value as (prev: string) => string)(inputValueRef.current) : value
+    dispatch(setDraftText({ key: draftKey, text: resolved }))
+  }, [dispatch, draftKey])
+  const [enhancing, setEnhancing] = useState(false)
   const pendingPrefill = useAppSelector(selectPendingPrefill)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -290,6 +297,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   // Consume a one-shot prefill payload from the chatInput slice (e.g. when the
   // user picks a playbook). Replaces the current input so the prompt is ready
   // to send or edit, then clears the payload so it doesn't re-apply.
+  // Deliberately overwrites any persisted draftText — an explicit prefill
+  // action takes precedence.
   useEffect(() => {
     if (pendingPrefill === null) return
     setInput(pendingPrefill)
@@ -438,7 +447,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       if (!connected) {
         showToast('info', 'Reconnecting — your message will send when the connection is restored.')
       }
-      setInput('')
+      dispatch(clearDraftText(draftKey))
       setPendingAttachments([])
       setAttachmentError(null)
       clearReplyTarget()

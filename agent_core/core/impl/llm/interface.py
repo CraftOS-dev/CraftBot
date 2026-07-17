@@ -1710,11 +1710,21 @@ class LLMInterface:
             cached_tokens,
         )
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or "",
-            "cached_tokens": cached_tokens or 0,
-        }
+        result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens or 0}
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
+            result["content"] = ""
+            logger.error(f"[BYTEPLUS_SESSION_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
 
     # ───────────────────── Provider‑specific private helpers ─────────────────────
     @profile("llm_openai_call", OperationCategory.LLM)
@@ -2331,11 +2341,21 @@ class LLMInterface:
             cached_tokens or 0,
         )
 
-        return {
-            "tokens_used": total_tokens or 0,
-            "content": content or "",
-            "cached_tokens": cached_tokens or 0,
-        }
+        result = {"tokens_used": total_tokens or 0, "cached_tokens": cached_tokens or 0}
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result["error"] = error_str
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
+            result["content"] = ""
+            logger.error(f"[BYTEPLUS_PREFIX_CACHE_ERROR] {error_str}")
+        else:
+            result["content"] = content or ""
+        return result
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.
