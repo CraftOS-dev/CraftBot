@@ -353,10 +353,17 @@ def shell_exec_windows(input_data: dict) -> dict:
             command,
         ]
     else:
-        # Use /d and /s to ensure quoted commands (e.g., paths with spaces) are handled consistently.
-        args = ["cmd.exe", "/d", "/s", "/c", command]
+        # cmd.exe's own /C parser uses bespoke quote-stripping that does not
+        # understand the backslash-escaped quotes Python's list2cmdline()
+        # produces when a list is passed to Popen. That mismatch corrupts any
+        # command containing an embedded quoted argument (e.g. `foo -p "..."`)
+        # with stray literal quote characters. Invoke via shell=True below
+        # instead, passing this raw string so Python's own shell path drives
+        # cmd.exe without the extra escaping layer.
+        args = command
 
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    use_shell = shell_choice == "cmd"
 
     # Background mode: start process and return immediately
     if background:
@@ -365,6 +372,7 @@ def shell_exec_windows(input_data: dict) -> dict:
             bg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
             process = subprocess.Popen(
                 args,
+                shell=use_shell,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
@@ -396,6 +404,7 @@ def shell_exec_windows(input_data: dict) -> dict:
         fg_flags = creation_flags | subprocess.CREATE_NEW_PROCESS_GROUP
         process = subprocess.Popen(
             args,
+            shell=use_shell,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
