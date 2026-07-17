@@ -357,13 +357,18 @@ export function ModelSettings() {
     return () => cleanups.forEach(cleanup => cleanup())
   }, [isConnected, onMessage, send, dispatch, testBeforeSave, provider, newApiKey, newBaseUrl, baseUrls, selectedPullModel, currentLlmModel, currentVlmModel, showToast, newAwsAccessKeyId, newAwsSecretAccessKey, newAwsSessionToken, newAwsRegion, newLlmModel, newVlmModel])
 
-  // Load initial data only once when connected, cached across remounts.
+  // Load initial data when connected. Providers/slow-mode are cached across
+  // remounts, but settings are ALWAYS refetched: the page must show what's
+  // actually saved. With the old load-once cache, a tab that outlived a
+  // backend restart (the socket reconnects without a page reload) kept
+  // rendering stale Redux state, so the model field showed the registry
+  // default instead of the user's saved model.
   useEffect(() => {
     if (!isConnected) return
     if (!hasLoadedProviders) send('model_providers_get')
-    if (!hasLoadedSettings) send('model_settings_get')
+    send('model_settings_get')
     if (!hasLoadedSlowMode) send('slow_mode_get')
-  }, [isConnected, send, hasLoadedProviders, hasLoadedSettings, hasLoadedSlowMode])
+  }, [isConnected, send, hasLoadedProviders, hasLoadedSlowMode])
 
   // Fetch Ollama models whenever the active provider is 'remote'
   useEffect(() => {

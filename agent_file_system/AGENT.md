@@ -1780,7 +1780,7 @@ memory:
 model:
   llm_provider: "openai" | "anthropic" | "google" | "byteplus" | "remote"
   vlm_provider: same options
-  llm_model: string | null       (null = provider default; e.g. "claude-sonnet-4-5-20250929")
+  llm_model: string | null       (null = provider default; e.g. "claude-sonnet-4-6")
   vlm_model: string | null
   slow_mode: bool                (true throttles requests for rate-limited providers)
   slow_mode_tpm_limit: int       (tokens per minute when slow_mode is true)
@@ -1978,7 +1978,7 @@ Switch LLM provider:
 read_file app/config/settings.json
 stream_edit app/config/settings.json
    model.llm_provider: "openai" → "anthropic"
-   model.llm_model: "<old>"     → "claude-sonnet-4-5-20250929"
+   model.llm_model: "<old>"     → "claude-sonnet-4-6"
 api_keys.anthropic must be set or the next LLM call fails (see ## Models).
 ```
 
@@ -2868,7 +2868,7 @@ From [MODEL_REGISTRY](agent_core/core/models/model_registry.py):
 provider     LLM default model            VLM default model           EMBEDDING default        notes
 ─────────    ──────────────────────       ──────────────────────      ──────────────────────   ─────────────────────────────
 openai       gpt-5.2-2025-12-11           gpt-5.2-2025-12-11          text-embedding-3-small   OpenAI-hosted
-anthropic    claude-sonnet-4-5-20250929   claude-sonnet-4-5-20250929  (none — no embedding)    Claude models
+anthropic    claude-sonnet-4-6   claude-sonnet-4-6  (none — no embedding)    Claude models
 gemini       gemini-2.5-pro               gemini-2.5-pro              text-embedding-004       Google Gemini
 byteplus     seed-2-0-pro-260328          seed-2-0-pro-260328         skylark-embedding-...    BytePlus-hosted
 remote       llama3.2:3b                  llava:7b                    nomic-embed-text         Ollama or OpenAI-compat
