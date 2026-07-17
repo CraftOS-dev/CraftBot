@@ -1,141 +1,115 @@
-/**
- * Invite Modal — create and share invite links for a resource.
- *
- * Copy this file into your project's frontend/components/auth/ directory.
- *
- * Usage:
- *   import { InviteModal } from './components/auth/InviteModal'
- *   <InviteModal
- *     resourceType="project"
- *     resourceId={project.id}
- *     isOpen={showInvite}
- *     onClose={() => setShowInvite(false)}
- *   />
- */
-
+/** InviteModal — create a shareable invite code, or join with one. */
 import { useState } from 'react'
-import { Button, Input, Alert, Modal } from '../ui'
-import { authService } from '../../services/AuthService'
+import { pb } from '@/lib/pb'
+import { ApiService } from '@/services/ApiService'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { useAuth } from './AuthProvider'
 
-interface InviteModalProps {
-  resourceType: string
-  resourceId: number
-  isOpen: boolean
-  onClose: () => void
+function randomCode(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(6)))
+    .map((b) => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31])
+    .join('')
 }
 
-export function InviteModal({ resourceType, resourceId, isOpen, onClose }: InviteModalProps) {
-  const [inviteCode, setInviteCode] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [copied, setCopied] = useState(false)
-
-  // Accept invite state
+export function InviteModal({
+  resourceType,
+  resourceId,
+  open,
+  onOpenChange,
+}: {
+  resourceType: string
+  resourceId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { user } = useAuth()
+  const [createdCode, setCreatedCode] = useState('')
   const [joinCode, setJoinCode] = useState('')
-  const [joining, setJoining] = useState(false)
-  const [joinSuccess, setJoinSuccess] = useState(false)
+  const [status, setStatus] = useState('')
 
-  const handleCreateInvite = async () => {
-    setLoading(true)
-    setError('')
+  const createInvite = async () => {
+    if (!user) return
+    const code = randomCode()
+    await pb.collection('invites').create({
+      code,
+      resourceType,
+      resourceId,
+      role: 'member',
+      createdBy: user.id,
+    })
+    setCreatedCode(code)
+  }
+
+  const acceptInvite = async () => {
+    setStatus('')
     try {
-      const invite = await authService.createInvite(resourceType, resourceId)
-      setInviteCode(invite.code)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create invite')
-    } finally {
-      setLoading(false)
+      const result = await ApiService.request<{ status: string }>(
+        'POST',
+        '/custom/invites/accept',
+        { code: joinCode.trim() },
+      )
+      setStatus(
+        result.status === 'already-member' ? 'Already a member' : 'Joined!',
+      )
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'Could not join')
     }
   }
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(inviteCode)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const handleJoin = async () => {
-    if (!joinCode.trim()) return
-    setJoining(true)
-    setError('')
-    try {
-      await authService.acceptInvite(joinCode.trim())
-      setJoinSuccess(true)
-      setTimeout(() => { onClose(); setJoinSuccess(false); setJoinCode('') }, 1500)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid invite code')
-    } finally {
-      setJoining(false)
-    }
-  }
-
-  const handleClose = () => {
-    setInviteCode('')
-    setError('')
-    setCopied(false)
-    setJoinCode('')
-    setJoinSuccess(false)
-    onClose()
-  }
-
-  if (!isOpen) return null
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Invite & Join">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        {error && <Alert variant="error">{error}</Alert>}
-
-        {/* Create Invite Section */}
-        <div>
-          <h4 style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-2)', color: 'var(--text-primary)' }}>
-            Create Invite Link
-          </h4>
-          {inviteCode ? (
-            <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-              <Input value={inviteCode} readOnly style={{ flex: 1, fontFamily: 'monospace', fontSize: 'var(--text-sm)' }} />
-              <Button size="sm" variant={copied ? 'primary' : 'secondary'} onClick={handleCopy}>
-                {copied ? 'Copied!' : 'Copy'}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Invite people</DialogTitle>
+          <DialogDescription>
+            Share a code, or join with one you received.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Create an invite</Label>
+            {createdCode ? (
+              <p className="rounded-md border p-2 font-mono text-sm">
+                {createdCode}
+              </p>
+            ) : (
+              <Button onClick={() => void createInvite()}>
+                Generate code
               </Button>
-            </div>
-          ) : (
-            <Button variant="primary" onClick={handleCreateInvite} loading={loading} fullWidth>
-              Generate Invite Code
-            </Button>
-          )}
-          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', margin: 'var(--space-1) 0 0' }}>
-            Share this code with others so they can join.
-          </p>
-        </div>
-
-        {/* Divider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
-          <div style={{ flex: 1, height: 1, background: 'var(--border-primary)' }} />
-          <span>or</span>
-          <div style={{ flex: 1, height: 1, background: 'var(--border-primary)' }} />
-        </div>
-
-        {/* Join Section */}
-        <div>
-          <h4 style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-2)', color: 'var(--text-primary)' }}>
-            Join with Code
-          </h4>
-          {joinSuccess ? (
-            <Alert variant="success">Joined successfully!</Alert>
-          ) : (
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-join-code">Join with a code</Label>
+            <div className="flex gap-2">
               <Input
+                id="invite-join-code"
                 value={joinCode}
-                onChange={e => setJoinCode(e.target.value)}
-                placeholder="Paste invite code"
-                style={{ flex: 1 }}
+                onChange={(e) => setJoinCode(e.target.value)}
+                placeholder="e.g. x7k2mp"
               />
-              <Button variant="primary" onClick={handleJoin} loading={joining} disabled={!joinCode.trim()}>
+              <Button
+                variant="secondary"
+                disabled={!joinCode.trim()}
+                onClick={() => void acceptInvite()}
+              >
                 Join
               </Button>
             </div>
-          )}
+            {status && (
+              <p className="text-sm text-muted-foreground">{status}</p>
+            )}
+          </div>
         </div>
-      </div>
-    </Modal>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -20,9 +20,10 @@ Key isolation properties:
 Only ``result`` is fed back to the spawning agent as the action output.
 
 Per-type configuration (system prompt, allowed actions, runtime caps) is
-defined one file per type under :mod:`app.subagent.definitions`. Importing
-this package triggers all those modules to register themselves with
-:mod:`app.subagent.registry`.
+defined one file per type, living with the WORKFLOW that owns it:
+``app/workflows/<domain>/subagents/*.py`` (cross-domain ones under
+``app/workflows/common/subagents/``). Importing this package triggers all
+those modules to register themselves with :mod:`app.subagent.registry`.
 """
 
 from app.subagent.types import (
@@ -39,10 +40,12 @@ from app.subagent.registry import (
     is_subagent_registered,
 )
 
-# Importing the definitions package runs each definition module, which
-# calls ``register_subagent`` at module-import time. After this point,
-# ``list_subagent_names()`` returns every registered type.
-from app.subagent import definitions  # noqa: F401
+# Registration trigger: importing the workflow packages runs each
+# definition module, which calls ``register_subagent`` at import time —
+# BEFORE the action registry builds ``spawn_subagent``'s type enum. After
+# this point, ``list_subagent_names()`` returns every registered type.
+from app.workflows.common.subagents import research_agent  # noqa: F401
+from app.workflows import living_ui  # noqa: F401
 
 from app.subagent.manager import SubAgentManager
 from app.subagent.context_engine import SubAgentContextEngine, SUBAGENT_OUTPUT_FORMAT

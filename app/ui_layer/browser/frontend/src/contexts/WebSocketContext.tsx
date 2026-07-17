@@ -345,17 +345,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
-      case 'living_ui_ui_command': {
-        // Agent → running app: forwarded into the iframe as a
-        // craftbot-agent-command postMessage (handled by the template's
-        // useAgentCommand hook — navigate, refresh a panel, highlight, ...).
-        const { projectId, command } = msg.data as { projectId: string; command: unknown }
-        if (projectId && command) {
-          postMessageToIframe(projectId, { type: 'craftbot-agent-command', command })
-        }
-        break
-      }
-
       case 'navigate': {
         const { path } = (msg.data || {}) as { path?: string }
         if (path) navigateRef.current(path)

@@ -1,16 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-SubAgentRunner — minimal action loop for one sub-agent.
+SubAgentRunner — the sub-agent DRIVER on the shared agentic loop.
 
-This is intentionally NOT a thin wrapper around the main agent's
-``react()`` loop. Sub-agents don't need todo planning, memory pulls,
-conversation routing, GUI workflows, or proactive handling. They need:
+The runner IS the same loop as the main agent's task turns: it subclasses
+:class:`app.agentic.loop.AgentLoop` (the one turn skeleton — step-program
+consult → code step | directive → LLM turn) and its LLM turn delegates the
+decide phase to the shared TurnEngine (:mod:`app.agentic.engine`). What
+lives HERE is only sub-agent policy — no memory pulls, conversation
+routing, GUI workflows, or proactive handling; instead: the blocking
+outer loop, iteration/wall caps, capped ordered batch dispatch, and exit
+gates on ``sub_task_end``. The shape:
 
-    while not terminal:
-        prompt = type-specific system prompt + query + own event log
-        decision = LLM(prompt) → {action_name, parameters}
-        if action_name not in compiled_actions: skip with warning
-        action_manager.execute_action(action, ..., session_id=sub.id)
+    while not terminal:                       # this driver
+        run_turn(sub):                        # AgentLoop skeleton
+            step = type's step program?       # code may decide the turn
+            decision = engine.decide(...)     # shared decide phase
+            for each action (max 4, ordered):
+                if action_name not in compiled_actions: skip with warning
+                action_manager.execute_action(action, ..., session_id=sub.id)
 
 The runner relies on existing primitives for execution and logging:
 
@@ -41,12 +48,11 @@ Resource cleanup:
 
 from __future__ import annotations
 
-import ast
-import json
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from agent_core.core.impl.llm import LLMCallType, LLMConsecutiveFailureError
+from app.agentic.loop import AgentLoop
 from app.logger import logger
 from app.subagent.context_engine import SubAgentContextEngine
 from app.subagent.registry import get_subagent_definition
@@ -63,13 +69,25 @@ if TYPE_CHECKING:
 # Max LLM format-error retries per turn before the runner aborts the sub-agent.
 _MAX_PARSE_RETRIES = 3
 
+# Max actions executed from a single decision turn. Mirrors the main agent's
+# decision batches: independent steps (reads, todo update + write) run in one
+# turn instead of one LLM round-trip each. Anything past the cap is dropped
+# with a stream note so the model re-plans instead of silently losing work.
+_MAX_ACTIONS_PER_TURN = 4
+
 # Sub-agents only ever do action selection — never GUI or reasoning calls —
 # so a single call type covers their entire lifetime.
 _SUBAGENT_CALL_TYPE = LLMCallType.ACTION_SELECTION
 
 
-class SubAgentRunner:
-    """Drives a single sub-agent to a terminal state."""
+class SubAgentRunner(AgentLoop):
+    """Drives a single sub-agent to a terminal state.
+
+    The turn skeleton (step-program consult → code step | directive →
+    LLM turn) is inherited from :class:`app.agentic.loop.AgentLoop`;
+    this class contributes the sub-agent POLICY: the blocking outer
+    loop, iteration/wall caps, capped ordered batch dispatch, exit
+    gates (via sub_task_end), and fatal-LLM handling."""
 
     def __init__(
         self,
@@ -88,6 +106,9 @@ class SubAgentRunner:
             action_library=action_library,
             event_stream_manager=event_stream_manager,
         )
+        # System prompts are stable for a sub-agent's whole lifetime; built
+        # once in _register_session, reused every turn, dropped on release.
+        self._system_prompt_cache: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Public entrypoint
@@ -127,7 +148,14 @@ class SubAgentRunner:
                 sub.iterations += 1
 
                 if sub.iterations > max_iter:
-                    self._terminate_at_iteration_cap(sub, max_iter)
+                    # GRACE TURN before the guillotine: one final forced
+                    # wrap-up so the run's observations become a report
+                    # instead of being discarded (a walk that burned 50
+                    # turns used to die with a generic epitaph and the
+                    # check learned NOTHING).
+                    await self._final_wrapup_turn(sub)
+                    if not sub.is_terminal():
+                        self._terminate_at_iteration_cap(sub, max_iter)
                     break
                 if time.monotonic() > deadline:
                     self._terminate_at_wall_clock(sub, max_wall)
@@ -146,6 +174,7 @@ class SubAgentRunner:
             # returns; that log must still find the child's stream. We swallow
             # release errors so a cleanup crash doesn't mask the original
             # exception (if any) propagating out of the try block.
+            self._system_prompt_cache.pop(sub.id, None)
             try:
                 self.subagent_manager.release(sub.id)
             except Exception as e:
@@ -154,6 +183,50 @@ class SubAgentRunner:
     # ------------------------------------------------------------------
     # Termination helpers (iteration cap / wall-clock cap)
     # ------------------------------------------------------------------
+
+    _WRAPUP_DIRECTIVE = (
+        "YOUR TURN BUDGET IS EXHAUSTED. This is your FINAL turn: call "
+        "sub_task_end NOW (alone, no other action) with an HONEST report of "
+        "what you actually did and observed. Verification agents: report "
+        "your VERDICT with per-feature results for everything you actually "
+        "checked, and list features you did not get to as 'NOT REACHED: "
+        "<feature>' — never report an unvisited feature as FAIL. Builders: "
+        "report exactly what is BUILT/working vs REMAINING. If your work is "
+        'incomplete, use status="failed" — an honest partial report is '
+        "valuable; silence is not."
+    )
+
+    async def _final_wrapup_turn(self, sub: SubAgent) -> None:
+        """One forced report-and-end turn at the iteration cap. Fail-open:
+        any error (including a dead LLM) falls through to the normal cap
+        termination."""
+        try:
+            logger.info(
+                f"[SubAgentRunner] {sub.id} at iteration cap — forcing a "
+                "final wrap-up turn"
+            )
+            actions, parse_error = await self._ask_llm_for_decision(
+                sub, turn_directive=self._WRAPUP_DIRECTIVE
+            )
+            if actions:
+                # Only honor the terminal action — the budget is spent.
+                terminal = [
+                    a for a in actions if a.get("action_name") == "sub_task_end"
+                ]
+                if terminal:
+                    await self._dispatch_batch(sub, terminal[:1])
+                else:
+                    logger.warning(
+                        f"[SubAgentRunner] {sub.id} wrap-up turn chose "
+                        "non-terminal actions — ignoring"
+                    )
+            elif parse_error:
+                logger.warning(
+                    f"[SubAgentRunner] {sub.id} wrap-up turn unparseable: "
+                    f"{parse_error}"
+                )
+        except Exception as e:
+            logger.warning(f"[SubAgentRunner] {sub.id} wrap-up turn failed: {e}")
 
     def _terminate_at_iteration_cap(self, sub: SubAgent, cap: int) -> None:
         logger.warning(
@@ -200,7 +273,7 @@ class SubAgentRunner:
         catches it.
         """
         try:
-            await self._run_one_step(sub)
+            await self.run_turn(sub)
         except LLMConsecutiveFailureError as e:
             # Fatal LLM failure (out-of-credits, auth, repeated provider
             # errors). Retrying can't help, so end the sub-agent now with the
@@ -219,10 +292,15 @@ class SubAgentRunner:
                 severity="ERROR",
                 task_id=sub.id,
             )
+            from app.agentic.engine import INFRA_LLM_MARKER
+
             self.subagent_manager.end(
                 sub.id,
                 status="failed",
-                result=f"(sub-agent aborted — LLM unavailable: {cause})",
+                result=(
+                    f"{INFRA_LLM_MARKER} sub-agent aborted — LLM "
+                    f"unavailable: {cause}"
+                ),
             )
         except Exception as e:
             logger.exception(
@@ -235,12 +313,49 @@ class SubAgentRunner:
                 task_id=sub.id,
             )
 
-    async def _run_one_step(self, sub: SubAgent) -> None:
-        decision, parse_error = await self._ask_llm_for_decision(sub)
-        if decision is None:
+    # ------------------------------------------------------------------
+    # AgentLoop hooks — the turn skeleton itself lives in the base class
+    # (app/agentic/loop.py); this driver contributes only its policy.
+    # Sub-agents are data-only (no step program): every turn is an LLM turn.
+    # ------------------------------------------------------------------
+
+    async def llm_turn(
+        self, sub: SubAgent, directive: Optional[str], step: Optional[Dict[str, Any]]
+    ) -> None:
+        actions, parse_error = await self._ask_llm_for_decision(
+            sub, turn_directive=directive
+        )
+        if actions is None:
             self._fail_unparseable(sub, parse_error)
             return
-        await self._dispatch_action(sub, decision)
+        await self._dispatch_batch(sub, actions)
+
+    async def _dispatch_batch(
+        self, sub: SubAgent, actions: List[Dict[str, Any]]
+    ) -> None:
+        """Cap the batch, then execute strictly in order — same semantics
+        as the main agent's decision batches. Stop as soon as the
+        sub-agent turns terminal (sub_task_end accepted); the model sees
+        each action's result in its event log next turn."""
+        if len(actions) > _MAX_ACTIONS_PER_TURN:
+            dropped = [
+                a.get("action_name", "?") for a in actions[_MAX_ACTIONS_PER_TURN:]
+            ]
+            self.event_stream_manager.log(
+                kind="action_blocked",
+                message=(
+                    f"Turn batch too large: only the first "
+                    f"{_MAX_ACTIONS_PER_TURN} actions ran; dropped {dropped}. "
+                    "Re-issue the dropped actions next turn."
+                ),
+                task_id=sub.id,
+            )
+            actions = actions[:_MAX_ACTIONS_PER_TURN]
+
+        for decision in actions:
+            if sub.is_terminal():
+                break
+            await self._dispatch_action(sub, decision)
 
     def _fail_unparseable(self, sub: SubAgent, parse_error: Optional[str]) -> None:
         self.event_stream_manager.log(
@@ -296,10 +411,26 @@ class SubAgentRunner:
             )
             return
 
+        # Track files this agent writes — exit checks (build_passes) locate
+        # the project to verify from exactly these.
+        if action_name in ("write_file", "stream_edit"):
+            file_path = str(parameters.get("file_path", "") or "")
+            if file_path and file_path not in sub.written_files:
+                sub.written_files.append(file_path)
+        # Track every action name — exit checks can require real work (e.g. a
+        # coding agent must have actually driven the browser before "done").
+        sub.actions_run.append(action_name)
+
+        # Definition-pinned parameters win over whatever the model asked for
+        # (see SubAgentDefinition.param_overrides).
+        forced = get_subagent_definition(sub.agent_type).overrides_for(action_name)
+        if forced:
+            parameters = {**parameters, **forced}
+
         # ActionManager handles action_start/action_end logging to the child
         # stream, error capture, and idempotency. We pass session_id=sub.id
         # so every log routes to the child's per-id stream.
-        await self.action_manager.execute_action(
+        outputs = await self.action_manager.execute_action(
             action=action,
             context="",
             event_stream="",
@@ -308,6 +439,15 @@ class SubAgentRunner:
             is_gui_task=False,
             input_data=parameters,
         )
+        # Record failures alongside attempts: an exit check can then tell a
+        # tool that is DEAD (attempted, never once succeeded → fail open) from
+        # an agent that never tried (→ refuse). Never let this bookkeeping
+        # break the action itself.
+        try:
+            if isinstance(outputs, dict) and outputs.get("status") == "error":
+                sub.actions_failed.append(action_name)
+        except Exception:  # pragma: no cover — bookkeeping must never throw
+            pass
 
     # ------------------------------------------------------------------
     # Session-cache management
@@ -327,182 +467,83 @@ class SubAgentRunner:
         harmless (just overwrites the stored prompt) but wasteful.
         """
         system_prompt = self.context_engine.make_system_prompt(sub)
+        self._system_prompt_cache[sub.id] = system_prompt
         self.llm_interface.create_session_cache(
             sub.id, _SUBAGENT_CALL_TYPE, system_prompt
         )
 
-    def _reset_session(self, sub: SubAgent, stream) -> None:
-        """
-        Drop the session cache and the stream's sync point for this turn.
-
-        Called when the stream signals the sync point is no longer usable
-        (e.g. summarization has rolled events past it). The next call to
-        ``_build_user_prompt`` will resend the full first-turn prompt and
-        the LLM interface will lazily recreate the session.
-        """
-        self.llm_interface.end_session_cache(sub.id, _SUBAGENT_CALL_TYPE)
-        stream.reset_session_sync(_SUBAGENT_CALL_TYPE)
+    # (Session reset on summarization is handled inside the shared engine's
+    # decide phase — see app/agentic/engine._build_turn_prompt.)
 
     # ------------------------------------------------------------------
-    # LLM call + JSON parsing — session-cache aware
+    # Decide phase — delegated to the shared TurnEngine
     # ------------------------------------------------------------------
 
     async def _ask_llm_for_decision(
-        self, sub: SubAgent
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        self, sub: SubAgent, turn_directive: Optional[str] = None
+    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
         """
-        Ask the LLM for the next action and return ``(decision, error)``.
+        Ask the LLM for the next action batch and return ``(actions, error)``.
 
-        Builds the user prompt (full first-turn vs. delta), invokes the
-        LLM, parses the JSON, and retries up to ``_MAX_PARSE_RETRIES``
-        times if the response is unparseable. Returns ``(None, error)``
-        if every attempt fails.
+        Delegates the whole decide phase — session-delta orchestration,
+        LLM call, parse, retry-with-feedback — to the shared TurnEngine
+        (:mod:`app.agentic.engine`); this runner keeps only sub-agent
+        policy (the blocking loop, caps, exit gates, dispatch).
 
-        Marks the stream's sync point on the first successful parse so
-        the next turn only sees events appended since this one.
+        ``turn_directive`` (a step program's "llm" prompt) is appended to
+        the delta prompt so it reaches the model THIS turn, not just at
+        session establishment.
         """
+        from app.agentic.engine import DecideConfig, append_step_directive, decide
+
         stream = self.event_stream_manager.get_stream_by_id(sub.id)
-        base_user_prompt, is_first_turn = self._build_user_prompt(sub, stream)
-        system_prompt = self.context_engine.make_system_prompt(sub)
-
-        current_user_prompt = base_user_prompt
-        last_error: Optional[str] = None
-        last_raw: Optional[str] = None
-
-        for attempt in range(1, _MAX_PARSE_RETRIES + 1):
-            try:
-                raw = await self._invoke_llm(sub, current_user_prompt, system_prompt)
-            except LLMConsecutiveFailureError:
-                # Fatal: the LLM is in a broken state (e.g. out-of-credits,
-                # auth). Retrying within this turn can't help — let it
-                # propagate so the runner ends the sub-agent with the real
-                # cause instead of looping the parse retries.
-                raise
-            except Exception as e:
-                logger.exception(
-                    f"[SubAgentRunner] {sub.id} LLM call failed on attempt {attempt}: {e}"
-                )
-                last_error = f"LLM call failed: {e}"
-                continue
-
-            last_raw = raw or ""
-            decision, parse_error = self._parse_decision(raw)
-            if decision is not None:
-                # Advance the sync point so the next turn's delta excludes
-                # everything up to and including this turn's outcome.
-                stream.mark_session_synced(_SUBAGENT_CALL_TYPE)
-                return decision, None
-
-            last_error = parse_error or "unknown parse error"
-            logger.warning(
-                f"[SubAgentRunner] {sub.id} parse error attempt {attempt}: "
-                f"{last_error} | raw={raw!r}"
-            )
-            current_user_prompt = self._augment_with_retry_hint(
-                base=base_user_prompt if is_first_turn else current_user_prompt,
-                attempt=attempt,
-                error=last_error,
-            )
-
-        return None, f"{last_error} (last raw response: {last_raw!r})"
-
-    async def _invoke_llm(
-        self, sub: SubAgent, user_prompt: str, system_prompt: str
-    ) -> str:
-        """
-        One round-trip to the LLM via the session-cache path.
-
-        ``system_prompt_for_new_session`` is passed every turn so the LLM
-        interface can recreate the session if a context-overflow reset
-        happened underneath us.
-        """
-        return await self.llm_interface.generate_response_with_session_async(
-            task_id=sub.id,
-            call_type=_SUBAGENT_CALL_TYPE,
-            user_prompt=user_prompt,
-            system_prompt_for_new_session=system_prompt,
-            prompt_name=f"SUBAGENT_{sub.agent_type.upper()}",
+        return await decide(
+            self.llm_interface,
+            stream,
+            DecideConfig(
+                session_key=sub.id,
+                call_type=_SUBAGENT_CALL_TYPE,
+                system_prompt=(
+                    self._system_prompt_cache.get(sub.id)
+                    or self.context_engine.make_system_prompt(sub)
+                ),
+                # Lazy: only establish/re-establish turns consume it — delta
+                # turns must not pay for building query + full initial log.
+                first_prompt=lambda: append_step_directive(
+                    self.context_engine.make_first_turn_user_prompt(sub),
+                    turn_directive,
+                ),
+                delta_prompt_builder=lambda delta: append_step_directive(
+                    self.context_engine.make_delta_user_prompt(sub, delta),
+                    turn_directive,
+                ),
+                parse=self._parse_decision,
+                # augment_retry: the engine's default (raw-echoing feedback).
+                prompt_name=f"SUBAGENT_{sub.agent_type.upper()}",
+                max_retries=_MAX_PARSE_RETRIES,
+                on_exhaust="none",
+            ),
         )
 
-    @staticmethod
-    def _augment_with_retry_hint(base: str, attempt: int, error: str) -> str:
-        return (
-            f"{base}\n\n"
-            f"PREVIOUS ATTEMPT {attempt} FAILED TO PARSE.\n"
-            f"Error: {error}\n"
-            "Reply with ONLY the JSON object as specified. "
-            "No prose, no fences."
-        )
 
     # ------------------------------------------------------------------
-    # User-prompt builder (first turn vs. delta)
-    # ------------------------------------------------------------------
-
-    def _build_user_prompt(self, sub: SubAgent, stream) -> Tuple[str, bool]:
-        """Return ``(user_prompt, is_first_turn)``.
-
-        First turn: send the full query + the initial event log.
-
-        Delta turns: send only events added since the last sync point. If
-        the stream reports no delta (e.g. summarization rolled events
-        past the sync point), reset the session and fall back to a fresh
-        first-turn prompt — that's the only path that re-grounds the
-        model after the cached history vanishes.
-        """
-        if not stream.has_session_sync(_SUBAGENT_CALL_TYPE):
-            return self.context_engine.make_first_turn_user_prompt(sub), True
-
-        delta_str, has_delta = stream.get_delta_events(_SUBAGENT_CALL_TYPE)
-        if not has_delta:
-            logger.info(
-                f"[SubAgentRunner] {sub.id} no delta events / summarization "
-                "detected — resetting session and resending full prompt"
-            )
-            self._reset_session(sub, stream)
-            return self.context_engine.make_first_turn_user_prompt(sub), True
-
-        return self.context_engine.make_delta_user_prompt(delta_str), False
-
-    # ------------------------------------------------------------------
-    # JSON parsing
+    # JSON parsing — delegates to the shared parser (app/agentic/parsing)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_decision(
         raw: Optional[str],
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """Robust JSON/dict parsing of an LLM decision."""
-        if not raw or not raw.strip():
-            return None, "empty LLM response"
+    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Raw LLM text → normalized, ordered action list.
 
-        text = raw.strip()
-        # Strip BOM, normalize line endings.
-        if text.startswith("﻿"):
-            text = text[1:]
-        text = text.replace("\r\n", "\n").replace("\r", "").strip()
+        Accepts the batch shape ``{"actions": [...]}`` and the legacy
+        single-action shape. One shared implementation for every loop."""
+        from app.agentic.parsing import extract_actions_strict, parse_decision_dict
 
-        # Strip markdown code fences if the LLM ignored instructions.
-        if text.startswith("```"):
-            first_nl = text.find("\n")
-            if first_nl != -1:
-                text = text[first_nl + 1 :]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as e:
-            try:
-                parsed = ast.literal_eval(text)
-            except Exception as e2:
-                return None, f"json: {e}; literal_eval: {e2}"
-
-        if not isinstance(parsed, dict):
-            return None, "parsed value is not a dict"
-        if "action_name" not in parsed:
-            return None, "missing 'action_name' field"
-        return parsed, None
+        decision, err = parse_decision_dict(raw)
+        if decision is None:
+            return None, err
+        return extract_actions_strict(decision)
 
 
 __all__ = ["SubAgentRunner"]

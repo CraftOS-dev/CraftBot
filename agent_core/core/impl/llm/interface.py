@@ -163,9 +163,18 @@ class LLMInterface:
         self._log_to_db = log_to_db
         self._record_llm_call = record_llm_call
 
-        # Consecutive failure tracking to prevent infinite retry loops
+        # Consecutive failure tracking to prevent infinite retry loops.
+        # HALF-OPEN breaker: after the threshold, calls abort instantly only
+        # while the cooldown since the LAST failure is running; once it
+        # elapses, ONE probe call is allowed through — success resets the
+        # counter (provider recovered, e.g. credits topped up), failure
+        # re-latches for another cooldown. Without this the breaker
+        # hard-latched until app restart: no call could ever run, so the
+        # success-reset was unreachable.
         self._consecutive_failures = 0
         self._max_consecutive_failures = 5
+        self._last_failure_at = 0.0
+        self._breaker_cooldown_s = 60.0
 
         # Defer imports to avoid circular dependency
         from app.models.factory import ModelFactory
@@ -505,12 +514,17 @@ class LLMInterface:
 
         # Check if we've hit the consecutive failure threshold
         if self._consecutive_failures >= self._max_consecutive_failures:
-            logger.critical(
-                f"[LLM ABORT] Consecutive failure threshold reached "
-                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
-                f"Aborting to prevent infinite retries."
+            if time.time() - self._last_failure_at < self._breaker_cooldown_s:
+                logger.critical(
+                    f"[LLM ABORT] Consecutive failure threshold reached "
+                    f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+                    f"Aborting to prevent infinite retries."
+                )
+                raise LLMConsecutiveFailureError(self._consecutive_failures)
+            logger.warning(
+                f"[LLM BREAKER] Cooldown elapsed after "
+                f"{self._consecutive_failures} failures — allowing a probe call"
             )
-            raise LLMConsecutiveFailureError(self._consecutive_failures)
 
         if log_response:
             logger.info(f"[LLM SEND] system={system_prompt} | user={user_prompt}")
@@ -564,6 +578,7 @@ class LLMInterface:
                 logger.error(f"[LLM ERROR] {error_detail}")
                 # Track consecutive failure
                 self._consecutive_failures += 1
+                self._last_failure_at = time.time()
                 logger.warning(
                     f"[LLM CONSECUTIVE FAILURE] Count: {self._consecutive_failures}/{self._max_consecutive_failures}"
                 )
@@ -602,6 +617,7 @@ class LLMInterface:
         except Exception as e:
             # Track consecutive failure for any other exception
             self._consecutive_failures += 1
+            self._last_failure_at = time.time()
             logger.warning(
                 f"[LLM CONSECUTIVE FAILURE] Count: {self._consecutive_failures}/{self._max_consecutive_failures} | Error: {e}"
             )
@@ -916,6 +932,7 @@ class LLMInterface:
                 )
             logger.error(f"[LLM ERROR] {error_detail}")
             self._consecutive_failures += 1
+            self._last_failure_at = time.time()
             logger.warning(
                 f"[LLM CONSECUTIVE FAILURE] Count: "
                 f"{self._consecutive_failures}/{self._max_consecutive_failures}"
@@ -970,12 +987,17 @@ class LLMInterface:
         # session path previously had none, so a persistent provider error
         # (e.g. out-of-credits) retried forever instead of aborting.
         if self._consecutive_failures >= self._max_consecutive_failures:
-            logger.critical(
-                f"[LLM ABORT] Consecutive failure threshold reached "
-                f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
-                f"Aborting to prevent infinite retries."
+            if time.time() - self._last_failure_at < self._breaker_cooldown_s:
+                logger.critical(
+                    f"[LLM ABORT] Consecutive failure threshold reached "
+                    f"({self._consecutive_failures}/{self._max_consecutive_failures}). "
+                    f"Aborting to prevent infinite retries."
+                )
+                raise LLMConsecutiveFailureError(self._consecutive_failures)
+            logger.warning(
+                f"[LLM BREAKER] Cooldown elapsed after "
+                f"{self._consecutive_failures} failures — allowing a probe call"
             )
-            raise LLMConsecutiveFailureError(self._consecutive_failures)
 
         if log_response:
             logger.info(

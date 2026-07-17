@@ -1311,7 +1311,7 @@ For full file-system details and the do-not-rename rule, see `## File System` "L
 4. After changes, the project should still respect GLOBAL_LIVING_UI.md.
 ```
 
-When the project misbehaves: grep `logs/` first (frontend console output is piped there via ConsoleCapture). See `## File System` "Living UI projects" subsection for log details.
+When the project misbehaves: grep `logs/` first (frontend console output is piped there by the template's built-in browser log capture). See `## File System` "Living UI projects" subsection for log details.
 
 ### Updating GLOBAL_LIVING_UI.md
 

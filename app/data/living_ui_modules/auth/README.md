@@ -1,234 +1,141 @@
-# Auth Module — Multi-User Support for Living UI
+# Auth Module — Multi-User Support for Living UI (PocketBase-native)
 
-Self-contained authentication with SQLite + bcrypt + JWT. No external services needed.
+Authentication built on PocketBase's built-in auth: email/password accounts,
+persistent tokens, role-based access, memberships, and invite codes. No
+external services, no hand-written auth backend — PocketBase provides
+registration, login, token refresh, and password change out of the box; this
+module adds the schema pattern, access rules, hooks, and React components.
 
 ## Features
-- User registration and login (email + password)
-- First user automatically becomes admin
-- JWT token auth (24h expiry, stored in localStorage)
-- Role-based access (admin, member)
-- Pre-built React components (LoginPage, RegisterPage, UserMenu)
+- User registration and login (email + password) — PocketBase native
+- First registered user automatically becomes admin (pb_hooks)
+- Session persists across reloads (SDK token store + authRefresh)
+- Role-based access (admin, member) enforced by collection API rules
+- Memberships (link users to any resource) and invite codes
+- Pre-built React components on the vendored shadcn/ui kit:
+  LoginPage, RegisterPage, UserMenu, ProfilePage, MemberList, InviteModal
 
 ## Integration Steps
 
-### Backend
+### 1. Schema
 
-1. Copy these files into `backend/`:
-   - `auth_models.py` — User model
-   - `auth_service.py` — password hashing + JWT
-   - `auth_middleware.py` — FastAPI dependencies (get_current_user, require_admin)
-   - `auth_routes.py` — /auth/register, /auth/login, /auth/me, /auth/users
+Merge the collections from `schema.auth.json` into the app's
+`config/schema.json` `collections` array. Notes:
 
-2. Append to `backend/requirements.txt`:
-   ```
-   bcrypt>=4.0.0
-   PyJWT>=2.8.0
-   ```
+- `users` is PocketBase's built-in auth collection — declaring it here
+  ADDS the `name` and `role` fields and sets the access rules (import
+  merges by collection name; nothing is recreated).
+- Every rule is explicit. The platform only forces PUBLIC rules where a
+  rule is unset, so these auth-gated rules survive import as written.
+- Key rules:
+  - anyone can register (`createRule: ""` on users);
+  - users can update themselves but NOT their own `role`; only an admin
+    can change roles or delete accounts;
+  - memberships can only be created for yourself (join), removed by
+    yourself (leave) or an admin; invites only by their creator or admin.
 
-3. In `backend/routes.py`, import and include the auth router:
-   ```python
-   from auth_routes import router as auth_router
-   router.include_router(auth_router)
-   ```
+### 2. Hooks
 
-4. Import `User` in `routes.py` (NOT models.py — that file is
-   system-managed) so the table is created; including the auth router in
-   step 3 already does this implicitly:
-   ```python
-   from auth_models import User  # noqa: F401
-   ```
+Copy `pb_hooks/auth.pb.js` into the app's `pb_hooks/` directory. It adds:
+- first-user-becomes-admin on registration;
+- `POST /api/custom/invites/accept {"code": "..."}` — validates the code
+  (expiry, max uses) and creates the membership server-side, so clients
+  cannot forge memberships for other users.
 
-5. Add a `userId` ref-style field to the entities that are per-user in
-   `config/schema.json` (an `integer` field holding the user's id):
-   ```json
-   "userId": {"type": "integer", "required": true}
-   ```
-   and enforce ownership in your custom routes / queries.
+### 3. Frontend
 
-6. Protect routes with auth dependency:
-   ```python
-   from auth_middleware import get_current_user
-   
-   @router.get("/my-items")
-   def get_my_items(user = Depends(get_current_user), db = Depends(get_db)):
-       return db.query(Item).filter(Item.user_id == user.id).all()
-   ```
+Copy the `frontend/*.tsx` files into `frontend/components/auth/`. They
+import the template's `@/lib/pb` singleton and `@/components/ui/*`
+(shadcn) — no new dependencies.
 
-### Frontend
-
-1. Copy `auth_types.ts` into `frontend/`
-2. Copy `AuthService.ts` into `frontend/services/`
-3. Copy `AuthProvider.tsx`, `LoginPage.tsx`, `RegisterPage.tsx`, `UserMenu.tsx` into `frontend/components/auth/`
-
-4. Wrap your app in AuthProvider (in App.tsx):
-   ```tsx
-   import { AuthProvider, useAuth } from './components/auth/AuthProvider'
-   import { LoginPage } from './components/auth/LoginPage'
-   import { RegisterPage } from './components/auth/RegisterPage'
-   
-   function App() {
-     return (
-       <AuthProvider>
-         <AuthGate />
-       </AuthProvider>
-     )
-   }
-   
-   function AuthGate() {
-     const { isAuthenticated, loading } = useAuth()
-     const [page, setPage] = useState<'login' | 'register'>('login')
-     
-     if (loading) return <div>Loading...</div>
-     if (!isAuthenticated) {
-       return page === 'login'
-         ? <LoginPage onSwitchToRegister={() => setPage('register')} />
-         : <RegisterPage onSwitchToLogin={() => setPage('login')} />
-     }
-     return <MainView />
-   }
-   ```
-
-5. Add UserMenu to your header:
-   ```tsx
-   import { UserMenu } from './components/auth/UserMenu'
-   
-   <header style={{ display: 'flex', justifyContent: 'space-between' }}>
-     <h1>My App</h1>
-     <UserMenu />
-   </header>
-   ```
-
-6. Use `authService.authFetch()` instead of `fetch()` for authenticated API calls:
-   ```typescript
-   import { authService } from './services/AuthService'
-   const resp = await authService.authFetch(`${BACKEND_URL}/api/my-items`)
-   ```
-
-### Tests
-
-Copy `tests/test_auth.py` into `backend/tests/`. Run:
-```
-cd backend && python -m pytest tests/test_auth.py -v
-```
-
-## Membership — Connecting Users to Resources
-
-The auth module includes a generic **Membership** system for linking users to app resources
-(projects, boards, teams, etc.) and an **Invite** system for shareable join links.
-
-### How it works
-
-When a user creates a resource (e.g., a project), also create a Membership:
-```python
-from auth_models import Membership
-
-@router.post("/projects")
-def create_project(data: ..., user = Depends(get_current_user), db = Depends(get_db)):
-    project = Project(name=data.name, created_by=user.id)
-    db.add(project)
-    db.flush()  # Get project.id
-
-    # Make creator the owner
-    membership = Membership(user_id=user.id, resource_type="project",
-                            resource_id=project.id, role="owner")
-    db.add(membership)
-    db.commit()
-    return project.to_dict()
-```
-
-### Filtering by membership
-
-Only show resources the user is a member of:
-```python
-@router.get("/projects")
-def get_my_projects(user = Depends(get_current_user), db = Depends(get_db)):
-    project_ids = [m.resource_id for m in db.query(Membership).filter_by(
-        user_id=user.id, resource_type="project"
-    ).all()]
-    return db.query(Project).filter(Project.id.in_(project_ids)).all()
-```
-
-### Protecting routes by membership
-
-Use `require_membership` to ensure the user belongs to the resource:
-```python
-from auth_middleware import require_membership
-
-@router.get("/projects/{project_id}/tasks")
-def get_tasks(project_id: int,
-              member = Depends(require_membership("project")),
-              db = Depends(get_db)):
-    # Only runs if user is a member of this project
-    return db.query(Task).filter_by(project_id=project_id).all()
-```
-
-### Invite links
-
-Users can generate invite codes to share:
-```
-POST /api/auth/invites   → creates invite code for a resource
-POST /api/auth/invites/{code}/accept   → joins the resource
-```
-
-## Frontend Components for Membership
-
-### MemberList — show who's in a resource
+Gate the app in `App.tsx`:
 
 ```tsx
-import { MemberList } from './components/auth/MemberList'
+import { useState } from 'react'
+import { AuthProvider, useAuth } from './components/auth/AuthProvider'
+import { LoginPage } from './components/auth/LoginPage'
+import { RegisterPage } from './components/auth/RegisterPage'
 
-// In your project settings or sidebar:
-<MemberList
-  resourceType="project"
-  resourceId={project.id}
-  currentUserRole={myRole}  // "owner", "admin", "member" — controls remove buttons
-/>
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, loading } = useAuth()
+  const [page, setPage] = useState<'login' | 'register'>('login')
+
+  if (loading) return null
+  if (!isAuthenticated) {
+    return page === 'login'
+      ? <LoginPage onSwitchToRegister={() => setPage('register')} />
+      : <RegisterPage onSwitchToLogin={() => setPage('login')} />
+  }
+  return <>{children}</>
+}
+
+// In App: <AuthProvider><AuthGate><MainView /></AuthGate></AuthProvider>
 ```
 
-### InviteModal — create & accept invite codes
+Add `<UserMenu />` to the app header (accepts an optional `onOpenProfile`
+callback that can open `<ProfilePage />`).
 
-```tsx
-import { InviteModal } from './components/auth/InviteModal'
+### 4. Per-user data
 
-<InviteModal
-  resourceType="project"
-  resourceId={project.id}
-  isOpen={showInvite}
-  onClose={() => setShowInvite(false)}
-/>
+Give per-user collections an `owner` relation field and ownership rules in
+`config/schema.json`:
+
+```json
+{
+  "name": "notes",
+  "fields": [
+    { "name": "title", "type": "text", "required": true },
+    { "name": "owner", "type": "relation", "collectionName": "users",
+      "required": true, "cascadeDelete": true, "maxSelect": 1 }
+  ],
+  "listRule": "owner = @request.auth.id",
+  "viewRule": "owner = @request.auth.id",
+  "createRule": "@request.auth.id != \"\" && owner = @request.auth.id",
+  "updateRule": "owner = @request.auth.id",
+  "deleteRule": "owner = @request.auth.id"
+}
 ```
 
-The modal has two sections:
-- **Create invite** — generates a code the owner can share
-- **Join with code** — paste an invite code to join
+PocketBase enforces these on every CRUD and realtime call — no query
+filtering code needed. Set `owner: pb.authStore.record?.id` on create.
 
-### ProfilePage — edit account & change password
+### 5. Shared resources (memberships)
 
-```tsx
-import { ProfilePage } from './components/auth/ProfilePage'
+For resources shared between users (boards, projects, teams), create a
+membership when the resource is created:
 
-// As a page or modal content:
-{showProfile && <ProfilePage onClose={() => setShowProfile(false)} />}
+```ts
+const board = await pb.collection('boards').create({ name })
+await pb.collection('memberships').create({
+  user: pb.authStore.record!.id,
+  resourceType: 'board',
+  resourceId: board.id,
+  role: 'owner',
+})
 ```
 
-### UserMenu — already includes link to profile
+List only what the user belongs to by querying memberships first, and rule
+the resource collection with a back-relation:
 
-The `UserMenu` component shows the user dropdown with sign-out. The agent should add
-a "Profile" option that opens `ProfilePage`.
+```
+listRule: "@collection.memberships.resourceId ?= id &&
+           @collection.memberships.user ?= @request.auth.id"
+```
 
-## API Endpoints
+Show `<MemberList resourceType="board" resourceId={board.id} />` in the
+resource's settings; `<InviteModal ... />` creates and accepts invite codes.
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | /api/auth/register | No | Create account (first user = admin) |
-| POST | /api/auth/login | No | Login, returns JWT |
-| GET | /api/auth/me | Yes | Get current user |
-| PUT | /api/auth/me | Yes | Update profile (username, email) |
-| PUT | /api/auth/me/password | Yes | Change password |
-| POST | /api/auth/logout | No | Client-side logout |
-| GET | /api/auth/users | Admin | List all users |
-| GET | /api/auth/members/{type}/{id} | Member | List members of a resource |
-| POST | /api/auth/members/{type}/{id} | Owner | Add a member to a resource |
-| DELETE | /api/auth/members/{type}/{id}/{uid} | Owner | Remove a member |
-| POST | /api/auth/invites | Owner | Create an invite link |
-| POST | /api/auth/invites/{code}/accept | Yes | Accept invite and join |
+## API surface (all PocketBase-native unless noted)
+
+| Operation | Call |
+|---|---|
+| Register | `pb.collection('users').create({email, password, passwordConfirm, name})` |
+| Login | `pb.collection('users').authWithPassword(email, password)` |
+| Current user | `pb.authStore.record` (kept fresh by `AuthProvider`) |
+| Update profile | `pb.collection('users').update(id, {name})` |
+| Change password | `pb.collection('users').update(id, {oldPassword, password, passwordConfirm})` |
+| Logout | `pb.authStore.clear()` |
+| List users (auth'd) | `pb.collection('users').getFullList()` |
+| Members of a resource | `pb.collection('memberships').getFullList({filter, expand: 'user'})` |
+| Create invite | `pb.collection('invites').create({...})` |
+| Accept invite | `POST /api/custom/invites/accept {"code"}` (pb_hooks — the one custom endpoint) |

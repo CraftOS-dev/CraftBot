@@ -166,6 +166,8 @@
 
 [data-style="classic"] {
   /* palette (dark) — warm charcoal + amber, retro-professional */
+  /* amber accent is light → dark ink on solid accent surfaces */
+  --color-primary-foreground: #1d1b14;
   --bg-primary: #131311;
   --bg-secondary: #1C1B17;
   --bg-tertiary: #24221C;

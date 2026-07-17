@@ -1462,8 +1462,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "data": {
                         "success": True,
                         "projects": [
-                            p.to_dict()
-                            for p in self._living_ui_manager.list_projects()
+                            p.to_dict() for p in self._living_ui_manager.list_projects()
                         ],
                     },
                 }
@@ -2037,17 +2036,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             integration_id = data.get("id")
             values = data.get("values") or {}
             await self._handle_integration_update_config(integration_id, values)
-
-        # Live Construction View design telemetry (reveal engine → dock → here)
-        elif msg_type == "living_ui_design_metrics":
-            self._living_ui_manager.set_design_metrics(
-                data.get("projectId", ""), data.get("metrics") or {}
-            )
-
-        elif msg_type == "living_ui_design_screenshot":
-            self._living_ui_manager.save_design_screenshot(
-                data.get("projectId", ""), data.get("dataUrl", "")
-            )
 
         # Living UI settings handlers
         elif msg_type == "living_ui_settings_get":
@@ -2921,9 +2909,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             wizard.sweep_stale_staging(workspace_root)
 
             # Reference images are described once and reused at finalize.
-            image_notes = await wizard.describe_staged_images(
-                workspace_root, wizard_id
-            )
+            image_notes = await wizard.describe_staged_images(workspace_root, wizard_id)
             self._wizard_image_notes[wizard_id] = image_notes
 
             questions = await wizard.generate_interview(config, image_notes)
@@ -2978,10 +2964,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
             options = config.get("options") or {}
             color_mode = options.get("colorMode")
-            theme = color_mode if color_mode in ("dark", "light", "system") else "system"
-            icon = config.get("icon") if str(config.get("icon", "")).startswith(
-                "lucide:"
-            ) else None
+            theme = (
+                color_mode if color_mode in ("dark", "light", "system") else "system"
+            )
+            icon = (
+                config.get("icon")
+                if str(config.get("icon", "")).startswith("lucide:")
+                else None
+            )
 
             project = await self._living_ui_manager.create_project(
                 name=name,
@@ -3667,18 +3657,34 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         return token
 
     def _install_livingui_launchers(self) -> None:
-        """Generate `livingui` launcher scripts into <workspace>/bin.
+        """Generate `livingui` launcher scripts into the platform bin dir
+        (~/.craftbot/bin — OUTSIDE the agent-writable workspace, so no
+        workspace reset or cleanup can delete them; session 20260716114414
+        lost the CLI exactly that way when they lived in <workspace>/bin).
 
         The launchers pin the current interpreter, repo path, workspace and
         browser port so `run_shell` can invoke the CLI from any cwd.
         """
         import sys
 
+        from app.living_ui.pocketbase_runtime import PLATFORM_BIN_DIR
+
         try:
             repo_root = Path(__file__).resolve().parents[3]
             cli_path = repo_root / "app" / "living_ui" / "cli.py"
-            bin_dir = AGENT_WORKSPACE_ROOT / "bin"
+            bin_dir = PLATFORM_BIN_DIR
             bin_dir.mkdir(parents=True, exist_ok=True)
+
+            # Retire launchers from the old in-workspace location so a stale
+            # copy can't shadow or confuse anyone. Best-effort.
+            for legacy in (
+                AGENT_WORKSPACE_ROOT / "bin" / "livingui",
+                AGENT_WORKSPACE_ROOT / "bin" / "livingui.cmd",
+            ):
+                try:
+                    legacy.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
             cmd_launcher = bin_dir / "livingui.cmd"
             cmd_launcher.write_text(
@@ -3717,14 +3723,18 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         except Exception as e:
             logger.warning(f"[LIVING_UI] Could not install livingui launchers: {e}")
 
-    async def _living_ui_control_handler(self, request: "web.Request") -> "web.Response":
+    async def _living_ui_control_handler(
+        self, request: "web.Request"
+    ) -> "web.Response":
         """Loopback control endpoint for the livingui CLI.
 
-        Body: {token, command: start|stop|restart|data_changed|ui_command,
+        Body: {token, command: start|stop|restart|data_changed,
                projectId, payload?}. Token comes from the per-boot token file
         only local processes can read; the server itself binds localhost.
         """
         import hmac
+
+        from aiohttp import web
 
         try:
             body = await request.json()
@@ -3737,7 +3747,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         command = str(body.get("command", ""))
         project_id = str(body.get("projectId", ""))
-        payload = body.get("payload") or {}
 
         try:
             if command == "start":
@@ -3761,12 +3770,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             if command == "data_changed":
                 await self.broadcast_living_ui_data_changed(project_id)
                 return web.json_response({"status": "ok"})
-            if command == "ui_command":
-                await self.broadcast_living_ui_ui_command(
-                    project_id, payload.get("command") or {}
-                )
-                return web.json_response({"status": "ok"})
-            return web.json_response({"error": f"unknown command '{command}'"}, status=400)
+            return web.json_response(
+                {"error": f"unknown command '{command}'"}, status=400
+            )
         except Exception as e:
             logger.error(f"[LIVING_UI] Control command '{command}' failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
@@ -4029,22 +4035,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             {
                 "type": "living_ui_data_changed",
                 "data": {"projectId": project_id},
-            }
-        )
-
-    async def broadcast_living_ui_ui_command(
-        self, project_id: str, command: Dict[str, Any]
-    ) -> None:
-        """Forward an agent command to a Living UI's running iframe.
-
-        The host frontend posts it into the iframe as a
-        `craftbot-agent-command` message, which apps handle via the
-        template's useAgentCommand hook (navigate, refresh, highlight, ...).
-        """
-        await self._broadcast(
-            {
-                "type": "living_ui_ui_command",
-                "data": {"projectId": project_id, "command": command},
             }
         )
 

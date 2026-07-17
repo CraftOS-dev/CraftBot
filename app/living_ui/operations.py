@@ -58,7 +58,9 @@ OPERATIONS_FILE = Path("config") / "operations.json"
 # Namespaces owned by the built-in controller — manifests may not shadow them.
 RESERVED_PREFIXES = ("data.", "sql.", "http.", "job.", "ui.", "app.")
 
-_SHORTHAND_RE = re.compile(r"^(string|str|int|integer|number|float|bool|boolean|object|array|list)(\?)?$")
+_SHORTHAND_RE = re.compile(
+    r"^(string|str|int|integer|number|float|bool|boolean|object|array|list)(\?)?$"
+)
 
 # Characters that could break a substituted value out of its quotes in a
 # declared shell command (covers cmd.exe, PowerShell and POSIX shells).
@@ -199,7 +201,9 @@ def render_shell_command(cmd_template: str, params: Dict[str, Any]) -> str:
     def substitute(match: re.Match) -> str:
         key = match.group(1)
         if key not in params:
-            raise OperationError(f"shell command references undeclared param '{{{key}}}'")
+            raise OperationError(
+                f"shell command references undeclared param '{{{key}}}'"
+            )
         value = params[key]
         if isinstance(value, bool):
             value = "true" if value else "false"
@@ -293,7 +297,7 @@ def run_shell_sync(
     except subprocess.TimeoutExpired:
         raise OperationError(
             f"Shell op timed out after {timeout}s. For long-running work, "
-            f"declare the op with \"mode\": \"job\" and poll with job.status."
+            f'declare the op with "mode": "job" and poll with job.status.'
         )
     stdout = (completed.stdout or "").strip()
     stderr = (completed.stderr or "").strip()

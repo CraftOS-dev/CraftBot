@@ -277,9 +277,7 @@ def print_rows(rows, total=None, as_json=False):
     print("  ".join(c.ljust(widths[c]) for c in columns))
     for r in rows:
         print(
-            "  ".join(
-                str(r.get(c, ""))[: widths[c]].ljust(widths[c]) for c in columns
-            )
+            "  ".join(str(r.get(c, ""))[: widths[c]].ljust(widths[c]) for c in columns)
         )
     if total is not None and total > len(rows):
         print(f"({len(rows)} of {total} — use --limit/--offset or --where)")
@@ -292,9 +290,13 @@ def _drift_warning(project: Project, db_schema) -> str:
         return ""
     problems = []
     if drift["missing_columns"]:
-        problems.append(f"columns missing from DB: {', '.join(drift['missing_columns'][:6])}")
+        problems.append(
+            f"columns missing from DB: {', '.join(drift['missing_columns'][:6])}"
+        )
     if drift["missing_tables"]:
-        problems.append(f"tables missing from DB: {', '.join(drift['missing_tables'][:4])}")
+        problems.append(
+            f"tables missing from DB: {', '.join(drift['missing_tables'][:4])}"
+        )
     if not problems:
         return ""
     return (
@@ -368,7 +370,9 @@ def project_help(project: Project) -> int:
         for table, info in shown:
             lines.append(f"  {table:<24} {info['rowCount']} rows")
         if len(db_schema) > 12:
-            lines.append(f"  ... +{len(db_schema) - 12} more — {PROG} {project.slug} schema")
+            lines.append(
+                f"  ... +{len(db_schema) - 12} more — {PROG} {project.slug} schema"
+            )
     elif project.project_type != "native":
         lines.append(
             "TABLES: none declared (external app — use `api` and `run`; to "
@@ -440,7 +444,7 @@ def _require_writable_db(project: Project) -> Path:
         fail(
             f"'{project.slug}' is an imported app and its data source is "
             "read-only (writing to a third-party app's database behind its "
-            'back can corrupt it). If the app tolerates external writes, set '
+            "back can corrupt it). If the app tolerates external writes, set "
             '"writable": true in the manifest\'s data block.',
             f"{PROG} {project.slug} run   (write through its declared operations instead)",
         )
@@ -498,7 +502,9 @@ def cmd_select(project, args):
 def cmd_count(project, args):
     db_path = _require_db(project)
     try:
-        count = data_plane.count_rows(db_path, args.table, where=parse_where(args.where))
+        count = data_plane.count_rows(
+            db_path, args.table, where=parse_where(args.where)
+        )
     except data_plane.DataPlaneError as e:
         _prescriptive(project, e)
     print(count)
@@ -558,7 +564,10 @@ def cmd_update(project, args):
         )
     except data_plane.DataPlaneError as e:
         if "Refusing" in str(e):
-            fail(str(e), f"{PROG} {project.slug} update {args.table} --set ... --where <filter>  (or add --all)")
+            fail(
+                str(e),
+                f"{PROG} {project.slug} update {args.table} --set ... --where <filter>  (or add --all)",
+            )
         _prescriptive(project, e)
     print(f"updated {result['updated']} rows (backup: {result.get('backup') or 'n/a'})")
     notify_data_changed(project.id)
@@ -576,7 +585,10 @@ def cmd_delete(project, args):
         )
     except data_plane.DataPlaneError as e:
         if "Refusing" in str(e):
-            fail(str(e), f"{PROG} {project.slug} delete {args.table} --where <filter>  (or add --all)")
+            fail(
+                str(e),
+                f"{PROG} {project.slug} delete {args.table} --where <filter>  (or add --all)",
+            )
         _prescriptive(project, e)
     print(f"deleted {result['deleted']} rows (backup: {result.get('backup') or 'n/a'})")
     notify_data_changed(project.id)
@@ -592,7 +604,9 @@ def cmd_sql(project, args):
             fail(str(e), f'{PROG} {project.slug} sql "..." --write')
         _prescriptive(project, e)
     if args.write:
-        print(f"affected {result['affected']} rows (backup: {result.get('backup') or 'n/a'})")
+        print(
+            f"affected {result['affected']} rows (backup: {result.get('backup') or 'n/a'})"
+        )
         notify_data_changed(project.id)
     else:
         print_rows(result["rows"], as_json=args.json)
@@ -673,14 +687,18 @@ def cmd_api(project, args):
 def _print_op_help(project: Project, name: str, op_def: dict):
     print(f"{name} — {op_def.get('description', '')}")
     executor = op_def.get("executor") or {}
-    print(f"executor: {executor.get('type', 'http')} · mode: {op_def.get('mode', 'sync')}")
+    print(
+        f"executor: {executor.get('type', 'http')} · mode: {op_def.get('mode', 'sync')}"
+    )
     params = op_def.get("params") or {}
     if not params:
         print("params: none")
     else:
         print("params:")
         for param, spec in params.items():
-            print(f"  --{param:<20} {json.dumps(spec) if not isinstance(spec, str) else spec}")
+            print(
+                f"  --{param:<20} {json.dumps(spec) if not isinstance(spec, str) else spec}"
+            )
     example = " ".join(f"--{p} <value>" for p in list(params)[:3])
     print(f"usage: {PROG} {project.slug} run {name} {example}".rstrip())
     print(
@@ -758,7 +776,10 @@ def cmd_run(project, argv):
             i += 1
         else:
             if i + 1 >= len(rest):
-                fail(f"--{key} needs a value.", f"{PROG} {project.slug} run {op_name} --help")
+                fail(
+                    f"--{key} needs a value.",
+                    f"{PROG} {project.slug} run {op_name} --help",
+                )
             params[key] = _type_value(rest[i + 1])
             i += 2
 
@@ -776,11 +797,17 @@ def cmd_run(project, argv):
         path, remaining = operations.render_http_path(
             executor.get("path", "/api/action"), filled
         )
-        static_body = executor.get("body") if isinstance(executor.get("body"), dict) else {}
+        static_body = (
+            executor.get("body") if isinstance(executor.get("body"), dict) else {}
+        )
         if method in ("GET", "DELETE"):
-            status, text = _http(project, method, path, query={**static_body, **remaining} or None)
+            status, text = _http(
+                project, method, path, query={**static_body, **remaining} or None
+            )
         else:
-            status, text = _http(project, method, path, body={**static_body, **remaining})
+            status, text = _http(
+                project, method, path, body={**static_body, **remaining}
+            )
         print(f"HTTP {status}")
         print(text[:4000])
         if status < 400 and method != "GET":
@@ -791,7 +818,9 @@ def cmd_run(project, argv):
         db_path = _require_db(project)
         write = str(executor.get("mode", "read")).lower() == "write"
         try:
-            result = data_plane.run_sql(db_path, executor.get("sql", ""), filled, write=write)
+            result = data_plane.run_sql(
+                db_path, executor.get("sql", ""), filled, write=write
+            )
         except data_plane.DataPlaneError as e:
             _prescriptive(project, e)
         if write:
@@ -807,12 +836,16 @@ def cmd_run(project, argv):
             cwd = operations.resolve_op_cwd(Path(project.path), executor)
         except operations.OperationError as e:
             fail(str(e))
-        extra_env = executor.get("env") if isinstance(executor.get("env"), dict) else None
+        extra_env = (
+            executor.get("env") if isinstance(executor.get("env"), dict) else None
+        )
         if mode == "job":
             return _spawn_job(project, op_name, command, cwd, extra_env)
         timeout = float(executor.get("timeout", 300))
         try:
-            result = operations.run_shell_sync(command, cwd, timeout=timeout, extra_env=extra_env)
+            result = operations.run_shell_sync(
+                command, cwd, timeout=timeout, extra_env=extra_env
+            )
         except operations.OperationError as e:
             fail(str(e))
         if result["stdout"]:
@@ -940,7 +973,9 @@ def cmd_job(project, args):
         else:
             print(f"job {args.job_id} already finished")
         return 0
-    print(f"job {record['job_id']} · {record['op']} · {'running' if alive else 'finished'}")
+    print(
+        f"job {record['job_id']} · {record['op']} · {'running' if alive else 'finished'}"
+    )
     log = Path(record["log"])
     if log.exists():
         tail = log.read_text(encoding="utf-8", errors="replace")[-2000:]
@@ -986,7 +1021,9 @@ def cmd_schema(project, args):
             print(f"  {column:<24} {spec}")
     else:
         for table, info in schema.items():
-            print(f"{table:<26} {info['rowCount']} rows · {len(info['columns'])} columns")
+            print(
+                f"{table:<26} {info['rowCount']} rows · {len(info['columns'])} columns"
+            )
         print(f"\nNext: {PROG} {project.slug} schema <table>")
     warning = _drift_warning(project, schema)
     if warning:
@@ -995,17 +1032,26 @@ def cmd_schema(project, args):
 
 
 def cmd_logs(project, args):
+    root = Path(project.path)
     candidates = {
-        "backend": Path(project.path) / "backend" / "logs" / "subprocess_output.log",
-        "frontend-console": Path(project.path) / "backend" / "logs" / "frontend_console.log",
-        "frontend-console(sidecar)": Path(project.path) / "logs" / "frontend_console.log",
+        # PocketBase-era locations (current pipeline)
+        "backend": root / "logs" / "backend_output.log",
+        "frontend-console": root / "pb_data" / "craftbot_console.jsonl",
+        # Legacy FastAPI-era locations (pre-PocketBase projects)
+        "backend(legacy)": root / "backend" / "logs" / "subprocess_output.log",
+        "frontend-console(legacy)": root
+        / "backend"
+        / "logs"
+        / "frontend_console.log",
+        # External apps observed through the sidecar proxy
+        "frontend-console(sidecar)": root / "logs" / "frontend_console.log",
     }
     printed = False
     for name, path in candidates.items():
         if path.exists():
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             print(f"── {name} (last {min(args.tail, len(lines))} lines) ──")
-            print("\n".join(lines[-args.tail:]))
+            print("\n".join(lines[-args.tail :]))
             printed = True
     if not printed:
         print("(no log files found)")
@@ -1106,19 +1152,6 @@ def cmd_lifecycle(project, command: str):
     return 0 if response.get("status") in ("success", "ok") else 1
 
 
-def cmd_ui(project, args):
-    """Push a command into the running app's iframe (useAgentCommand)."""
-    try:
-        command = json.loads(args.data)
-    except Exception as e:
-        fail(f"--data must be a JSON object ({e})", f'{PROG} {project.slug} ui --data \'{{"type": "refresh"}}\'')
-    ok, response = control_call("ui_command", project.id, payload={"command": command}, timeout=10)
-    if not ok:
-        fail(response.get("error", "control call failed"), "is the CraftBot app running?")
-    print("delivered (takes effect only if the app handles it via useAgentCommand)")
-    return 0
-
-
 def cmd_snapshot(project, _args):
     status, text = _http(project, "GET", "/api/ui-snapshot", timeout=10)
     print(text[:4000])
@@ -1135,7 +1168,10 @@ def cmd_screenshot(project, args):
     image = payload.get("imageData") or payload.get("image_data")
     if not image:
         fail("no screenshot captured yet (open the app in the browser first)")
-    out = Path(args.out or (Path(project.path) / "logs" / "screenshots" / f"ui_{int(time.time())}.png"))
+    out = Path(
+        args.out
+        or (Path(project.path) / "logs" / "screenshots" / f"ui_{int(time.time())}.png")
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(base64.b64decode(image))
     print(f"saved {out}")
@@ -1153,7 +1189,9 @@ def _make_parsers():
 
     p = argparse.ArgumentParser(prog=f"{PROG} <project> select", add_help=True)
     p.add_argument("table")
-    p.add_argument("--where", action="append", help='e.g. --where "id<=10" (repeatable, AND)')
+    p.add_argument(
+        "--where", action="append", help='e.g. --where "id<=10" (repeatable, AND)'
+    )
     p.add_argument("--columns", help="comma-separated projection")
     p.add_argument("--order", help="e.g. --order 'date desc'")
     p.add_argument("--limit", type=int, default=20)
@@ -1169,13 +1207,20 @@ def _make_parsers():
     p = argparse.ArgumentParser(prog=f"{PROG} <project> insert")
     p.add_argument("table")
     p.add_argument("--file", help="JSON array of row objects (bulk)")
-    p.add_argument("--stdin", action="store_true", help="read the JSON array from stdin")
+    p.add_argument(
+        "--stdin", action="store_true", help="read the JSON array from stdin"
+    )
     p.add_argument("--set", action="append", help="single row: --set k=v (repeatable)")
     parsers["insert"] = (p, cmd_insert)
 
     p = argparse.ArgumentParser(prog=f"{PROG} <project> update")
     p.add_argument("table")
-    p.add_argument("--set", action="append", required=True, help="--set k=v (repeatable; k:=json for raw JSON)")
+    p.add_argument(
+        "--set",
+        action="append",
+        required=True,
+        help="--set k=v (repeatable; k:=json for raw JSON)",
+    )
     p.add_argument("--where", action="append")
     p.add_argument("--all", action="store_true", help="confirm a whole-table update")
     parsers["update"] = (p, cmd_update)
@@ -1188,7 +1233,11 @@ def _make_parsers():
 
     p = argparse.ArgumentParser(prog=f"{PROG} <project> sql")
     p.add_argument("query")
-    p.add_argument("--write", action="store_true", help="allow a single write statement (DB snapshot taken first)")
+    p.add_argument(
+        "--write",
+        action="store_true",
+        help="allow a single write statement (DB snapshot taken first)",
+    )
     p.add_argument("--json", action="store_true")
     parsers["sql"] = (p, cmd_sql)
 
@@ -1217,13 +1266,15 @@ def _make_parsers():
     p.add_argument("--out", help="output PNG path")
     parsers["screenshot"] = (p, cmd_screenshot)
 
-    p = argparse.ArgumentParser(prog=f"{PROG} <project> ui")
-    p.add_argument("--data", required=True, help='JSON command, e.g. \'{"type": "refresh"}\'')
-    parsers["ui"] = (p, cmd_ui)
-
     p = argparse.ArgumentParser(prog=f"{PROG} <project> ops-sync")
-    p.add_argument("--write", action="store_true", help="merge generated skeletons into operations.json")
-    p.add_argument("--openapi-url", help="absolute URL of the app's OpenAPI spec (skips probing)")
+    p.add_argument(
+        "--write",
+        action="store_true",
+        help="merge generated skeletons into operations.json",
+    )
+    p.add_argument(
+        "--openapi-url", help="absolute URL of the app's OpenAPI spec (skips probing)"
+    )
     parsers["ops-sync"] = (p, cmd_ops_sync)
 
     p = argparse.ArgumentParser(prog=f"{PROG} <project> ops-check")
@@ -1231,8 +1282,15 @@ def _make_parsers():
 
     for simple in ("status", "jobs", "migrate", "snapshot"):
         p = argparse.ArgumentParser(prog=f"{PROG} <project> {simple}")
-        parsers[simple] = (p, {"status": cmd_status, "jobs": cmd_jobs,
-                               "migrate": cmd_migrate, "snapshot": cmd_snapshot}[simple])
+        parsers[simple] = (
+            p,
+            {
+                "status": cmd_status,
+                "jobs": cmd_jobs,
+                "migrate": cmd_migrate,
+                "snapshot": cmd_snapshot,
+            }[simple],
+        )
     return parsers
 
 

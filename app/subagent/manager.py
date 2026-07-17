@@ -71,7 +71,7 @@ class SubAgentManager:
         Args:
             agent_type: Name of a sub-agent type registered in
                 :mod:`app.subagent.registry` (one of the files under
-                :mod:`app.subagent.definitions`).
+                ``app/workflows/<domain>/subagents/``).
             query: The full instruction for the sub-agent. Must be
                 self-contained — the sub-agent has no access to the
                 parent's context.

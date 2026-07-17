@@ -118,7 +118,9 @@ def _inject_favicon(project_path: Path, favicon_name: str, suffix: str) -> None:
             f'href="/{favicon_name}" />'
         )
         if '<link rel="icon"' in text:
-            text = re.sub(r'^\s*<link rel="icon"[^\n]*$', link, text, flags=re.MULTILINE)
+            text = re.sub(
+                r'^\s*<link rel="icon"[^\n]*$', link, text, flags=re.MULTILINE
+            )
         else:
             marker = "</title>"
             text = text.replace(marker, marker + "\n" + link, 1)
@@ -469,5 +471,7 @@ async def synthesize_requirements(
         doc = re.sub(r"^```[a-zA-Z]*\s*", "", doc)
         doc = re.sub(r"\s*```$", "", doc)
     if len(doc) < 200:
-        raise ValueError("requirements synthesis returned an implausibly short document")
+        raise ValueError(
+            "requirements synthesis returned an implausibly short document"
+        )
     return doc

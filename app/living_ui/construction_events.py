@@ -1,11 +1,11 @@
 """Living UI build-event pipeline — the Live Construction View's data source.
 
 Derives structured "the app is being built" events from actions the agent
-already performs (write_file / stream_edit / run_shell / living_ui_scaffold).
-The agent is never asked to narrate its progress: events are classified by
-matching the action's file path against projects currently in "creating"
-status, and entity names (models, routes, components, tests) are extracted
-from the written content by regex.
+already performs (write_file / stream_edit / living_ui_scaffold /
+spawn_subagent). The agent is never asked to narrate its progress: events
+are classified by matching the action's file path against projects
+currently in "creating" status, and entity names (React components,
+pb_hooks routes) are extracted from the written content by regex.
 
 Wired into ActionManager's on_action_start / on_action_end hooks (see
 app/agent_base.py). Every path here is fail-silent — a visualization bug
@@ -30,7 +30,7 @@ from ._state import get_living_ui_manager
 # Actions we derive build events from. Everything else is ignored at the
 # hook's first line, so the per-action overhead is one set lookup.
 _WATCHED_ACTIONS = frozenset(
-    {"write_file", "stream_edit", "run_shell", "living_ui_scaffold"}
+    {"write_file", "stream_edit", "living_ui_scaffold", "spawn_subagent"}
 )
 
 # run_id -> recorded start info, popped on action end. Bounded as a
@@ -47,23 +47,20 @@ _SNIPPET_MAX_CHARS = 900
 
 # ── entity extraction ──────────────────────────────────────────────────────
 
-_MODEL_RE = re.compile(r"^class\s+([A-Z]\w*)\s*\(\s*Base\b", re.MULTILINE)
-_ROUTE_RE = re.compile(
-    r"@router\.(get|post|put|delete|patch)\(\s*[\"']([^\"']+)", re.IGNORECASE
-)
 _COMPONENT_RE = re.compile(
     r"^export\s+(?:default\s+)?(?:function|const|class)\s+([A-Z]\w*)", re.MULTILINE
 )
-_TEST_RE = re.compile(r"^def\s+(test_\w+)", re.MULTILINE)
-_PYTEST_PASSED_RE = re.compile(r"(\d+)\s+passed")
-_PYTEST_FAILED_RE = re.compile(r"(\d+)\s+failed")
+# Custom API routes declared in pb_hooks: routerAdd("GET", "/api/custom/x", ...)
+_PB_ROUTE_RE = re.compile(
+    r"routerAdd\(\s*[\"'](\w+)[\"']\s*,\s*[\"']([^\"']+)", re.IGNORECASE
+)
 
 
 def _area_for(rel_path: str) -> str:
     p = rel_path.replace("\\", "/").lower()
     if "/tests/" in p or p.startswith("tests/") or "test_" in p.rsplit("/", 1)[-1]:
         return "tests"
-    if p.startswith("backend/"):
+    if p.startswith("pb_hooks/"):
         return "backend"
     if p.startswith("frontend/") or p == "index.html":
         return "frontend"
@@ -80,22 +77,14 @@ def _extract_entities(rel_path: str, content: str) -> Dict[str, List[str]]:
         return {}
     entities: Dict[str, List[str]] = {}
     p = rel_path.replace("\\", "/").lower()
-    if p.endswith("models.py"):
-        names = _MODEL_RE.findall(content)
-        if names:
-            entities["models"] = names
-    if p.endswith((".py",)) and "routes" in p:
-        routes = [f"{m.upper()} {path}" for m, path in _ROUTE_RE.findall(content)]
+    if p.startswith("pb_hooks/") and p.endswith(".js"):
+        routes = [f"{m.upper()} {path}" for m, path in _PB_ROUTE_RE.findall(content)]
         if routes:
             entities["routes"] = routes
     if p.endswith((".tsx", ".ts", ".jsx")) and _area_for(rel_path) == "frontend":
         names = _COMPONENT_RE.findall(content)
         if names:
             entities["components"] = names
-    if _area_for(rel_path) == "tests" and p.endswith(".py"):
-        names = _TEST_RE.findall(content)
-        if names:
-            entities["tests"] = names
     return entities
 
 
@@ -109,6 +98,23 @@ def _snippet_of(content: str) -> str:
 # ── project matching ───────────────────────────────────────────────────────
 
 
+def _norm_path(path: Any) -> str:
+    """One canonical form for path comparison: resolved when possible,
+    lowercase, forward slashes, no trailing slash."""
+    try:
+        text = str(Path(path).resolve())
+    except Exception:
+        text = str(path)
+    return text.lower().replace("\\", "/").rstrip("/")
+
+
+def _owns(root: Any, norm: str) -> bool:
+    """True when `norm` is the project root itself (spawn queries carry
+    "Project Path: <root>") or any path inside it."""
+    r = _norm_path(root)
+    return bool(r) and (norm == r or norm.startswith(r + "/"))
+
+
 def _creating_projects() -> List[Any]:
     manager = get_living_ui_manager()
     if manager is None:
@@ -116,7 +122,12 @@ def _creating_projects() -> List[Any]:
     return [
         p
         for p in manager.projects.values()
-        if getattr(p, "status", None) == "creating" and getattr(p, "path", "")
+        # "error" included deliberately: the first failed validation flips
+        # status from "creating" to "error", and a status=="creating" filter
+        # silently blinded every write-time hook for the rest of the build.
+        if getattr(p, "status", None) in ("creating", "error")
+        and getattr(p, "path", "")
+        and not (Path(p.path) / ".last_launch").exists()
     ]
 
 
@@ -124,27 +135,31 @@ def _match_project_for_path(file_path: str) -> Optional[Tuple[Any, str]]:
     """Return (project, relative_path) for a file inside a creating project."""
     if not file_path:
         return None
-    try:
-        norm = str(Path(file_path).resolve()).lower().replace("\\", "/")
-    except Exception:
-        norm = str(file_path).lower().replace("\\", "/")
+    norm = _norm_path(file_path)
     for project in _creating_projects():
-        try:
-            root = str(Path(project.path).resolve()).lower().replace("\\", "/")
-        except Exception:
-            continue
-        if norm.startswith(root.rstrip("/") + "/"):
-            rel = norm[len(root) :].lstrip("/")
+        if _owns(project.path, norm):
+            rel = norm[len(_norm_path(project.path)) :].lstrip("/")
             return project, rel
     return None
 
 
-def _match_project_for_command(command: str, cwd: str = "") -> Optional[Any]:
-    """Match a shell command (or its cwd) against creating projects' paths."""
-    haystack = f"{command or ''} {cwd or ''}".lower().replace("\\", "/")
-    for project in _creating_projects():
-        root = str(project.path).lower().replace("\\", "/").rstrip("/")
-        if root and root in haystack:
+def _any_project_for_path(path: str) -> Optional[Any]:
+    """Return the living_ui project owning `path`, at ANY lifecycle stage.
+
+    Deliberately wider than `_creating_projects()`: the spawn tap resolves
+    agents (walk_verify, post-launch coding rounds) that run AFTER the app
+    is launched, when status is "running" and `.last_launch` exists — a
+    creation-scoped matcher there silently drops their results and stalls
+    the build loop.
+    """
+    if not path:
+        return None
+    manager = get_living_ui_manager()
+    if manager is None:
+        return None
+    norm = _norm_path(path)
+    for project in manager.projects.values():
+        if getattr(project, "path", "") and _owns(project.path, norm):
             return project
     return None
 
@@ -161,7 +176,6 @@ def _build_event(
     file: str = "",
     entities: Optional[Dict[str, List[str]]] = None,
     snippet: str = "",
-    tests: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     event: Dict[str, Any] = {
         "id": run_id,
@@ -176,8 +190,6 @@ def _build_event(
         event["entities"] = entities
     if snippet:
         event["snippet"] = snippet
-    if tests:
-        event["tests"] = tests
     return event
 
 
@@ -225,9 +237,6 @@ def _label_for_file(
     if entities.get("components"):
         verb = "updated" if is_edit else "created"
         return f"{_names_phrase('Component', entities['components'])} {verb}"
-    if entities.get("models"):
-        verb = "updated" if is_edit else "defined"
-        return f"{_names_phrase('Model', entities['models'])} {verb}"
     if entities.get("routes"):
         routes = entities["routes"]
         if len(routes) == 1:
@@ -247,22 +256,53 @@ def _classify_file_action(
     if not match:
         return None
     project, rel = match
-    content = str(
-        inputs.get("content") or inputs.get("new_string") or ""
-    )
+    content = str(inputs.get("content") or inputs.get("new_string") or "")
     area = _area_for(rel)
     kind = "file_write" if action_name == "write_file" else "file_edit"
     entities = _extract_entities(rel, content)
     label = _label_for_file(action_name, rel, area, entities)
     # Schema write -> regenerate frontend/types.gen.ts so entity types are
-    # always in lockstep with the backend (never hand-written). Fail-silent.
+    # always in lockstep with the backend (never hand-written), and re-import
+    # into the running PocketBase so builders see the new collections
+    # immediately (idempotent). Runs in a BACKGROUND thread: this hook fires
+    # on the action-completion path, and import_collections' auth retry can
+    # sleep for seconds when PB is briefly unavailable — that wait must
+    # never stall the action pipeline. Fail-silent.
     if rel.replace("\\", "/").lower() == "config/schema.json":
-        try:
-            from .typegen import regenerate_types
+        project_path = Path(project.path)
+        backend_port = getattr(project, "backend_port", None)
 
-            regenerate_types(Path(project.path))
+        def _sync_schema() -> None:
+            try:
+                from .typegen import regenerate_types
+
+                regenerate_types(project_path)
+                if backend_port:
+                    from app.living_ui import pocketbase_runtime as pbrt
+
+                    err = pbrt.import_collections(project_path, backend_port)
+                    if err:
+                        logger.warning(f"[LIVING_UI:PB] live schema import: {err}")
+            except Exception:
+                pass
+
+        try:
+            import threading
+
+            threading.Thread(
+                target=_sync_schema, name="livingui-schema-sync", daemon=True
+            ).start()
         except Exception:
             pass
+    # Feed the check phase's escalation signal: which AREAS this round's
+    # writes touched (a "targeted update" that edits backend/config gets
+    # the full walk anyway). Fail-silent like everything here.
+    try:
+        from app.workflows.living_ui.steps import record_touch
+
+        record_touch(Path(project.path), area)
+    except Exception:
+        pass
     event = _build_event(
         run_id,
         kind,
@@ -273,33 +313,6 @@ def _classify_file_action(
         snippet=_snippet_of(content),
     )
     return project.id, event
-
-
-def _classify_shell_end(
-    run_id: str, inputs: Dict[str, Any], outputs: Dict[str, Any]
-) -> Optional[Tuple[str, Dict[str, Any]]]:
-    command = str(inputs.get("command", ""))
-    if "pytest" not in command.lower():
-        return None
-    project = _match_project_for_command(command, str(inputs.get("cwd", "")))
-    if not project:
-        return None
-    stdout = ""
-    if isinstance(outputs, dict):
-        stdout = f"{outputs.get('stdout', '')}\n{outputs.get('stderr', '')}"
-    passed = _PYTEST_PASSED_RE.search(stdout)
-    failed = _PYTEST_FAILED_RE.search(stdout)
-    tests = {
-        "passed": int(passed.group(1)) if passed else 0,
-        "failed": int(failed.group(1)) if failed else 0,
-    }
-    if tests["failed"]:
-        label = f"Tests: {tests['passed']} passed, {tests['failed']} failed"
-    elif tests["passed"]:
-        label = f"Tests: {tests['passed']} passed"
-    else:
-        label = "Ran backend tests"
-    return project.id, _build_event(run_id, "test_run", label, area="tests", tests=tests)
 
 
 def _classify_scaffold_end(
@@ -313,13 +326,70 @@ def _classify_scaffold_end(
     event = _build_event(
         run_id,
         "scaffold",
-        "Workspace scaffolded — backend/, frontend/, config/",
+        "Workspace scaffolded — frontend/, pb_hooks/, config/",
         area="config",
     )
     return project_id, event
 
 
 # ── ActionManager hooks ────────────────────────────────────────────────────
+
+
+def _record_specialist_spawn(inputs: Dict[str, Any], out: Dict[str, Any]) -> None:
+    """Feed the build director's durable state + fix ledger from every
+    specialist spawn. Fail-silent like every hook — but NEVER silently on a
+    no-match: an unresolved project here means the walk verdict is thrown away
+    and the build loop stalls, which is exactly what hid for three runs."""
+    try:
+        agent_type = str(inputs.get("agent_type", ""))
+        if agent_type not in ("coding_agent", "walk_verify"):
+            return
+        query = str(inputs.get("query", ""))
+        # Resolve the project. Preferred: the STRUCTURED project_id the
+        # workflow passes on every spawn (workflow.spawn_context). Fallback:
+        # any project path mentioned in the query (manual spawns). These
+        # spawns happen at ANY lifecycle stage (walk_verify runs
+        # post-launch), so resolve against every project, not just the
+        # creating ones.
+        project = None
+        project_id = str(inputs.get("project_id", "") or "")
+        if project_id:
+            manager = get_living_ui_manager()
+            project = manager.projects.get(project_id) if manager else None
+        if not project:
+            for m in re.finditer(r"(/\S*living_ui/\S+?)(?:[\s\"']|$)", query):
+                project = _any_project_for_path(m.group(1))
+                if project:
+                    break
+        if not project:
+            logger.warning(
+                f"[LIVING_UI:BUILD_EVENTS] {agent_type} spawn could not be "
+                "matched to a project — its outcome is being dropped (the "
+                "build loop will stall). Query head: " + query[:160]
+            )
+            return
+
+        if agent_type == "walk_verify":
+            from app.workflows.living_ui.steps import record_walk_outcome
+
+            record_walk_outcome(
+                Path(project.path),
+                str(out.get("status", "")),
+                str(out.get("result", "")),
+            )
+            return
+
+        from app.workflows.living_ui.steps import record_spawn
+
+        record_spawn(
+            Path(project.path),
+            agent_type,
+            query,
+            str(out.get("status", "")),
+            str(out.get("result", "")),
+        )
+    except Exception as exc:
+        logger.debug(f"[LIVING_UI:BUILD_EVENTS] specialist record failed: {exc}")
 
 
 def make_action_hooks():
@@ -358,11 +428,10 @@ def make_action_hooks():
             if name in ("write_file", "stream_edit"):
                 if not failed:
                     result = _classify_file_action(run_id, name, inputs)
-            elif name == "run_shell":
-                # A failing pytest run is still a build event (n failed).
-                result = _classify_shell_end(run_id, inputs, out)
             elif name == "living_ui_scaffold":
                 result = _classify_scaffold_end(run_id, out)
+            elif name == "spawn_subagent":
+                _record_specialist_spawn(inputs, out)
 
             if result:
                 project_id, event = result

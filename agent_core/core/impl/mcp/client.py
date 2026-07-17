@@ -58,6 +58,11 @@ class MCPClient:
         self._servers: Dict[str, MCPServerConnection] = {}
         self._config: Optional[MCPConfig] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Auto-revive bookkeeping: one lock per server so concurrent callers
+        # respawn it once, and a cooldown so a server that genuinely cannot
+        # start is not re-spawned on every single tool call.
+        self._revive_locks: Dict[str, asyncio.Lock] = {}
+        self._revive_failed_at: Dict[str, float] = {}
         self._initialized = True
 
     @property
@@ -234,6 +239,61 @@ class MCPClient:
             return []
         return self._servers[server_name].tools
 
+    # A stdio server whose child has exited is not a permanent condition — it
+    # is a dead subprocess we can spawn again. Without this, the first crash
+    # of an MCP server would kill its tools for the rest of the session:
+    # every later call would fail instantly with "connection lost".
+    _REVIVE_COOLDOWN_S = 30.0
+
+    async def _revive_server(
+        self, server_name: str, server: MCPServerConnection
+    ) -> bool:
+        """Respawn a server whose process has died. True if it is usable now.
+
+        Serialized per server (concurrent callers revive it once) and rate
+        limited, so a server that cannot start costs one attempt per cooldown
+        rather than one per tool call. Never raises: a failed revive is
+        reported to the caller as an unavailable tool.
+        """
+        lock = self._revive_locks.setdefault(server_name, asyncio.Lock())
+        async with lock:
+            if server.is_connected:
+                return True  # another caller already brought it back
+
+            import time
+
+            now = time.monotonic()
+            last_failure = self._revive_failed_at.get(server_name)
+            if (
+                last_failure is not None
+                and now - last_failure < self._REVIVE_COOLDOWN_S
+            ):
+                return False
+
+            logger.warning(
+                f"[MCP] Server '{server_name}' has died — restarting it "
+                f"(its tools were unavailable)"
+            )
+            try:
+                revived = await server.reconnect()
+            except Exception as e:
+                logger.error(f"[MCP] Restart of '{server_name}' raised: {e}")
+                revived = False
+
+            if revived:
+                self._revive_failed_at.pop(server_name, None)
+                logger.info(
+                    f"[MCP] Server '{server_name}' restarted with "
+                    f"{len(server.tools)} tools — its actions work again"
+                )
+            else:
+                self._revive_failed_at[server_name] = now
+                logger.error(
+                    f"[MCP] Server '{server_name}' could not be restarted; "
+                    f"retrying in at most {self._REVIVE_COOLDOWN_S:.0f}s"
+                )
+            return revived
+
     async def call_tool(
         self, server_name: str, tool_name: str, arguments: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -255,10 +315,16 @@ class MCPClient:
             }
 
         server = self._servers[server_name]
-        if not server.is_connected:
+        if not server.is_connected and not await self._revive_server(
+            server_name, server
+        ):
             return {
                 "status": "error",
-                "message": f"MCP server '{server_name}' connection lost",
+                "message": (
+                    f"MCP server '{server_name}' connection lost and could not "
+                    f"be restarted. Its tools are unavailable — use another way "
+                    f"to do this, or continue without it."
+                ),
             }
 
         result = await server.call_tool(tool_name, arguments)

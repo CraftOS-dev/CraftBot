@@ -1,340 +1,183 @@
 # MVC-A Architecture Guide
 
-The Living UI pattern for building agent-aware web applications.
-
-## The Pattern
-
-The APP is four layers (MVC-A). The AGENT is not a layer of the app — it
-is CraftBot, an external process, and it reaches the app through ONE tool:
-the `livingui` CLI.
+The Living UI pattern on the PocketBase platform. The APP is four layers
+(MVC-A). The AGENT is not a layer of the app — it is CraftBot, an external
+process that operates the app through the `livingui` CLI and plain HTTP.
 
 ```
-CRAFTBOT AGENT                     (external — never part of the app)
-    │
-    │  run_shell: livingui <project> ...
+CRAFTBOT AGENT / CODING AGENT        (external — never part of the app)
+    │  livingui <project> ... · curl · Playwright browser tools
     ▼
-livingui CLI                       (the agent's ONLY way to operate a
-    │                               running Living UI)
-    ├── select/insert/sql…  ──────► the app's database (works even stopped)
-    ├── api / run / snapshot ─────► the app's backend over HTTP
-    └── restart / status ────────► the CraftBot platform (lifecycle)
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  THE LIVING UI APP                                          │
-│                                                             │
-│  M - MODEL (schema.json → engine → SQLite + REST CRUD)      │
-│  Source of truth. Persists data. Generated API.             │
-├─────────────────────────────────────────────────────────────┤
-│  V - VIEW (React Frontend)                                  │
-│  Stateless UI. Renders data. Captures user input.           │
-├─────────────────────────────────────────────────────────────┤
-│  C - CONTROLLER (useEntities / AppController)               │
-│  Orchestrates. Calls APIs. Manages local state cache.       │
-├─────────────────────────────────────────────────────────────┤
-│  A - AGENT INTERFACE (the app's HTTP surface FOR the agent) │
-│  GET /api/ui-snapshot     - Observe UI state                │
-│  GET /api/ui-screenshot   - Visual observation              │
-│  GET/PUT /api/state       - Application data                │
-│  POST /api/action         - Trigger named actions           │
-│  (system_routes.py — built into every app, never edited)    │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│  THE LIVING UI APP                                            │
+│                                                               │
+│  M - MODEL: config/schema.json → PocketBase collections       │
+│      PB (single binary, SQLite) serves CRUD + realtime.       │
+│      types.gen.ts / api.gen.ts regenerate on every write.     │
+├───────────────────────────────────────────────────────────────┤
+│  V - VIEW: components/regions/NN_slug.tsx                     │
+│      Auto-mounted by MainView; vendored shadcn/ui + Tailwind. │
+├───────────────────────────────────────────────────────────────┤
+│  C - CONTROLLER: api.gen typed client + useEntities hooks     │
+│      PB realtime is the change bus. ApiService = /api/custom. │
+├───────────────────────────────────────────────────────────────┤
+│  A - AGENT INTERFACE: system routes in _craftbot.pb.js        │
+│      (/api/state, /api/ui-snapshot, /api/action, /api/logs)   │
+│      + the verbs declared in config/operations.json           │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-Read it top-down: the agent invokes the CLI; the CLI talks to the app's
-database, its HTTP endpoints (generated CRUD, custom ops, and the A-layer
-routes), or the platform. The A layer is NOT the agent — it is the part of
-the app that exists so an agent can observe and drive it.
+There is no hand-written backend. The old FastAPI engine (models.py,
+routes.py, engine.py, main.py) does not exist — PocketBase IS the backend,
+and the only server code you ever write is JS hooks in
+`pb_hooks/main.pb.js`.
 
-## The Model is DECLARED, not coded
+## M — the Model is DECLARED, not coded
 
-Entities live in `config/schema.json`; the backend engine materializes the
-SQLAlchemy models and a full REST CRUD API per entity (list with filters +
-ordering, get, create, update, delete, bulk) at startup. `GET
-/api/_meta/schema` returns the schema and generated routes. Hand-written
-code is only for BEHAVIOR: custom endpoints in `routes.py`, declared as ops
-in `config/operations.json`.
+Collections live in `config/schema.json` (PocketBase's native import
+format — see BACKEND.md for the field-type reference). Writing that file
+re-imports the collections into the RUNNING PocketBase and regenerates the
+typed frontend client. The platform smooths the sharp edges for you:
 
-## Agent Communication Protocol
+- `created`/`updated` autodate fields are added to every collection.
+- Missing access rules are forced PUBLIC (`""`) — PB's default of
+  superuser-only would 403 the frontend. An explicit rule you write
+  (e.g. `@request.auth.id != ""`) is respected.
+- Relations are declared by NAME (`"collectionName": "cards"`); the
+  platform resolves them to PB's required `collectionId` with stable ids,
+  so re-imports are idempotent.
 
-**All agent communication uses HTTP** (via the CLI) - no WebSocket required.
+PB then serves, per collection, with zero code:
+`GET/POST /api/collections/<name>/records` (`?filter=`, `?sort=-field`,
+`?page/perPage`, `?expand=rel`), `GET/PATCH/DELETE .../records/<id>`,
+realtime subscriptions, file storage. Ids are STRINGS.
 
-### The A Layer: Standard Agent-Interface Endpoints
+Generated on every schema write (never edit):
+- `frontend/types.gen.ts` — one interface per collection, field names
+  exactly as declared + `id`/`created`/`updated`.
+- `frontend/api.gen.ts` — typed helpers over the PB SDK:
+  `api.<name>.getFullList/getOne/create/update/delete` + `use<Name>()`
+  hooks and a schema-typed `useEntities`.
 
-Built into every app by `system_routes.py` (system-managed — never edit):
+## V — regions auto-mount
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/state` | GET | Get application data state |
-| `/api/state` | PUT | Update application state |
-| `/api/ui-snapshot` | GET | Get UI state (DOM, text, inputs) |
-| `/api/ui-screenshot` | GET | Get UI screenshot (PNG base64) |
-| `/api/action` | POST | Trigger named action |
+Every `frontend/components/regions/NN_slug.tsx` with a default export is
+discovered and rendered by `MainView` in filename order — you NEVER import
+or wire a component into MainView by hand. Add a screen region = create
+the file; change one = edit it in place; remove = delete it. Each region
+renders inside an error boundary, so one crashing region cannot blank the
+app (the console names the culprit region).
 
-Entity CRUD is NOT listed here because it is generated per entity from
-`config/schema.json` (`/api/<plural>` + bulk/search/stats).
+Build regions from the vendored shadcn/ui components in
+`frontend/components/ui/` (`import { Button } from '@/components/ui/button'`;
+missing one → `npx shadcn@latest add <name> --yes`) and Tailwind
+token-mapped classes. `App.tsx` just renders MainView + the global
+`<Toaster />` — never mount a second toaster.
 
-### UI Snapshot (GET /api/ui-snapshot)
+## C — data access
 
-Returns current UI state captured by the frontend:
-
-```json
-{
-  "htmlStructure": "<body>...",
-  "visibleText": ["Welcome", "Click here", ...],
-  "inputValues": {"search": "query", "email": "user@..."},
-  "componentState": {"App": {"initialized": true}},
-  "currentView": "/dashboard",
-  "viewport": {"width": 1200, "height": 800, "scrollX": 0, "scrollY": 100},
-  "timestamp": "2024-01-15T10:30:00Z"
-}
+```ts
+import { api, useCards, useEntities } from '../api.gen'   // typed, generated
+const cards = useCards({ filter: "done = false", sort: "-created" })
+const { items, loading, create, update, remove } = useEntities('cards')
+await api.cards.create({ title: "Hi", columnId: col.id })
 ```
 
-**Use for:** Observing what the user sees, monitoring form inputs, tracking navigation
+- ALWAYS import from `'../api.gen'` — those versions are typed to your
+  schema. The raw `services/data.ts` hook is untyped (fields become `any`).
+- `useEntities(name, {filter, sort, perPage, expand})` returns
+  `{items, loading, error, refresh, create, update, remove}`. Every
+  mounted list subscribes to PB realtime, so a mutation ANYWHERE (another
+  component, a custom route, the agent) refreshes every list — never lift
+  entity state to "sync" components.
+- Filters use PB syntax: `columnId = 'x' && done = false`.
+- `ApiService.request(method, path, body)` is ONLY for the custom
+  `/api/custom/*` endpoints; mutating calls auto-refresh mounted lists.
+- localStorage is ONLY for ephemeral UI state (last tab, draft text).
+  Anything that must survive a reload goes in PocketBase.
 
-### UI Screenshot (GET /api/ui-screenshot)
+## Custom verbs — pb_hooks/main.pb.js
 
-Returns a screenshot of the current UI:
+The only server code you write. `routerAdd` under `/api/custom/...` for
+multi-record transactions, aggregations, and integration calls — never
+CRUD (see BACKEND.md for the goja VM rules). Hook changes need
+`livingui <id> restart`. Declare each verb as an op in
+`config/operations.json` so future agents can discover and fire it —
+what is declared there IS the app's control surface (see OPERATIONS.md).
 
-```json
-{
-  "imageData": "iVBORw0KGgo...",  // Base64 PNG
-  "width": 1200,
-  "height": 800,
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
+## A — the agent interface
 
-**Use for:** Visual verification, debugging layout issues, documentation
+System routes served by `pb_hooks/_craftbot.pb.js` (system-managed,
+present in every app):
 
-**To display:** `<img src="data:image/png;base64,{imageData}">`
+| Endpoint | Purpose |
+|----------|---------|
+| `GET/PUT/DELETE /api/state`, `POST /api/state/replace` | whole-blob app state (JSON merge on PUT) |
+| `GET/POST /api/ui-snapshot` | UI state the frontend reports (DOM, text, inputs) |
+| `POST /api/action` | action-event log (frontend/agent events, appended to jsonl) |
+| `POST /api/logs` | browser-console sink (captured for `livingui logs`) |
+| `GET /health` | legacy health path (PB's own is `/api/health`) |
 
-### Triggering Actions (POST /api/action)
+Entity CRUD is not listed — PB generates it from `config/schema.json`.
 
-```
-livingui <project> run <op> --param value
-```
-
-Built-in actions: `reset`, `increment`, `decrement`.
-App-specific verbs are real endpoints in `routes.py`, declared as ops in
-`config/operations.json`.
-
----
-
-## When to Use Each Layer
-
-### Model Layer (Backend + Database)
-
-**USE WHEN:**
-- Data must persist across sessions
-- Multiple data entities with relationships
-- Complex queries (filtering, sorting, aggregation)
-- External API calls (don't call external APIs from frontend)
-- Agent needs to read/write data via API
-
-**SKIP WHEN:**
-- Pure visualization (charts from provided data)
-- Static content display
-- Calculator/converter tools (no persistence needed)
-
-### View Layer (Frontend)
-
-**ALWAYS NEEDED** - but complexity varies:
-- **Simple:** Single component, minimal interactivity
-- **Medium:** Multiple components, forms, lists
-- **Complex:** Multi-view, navigation, rich interactions
-
-### Controller Layer (useEntities / AppController)
-
-The standard controller is PROVIDED: `useEntities<T>(plural, filters)` from
-`services/data.ts` handles fetch/create/update/remove with auto-refresh —
-most apps need nothing more. `AppController.ts` is OPTIONAL, for
-app-specific orchestration beyond entity CRUD (multi-step flows, cross-
-component coordination, custom-endpoint calls via ApiService).
-
-### Agent Interface Layer (A)
-
-**ALWAYS AVAILABLE** - the standard endpoints are built-in via
-`system_routes.py`; the agent never has to build its own access:
-- `/api/ui-snapshot` - Automatic UI state capture
-- `/api/ui-screenshot` - On-demand screenshots
-- `/api/state` - Application data
-- `/api/action` - Trigger actions
-
-Imported (external) apps get `/api/ui-snapshot` and `/api/ui-screenshot`
-too — served by the platform's sidecar proxy, which injects the capture
-script into the app's HTML without touching its source. Their `/api/state`
-and `/api/action` equivalents are whatever ops the importer declared in
-`config/operations.json`.
-
----
-
-## Architecture Decision Matrix
-
-| App Type | Database | Backend API | Frontend | Agent Interface |
-|----------|----------|-------------|----------|-----------------|
-| Todo/Task list | ✓ | ✓ | ✓ | ✓ (built-in) |
-| Dashboard (live data) | ✓ | ✓ | ✓ | ✓ |
-| Calculator | - | - | ✓ | ✓ |
-| Data visualizer | - | ✓ (external API) | ✓ | ✓ |
-| CRUD app | ✓ | ✓ | ✓ | ✓ |
-| Game with saves | ✓ | ✓ | ✓ | ✓ |
-| Agent-fed display | - | ✓ (receive data) | ✓ | ✓ |
-
----
-
-## Agent Access: the livingui CLI (the ONLY way to operate a Living UI)
-
-Agents operate every Living UI through the `livingui` CLI via run_shell
-(it is on PATH — run `livingui ...` directly). There is no other supported
-path — no direct curl, no direct sqlite, no HTTP actions.
+The `livingui` CLI wraps all of it:
 
 ```
-livingui <project> --help                     discover: tables, operations, commands
-livingui <project> snapshot                   what the user sees (DOM/text/inputs)
-livingui <project> screenshot --out shot.png  visual check (then describe_image)
-livingui <project> select <table> --where ... read rows (works when stopped)
-livingui <project> insert <table> --file F    bulk write (one command for N rows)
-livingui <project> update <table> --where ... --set k=v
-livingui <project> sql "SELECT ..."           aggregates and joins
-livingui <project> run <op> [--param v]       the app's declared verbs (real logic)
-livingui <project> api GET /api/...           raw endpoint passthrough
-livingui <project> migrate | restart          schema changes / lifecycle
+livingui ls                                   all projects
+livingui <project> --help                     capability card: tables, ops, commands
+livingui <project> status                     running state + ui/api URLs
+livingui <project> logs --tail 50             server + captured browser console
+livingui <project> select|count|insert|update|delete|sql   direct DB (works when stopped)
+livingui <project> api GET /api/...           any HTTP endpoint
+livingui <project> run <op> [--param v]       declared operations
+livingui <project> snapshot | screenshot      observe the live UI
+livingui <project> start|stop|restart|migrate lifecycle
 ```
 
-### Choosing the right command
+## System-managed vs agent-owned files
 
-| Need | Command |
-|------|---------|
-| Discover everything (schema, ops, routes) | `livingui <project> --help` |
-| See what the user sees | `snapshot` / `screenshot` |
-| Read/write rows in bulk | `select` / `insert --file` / `update --where` |
-| Complex queries | `sql "SELECT ..."` |
-| Trigger app behavior | `run <op>` (prefer over raw writes — runs real logic) |
-| Call a custom endpoint | `api <METHOD> <path>` |
-| Drive the running UI | `ui --data '{"type": "refresh"}'` |
-| Add a capability that doesn't exist | edit code → declare op → `restart` |
-
----
-
-## External Data Fetching (Into Living UI)
-
-### Option A: Backend Proxy (Recommended)
-
-Backend fetches external data, frontend gets it from backend.
-
-```python
-@router.get("/weather")
-def get_weather():
-    response = requests.get("https://api.weather.com/...")
-    return response.json()
-```
-
-**Best for:** External APIs, API keys, caching needed. Data from
-CraftBot-connected services (GitHub, Google, Slack, ...) goes through
-`services/integration_client.py` — see INTEGRATIONS.md.
-
-### Option B: Agent-Fetched Data
-
-Agent fetches data and pushes it into the Living UI:
-
-```
-# Agent fetches external data, then pushes it into the Living UI
-livingui <project> api PUT /api/state --data '{"data": {"weather": {"temp": 72}}}'
-```
-
-**Best for:** Real-time data, agent-controlled refresh cycles
-
----
-
-## Component Responsibilities
-
-### Backend Files
-
-| File | Responsibility |
-|------|----------------|
-| `config/schema.json` | THE data layer — entities are declared here |
-| `engine.py` | schema.json → models + CRUD API (SYSTEM — never edit) |
-| `models.py` | Re-exports engine + system models (SYSTEM — never edit) |
-| `system_routes.py` | The A layer: /state /action /ui-* (SYSTEM — never edit) |
-| `routes.py` | CUSTOM behavior endpoints ONLY — edit this |
-| `database.py` | DB connection, .env DATABASE_URL (SYSTEM — never edit) |
-| `main.py` | FastAPI app setup (SYSTEM — never edit) |
-
-### Frontend Files
-
-| File | Responsibility |
-|------|----------------|
-| `types.gen.ts` | GENERATED entity types — import, never edit |
-| `types.ts` | App-specific NON-entity types only |
-| `services/data.ts` | Generic CRUD client + useEntities (SYSTEM — use, never edit) |
-| `services/ApiService.ts` | Client for CUSTOM endpoints only |
-| `services/UICapture.ts` | UI snapshot/screenshot capture (SYSTEM) |
-| `AppController.ts` | OPTIONAL app-specific orchestration |
-| `components/` | React UI components — edit/add here |
-
-### Data Flow
-
-```
-User Action
-    ↓
-React Component
-    ↓
-useEntities.create/update/remove   (entity CRUD — the standard path)
-  or AppController → ApiService    (custom endpoints only)
-    ↓
-Backend Route (generated CRUD, or routes.py)
-    ↓
-Database
-    ↓
-Response flows back up
-
-On meaningful events (state changes, user interactions):
-UICapture → POST /api/ui-snapshot → agent reads via `livingui snapshot`
-```
-
----
-
-## The CLI (how agents actually operate the app)
-
-Everything above is reachable through ONE tool: `livingui`. Agents never
-curl, never open the DB, never start servers by hand.
-
-Universal built-ins (work on EVERY Living UI, no declaration needed):
-
-| Command | Purpose |
+| Agent-OWNED (edit these) | |
 |---|---|
-| `livingui <project> --help` | The app's tables, declared ops, commands |
-| `select/count/insert/update/delete/sql` | Direct data plane (works even when the app is stopped) |
-| `schema` | Tables + columns as they exist on disk |
-| `api GET /api/...` | Call any backend endpoint |
-| `run <op> --params-file p.json` | Execute a declared operation |
-| `jobs` / `job <id>` | Long-running op status |
-| `ui` / `snapshot` / `screenshot` | Observe the running UI |
-| `status` / `logs --tail 50` / `restart` / `migrate` | Lifecycle + diagnostics |
+| `config/schema.json` | THE data layer — collections declared here |
+| `config/operations.json` | the app's declared verbs |
+| `pb_hooks/main.pb.js` | custom endpoints + integration calls |
+| `frontend/components/regions/*.tsx` | the app's screens |
+| `frontend/types.ts` | app-specific NON-entity types |
 
-App-specific verbs come from `config/operations.json` (see the executor
-recipes in that file). The contract: **what is declared there IS the app's
-control surface** — an undeclared capability does not exist for any future
-agent. CRUD never needs an op; the data commands and generated REST cover
-every schema entity automatically.
+| SYSTEM-MANAGED (use, never edit) | |
+|---|---|
+| `pb_hooks/_craftbot.pb.js` | agent-interface system routes |
+| `frontend/types.gen.ts`, `frontend/api.gen.ts` | GENERATED from schema.json |
+| `frontend/lib/pb.ts` | PB client singleton (same-origin) |
+| `frontend/services/data.ts` | generic useEntities over the PB SDK |
+| `frontend/services/ApiService.ts` | `/api/custom/*` client |
+| `frontend/components/MainView.tsx` | region auto-mount shell |
+| `frontend/components/ui/*` | vendored shadcn (extend via `npx shadcn add`) |
+| `frontend/styles/global.css`, `styles/themes.css` | design tokens + style packs |
+| `config/manifest.json`, `pb_data/` | platform-written metadata + PB's database dir |
 
-## Quick Reference: Operating an App
+## Platform lifecycle (what you never do yourself)
 
-```bash
-# Get UI state (what the user sees)
-livingui <project> snapshot
+The platform (`pocketbase_runtime`) downloads a version-pinned PocketBase
+binary once per machine, serves it per project
+(`pocketbase serve --http=127.0.0.1:<port> --dir pb_data --hooksDir pb_hooks`),
+bootstraps a local-only superuser, and imports `config/schema.json` on
+every write. You never start servers, create `pb_data/`, or run
+migrations by hand — `livingui <id> restart` and `migrate` are the levers.
 
-# Get a screenshot (then view it with describe_image)
-livingui <project> screenshot --out shot.png
+## Data flow
 
-# Get / update the generic app state
-livingui <project> api GET /api/state
-livingui <project> api PUT /api/state --data '{"data": {"key": "value"}}'
-
-# Trigger a named action / declared op
-livingui <project> run reset
-
-# Entity CRUD (any schema entity, running or stopped)
-livingui <project> select cards --where '{"status": "open"}'
-livingui <project> insert cards --file rows.json
+```
+User action
+    ↓
+Region component (components/regions/NN_slug.tsx)
+    ↓
+useEntities / api.gen create|update|remove    (entity CRUD — the standard path)
+  or ApiService → /api/custom/*               (declared verbs only)
+    ↓
+PocketBase (generated CRUD, or pb_hooks/main.pb.js)
+    ↓
+SQLite (pb_data/)
+    ↓
+PB realtime broadcast → every mounted useEntities list refreshes
 ```

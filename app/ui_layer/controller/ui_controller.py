@@ -542,8 +542,7 @@ class UIController:
                     # settles with nothing running. WAITING_FOR_USER is left
                     # untouched.
                     if (
-                        self._state_store.state.agent_state
-                        == AgentStateType.WORKING
+                        self._state_store.state.agent_state == AgentStateType.WORKING
                         and not self._state_store.state.has_running_items()
                     ):
                         self._state_store.dispatch(

@@ -3,16 +3,16 @@
 Sub-agent runtime types.
 
 Per-type configuration (system prompt, allowed actions, runtime caps)
-lives in :mod:`app.subagent.definitions`, with one file per sub-agent
-type registered via :mod:`app.subagent.registry`. This module holds
-only the runtime objects that are agnostic to type.
+lives with each type's workflow (``app/workflows/<domain>/subagents/``),
+one file per sub-agent type registered via :mod:`app.subagent.registry`.
+This module holds only the runtime objects that are agnostic to type.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 # ============================================================================
@@ -58,6 +58,23 @@ class SubAgent:
     status: str = "running"
     result: Optional[str] = None
     iterations: int = 0
+
+    # Self-declared plan: [{"content": str, "status": "pending"|"in_progress"
+    # |"completed"}]. Maintained via the sub_task_todos action; exit checks
+    # can require completion before sub_task_end accepts "completed".
+    todos: List[Dict[str, str]] = field(default_factory=list)
+    # Files this agent wrote during the run (write_file/stream_edit paths),
+    # recorded by the runner — exit checks scope tsc/pytest to these.
+    written_files: List[str] = field(default_factory=list)
+    # Every action name this agent has invoked this run, recorded by the
+    # runner — lets exit checks require real work (e.g. that a coding agent
+    # actually drove the browser before claiming a feature works).
+    actions_run: List[str] = field(default_factory=list)
+    # The subset of those attempts that came back status="error". Attempts
+    # alone cannot tell "the agent never tried" from "the agent tried and the
+    # tool is dead" — a distinction an exit check MUST make, or a broken tool
+    # becomes an unsatisfiable gate the agent can only escape by failing.
+    actions_failed: List[str] = field(default_factory=list)
 
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     ended_at: Optional[str] = None

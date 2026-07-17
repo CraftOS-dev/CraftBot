@@ -343,24 +343,6 @@ export function ConstructionView({ project, todos, events }: Props) {
           // Start playing immediately if the stage is free.
           setShowcase(cur => cur ?? showcaseQueue.current.shift() ?? null)
         }
-      } else if (e.data?.type === 'craftbot-dev-metrics') {
-        // Rendered-layout measurements → backend design gate
-        if (e.data.metrics) {
-          getSocketClient().send('living_ui_design_metrics', {
-            projectId: project.id,
-            metrics: e.data.metrics,
-          })
-        }
-      } else if (e.data?.type === 'craftbot-dev-screenshot') {
-        // Periodic screenshot → saved as logs/design_preview.png for the
-        // agent's describe_image self-review. Size is governed at the
-        // source: the engine caps the capture resolution.
-        if (typeof e.data.dataUrl === 'string') {
-          getSocketClient().send('living_ui_design_screenshot', {
-            projectId: project.id,
-            dataUrl: e.data.dataUrl,
-          })
-        }
       }
     }
     window.addEventListener('message', onMessage)

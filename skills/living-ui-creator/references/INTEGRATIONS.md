@@ -1,104 +1,109 @@
-# External Integrations (Google, Discord, Slack, etc.)
+# External Integrations (AI, Google, Slack, Discord, ...)
 
-CraftBot has connected external services (Gmail, YouTube, Discord, Slack, Notion, etc.).
-Living UIs can access these through a built-in integration bridge — **do NOT build OAuth flows, API key management, or credential storage yourself.**
+Integrations happen in **`pb_hooks/main.pb.js`** — custom routes that call
+the CraftBot host through its integration bridge, or `$http` for genuinely
+public external APIs. The frontend never calls external services directly;
+it awaits your `/api/custom/*` route with a loading state.
 
-The template includes `backend/services/integration_client.py`. Use it:
+**Secrets and API keys are NOT available to apps.** There is no `.env`, no
+secrets service, no credential storage. Anything that needs the user's
+accounts or host credentials goes through the bridge — CraftBot injects
+auth server-side, and tokens never touch app code or the database.
 
-```python
-from services.integration_client import integration
+## The bridge
 
-# Check what integrations are connected
-integrations = await integration.get_integrations()
-# [{"id": "google_workspace", "connected": true}, {"id": "slack", "connected": true}, ...]
+The platform starts every backend with two env vars:
 
-# Make an authenticated API call (CraftBot injects credentials automatically)
-result = await integration.request(
-    integration="google_workspace",
-    method="GET",
-    url="https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
-)
-if result.get("status") == 200:
-    channels = result["data"]
+- `CRAFTBOT_BRIDGE_URL` — the host bridge (per-project)
+- `CRAFTBOT_BRIDGE_TOKEN` — Bearer token the bridge requires
+
+Bridge endpoints (all POST unless noted, JSON in/out):
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/api/bridge/llm` | `{prompt, system_message?}` → CraftBot's LLM |
+| `/api/bridge/vlm` | `{image_url, prompt?}` → `{description}` (vision) |
+| `/api/integrations/proxy` | authenticated call to a connected service |
+| `GET /api/integrations/available` | `{integrations: [{id, connected}]}` |
+
+## In-app AI — callLLM (no API keys)
+
+The `pb_hooks/main.pb.js` template ships a `callLLM(prompt, systemMessage?)`
+helper that bridges to the CraftBot host. Keep it and call it from your
+routes:
+
+```js
+routerAdd("POST", "/api/custom/summarize", (e) => {
+  const cards = $app.findRecordsByFilter("cards", "done = false", "-created", 50, 0)
+  const text = cards.map((c) => c.get("title")).join("\n")
+  const summary = callLLM("Summarize these tasks in 3 bullets:\n" + text,
+                          "You are a concise assistant.")
+  if (!summary) return e.json(200, { summary: "", unavailable: true })
+  return e.json(200, { summary: summary })
+})
 ```
 
-## Available Integrations
+`callLLM` returns `""` on ANY failure (bridge down, timeout) — degrade
+gracefully, never crash the request; the UI shows "AI unavailable". Calls
+take seconds: run them in custom routes the frontend awaits with a loading
+state, never in loops over many rows without telling the user.
 
-google_workspace (Gmail, Calendar, Drive, YouTube), slack, discord, notion, telegram, github, jira, linkedin, twitter, outlook, whatsapp
+## Connected services — the integration proxy
+
+For the user's connected accounts (Gmail, Slack, Discord, Notion, GitHub,
+...), POST to the bridge proxy; CraftBot injects the credentials:
+
+```js
+routerAdd("POST", "/api/custom/notify-slack", (e) => {
+  const body = e.requestInfo().body
+  const res = $http.send({
+    url: $os.getenv("CRAFTBOT_BRIDGE_URL") + "/api/integrations/proxy",
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "Authorization": "Bearer " + $os.getenv("CRAFTBOT_BRIDGE_TOKEN"),
+    },
+    body: JSON.stringify({
+      integration: "slack",
+      method: "POST",
+      url: "https://slack.com/api/chat.postMessage",
+      body: { channel: "C0123456789", text: body.text },   // channel ID, not name
+    }),
+    timeout: 30,
+  })
+  const out = (res.json) || {}
+  return e.json(200, { sent: out.status === 200, status: out.status })
+})
+```
+
+The proxy replies `{status, data}` — `status` is the EXTERNAL API's code.
+HTTP 424 from the bridge itself means the service is not connected: show
+"Connect <service> in CraftBot settings", don't error out. Known
+integration ids: `google_workspace` (Gmail, Calendar, Drive, YouTube),
+`slack`, `discord`, `notion`, `telegram`, `github`, `jira`, `linkedin`,
+`twitter`, `outlook`, `whatsapp` — confirm live with
+`GET /api/integrations/available`.
+
+## Plain external HTTP — $http
+
+For genuinely public APIs (no auth, no user account), call them directly
+from the hook — the goja VM's `$http.send({url, method, body?, headers?,
+timeout})` returns `{statusCode, json, body}`:
+
+```js
+const res = $http.send({ url: "https://api.open-meteo.com/v1/forecast?...", timeout: 15 })
+if (res.statusCode === 200) { /* res.json */ }
+```
+
+If the API needs a key, it is NOT a `$http` case — there are no keys.
+Route it through the bridge or leave it out.
 
 ## Rules
 
-- NEVER implement OAuth or credential management — the bridge handles all auth
-- NEVER ask users for API keys — CraftBot already has their connected accounts
-- NEVER store tokens or secrets in the Living UI code or database
-- Use `integration.available` to check if the bridge is connected before making calls
-- Show a helpful message if an integration is not connected (e.g., "Connect Google in CraftBot settings")
-
-## In-App AI (CraftBot's LLM/VLM — no API keys)
-
-```python
-from services.integration_client import integration
-
-# Text: summarize / classify / extract / draft
-summary = await integration.llm(
-    "Summarize these tasks in 3 bullets:\n" + tasks_text,
-    system_message="You are a concise assistant.",   # optional
-)
-
-# Vision: describe an uploaded image
-description = await integration.describe_image(image_url)
-```
-
-Returns `""` on failure (bridge down / standalone run) — always handle
-the empty case in the UI ("AI unavailable"). Calls take seconds: run them
-in custom routes the frontend awaits with a loading state, never in loops
-over many rows without telling the user.
-
-## Notification Recipes (send email / Slack / Discord)
-
-Wire these as custom routes + ops (great with `"schedule"`):
-
-**Gmail** (integration `google_workspace`):
-
-```python
-import base64
-from email.mime.text import MIMEText
-
-def _gmail_raw(to: str, subject: str, body: str) -> str:
-    msg = MIMEText(body)
-    msg["to"], msg["subject"] = to, subject
-    return base64.urlsafe_b64encode(msg.as_bytes()).decode()
-
-result = await integration.request(
-    integration="google_workspace",
-    method="POST",
-    url="https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-    body={"raw": _gmail_raw("me@example.com", "Daily digest", digest_text)},
-)
-```
-
-**Slack** (integration `slack` — channel ID, not name):
-
-```python
-result = await integration.request(
-    integration="slack",
-    method="POST",
-    url="https://slack.com/api/chat.postMessage",
-    body={"channel": "C0123456789", "text": digest_text},
-)
-```
-
-**Discord** (integration `discord` — 18-digit channel ID):
-
-```python
-result = await integration.request(
-    integration="discord",
-    method="POST",
-    url="https://discord.com/api/v10/channels/<channel_id>/messages",
-    body={"content": digest_text},
-)
-```
-
-Always check `result.get("status")` — 424 means the user hasn't connected
-that service in CraftBot (show "Connect <service> in CraftBot settings").
-
+- NEVER implement OAuth, credential storage, or key management — the
+  bridge handles all auth.
+- NEVER ask users for API keys; CraftBot already has their accounts.
+- Bridge env vars missing (standalone run) → return an "unavailable"
+  response, never a 500.
+- Hook changes need `livingui <id> restart`; prove each route with a live
+  curl (see VERIFY.md).

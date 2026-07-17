@@ -21,7 +21,9 @@ class FakeLLM:
         self.response = response
         self.calls = 0
 
-    async def generate_response_async(self, system_prompt: str, user_prompt: str):
+    async def generate_response_async(
+        self, system_prompt: str, user_prompt: str, **kwargs
+    ):
         self.calls += 1
         self.last_prompt = user_prompt
         return self.response

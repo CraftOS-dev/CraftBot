@@ -2,10 +2,12 @@
 """
 Sub-agent registry.
 
-Every sub-agent type lives in its own module under :mod:`app.subagent.definitions`
-and calls :func:`register_subagent` at import time. That gives each type a
-single place where its prompt, allowed actions, and runtime caps are
-defined — no scattering across ``types.py`` + ``prompts/``.
+Every sub-agent type lives in its own module with the workflow that owns
+it (``app/workflows/<domain>/subagents/``; cross-domain types under
+``app/workflows/common/subagents/``) and calls :func:`register_subagent`
+at import time. That gives each type a single place where its prompt,
+allowed actions, and runtime caps are defined — no scattering across
+``types.py`` + ``prompts/``.
 
 ``sub_task_end`` is the universal terminator action. The registry appends
 it to every definition's action list automatically; it must NEVER be
@@ -46,6 +48,8 @@ class SubAgentDefinition:
             the sub-agent as ``failed``.
         max_wall_seconds: Hard cap on wall-clock execution before the
             runner ends the sub-agent as ``timeout``.
+
+    All types are data-only and register through :func:`register_subagent`.
     """
 
     name: str
@@ -54,6 +58,27 @@ class SubAgentDefinition:
     actions: Tuple[str, ...]
     max_iterations: int
     max_wall_seconds: int
+    # Deterministic checks (see app.subagent.exit_checks) that must ALL pass
+    # before sub_task_end(status="completed") is accepted. A failing check
+    # refuses the end with an instructional error — the agent keeps its
+    # remaining iterations to actually fix the problems instead of shipping
+    # them (observed: builders ending at 9-18/60 iterations with dirty tsc
+    # and unrun tests, because stopping was free).
+    exit_checks: Tuple[str, ...] = ()
+    # Parameters FORCED onto specific actions at execution time, as
+    # ((action_name, ((param, value), ...)), ...). A guarantee the prompt
+    # can't give: e.g. walk_verify pins browser_console_messages all=False —
+    # the shared browser's full history contains OLD builds' crashes, and a
+    # walk that read it condemned a freshly built app with errors from code
+    # that no longer existed (session 20260717150105).
+    param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = ()
+
+    def overrides_for(self, action_name: str) -> Dict[str, object]:
+        """The forced parameters for one action ({} when none)."""
+        for name, pairs in self.param_overrides:
+            if name == action_name:
+                return dict(pairs)
+        return {}
 
     @property
     def compiled_actions(self) -> List[str]:
@@ -61,8 +86,8 @@ class SubAgentDefinition:
         return list(self.actions)
 
 
-# Process-wide registry. Populated by ``register_subagent`` calls in
-# ``app.subagent.definitions.*`` modules at import time.
+# Process-wide registry. Populated by ``register_subagent`` calls in the
+# workflow packages' ``subagents/*`` modules at import time.
 _REGISTRY: Dict[str, SubAgentDefinition] = {}
 
 
@@ -74,6 +99,8 @@ def register_subagent(
     actions: Iterable[str],
     max_iterations: int,
     max_wall_seconds: int,
+    exit_checks: Iterable[str] = (),
+    param_overrides: Tuple[Tuple[str, Tuple[Tuple[str, object], ...]], ...] = (),
 ) -> None:
     """Register a sub-agent type.
 
@@ -87,6 +114,10 @@ def register_subagent(
             auto-appended; do NOT list it here.
         max_iterations: Hard cap on action turns.
         max_wall_seconds: Hard cap on wall-clock execution.
+        exit_checks: Deterministic check names run before a "completed"
+            ``sub_task_end`` is accepted (see :mod:`app.subagent.exit_checks`).
+        param_overrides: Parameters forced onto specific actions at
+            execution time (see :class:`SubAgentDefinition.param_overrides`).
 
     Raises:
         ValueError: if ``name`` is already registered, ``description`` is
@@ -135,6 +166,8 @@ def register_subagent(
         actions=tuple(cleaned),
         max_iterations=max_iterations,
         max_wall_seconds=max_wall_seconds,
+        exit_checks=tuple(exit_checks),
+        param_overrides=tuple(param_overrides),
     )
     logger.debug(
         f"[SubAgentRegistry] Registered {name!r} "

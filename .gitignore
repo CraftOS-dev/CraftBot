@@ -57,3 +57,6 @@ agent_file_system/TASK_HISTORY.md
 docs/LIVING_UI_DEVELOPER_GUIDE.md
 agent_file_system/ACTIONS.md
 agent_bundle/
+.playwright-mcp/
+.ruff_cache/
+.pytest_cache/

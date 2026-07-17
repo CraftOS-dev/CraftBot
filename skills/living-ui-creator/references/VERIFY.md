@@ -1,220 +1,117 @@
-# Living UI Verification Checklist
+# Living UI Verification
 
-**You are a strict product manager.** Before marking any Living UI as complete, you MUST verify every item on this checklist. Do not skip any section. If any check fails, fix it before proceeding.
+The ladder of evidence, weakest to strongest:
 
-## 1. Build Verification
+1. **verify_build** — the code compiles. Nothing more.
+2. **Self-testing in the browser** — you watched each feature work.
+3. **curl against the running backend** — routes and data are real.
+4. **walk_verify** — the independent gate that decides PASS.
 
-### 1.1 Backend Compiles (read-only check, safe to run)
-```bash
-cd backend && python -c "from models import *; from routes import *; print('Backend OK')"
+**A green build is NOT evidence a feature exists.** The failure mode this
+process exists to kill: an app that builds cleanly with zero features
+implemented, reported as "fully implemented". Never argue from a passing
+build that a feature is present — go exercise it.
+
+## 1. Compile truth — verify_build
+
+Call `verify_build` (pass the project path) after edits and before ending.
+It runs the real build (`npm run build:debug` from the project root —
+never per-file `tsc`) and groups failures by ROOT CAUSE: a cascade of 590
+identical "Cannot find module" errors comes back as ONE cause. Fix the
+root cause, re-run; if the cause count didn't drop, you misdiagnosed —
+re-read the actual error, never repeat a fix that didn't work. Running
+verify_build repeatedly without changing code is not progress.
+
+## 2. Self-test every feature in the browser
+
+The app URL hot-reloads on save. For EACH feature, in the order a first
+user would hit it:
+
 ```
-- [ ] Command exits with code 0
-- [ ] No import errors
-- [ ] No syntax errors
-
-### 1.2 Frontend Type-Clean
-You do NOT run `npm run build` manually — `living_ui_validate` builds the
-frontend, and every write already returned the complete tsc error list.
-- [ ] The LAST write-result feedback reported zero TYPE ERRORS
-- [ ] No react-hooks lint findings left unfixed
-
-**If validation's build step fails:** fix ALL the errors it lists, then
-validate again.
-
-## 2. Functional Verification
-
-### 2.1 Core Features Work
-For each feature the user requested, verify:
-- [ ] Feature can be triggered (button click, form submit, etc.)
-- [ ] Feature produces expected result
-- [ ] Result is visible in the UI
-- [ ] Result persists after page refresh
-
-### 2.2 CRUD Operations (if applicable)
-- [ ] **Create**: Can add new items
-- [ ] **Read**: Items display correctly
-- [ ] **Update**: Can modify existing items
-- [ ] **Delete**: Can remove items
-- [ ] All operations reflect immediately in UI
-
-### 2.3 State Persistence
-This is **critical**. Test this flow:
-1. Perform some actions (add items, change values, etc.)
-2. Refresh the browser page
-3. Verify ALL changes are still there
-
-- [ ] State survives page refresh
-- [ ] State survives closing and reopening the tab
-- [ ] No data loss occurs
-
-**If state is lost:** Your backend integration is broken. Check:
-- Do components read via `useEntities`/`data` (not local-only useState)?
-- Are custom routes saving to the database (`db.commit()` called)?
-
-## 3. UI/UX Verification
-
-### 3.1 Visual Quality
-- [ ] Layout is clean and organized
-- [ ] Text is readable (appropriate font size, contrast)
-- [ ] Spacing is consistent (no cramped or floating elements)
-- [ ] Colors are harmonious (not jarring or clashing)
-- [ ] No obvious visual bugs (overflow, misalignment)
-
-### 3.2 Visual Consistency
-- [ ] Same element types look the same everywhere (buttons, inputs, cards)
-- [ ] Consistent padding/margins throughout
-- [ ] Consistent color scheme
-- [ ] Consistent typography (font sizes, weights)
-
-### 3.3 Responsive Behavior
-- [ ] UI doesn't break at different widths
-- [ ] Content doesn't overflow horizontally
-- [ ] Buttons and inputs are usable at all sizes
-
-### 3.4 Loading & Empty States
-- [ ] Loading indicator shows while fetching data
-- [ ] Empty state shows when no data exists (not just blank)
-- [ ] Error messages display when something fails
-
-### 3.5 Interactive Feedback
-- [ ] Buttons show hover/active states
-- [ ] Form inputs show focus states
-- [ ] Actions provide feedback (success message, visual change)
-- [ ] User knows something happened after clicking
-
-## 4. Error Handling Verification
-
-### 4.1 No Console Errors
-Read `backend/logs/frontend_console.log` (the platform captures the
-browser console — validation's runtime.logs step reads it too):
-- [ ] No ERROR entries
-- [ ] No unhandled promise rejections
-- [ ] No "undefined" or "null" errors
-- [ ] No CORS errors
-
-### 4.2 Graceful Failures
-- [ ] If backend is slow, UI shows loading (not frozen)
-- [ ] If an action fails, user sees error message (not silent failure)
-- [ ] App doesn't crash on edge cases
-
-## 5. Requirements Verification
-
-### 5.1 Feature Completeness
-Go back to the original user request. For EACH requested feature:
-- [ ] Feature is implemented
-- [ ] Feature works as described
-- [ ] Feature is accessible in the UI
-
-### 5.2 Nothing Missing
-Ask yourself:
-- [ ] Would the user be satisfied with this?
-- [ ] Are there obvious features that should exist but don't?
-- [ ] Does it do what was asked?
-
-### 5.3 Nothing Extra (Over-engineering)
-- [ ] No features added that weren't requested
-- [ ] No unnecessary complexity
-- [ ] Focused on what was asked
-
-## 6. Code Quality Verification
-
-### 6.1 No Hardcoded Data
-- [ ] No hardcoded IDs that should be dynamic
-- [ ] No hardcoded URLs (use environment/config)
-- [ ] No TODO comments left unaddressed
-- [ ] No commented-out code blocks
-
-### 6.2 Type Safety
-- [ ] No `any` types in TypeScript (unless absolutely necessary)
-- [ ] All function parameters are typed
-- [ ] All return types are defined
-
-### 6.3 Backend Quality
-- [ ] All routes have proper error handling
-- [ ] Database queries use proper filters
-- [ ] No SQL injection vulnerabilities
-- [ ] Proper HTTP status codes returned
-
-## 7. Documentation Verification
-
-### 7.1 LIVING_UI.md Updated
-- [ ] Overview section filled in
-- [ ] Data Model section documents all models
-- [ ] API Endpoints section lists all routes
-- [ ] Frontend Components section lists all components
-- [ ] Key Files section is accurate
-
-## 8. Final Pre-Launch Checks
-
-### 8.1 Ready to Notify
-Before calling `living_ui_notify_ready`:
-- [ ] ALL above sections pass
-- [ ] `living_ui_validate` PASSED (notify_ready refuses without it)
-- [ ] Design self-review PASSED (references/DESIGN_REVIEW.md)
-
-### 8.2 Correct Parameters
-- [ ] `project_id` is from task instruction (NOT task session ID) — the
-      only parameter notify_ready takes
-
----
-
-## Quick Verification Commands
-
-```bash
-# 1. Verify backend imports (read-only)
-cd backend && python -c "from models import *; from routes import *; print('OK')"
-
-# 2. Inspect what the user sees / recent runtime errors
-livingui <project> snapshot
-livingui <project> logs --tail 50
-
-# 3. Everything else: living_ui_validate runs install/tests/build/smoke/
-#    runtime-logs/design and returns the complete error list
+mcp_playwright-mcp_browser_navigate        → app URL
+mcp_playwright-mcp_browser_snapshot        (NO filename — a11y tree + element refs inline)
+mcp_playwright-mcp_browser_click / browser_type / browser_fill_form   → USE it, realistic data
+mcp_playwright-mcp_browser_snapshot        → confirm the app RESPONDED
+mcp_playwright-mcp_browser_console_messages → any runtime error = broken, even though it compiled
 ```
 
-## Common Issues & Fixes
+"The control exists" is not working — it must DO the thing: data
+appeared, value updated, navigation happened.
 
-### Build fails with TypeScript errors
-- Read error message for file and line number
-- Fix the type error
-- Rebuild
+**Persistence survives reload (critical, once per data-saving feature):**
+create a record, `browser_navigate` to the app URL again (full reload),
+snapshot. If the data is gone, the feature is broken — the most common
+way an app looks finished and isn't. Usual causes: local-only `useState`
+instead of `useEntities`/`api.gen`, or the collection missing from
+`config/schema.json`.
 
-### State lost on refresh
-- Check components read via useEntities/data (not local-only state)
-- Check routes call db.commit() after changes
-- Check entities are declared in config/schema.json (models are generated)
+If the browser tools are down, that costs you one way to LOOK — not the
+ability to build. Fall back to curl + logs (below) and say which method
+you used; never report a feature verified that you never saw run.
 
-### UI looks broken
-- Check CSS imports in components
-- Check global.css is imported in main.tsx
-- Verify class names match CSS
+## 3. Prove the backend with curl
 
-### Console shows CORS errors
-- Backend CORS is pre-configured, check main.py
-- Ensure frontend uses correct backend URL
+`livingui <id> status` prints the ui and api URLs.
 
----
+```bash
+livingui <id> status                          # running? ui/api URLs, table row counts
+# PB CRUD — exists for every collection in config/schema.json:
+curl "<api>/api/collections/cards/records?perPage=5"
+curl -X POST "<api>/api/collections/cards/records" \
+     -H 'Content-Type: application/json' -d '{"title":"probe"}'
+# Custom endpoints — prove EVERY route you wrote, with real records:
+curl -X POST "<api>/api/custom/archive-done" \
+     -H 'Content-Type: application/json' -d '{"columnId":"<real-id>"}'
+livingui <id> logs --tail 50                  # server output + captured browser console
+```
 
-**Remember: You are the last line of defense before the user sees this app. Be thorough. Be critical. Ship quality.**
+A custom route counts as done only after a live curl returned the
+expected JSON (create the records it needs via CRUD first). Remember hook
+changes need `livingui <id> restart`. Read `logs` after exercising the
+app and treat every ERROR as a defect to fix.
 
----
+## 4. The independent gate — walk_verify
 
-## 9. CLI Operability (MANDATORY)
+You do not sign off on your own work. `walk_verify` is a read-only agent
+that drives the RUNNING app in a real browser against the requirements —
+it never edits code, and the build is not finished until it passes. It:
 
-The finished app must be fully operable through the `livingui` CLI — this is
-how every future agent (and scheduled task) will control it.
+- turns the requirements into a numbered feature list and DOES each one
+  with realistic data;
+- passes a feature ONLY on concrete evidence from an action it ran;
+- checks the console after each flow and re-loads once to check
+  persistence.
 
-Run via run_shell: `livingui <project_id> --help`
+Its verdict is mechanical:
 
-- [ ] The capability card lists ALL the app's data tables with row counts
-- [ ] Every side-effectful feature appears under OPERATIONS (coverage rule:
-      each feature in LIVING_UI.md = a table OR a declared op)
-- [ ] `livingui <project_id> run <op> --help` shows correct params for each op
-- [ ] Fire ONE representative op end-to-end and confirm the expected effect
-      (e.g. `run complete_habit ...` then `select` the row)
-- [ ] No "schema drift" warning in the card
-- [ ] Op descriptions say when to use them (an agent must be able to choose
-      the right op from descriptions alone)
+```
+VERDICT: PASS | FAIL | BLOCKED
+FEATURES:
+- <feature> — PASS/FAIL — <the flow run and what was observed>
+```
 
-If any box fails, go back to Phase 9 — do not launch a half-operable app.
+- **PASS** — every feature passed with observed evidence.
+- **FAIL** — it SAW the app misbehave: a feature it could not exercise
+  (missing/dead/placeholder control), a console error during normal use,
+  data lost on reload. There is no "minor": one console error = FAIL, a
+  feature that "mostly" works = FAIL.
+- **BLOCKED** — the app could not be exercised AT ALL (URL unreachable,
+  browser tooling down). Not the app's fault, not a FAIL — fix the
+  environment and re-run, don't "fix" features that may be fine.
 
+A FAIL report is a work order: for each failed feature, change code —
+re-read the requirement, find the missing UI/state/wiring, implement it,
+re-verify. "The build passes" is never a response to "there is no
+onboarding UI".
+
+## Final checklist before ending
+
+- [ ] `verify_build` ok (zero root causes)
+- [ ] Every requirement exercised by YOU this run, with evidence (browser
+      or curl) of what you did and what you observed
+- [ ] Persistence-survives-reload checked for data-saving features
+- [ ] Console and `livingui <id> logs` clean during normal use
+- [ ] Custom routes proved by live curl; ops declared in
+      `config/operations.json` for every side-effectful verb
+- [ ] No faked green: no `as any`, no placeholder/"coming soon"/dead
+      buttons, no hardcoded fake data standing in for behavior

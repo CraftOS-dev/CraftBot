@@ -382,9 +382,14 @@ class TaskManager:
         # the LLM's expansion of the user message; for proactive / scheduled
         # tasks it's the trigger description. inject_memory_event no-ops if
         # nothing passes min_relevance, so noise is filtered automatically.
-        from agent_core.core.impl.memory.injector import inject_memory_event
+        # Sub-workflow tasks opt out: their focused prompt is the context.
+        from agent_core.core.registry.task_workflows import get_workflow
 
-        inject_memory_event(query=task_instruction, session_id=task_id)
+        task_workflow = get_workflow(workflow_id)
+        if task_workflow is None or task_workflow.inject_memory:
+            from agent_core.core.impl.memory.injector import inject_memory_event
+
+            inject_memory_event(query=task_instruction, session_id=task_id)
 
         self._set_agent_property("current_task_id", task_id)
 
@@ -400,12 +405,25 @@ class TaskManager:
         return task_id
 
     def _create_session_caches(self, task_id: str) -> None:
-        """Create session caches for a task."""
+        """Create session caches for a task. Sub-workflow tasks seed their
+        purpose-built system prompt instead of the general agent's."""
         try:
-            system_prompt, _ = self.context_engine.make_prompt(
-                user_flags={"query": False, "expected_output": False},
-                system_flags={},
-            )
+            task = self.tasks.get(task_id)
+            try:
+                from agent_core.core.registry.task_workflows import (
+                    resolve_task_workflow,
+                )
+
+                workflow = resolve_task_workflow(task)
+            except Exception:
+                workflow = None
+            if workflow is not None:
+                system_prompt = workflow.system_prompt
+            else:
+                system_prompt, _ = self.context_engine.make_prompt(
+                    user_flags={"query": False, "expected_output": False},
+                    system_flags={},
+                )
             for call_type in [
                 LLMCallType.REASONING,
                 LLMCallType.ACTION_SELECTION,

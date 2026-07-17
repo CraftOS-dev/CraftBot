@@ -94,7 +94,8 @@ def sub_task_end(input_data: dict) -> dict:
             "message": ("SubAgentManager is not initialized — cannot end sub-agent."),
         }
 
-    if mgr.get(sub_id) is None:
+    sub = mgr.get(sub_id)
+    if sub is None:
         return {
             "status": "error",
             "message": (
@@ -102,6 +103,32 @@ def sub_task_end(input_data: dict) -> dict:
                 "sub_task_end can only be used inside an active sub-agent run."
             ),
         }
+
+    # EXIT GATE: 'completed' must be earned. Whatever deterministic exit
+    # checks the agent type declares run NOW — any failure refuses the end so
+    # the remaining iterations are spent resolving the problems instead of
+    # shipping them. status='failed' is never gated (an agent must always be
+    # able to bail honestly). Fail-open on infrastructure errors.
+    if status == "completed":
+        try:
+            from app.subagent.exit_checks import run_exit_checks
+            from app.subagent.registry import get_subagent_definition
+
+            defn = get_subagent_definition(sub.agent_type)
+            problems = run_exit_checks(sub, defn.exit_checks)
+            if problems:
+                numbered = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(problems))
+                return {
+                    "status": "error",
+                    "message": (
+                        "NOT DONE — sub_task_end refused. Resolve ALL of the "
+                        "following, update your todos, then end again (or end "
+                        "with status='failed' explaining precisely why a "
+                        "problem cannot be fixed):\n" + numbered
+                    ),
+                }
+        except Exception:
+            pass
 
     mgr.end(sub_id, status=status, result=result)
     return {"status": "success", "sub_id": sub_id}

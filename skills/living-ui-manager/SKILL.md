@@ -20,7 +20,7 @@ livingui ls
 ```
 
 (If `livingui` is ever not recognized, the launcher is at
-`<workspace>/bin/livingui.cmd` — but the bare command is the normal form.)
+`~/.craftbot/bin/livingui` — but the bare command is the normal form.)
 
 ## The operating loop
 
@@ -122,7 +122,6 @@ After ANY schema change (`config/schema.json` edit): `restart` (or
 ```
 livingui habit-tracker status | logs --tail 50 | snapshot
 livingui habit-tracker screenshot --out shot.png    # then describe_image
-livingui habit-tracker ui --data '{"type": "refresh"}'   # drive the live iframe
 ```
 
 ## If no capability exists

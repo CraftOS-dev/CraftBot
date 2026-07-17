@@ -52,15 +52,21 @@ SUBAGENT_OUTPUT_FORMAT = """\
 On every turn you MUST reply with ONLY a JSON object in this exact shape:
 
 {
-  "reasoning": "<one short sentence on why you chose this action>",
-  "action_name": "<one of the allowed action names below>",
-  "parameters": { <input schema for that action> }
+  "reasoning": "<one short sentence planning this turn>",
+  "actions": [
+    {"action_name": "<allowed action name>", "parameters": { <input schema> }},
+    ...
+  ]
 }
 
-No prose, no markdown fences, no extra keys. One action per turn.
+No prose, no markdown fences, no extra keys. 1-4 actions per turn,
+executed strictly in order — batch steps that don't depend on each
+other's output (several reads, todo update + a write). NEVER batch an
+action whose parameters depend on an earlier action's result. A terminal
+sub_task_end must be the ONLY action in its turn.
 """
 
-_DECIDE_NUDGE = "Decide your next action now. Reply with the JSON object only."
+_DECIDE_NUDGE = "Decide your next action(s) now. Reply with the JSON object only."
 
 # Appended to the system prompt of any sub-agent type whose action list
 # includes the retrieval pair (grep_files / read_file). Oversized action
@@ -161,24 +167,86 @@ class SubAgentContextEngine:
         event_log = self._snapshot_event_log(sub.id)
         return (
             f"QUERY FROM SPAWNING AGENT:\n{sub.query}\n\n"
-            f"YOUR EVENT LOG SO FAR (most recent last):\n{event_log}\n\n"
+            f"YOUR EVENT LOG SO FAR (most recent last):\n{event_log}\n"
+            f"{self._render_plan_block(sub)}\n"
             f"{_DECIDE_NUDGE}"
         )
 
-    def make_delta_user_prompt(self, delta_events: str) -> str:
-        """Subsequent-turn user prompt: only the new events + decision nudge.
+    def make_delta_user_prompt(self, sub: SubAgent, delta_events: str) -> str:
+        """Subsequent-turn user prompt: new events + current plan + nudge.
 
         Used when session caching is active and the LLM interface has the
         prior conversation cached server-side. The original query and earlier
-        event log are already in the cached history; we only need to append
-        what's new.
+        event log are already in the cached history; we append what's new
+        PLUS a fresh snapshot of the todo plan — the same every-turn plan
+        visibility the main agent's task state provides, so the model always
+        works against its current commitments instead of a memory of them.
         """
         body = delta_events.strip() or "(no new events since last turn)"
-        return f"NEW EVENTS SINCE LAST TURN:\n{body}\n\n{_DECIDE_NUDGE}"
+        return (
+            f"NEW EVENTS SINCE LAST TURN:\n{body}\n"
+            f"{self._render_plan_block(sub)}\n"
+            f"{_DECIDE_NUDGE}"
+        )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _render_plan_block(self, sub: SubAgent) -> str:
+        """Current todo plan as a compact checklist, refreshed every turn,
+        plus the FUEL GAUGE — models pace themselves when they can see the
+        meter; without it a diligent agent works right off the iteration
+        cliff and its report is lost (observed: walk_verify exhausting 50
+        turns without ever emitting its verdict).
+
+        Plan is empty when the agent type doesn't have the todos action
+        (read-only judge/research agents plan nothing); the gauge renders
+        for every type.
+        """
+        gauge = self._render_fuel_gauge(sub)
+        if "sub_task_todos" not in sub.compiled_actions:
+            return gauge
+        if not sub.todos:
+            return (
+                f"{gauge}"
+                "\nYOUR PLAN: (none yet — derive it from your brief/query "
+                "with sub_task_todos before building)\n"
+            )
+        marks = {"completed": "[x]", "in_progress": "[>]"}
+        lines = "\n".join(
+            f"{marks.get(t.get('status', ''), '[ ]')} {t.get('content', '')}"
+            for t in sub.todos
+        )
+        return (
+            f"{gauge}"
+            f"\nYOUR PLAN (keep statuses current via sub_task_todos):\n{lines}\n"
+        )
+
+    @staticmethod
+    def _render_fuel_gauge(sub: SubAgent) -> str:
+        """One line of budget awareness, sharpened near the end."""
+        try:
+            from app.subagent.registry import get_subagent_definition
+
+            cap = get_subagent_definition(sub.agent_type).max_iterations
+        except Exception:
+            return ""
+        turn = max(1, sub.iterations)
+        remaining = cap - turn
+        line = f"\nTURN {turn} of {cap}."
+        if remaining <= max(3, cap // 10):
+            line += (
+                " BUDGET NEARLY EXHAUSTED: wrap up NOW — deliver your "
+                "verdict/summary via sub_task_end THIS turn or next; an "
+                "agent terminated at the cap reports NOTHING."
+            )
+        else:
+            line += (
+                " Pace yourself: your report/verdict must be delivered via "
+                "sub_task_end BEFORE the cap."
+            )
+        return line + "\n"
 
     def _snapshot_event_log(self, sub_id: str) -> str:
         return (

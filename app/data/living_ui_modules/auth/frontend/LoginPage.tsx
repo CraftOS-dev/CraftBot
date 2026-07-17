@@ -1,49 +1,89 @@
-/**
- * Login Page — email + password form using preset UI components.
- *
- * Copy this file into your project's frontend/components/auth/ directory.
- */
-
-import { useState } from 'react'
-import { Button } from '../ui'
+/** LoginPage — email/password sign-in card. Copy into frontend/components/auth/. */
+import { useState, type FormEvent } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuth } from './AuthProvider'
-import { AuthLayout, FormField, AuthSwitchLink } from './AuthLayout'
 
-interface LoginPageProps {
+export function LoginPage({
+  onSwitchToRegister,
+}: {
   onSwitchToRegister: () => void
-}
-
-export function LoginPage({ onSwitchToRegister }: LoginPageProps) {
+}) {
   const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
-    setLoading(true)
+    setBusy(true)
     try {
       await login(email, password)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+    } catch {
+      setError('Invalid email or password')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
   return (
-    <AuthLayout
-      title="Sign In"
-      error={error}
-      footer={<AuthSwitchLink text="Don't have an account?" linkText="Sign up" onClick={onSwitchToRegister} />}
-    >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <FormField label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" required />
-        <FormField label="Password" type="password" value={password} onChange={setPassword} placeholder="Enter your password" required />
-        <Button type="submit" variant="primary" fullWidth loading={loading}>Sign In</Button>
-      </form>
-    </AuthLayout>
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Sign in</CardTitle>
+          <CardDescription>Welcome back — enter your details.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password">Password</Label>
+              <Input
+                id="login-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            No account?{' '}
+            <button
+              type="button"
+              className="underline underline-offset-4 hover:text-foreground"
+              onClick={onSwitchToRegister}
+            >
+              Create one
+            </button>
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

@@ -30,7 +30,7 @@
 
 ## API Endpoints
 
-### Custom Routes (backend/routes.py)
+### Custom Routes (pb_hooks/main.pb.js)
 
 <!-- Agent: List the API endpoints you added -->
 
@@ -53,18 +53,18 @@
 
 | File | Purpose |
 |------|---------|
-| config/schema.json | Declared entities -> generated models + CRUD API |
-| backend/routes.py | API endpoints |
-| frontend/types.ts | TypeScript interfaces |
-| frontend/AppController.ts | State management |
-| frontend/components/MainView.tsx | Main UI |
+| config/schema.json | Declared PocketBase collections -> CRUD API + realtime |
+| pb_hooks/main.pb.js | Custom API endpoints (routerAdd) |
+| frontend/types.gen.ts | Generated TypeScript interfaces |
+| frontend/api.gen.ts | Generated typed collection helpers |
+| frontend/components/MainView.tsx | Region shell (auto-mounts regions/*.tsx) |
 
 ## State Flow
 
 ```
-User Action → Frontend Component → AppController → Backend API → SQLite DB
+User Action → Frontend Component → PocketBase SDK (lib/pb.ts) → PocketBase → SQLite DB
                                         ↓
-                                  Update UI State
+                          Realtime subscription updates UI
 ```
 
 ## Testing

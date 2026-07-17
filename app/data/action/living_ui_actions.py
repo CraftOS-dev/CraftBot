@@ -119,10 +119,13 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             theme=theme,
         )
 
-        # Associate the project with the running task so the agent's todos and
-        # progress stream to the Living UI view, then mark it as in-progress.
+        # Associate the project with the running task (the ownership
+        # funnel — also installs the build workflow on tasks that lack it),
+        # then mark it as in-progress.
         if session_id:
-            manager.set_project_task(project.id, session_id)
+            await manager.ensure_project_owner(
+                project.id, session_id, reset_state=False
+            )
         manager.update_project_status(project.id, "creating")
 
         # Register it in the browser's project list immediately (modal-parity).
@@ -156,6 +159,215 @@ async def living_ui_scaffold(input_data: dict) -> dict:
         }
     except Exception as e:
         return {"status": "error", "message": f"Failed to scaffold project: {str(e)}"}
+
+
+@action(
+    name="living_ui_develop",
+    description=(
+        "Start building, updating, fixing, or continuing a Living UI app "
+        "from a chat request — THE entry point for ALL Living UI "
+        "development work (prefer this over task_start for anything that "
+        "creates or changes a Living UI). Creates a platform-driven "
+        "development task: the platform codes, verifies in a real browser, "
+        "and presents the result. Pass the user's request self-contained; "
+        "pass project when they mean an app they already have."
+    ),
+    default=False,
+    mode="CLI",
+    # Conversation-mode only (offered via the conversation_actions hook);
+    # inside a development task the scaffold/adopt actions are the tools.
+    action_sets=[],
+    parallelizable=False,
+    input_schema={
+        "request": {
+            "type": "string",
+            "example": "Build me a habit tracker with streaks and reminders.",
+            "description": (
+                "The user's requirement, self-contained (the development "
+                "task sees only this text)."
+            ),
+        },
+        "project": {
+            "type": "string",
+            "example": "habit-tracker",
+            "description": (
+                "Optional: name/id of the EXISTING app this request is "
+                "about (updates/fixes). Omit for a brand-new app."
+            ),
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "description": "'success' or 'error'."},
+        "task_id": {"type": "string", "description": "The development task id."},
+        "message": {"type": "string", "description": "What happens next."},
+    },
+    test_payload={"request": "Build a test app.", "simulated_mode": True},
+)
+async def living_ui_develop(input_data: dict) -> dict:
+    """Start a platform-driven Living UI development task from chat."""
+    request = (input_data.get("request") or "").strip()
+    project_ref = (input_data.get("project") or "").strip()
+    simulated_mode = input_data.get("simulated_mode", False)
+
+    if not request:
+        return {"status": "error", "message": "request is required"}
+
+    if simulated_mode:
+        return {
+            "status": "success",
+            "task_id": "task1234",
+            "message": "Development task started (simulated).",
+        }
+
+    try:
+        from app.living_ui import get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {
+                "status": "error",
+                "message": (
+                    "Living UI manager not initialized. Living UI development "
+                    "requires the CraftBot desktop/browser app to be running."
+                ),
+            }
+        task_id = await manager.start_development(
+            request, project_ref=project_ref or None
+        )
+        if not task_id:
+            return {
+                "status": "error",
+                "message": "Could not start a development task (no task manager).",
+            }
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "message": (
+                "Development task started — the platform will build/update "
+                "the app, verify it in a real browser, and present it. "
+                "Nothing else to do here."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to start development: {e}"}
+
+
+@action(
+    name="living_ui_adopt",
+    description=(
+        "Take ownership of an EXISTING Living UI project for this task — for "
+        "updates, fixes, or continuing an interrupted build. NEVER scaffold a "
+        "duplicate of an app the user already has: find it (run_shell "
+        "`livingui ls`) and adopt it instead. Adoption makes this task the "
+        "project's single owner (a previous owner task is cancelled), gives "
+        "the platform build loop a fresh round budget, and records "
+        "change_request as the next round's work order. The platform then "
+        "drives coding rounds and re-verification exactly like a build."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "Id of the existing project (from `livingui ls`).",
+        },
+        "change_request": {
+            "type": "string",
+            "example": "Add dark mode and fix the broken export button.",
+            "description": (
+                "What the user wants changed/fixed/finished, self-contained. "
+                "Becomes the next build round's work order."
+            ),
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "Result: 'success' or 'error'.",
+        },
+        "project_id": {"type": "string", "description": "The adopted project id."},
+        "project_path": {
+            "type": "string",
+            "description": "Absolute base path of the adopted project.",
+        },
+        "message": {"type": "string", "description": "What happens next."},
+    },
+    test_payload={
+        "project_id": "abc12345",
+        "change_request": "Test change",
+        "simulated_mode": True,
+    },
+)
+async def living_ui_adopt(input_data: dict) -> dict:
+    """Adopt an existing Living UI project as this task's subject."""
+    project_id = (input_data.get("project_id") or "").strip()
+    change_request = (input_data.get("change_request") or "").strip()
+    session_id = input_data.get("_session_id")
+    simulated_mode = input_data.get("simulated_mode", False)
+
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+
+    if simulated_mode:
+        return {
+            "status": "success",
+            "project_id": project_id,
+            "project_path": f"/workspace/living_ui/test_app_{project_id}",
+            "message": "Adopted. The platform build loop drives it from here.",
+        }
+
+    try:
+        from app.living_ui import get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {
+                "status": "error",
+                "message": (
+                    "Living UI manager not initialized. Living UI adoption "
+                    "requires the CraftBot desktop/browser app to be running."
+                ),
+            }
+        if not session_id:
+            return {
+                "status": "error",
+                "message": "No task session — adopt can only run inside a task.",
+            }
+
+        # The change request rides INTO adoption: it makes the phase a
+        # TARGETED update (scoped work + check) and is recorded as the
+        # work-order lead by the ownership funnel.
+        project = await manager.adopt_project(
+            project_id, session_id, request=change_request
+        )
+        if project is None:
+            return {
+                "status": "error",
+                "message": (
+                    f"No project with id '{project_id}'. Run `livingui ls` "
+                    "to list existing projects, or living_ui_scaffold for a "
+                    "genuinely new app."
+                ),
+            }
+
+        return {
+            "status": "success",
+            "project_id": project.id,
+            "project_path": project.path,
+            "message": (
+                f"Adopted '{project.name}' ({project.id}) at {project.path}. "
+                "This task now owns it; the platform build loop will run "
+                "coding rounds for the change request and re-verify the app. "
+                "Send the user ONE short message that the update is underway, "
+                "then follow the step directives."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to adopt project: {str(e)}"}
 
 
 @action(
@@ -607,9 +819,9 @@ async def living_ui_report_progress(input_data: dict) -> dict:
             "type": "object",
             "description": (
                 "Where the app stores its data, so livingui data commands "
-                "(select/sql/schema) work on it: {\"sqlite\": \"relative/path.db\"} "
-                "or {\"url\": \"postgresql://...\"}. Read-only unless it also has "
-                "\"writable\": true. Omit if the app has no inspectable store."
+                '(select/sql/schema) work on it: {"sqlite": "relative/path.db"} '
+                'or {"url": "postgresql://..."}. Read-only unless it also has '
+                '"writable": true. Omit if the app has no inspectable store.'
             ),
             "example": {"sqlite": "data/app.db"},
         },

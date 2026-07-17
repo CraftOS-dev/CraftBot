@@ -26,6 +26,15 @@ from .broadcast import (
 )
 from .actions import restart_living_ui
 
+# Component self-registration: importing the package plugs the domain's
+# extension hooks (ghost guard, budget reset, task_end gate, construction
+# action taps) into the core's generic registry. Fail-open — a broken
+# registration degrades to "no listeners", never breaks the import.
+try:
+    from . import registrations  # noqa: F401
+except Exception:  # pragma: no cover
+    pass
+
 __all__ = [
     "LivingUIManager",
     "LivingUIProject",

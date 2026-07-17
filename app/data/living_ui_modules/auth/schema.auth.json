@@ -1,0 +1,80 @@
+{
+  "_comment": "Merge these collections into config/schema.json's `collections` array. `users` extends PocketBase's built-in auth collection (import merges by name). Rules are EXPLICIT — the platform only forces public rules where a rule is unset, so every rule below survives import.",
+  "collections": [
+    {
+      "name": "users",
+      "type": "auth",
+      "fields": [
+        { "name": "name", "type": "text" },
+        {
+          "name": "role",
+          "type": "select",
+          "maxSelect": 1,
+          "values": ["admin", "member"]
+        }
+      ],
+      "listRule": "@request.auth.id != \"\"",
+      "viewRule": "@request.auth.id != \"\"",
+      "createRule": "",
+      "updateRule": "(id = @request.auth.id && @request.body.role:isset = false) || @request.auth.role = \"admin\"",
+      "deleteRule": "@request.auth.role = \"admin\""
+    },
+    {
+      "name": "memberships",
+      "type": "base",
+      "fields": [
+        {
+          "name": "user",
+          "type": "relation",
+          "collectionName": "users",
+          "required": true,
+          "cascadeDelete": true,
+          "maxSelect": 1
+        },
+        { "name": "resourceType", "type": "text", "required": true },
+        { "name": "resourceId", "type": "text", "required": true },
+        {
+          "name": "role",
+          "type": "select",
+          "maxSelect": 1,
+          "values": ["owner", "admin", "member"],
+          "required": true
+        }
+      ],
+      "listRule": "@request.auth.id != \"\"",
+      "viewRule": "@request.auth.id != \"\"",
+      "createRule": "(@request.auth.id != \"\" && user = @request.auth.id) || @request.auth.role = \"admin\"",
+      "updateRule": "@request.auth.role = \"admin\"",
+      "deleteRule": "user = @request.auth.id || @request.auth.role = \"admin\""
+    },
+    {
+      "name": "invites",
+      "type": "base",
+      "fields": [
+        { "name": "code", "type": "text", "required": true },
+        { "name": "resourceType", "type": "text", "required": true },
+        { "name": "resourceId", "type": "text", "required": true },
+        {
+          "name": "role",
+          "type": "select",
+          "maxSelect": 1,
+          "values": ["admin", "member"]
+        },
+        {
+          "name": "createdBy",
+          "type": "relation",
+          "collectionName": "users",
+          "maxSelect": 1
+        },
+        { "name": "maxUses", "type": "number" },
+        { "name": "uses", "type": "number" },
+        { "name": "expiresAt", "type": "date" }
+      ],
+      "listRule": "@request.auth.id != \"\"",
+      "viewRule": "@request.auth.id != \"\"",
+      "createRule": "@request.auth.id != \"\" && createdBy = @request.auth.id",
+      "updateRule": "@request.auth.role = \"admin\"",
+      "deleteRule": "createdBy = @request.auth.id || @request.auth.role = \"admin\""
+    }
+  ]
+}

@@ -587,6 +587,28 @@ class InternalActionInterface:
             )
         logger.info(f"[TASK] Final action sets: {all_action_sets}")
 
+        # FALLBACK routing: the primary chat entry for Living UI work is the
+        # living_ui_develop conversation action (→ manager.start_development,
+        # which creates the workflow task directly). This block is the safety
+        # net for requests that still arrive via generic task_start — the
+        # skill selection is then the routing signal:
+        # - living-ui-creator → new app (session 20260716145940 showed the
+        #   generic hand-builder this prevents);
+        # - living-ui-modify → code changes to an existing app, by
+        #   definition — the workflow's bootstrap adopts it
+        # - living-ui-manager deliberately NOT here: data/ops through the
+        #   livingui CLI stays in the fast lane and escalates only via
+        #   living_ui_adopt (which installs the workflow at that moment).
+        workflow_id = None
+        _workflow_skills = {"living-ui-creator", "living-ui-modify"}
+        _hit = _workflow_skills & set(selected_skills or [])
+        if _hit:
+            workflow_id = "living_ui_development"
+            logger.info(
+                f"[TASK] {sorted(_hit)[0]} selected — attaching the "
+                "living_ui_development workflow"
+            )
+
         # Create task with selected skills and action sets
         # Note: Session caches are now created automatically by TaskManager.create_task()
         # for complex tasks, so we don't need to create them here
@@ -601,6 +623,7 @@ class InternalActionInterface:
             session_id=session_id,
             original_query=original_query,
             original_platform=original_platform,
+            workflow_id=workflow_id,
         )
         # Use get_task_by_id instead of get_task() to handle parallel task creation
         # get_task() returns the global active task which can be overwritten by concurrent tasks

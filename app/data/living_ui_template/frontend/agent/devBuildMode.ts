@@ -42,7 +42,10 @@ const STALL_LIMIT_MS = 12000
 
 // ── host messaging ──────────────────────────────────────────────────────────
 
-import { LK_CLASSES } from '../components/ui/layout'
+// shadcn <Skeleton> renders `animate-pulse` (frontend/components/ui/skeleton.tsx).
+const LK_CLASSES = {
+  skeleton: 'animate-pulse',
+} as const
 
 function post(type: string, data: Record<string, unknown>) {
   try {
@@ -652,15 +655,6 @@ body[${STAGING_ATTR}] #root *:not([${REVEAL_ATTR}]) { opacity: 0 !important; }
 
 // ── graceful API fallback (backend usually isn't running yet) ───────────────
 
-function backendOrigin(): string | null {
-  try {
-    const base = (window as any).__CRAFTBOT_BACKEND_URL__
-    return base ? new URL(base, window.location.href).origin : null
-  } catch {
-    return null
-  }
-}
-
 function emptyBodyFor(url: string, method: string): string {
   if (method === 'GET') {
     return /\/api\/state\b/.test(url) ? '{}' : '[]'
@@ -669,8 +663,6 @@ function emptyBodyFor(url: string, method: string): string {
 }
 
 function installFetchFallback() {
-  const origin = backendOrigin()
-  if (!origin) return
   const realFetch = window.fetch.bind(window)
   window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
     const url =
@@ -680,11 +672,13 @@ function installFetchFallback() {
           ? input.toString()
           : input.url
     const method = ((init && init.method) || 'GET').toUpperCase()
+    // API calls are same-origin (/api proxied to PocketBase), so a path
+    // check identifies backend traffic for both relative and absolute URLs.
     let targetsBackend = false
     try {
-      targetsBackend =
-        new URL(url, window.location.href).origin === origin ||
-        url.startsWith('/api')
+      targetsBackend = new URL(url, window.location.href).pathname.startsWith(
+        '/api',
+      )
     } catch {
       targetsBackend = false
     }
@@ -783,99 +777,17 @@ function installHmrRelay() {
   post('craftbot-dev-hmr', { status: 'ok' })
 }
 
-// ── design telemetry ────────────────────────────────────────────────────────
-// Measures the REAL rendered layout and reports it to the host, which feeds
-// CraftBot's design gate: validation refuses pages that overflow, clip text,
-// render empty sections, or leave the viewport mostly void. Also captures a
-// periodic screenshot (html2canvas, already a template dependency) so the
-// agent can review its own UI with describe_image.
+// ── periodic snapshot keeper ────────────────────────────────────────────────
+// Refreshes the last-good-state DOM snapshot while the app is healthy so a
+// mid-write broken module graph can fall back to the last working pixels.
 
-// scrollWidth/clientWidth are integer-rounded by the browser; a 1px delta
-// is measurement noise, anything beyond it is real overflow. This is a
-// rounding bound, not a policy threshold.
-const PX_ROUNDING = 1
-
-function computeDesignMetrics() {
-  const doc = document.documentElement
-  const vw = window.innerWidth || 1
-  const vh = window.innerHeight || 1
-  const overflowX = doc.scrollWidth - doc.clientWidth > PX_ROUNDING
-  let clippedText = 0
-  document.querySelectorAll('#root *').forEach(el => {
-    if (!(el instanceof HTMLElement)) return
-    if (el.childElementCount === 0 && (el.textContent || '').trim().length > 0) {
-      if (el.scrollWidth - el.clientWidth > PX_ROUNDING) clippedText++
-    }
-  })
-  // Empty section = renders literally nothing (no child elements, no text) —
-  // an absence fact, not a size judgment.
-  let emptySections = 0
-  document.querySelectorAll('.' + LK_CLASSES.sectionBody).forEach(el => {
-    if (el.children.length === 0 && (el.textContent || '').trim() === '') {
-      emptySections++
-    }
-  })
-  const viewportFill = Math.min(1, doc.scrollHeight / vh)
-  return {
-    overflowX,
-    clippedText,
-    emptySections,
-    // Reported for the agent's information; NOT gated by the platform.
-    viewportFill: Math.round(viewportFill * 100) / 100,
-    skeletons: document.querySelectorAll('.' + LK_CLASSES.skeleton).length,
-    // Visual richness proxy (absence check): any visual element counts.
-    iconCount: document.querySelectorAll(
-      '#root svg, #root img, #root canvas, #root video, #root picture',
-    ).length,
-    vw,
-    vh,
-  }
-}
-
-let lastMetricsAt = 0
-
-const reportMetrics = guarded(() => {
-  const now = Date.now()
-  if (now - lastMetricsAt < 2000) return
-  lastMetricsAt = now
-  post('craftbot-dev-metrics', { metrics: computeDesignMetrics() })
-})
-
-let screenshotBusy = false
-let lastScreenshotAt = 0
-
-async function captureScreenshotSoon() {
-  const now = Date.now()
-  if (screenshotBusy || now - lastScreenshotAt < 20000 || dead) return
-  screenshotBusy = true
-  try {
-    const mod: any = await import('html2canvas')
-    const html2canvas = mod.default || mod
-    const canvas = await html2canvas(document.body, {
-      logging: false,
-      scale: Math.min(1, 1280 / (window.innerWidth || 1280)),
-      windowWidth: window.innerWidth,
-      windowHeight: window.innerHeight,
-      height: window.innerHeight,
-    })
-    lastScreenshotAt = Date.now()
-    post('craftbot-dev-screenshot', { dataUrl: canvas.toDataURL('image/png') })
-  } catch {
-    /* screenshot is best-effort */
-  } finally {
-    screenshotBusy = false
-  }
-}
-
-function installDesignTelemetry() {
+function installSnapshotKeeper() {
   setInterval(
     guarded(() => {
       if (touring) return // a toured surface is open — not the resting page
       const hidden = document.querySelector(`#root *:not([${REVEAL_ATTR}])`)
-      if (hidden) return // layout still assembling — measure when settled
+      if (hidden) return // layout still assembling — snapshot when settled
       saveSnapshot()
-      reportMetrics()
-      void captureScreenshotSoon()
     }),
     5000,
   )
@@ -891,7 +803,7 @@ try {
   installStaging()
   installFetchFallback()
   installHmrRelay()
-  installDesignTelemetry()
+  installSnapshotKeeper()
 
   const root = document.getElementById('root')
   if (root) {

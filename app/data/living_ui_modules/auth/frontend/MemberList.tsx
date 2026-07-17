@@ -1,116 +1,87 @@
-/**
- * Member List — shows members of a resource with role badges and remove button.
- *
- * Copy this file into your project's frontend/components/auth/ directory.
- *
- * Usage:
- *   import { MemberList } from './components/auth/MemberList'
- *   <MemberList resourceType="project" resourceId={project.id} />
- */
-
-import { useState, useEffect, useCallback } from 'react'
-import { Button, Badge, Alert } from '../ui'
+/** MemberList — who belongs to a resource (memberships collection). */
+import { useCallback, useEffect, useState } from 'react'
+import { pb } from '@/lib/pb'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useAuth } from './AuthProvider'
-import { authService } from '../../services/AuthService'
-import type { MembershipInfo } from '../../auth_types'
 
-interface MemberListProps {
-  resourceType: string
-  resourceId: number
-  currentUserRole?: string  // caller's role in this resource (for showing remove buttons)
+interface Member {
+  id: string
+  role: string
+  userId: string
+  name: string
+  email: string
 }
 
-export function MemberList({ resourceType, resourceId, currentUserRole }: MemberListProps) {
-  const { user } = useAuth()
-  const [members, setMembers] = useState<MembershipInfo[]>([])
-  const [error, setError] = useState('')
-  const [removing, setRemoving] = useState<number | null>(null)
+export function MemberList({
+  resourceType,
+  resourceId,
+}: {
+  resourceType: string
+  resourceId: string
+}) {
+  const { user, isAdmin } = useAuth()
+  const [members, setMembers] = useState<Member[]>([])
+  const [myRole, setMyRole] = useState('')
 
-  const canManage = currentUserRole === 'owner' || currentUserRole === 'admin' || user?.role === 'admin'
+  const load = useCallback(async () => {
+    const records = await pb.collection('memberships').getFullList({
+      filter: pb.filter(
+        'resourceType = {:rt} && resourceId = {:rid}',
+        { rt: resourceType, rid: resourceId },
+      ),
+      expand: 'user',
+    })
+    const mapped = records.map((r) => ({
+      id: r.id,
+      role: String(r.role ?? 'member'),
+      userId: String(r.user ?? ''),
+      name: String(r.expand?.user?.name ?? ''),
+      email: String(r.expand?.user?.email ?? ''),
+    }))
+    setMembers(mapped)
+    setMyRole(mapped.find((m) => m.userId === user?.id)?.role ?? '')
+  }, [resourceType, resourceId, user?.id])
 
-  const loadMembers = useCallback(async () => {
-    try {
-      const data = await authService.getMembers(resourceType, resourceId)
-      setMembers(data)
-    } catch {
-      setError('Failed to load members')
-    }
-  }, [resourceType, resourceId])
+  useEffect(() => {
+    void load()
+  }, [load])
 
-  useEffect(() => { loadMembers() }, [loadMembers])
+  const canRemove = isAdmin || myRole === 'owner' || myRole === 'admin'
 
-  const handleRemove = async (userId: number) => {
-    setRemoving(userId)
-    try {
-      await authService.removeMember(resourceType, resourceId, userId)
-      setMembers(prev => prev.filter(m => m.userId !== userId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove member')
-    } finally {
-      setRemoving(null)
-    }
+  const remove = async (membershipId: string) => {
+    await pb.collection('memberships').delete(membershipId)
+    void load()
   }
 
-  if (error) return <Alert variant="error">{error}</Alert>
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-      {members.length === 0 ? (
-        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>No members yet</p>
-      ) : (
-        members.map(member => (
-          <div
-            key={member.id}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
-              padding: 'var(--space-2) var(--space-3)',
-              background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)',
-            }}
-          >
-            {/* Avatar */}
-            <div style={{
-              width: 32, height: 32, borderRadius: '50%',
-              background: 'var(--color-primary)', color: 'var(--color-white)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 'var(--text-xs)', fontWeight: 'var(--font-weight-semibold)',
-              flexShrink: 0,
-            }}>
-              {member.user?.username?.charAt(0).toUpperCase() || '?'}
-            </div>
-
-            {/* Info */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>
-                {member.user?.username || `User #${member.userId}`}
-                {member.userId === user?.id && (
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginLeft: 'var(--space-1)' }}>(you)</span>
-                )}
-              </div>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                {member.user?.email}
-              </div>
-            </div>
-
-            {/* Role badge */}
-            <Badge variant={member.role === 'owner' ? 'primary' : member.role === 'admin' ? 'warning' : 'default'}>
-              {member.role}
-            </Badge>
-
-            {/* Remove button */}
-            {canManage && member.role !== 'owner' && member.userId !== user?.id && (
+    <ul className="space-y-2">
+      {members.map((m) => (
+        <li
+          key={m.id}
+          className="flex items-center justify-between rounded-md border p-2"
+        >
+          <div className="flex flex-col">
+            <span className="text-sm">{m.name || m.email}</span>
+            <span className="text-xs text-muted-foreground">{m.email}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{m.role}</Badge>
+            {canRemove && m.role !== 'owner' && m.userId !== user?.id && (
               <Button
-                size="sm"
                 variant="ghost"
-                onClick={() => handleRemove(member.userId)}
-                loading={removing === member.userId}
-                style={{ color: 'var(--color-error)', padding: 'var(--space-1)' }}
+                size="sm"
+                onClick={() => void remove(m.id)}
               >
                 Remove
               </Button>
             )}
           </div>
-        ))
+        </li>
+      ))}
+      {members.length === 0 && (
+        <li className="text-sm text-muted-foreground">No members yet.</li>
       )}
-    </div>
+    </ul>
   )
 }

@@ -292,12 +292,12 @@ class AgentBase:
         from app.triggers.activity_log import ActivityLogGuard, get_activity_log
 
         self.activity_log = get_activity_log()
-        # Living UI build-event tap: derives "the app is being built" events
-        # from write_file / stream_edit / run_shell during Living UI creation
-        # tasks, powering the Live Construction View. Fail-silent by design.
-        from app.living_ui.construction_events import make_action_hooks
+        # Action observation goes through the generic extension-hook registry
+        # — domain components (e.g. Living UI's construction-event tap)
+        # self-register listeners at import; the core stays domain-blind and
+        # a missing component simply means no listeners.
+        from agent_core.core.registry.extensions import run_hooks
 
-        _build_on_start, _build_on_end = make_action_hooks()
         self.action_manager = ActionManager(
             self.action_library,
             self.llm,
@@ -305,8 +305,8 @@ class AgentBase:
             self.event_stream_manager,
             self.context_engine,
             self.state_manager,
-            on_action_start=_build_on_start,
-            on_action_end=_build_on_end,
+            on_action_start=lambda *a, **kw: run_hooks("action_start", *a, **kw),
+            on_action_end=lambda *a, **kw: run_hooks("action_end", *a, **kw),
             idempotency_guard=ActivityLogGuard(self.activity_log),
         )
         self.action_router = ActionRouter(
@@ -327,6 +327,19 @@ class AgentBase:
             on_task_end_callback=self._cleanup_session_triggers,
             workflow_lock_manager=self.workflow_lock_manager,
         )
+
+        # Component composition root: importing a component package makes it
+        # self-register (workflows into the workflow registry, domain hooks
+        # into the extension registry). Each import is independent and
+        # fail-open — a missing/broken component degrades, never breaks.
+        try:
+            import app.workflows  # noqa: F401
+        except Exception as e:
+            logger.warning(f"[WORKFLOWS] definitions failed to load: {e}")
+        try:
+            import app.living_ui.registrations  # noqa: F401
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] hook registrations failed to load: {e}")
 
         # Bind task_manager so state_manager can look up tasks by session_id
         self.state_manager.bind_task_manager(self.task_manager)
@@ -547,6 +560,12 @@ class AgentBase:
                 self.state_manager.record_user_message(
                     user_message, platform=trigger_data.platform
                 )
+                # Domain listeners (e.g. Living UI's fix-budget reset) —
+                # generic hook point, fail-open by construction.
+                if session_id:
+                    from agent_core.core.registry.extensions import run_hooks
+
+                    run_hooks("user_message_routed", self, session_id, user_message)
 
             # Check if task is waiting for user reply but no message was received
             # In this case, re-schedule the wait trigger instead of executing actions
@@ -1117,9 +1136,27 @@ class AgentBase:
             action_decisions, trigger_data.parent_id
         )
 
-        action_output = await self._execute_actions(
-            prepared_actions, trigger_data, reasoning, session_id
-        )
+        if not prepared_actions and all(
+            not d.get("action_name") for d in action_decisions
+        ):
+            # A DELIBERATE no-op decision — a workflow "wait" step or the
+            # router's empty decision ({"action_name": ""}). Nothing to
+            # execute this turn: park like wait_for_user_reply does (flag
+            # persisted, long-stop fallback trigger) instead of raising
+            # "No valid actions to execute" into the react error handler.
+            logger.info(
+                f"[WORKFLOW: COMPLEX TASK] No-op turn — waiting. {reasoning[:160]}"
+            )
+            action_output = {
+                "status": "success",
+                "message": reasoning or "Waiting.",
+                "wait_for_user_reply": True,
+                "fire_at_delay": 10800,
+            }
+        else:
+            action_output = await self._execute_actions(
+                prepared_actions, trigger_data, reasoning, session_id
+            )
 
         new_session_id = action_output.get("task_id") or session_id
         await self._finalize_action_execution(new_session_id, action_output, session_id)
@@ -1206,7 +1243,9 @@ class AgentBase:
                 )
             else:
                 return await self._select_action_in_task(
-                    trigger_data.query, trigger_data.session_id
+                    trigger_data.query,
+                    trigger_data.session_id,
+                    user_message=trigger_data.user_message,
                 )
         else:
             logger.debug(f"[AGENT QUERY] {trigger_data.query}")
@@ -1223,7 +1262,10 @@ class AgentBase:
 
     @profile("agent_select_action_in_task", OperationCategory.AGENT_LOOP)
     async def _select_action_in_task(
-        self, query: str, session_id: str | None = None
+        self,
+        query: str,
+        session_id: str | None = None,
+        user_message: str | None = None,
     ) -> tuple[list, str]:
         """
         Select action(s) when running within a task context.
@@ -1246,6 +1288,7 @@ class AgentBase:
             query=query,
             GUI_mode=STATE.gui_mode,
             session_id=session_id,
+            user_message=user_message,
         )
 
         if not action_decisions:
@@ -1576,24 +1619,45 @@ class AgentBase:
             )
             self.state_manager.bump_event_stream()
             if is_fatal_llm_error:
-                # Cancel the task instead of re-queueing to prevent infinite retries
-                logger.warning(
-                    f"[REACT ERROR] LLMConsecutiveFailureError detected - cancelling task {session_to_use} "
-                    "to prevent infinite retry loop."
-                )
-                # Cache instruction BEFORE cancellation removes task from tasks dict
+                # PARK, don't cancel: an LLM outage (exhausted credits,
+                # provider down) is a pause, not a failure of the task.
+                # Cancelling orphaned half-built work and forced a retry
+                # that spawned duplicates (sessions 20260716122634 /
+                # 20260716153730). The task waits; a user message wakes it,
+                # and a long fallback trigger retries once the provider
+                # breaker's cooldown allows a probe call.
                 failed_task = (
                     self.task_manager.tasks.get(session_to_use)
                     if self.task_manager
                     else None
                 )
                 if failed_task:
-                    self._llm_retry_instructions[session_to_use] = (
-                        failed_task.instruction
+                    logger.warning(
+                        f"[REACT ERROR] LLM unavailable — parking task "
+                        f"{session_to_use} (resumes on user message or "
+                        "retry probe)"
                     )
-                if self.task_manager:
-                    await self.task_manager.mark_task_cancel(
-                        reason="LLM calls failed too many consecutive times. Task aborted."
+                    failed_task.waiting_for_user_reply = True
+                    self._persist_task_state(failed_task)
+                    await self._create_new_trigger(
+                        session_to_use,
+                        {
+                            "status": "error",
+                            "message": user_message,
+                            "wait_for_user_reply": True,
+                            # Retry probe well past the provider breaker's
+                            # cooldown — if the outage persists, the probe
+                            # fails fast and re-parks for another interval.
+                            "fire_at_delay": 900,
+                        },
+                        STATE,
+                    )
+                else:
+                    # No live task to park (conversation-mode failure):
+                    # nothing to resume — do not re-queue a retry loop.
+                    logger.warning(
+                        f"[REACT ERROR] LLM unavailable and no task to park "
+                        f"for session {session_to_use}"
                     )
                 if self.ui_controller:
                     from app.ui_layer.events import UIEvent, UIEventType
@@ -1876,18 +1940,35 @@ class AgentBase:
             )
 
     async def handle_llm_retry(self, session_id: str) -> None:
-        """Retry the original task after a fatal LLM failure. Resets the failure counter and re-submits."""
-        instruction = self._llm_retry_instructions.pop(session_id, None)
-        if not instruction:
-            logger.warning(
-                f"[LLM_RETRY] Cannot retry: no cached instruction for session {session_id}"
-            )
-            return
-
+        """Retry after a fatal LLM failure. Resets the failure counter, then
+        WAKES the parked task — tasks are parked, not cancelled, on LLM
+        outage, so retry means resume, never re-create (re-submitting spawned
+        duplicate tasks/projects). Falls back to re-submitting the cached
+        instruction only for legacy cancelled tasks."""
         try:
             self.llm.reset_failure_counter()
         except Exception as e:
             logger.debug(f"[LLM_RETRY] Could not reset failure counter: {e}")
+
+        task = (
+            self.task_manager.tasks.get(session_id) if self.task_manager else None
+        )
+        if task and task.status not in ("completed", "cancelled"):
+            logger.info(f"[LLM_RETRY] Waking parked task {session_id}")
+            task.waiting_for_user_reply = False
+            self._persist_task_state(task)
+            await self._create_new_trigger(
+                session_id, {"status": "success", "fire_at_delay": 0}, STATE
+            )
+            return
+
+        instruction = self._llm_retry_instructions.pop(session_id, None)
+        if not instruction:
+            logger.warning(
+                f"[LLM_RETRY] Cannot retry: no task to wake and no cached "
+                f"instruction for session {session_id}"
+            )
+            return
 
         if self.ui_controller:
             await self.ui_controller.submit_message(instruction)
@@ -2794,14 +2875,39 @@ class AgentBase:
             except Exception as e:
                 logger.warning(f"[RESET] conversation reset failed: {e}")
 
-        # Tasks: in-memory managers + persisted task events.
+        # Tasks: in-memory managers + persisted task events + the
+        # session-resume store. The last one is what actually prevents
+        # ghost tasks: sessions.db's active_tasks rows are what boot-time
+        # restore resurrects, and killed-mid-run tasks sit there as
+        # status=running forever unless wiped here.
         if "tasks" in selected:
             try:
                 from app.usage import get_task_storage
+                from app.usage.session_storage import get_session_storage
+
+                storage = get_session_storage()
+                # Capture every known task session BEFORE wiping so their
+                # queued triggers (resume/continuation) can be swept too —
+                # a trigger firing for a wiped task session is a ghost.
+                stale_ids = set(self.task_manager.tasks.keys())
+                try:
+                    stale_ids.update(
+                        t.get("id") or t.get("task_id")
+                        for t in storage.get_all_active_tasks()
+                        if isinstance(t, dict) and (t.get("id") or t.get("task_id"))
+                    )
+                except Exception:
+                    pass
 
                 self.task_manager.reset()
                 self.state_manager.reset()
                 get_task_storage().clear_tasks()
+                storage.clear_tasks()
+                if stale_ids:
+                    await self.triggers.remove_sessions(sorted(stale_ids))
+                # Drop restore bookkeeping so nothing later this boot
+                # re-schedules triggers for tasks that no longer exist.
+                self._restored_task_ids = []
                 done.append("tasks")
             except Exception as e:
                 logger.warning(f"[RESET] tasks reset failed: {e}")
@@ -3020,6 +3126,9 @@ class AgentBase:
     # manager corrupts LivingUI (orphaned processes, stale in-memory registry,
     # broken apps). LivingUI apps are removed only via the dedicated "livingui"
     # reset component, which tears them down properly through the manager.
+    # (The livingui CLI launchers deliberately live OUTSIDE the workspace,
+    # in ~/.craftbot/bin, so resets can never break them — session
+    # 20260716114414 lost the CLI when they lived in <workspace>/bin.)
     _WORKSPACE_PRESERVE = frozenset({"living_ui", "living_ui_projects.json"})
 
     def _reset_workspace_sync(self) -> None:
@@ -3569,6 +3678,12 @@ class AgentBase:
         """
         if not hasattr(self, "_restored_task_ids") or not self._restored_task_ids:
             return
+
+        # Domain boot-restore listeners (e.g. Living UI's ghost guard,
+        # which cancels stale creation tasks) — generic hook point.
+        from agent_core.core.registry.extensions import run_hooks_async
+
+        await run_hooks_async("boot_restore", self)
 
         # Consolidated restart notice (issue #280): previously every resumed
         # task fired its own react cycle and the LLM sent a per-task

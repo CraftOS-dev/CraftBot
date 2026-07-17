@@ -1,169 +1,116 @@
-/**
- * Drawer — slide-over side panel (SYSTEM-MANAGED — do not edit)
- *
- * For detail/edit views next to a list (bigger than a Modal, keeps page
- * context visible):
- *
- *   <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.title}>
- *     <EntityForm entity="Card" initial={selected} onSaved={onSaved} />
- *   </Drawer>
- */
+import * as React from "react"
+import { Drawer as DrawerPrimitive } from "vaul"
 
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
-import { useDevSurface } from './devtour'
+import { cn } from "@/lib/utils"
 
-export interface DrawerProps {
-  open: boolean
-  onClose: () => void
-  title?: string
-  children: ReactNode
-  footer?: ReactNode
-  /** Which edge the panel slides from (default 'right'). */
-  side?: 'left' | 'right'
-  /** Panel width in px (default 420). */
-  width?: number
-}
+const Drawer = ({
+  shouldScaleBackground = true,
+  ...props
+}: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
+  <DrawerPrimitive.Root
+    shouldScaleBackground={shouldScaleBackground}
+    {...props}
+  />
+)
+Drawer.displayName = "Drawer"
 
-export function Drawer({
-  open,
-  onClose,
-  title,
-  children,
-  footer,
-  side = 'right',
-  width = 420,
-}: DrawerProps) {
-  // Build-time tour (dev only): the engine may force this drawer open to
-  // show its contents; closing a toured drawer only clears the force flag.
-  const [devOpen, setDevOpen] = useState(false)
-  const panelRef = useRef<HTMLDivElement>(null)
-  useDevSurface(
-    'drawer',
-    title || 'Drawer',
-    () => setDevOpen(true),
-    () => setDevOpen(false),
-    () => panelRef.current,
-  )
-  const effectiveOpen = open || devOpen
-  const close = devOpen && !open ? () => setDevOpen(false) : onClose
+const DrawerTrigger = DrawerPrimitive.Trigger
 
-  useEffect(() => {
-    if (effectiveOpen) {
-      document.body.style.overflow = 'hidden'
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [effectiveOpen])
+const DrawerPortal = DrawerPrimitive.Portal
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && effectiveOpen) close()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [effectiveOpen, close])
+const DrawerClose = DrawerPrimitive.Close
 
-  if (!effectiveOpen) return null
+const DrawerOverlay = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DrawerPrimitive.Overlay
+    ref={ref}
+    className={cn("fixed inset-0 z-50 bg-black/80", className)}
+    {...props}
+  />
+))
+DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName
 
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 'var(--z-modal)' as any,
-        display: 'flex',
-        justifyContent: side === 'right' ? 'flex-end' : 'flex-start',
-      }}
+const DrawerContent = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DrawerPortal>
+    <DrawerOverlay />
+    <DrawerPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background",
+        className
+      )}
+      {...props}
     >
-      <div
-        onClick={close}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: 'var(--overlay-color)',
-          animation: 'fadeIn 0.15s ease-out',
-        }}
-      />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        style={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: width,
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'var(--bg-secondary)',
-          backdropFilter: 'var(--surface-backdrop)',
-          borderLeft: side === 'right' ? '1px solid var(--border-primary)' : 'none',
-          borderRight: side === 'left' ? '1px solid var(--border-primary)' : 'none',
-          boxShadow: 'var(--shadow-lg)',
-          animation: `${side === 'right' ? 'slideInRight' : 'slideInLeft'} 0.15s ease-out`,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 'var(--space-3)',
-            padding: 'var(--space-4)',
-            borderBottom: '1px solid var(--border-primary)',
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-semibold)' as any,
-              color: 'var(--text-primary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {title}
-          </h2>
-          <button
-            onClick={close}
-            className="hover:bg-raised hover:text-ink rounded-token"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text-secondary)',
-              padding: 'var(--space-2)',
-              margin: 'calc(var(--space-2) * -1)',
-              display: 'inline-flex',
-              flexShrink: 0,
-              transition: 'var(--transition-fast)',
-            }}
-            aria-label="Close panel"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <div style={{ flex: 1, padding: 'var(--space-4)', overflowY: 'auto' }}>{children}</div>
-        {footer && (
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 'var(--space-2)',
-              padding: 'var(--space-4)',
-              borderTop: '1px solid var(--border-primary)',
-            }}
-          >
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body
-  )
+      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
+      {children}
+    </DrawerPrimitive.Content>
+  </DrawerPortal>
+))
+DrawerContent.displayName = "DrawerContent"
+
+const DrawerHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn("grid gap-1.5 p-4 text-center sm:text-left", className)}
+    {...props}
+  />
+)
+DrawerHeader.displayName = "DrawerHeader"
+
+const DrawerFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+    {...props}
+  />
+)
+DrawerFooter.displayName = "DrawerFooter"
+
+const DrawerTitle = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DrawerPrimitive.Title
+    ref={ref}
+    className={cn(
+      "text-lg font-semibold leading-none tracking-tight",
+      className
+    )}
+    {...props}
+  />
+))
+DrawerTitle.displayName = DrawerPrimitive.Title.displayName
+
+const DrawerDescription = React.forwardRef<
+  React.ElementRef<typeof DrawerPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DrawerPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+))
+DrawerDescription.displayName = DrawerPrimitive.Description.displayName
+
+export {
+  Drawer,
+  DrawerPortal,
+  DrawerOverlay,
+  DrawerTrigger,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerFooter,
+  DrawerTitle,
+  DrawerDescription,
 }

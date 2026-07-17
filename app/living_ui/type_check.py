@@ -106,11 +106,7 @@ def run_tsc(project_root: Path) -> Optional[List[str]]:
         logger.debug(f"[LIVING_UI:TSC] check skipped: {exc}")
         return None
     output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    errors = [
-        line.strip()
-        for line in output.splitlines()
-        if _TS_ERROR_RE.search(line)
-    ]
+    errors = [line.strip() for line in output.splitlines() if _TS_ERROR_RE.search(line)]
     return errors
 
 

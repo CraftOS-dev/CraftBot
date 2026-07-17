@@ -2,9 +2,10 @@
 Living UI Data Plane
 
 Direct-SQLite access layer for Living UI projects. Every native project built
-from the template stores its data in ``backend/living_ui.db`` (SQLite, WAL
-mode), which makes a generic, bulk-first data layer possible without any
-per-project code:
+from the template stores its data in PocketBase's ``pb_data/data.db``
+(SQLite, WAL mode; pre-PocketBase projects used ``backend/living_ui.db`` —
+still resolved for reads), which makes a generic, bulk-first data layer
+possible without any per-project code:
 
 - Schema introspection from the live database (ground truth — immune to a
   stale LIVING_UI.md)
@@ -14,7 +15,7 @@ per-project code:
 
 Safety model:
 - Reads open the database with ``mode=ro`` — physically unable to write.
-- Writes use WAL + busy_timeout so they coexist with the running uvicorn.
+- Writes use WAL + busy_timeout so they coexist with the running backend.
 - update/delete refuse to run without a ``where`` filter unless the caller
   passes ``confirm_full_table=True``.
 - Every destructive call snapshots the .db file first (bounded backups).
@@ -102,6 +103,9 @@ def resolve_db_path(project: Any) -> Optional[DataSource]:
     url = external_database_url(Path(project.path))
     if url:
         return url
+    pb_db = Path(project.path) / "pb_data" / "data.db"
+    if pb_db.exists():
+        return pb_db
     db_path = Path(project.path) / "backend" / "living_ui.db"
     if db_path.exists():
         return db_path
@@ -325,6 +329,66 @@ def backup_db(db_path: Path) -> Optional[Path]:
         return None
 
 
+def wipe_all_entity_rows(project_path: Path, schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete every row of every ENTITY table — creation-phase walk hygiene.
+
+    The browser walk's first-launch criteria are only meaningful against an
+    empty database; a previous walk's onboarding data made "only onboarding
+    is visible on first launch" unfixable and sent builders chasing a
+    non-bug. Snapshot first (backup_db), then
+    delete per entity table named by config/schema.json. Missing tables are
+    skipped (the engine may not have created them yet); system tables (app
+    state, stored files) are never touched. Fail-soft: returns what
+    happened, never raises.
+    """
+    result: Dict[str, Any] = {"wiped": {}, "backup": None, "skipped": []}
+    try:
+        # The backend is PocketBase — pb_data/data.db, and table names are
+        # EXACTLY the declared collection names. (The legacy FastAPI branch
+        # was removed with the Python backend; pre-PocketBase projects are
+        # simply skipped — the walk only runs against native PB projects.)
+        db_path = Path(project_path) / "pb_data" / "data.db"
+        if not db_path.exists():
+            return result
+        cols = (
+            schema["collections"]
+            if isinstance(schema, dict) and "collections" in schema
+            else schema
+        )
+        tables = [
+            c["name"] for c in (cols or []) if isinstance(c, dict) and c.get("name")
+        ]
+        if not tables:
+            return result
+        backup = backup_db(db_path)
+        result["backup"] = str(backup) if backup else None
+        conn = _connect(db_path, read_only=False)
+        try:
+            existing = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            for table in tables:
+                if table not in existing:
+                    result["skipped"].append(table)
+                    continue
+                cur = conn.execute(f'DELETE FROM "{table}"')
+                result["wiped"][table] = cur.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(
+            f"[LIVING_UI:DATA] Wiped entity rows for walk: {result['wiped']} "
+            f"(skipped missing: {result['skipped']})"
+        )
+    except Exception as e:
+        logger.warning(f"[LIVING_UI:DATA] Entity wipe failed (non-fatal): {e}")
+        result["error"] = str(e)
+    return result
+
+
 def _compile_order_by(
     order_by: Any, table: str, table_columns: List[Dict[str, Any]]
 ) -> str:
@@ -455,9 +519,11 @@ def _prepare_insert_rows(
     return all_keys, values, autofilled
 
 
-def insert_rows(db_path: DataSource, table: str, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def insert_rows(
+    db_path: DataSource, table: str, rows: List[Dict[str, Any]]
+) -> Dict[str, Any]:
     if isinstance(db_path, str):
-        return _sa_write(db_path, 'insert', table, rows=rows)
+        return _sa_write(db_path, "insert", table, rows=rows)
     with _connect(db_path, read_only=False) as conn:
         table_columns = _require_table(conn, table)
         keys, values, autofilled = _prepare_insert_rows(rows, table, table_columns)
@@ -482,7 +548,9 @@ def update_rows(
     confirm_full_table: bool = False,
 ) -> Dict[str, Any]:
     if not isinstance(values, dict) or not values:
-        raise DataPlaneError("'values' must be a non-empty object of column -> new value.")
+        raise DataPlaneError(
+            "'values' must be a non-empty object of column -> new value."
+        )
     if not where and not confirm_full_table:
         raise DataPlaneError(
             "Refusing to update every row: pass a 'where' filter, or set "
@@ -490,7 +558,11 @@ def update_rows(
         )
     if isinstance(db_path, str):
         return _sa_write(
-            db_path, 'update', table, values=values, where=where,
+            db_path,
+            "update",
+            table,
+            values=values,
+            where=where,
         )
     backup_path = backup_db(db_path)
     with _connect(db_path, read_only=False) as conn:
@@ -523,7 +595,7 @@ def delete_rows(
             "confirm_full_table=true if you really mean the whole table."
         )
     if isinstance(db_path, str):
-        return _sa_write(db_path, 'delete', table, where=where)
+        return _sa_write(db_path, "delete", table, where=where)
     backup_path = backup_db(db_path)
     with _connect(db_path, read_only=False) as conn:
         table_columns = _require_table(conn, table)
@@ -544,7 +616,7 @@ def upsert_rows(
     db_path: DataSource, table: str, rows: List[Dict[str, Any]], key_columns: List[str]
 ) -> Dict[str, Any]:
     if isinstance(db_path, str):
-        return _sa_write(db_path, 'upsert', table, rows=rows, key_columns=key_columns)
+        return _sa_write(db_path, "upsert", table, rows=rows, key_columns=key_columns)
     if not isinstance(key_columns, list) or not key_columns:
         raise DataPlaneError("'key_columns' must be a non-empty list.")
     backup_path = backup_db(db_path)

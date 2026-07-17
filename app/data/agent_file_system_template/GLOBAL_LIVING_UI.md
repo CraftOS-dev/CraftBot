@@ -20,7 +20,7 @@ Per-project settings from Phase 0 Q&A override these when they conflict.
 - Must use design tokens from global.css (no arbitrary colors)
 - All API calls must handle errors with user-visible feedback
 - No inline styles for standard UI elements
-- Use react-toastify for notifications (already installed)
+- Use sonner for notifications (already installed — toast() from '@/components/ui/sonner')
 - Backend routes must use absolute imports (not relative)
 - Images must always render with visible thumbnails
 - Videos must show preview thumbnails

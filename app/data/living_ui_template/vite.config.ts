@@ -1,9 +1,30 @@
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+// The `debug` mode (`vite build --mode debug`) produces the build the
+// platform serves for the verification walk: React runs in DEVELOPMENT so
+// runtime errors carry their FULL message and name the offending component
+// ("Rendered fewer hooks than expected. Check the render method of `X`")
+// instead of the opaque "Minified React error #300", and the output is
+// unminified so stack frames keep real names. Legible failures are what let
+// a runtime bug be localized and fixed; the production `build` script is
+// unchanged.
+export default defineConfig(({ mode }) => {
+  const debug = mode === 'debug'
+  return {
   plugins: [react()],
+  define: debug
+    ? { 'process.env.NODE_ENV': JSON.stringify('development') }
+    : {},
+  resolve: {
+    // `@/` = frontend/ — the import shape the component library
+    // (shadcn/ui) and generated code use: `@/components/ui/button`.
+    alias: {
+      '@': path.resolve(__dirname, 'frontend'),
+    },
+  },
   server: {
     port: {{PORT}},
     host: true,
@@ -25,5 +46,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // Debug build stays unminified so React error stacks name real
+    // components/files; production build minifies as usual.
+    minify: debug ? false : 'esbuild',
   },
+  }
 })

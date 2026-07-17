@@ -1,60 +1,74 @@
-# Design Self-Review (Phase 10, Step 1)
+# Design Quality Reference
 
-Run this BEFORE `living_ui_validate` — look at your own app first.
+Apply this WHILE building each region — design is part of the feature, not
+a later phase. There is no separate reviewer: you check your own screens
+with the browser tools as you go.
 
-> Validation ALSO reviews this screenshot itself (`design.judgment` step):
-> the platform VLM judges whether the resting page reads as a designed
-> application — unfinished-looking layouts (content welded into a corner
-> over a void, stray unstructured fragments) are REFUSED with specific
-> reasons. Deliberate minimalism and full-bleed layouts pass. Doing this
-> self-review first means you never lose a validation run to it.
-Use the describe_image call below with the prompt EXACTLY as written
-(it encodes the defect-vs-design-decision distinction; ad-libbed
-prompts produce false failures).
+## Foundations (already set up — build on them)
 
-While you build, the live preview continuously saves a screenshot of your
-app to `{project_path}/logs/design_preview.png`. LOOK at it before you
-spend a validation run:
+- **shadcn components** from `components/ui/` for every control — Button,
+  Card, Dialog, Select, Skeleton, Badge, Tabs, sonner toasts... Never
+  hand-roll one that exists.
+- **Design tokens, not hex.** Every color/space/radius comes from
+  `styles/global.css` (system-managed), and `styles/themes.css` style
+  packs restyle the whole app by overriding tokens. Use the token-mapped
+  Tailwind classes — `bg-background` / `bg-surface` / `bg-page`,
+  `text-foreground` / `text-muted-foreground` / `text-ink-secondary`,
+  `border-line` / `border-border`, `bg-primary text-primary-foreground`,
+  `text-destructive` — and both themes plus all style packs follow
+  automatically. A hardcoded `#333` or `bg-gray-800` breaks them.
+- **Dark mode is the DEFAULT**; light is `[data-theme="light"]` on
+  `<html>`, applied by the host. You never write theme toggles — you just
+  never hardcode colors.
+- Tailwind is utilities-only (preflight disabled); style with utility
+  classes, not hand-written `<style>` blocks.
+
+## Standards checklist (per region)
+
+- **Hierarchy**: one clear primary element per region; headings sized
+  `text-xl/2xl`, metadata muted (`text-muted-foreground text-sm`). Not a
+  wall of same-weight text.
+- **Spacing rhythm**: consistent gaps from the 4px scale (`gap-2/4/6`,
+  `p-4/6`); content in Cards/sections, max-width containers — nothing
+  welded into a corner over a void.
+- **Empty states communicate**: no data yet → an explicit message + the
+  action that creates the first item (icon + "No tasks yet — add one
+  above"), never blank space or a bare table header.
+- **Loading**: `<Skeleton>` while fetching (`useEntities().loading`), not
+  a flash of empty.
+- **Feedback**: hover/focus states (shadcn gives them — don't strip
+  them), toast or visible change after every action, inline error text on
+  failure.
+- **Consistency**: same element types look identical everywhere — one
+  Button variant vocabulary, one Card pattern, one date format.
+- **Responsive**: grids collapse (`grid-cols-1 sm:grid-cols-2
+lg:grid-cols-3`), no horizontal overflow, long text truncates or wraps
+  deliberately.
+
+## Self-check in the browser (do this after each region)
+
+The app URL hot-reloads on save. Look at your own work:
 
 ```
-describe_image(
-  image_path="{project_path}/logs/design_preview.png",
-  prompt="You are an experienced UI/UX design reviewer looking at a screenshot
-of a web app. Your job is to find ALL UI/UX DEFECTS — things a user would object 
-to because they look broken, unfinished, ugly or make the app hard to use. 
-Look out for:
-text clipped, cut off, or overlapping; elements colliding or misaligned;
-misalignment, sections that render as raw/unstyled/broken; text unreadable
-against its background; controls that look unfinished or misplaced;
-inconsistency between elements that should look alike; a UI that reads as
-an unstyled wall of text with no visual structure, icons, or accents for
-its scope. For each defect: say WHERE it is, WHY it is a defect rather
-than a plausible design choice, and what a user would complain about.
-Verdict: PASS unless there are genuine defects — do not fail the app for
-defensible design decisions or for the absence of data it doesn't have
-yet."
-)
+mcp_playwright-mcp_browser_navigate      → the app URL
+mcp_playwright-mcp_browser_take_screenshot   (NO filename — image arrives inline)
+mcp_playwright-mcp_browser_snapshot          (NO filename — structure/text/refs inline)
 ```
 
-If the review lists a genuine defect: fix the layout/CSS/visual design,
-wait a moment for the preview screenshot to refresh, and re-review. Repeat
-until PASS. Trust the reviewer's decision/defect distinction — do not
-"fix" things it explicitly identified as plausible design choices.
-Be as strict as possible BUT do not nit pick. It is possible that
-agent might waste tokens on repeating validation that has already been
-fixed. You must compare past design reviews to check if something is fixed, 
-as the design review step has no past memory.
+The screenshot is the pixels — judge it like a design reviewer. The
+snapshot is the accessibility tree — good for catching missing labels,
+duplicated regions, and unrendered content.
 
-## Runtime-Log Check (same step, after the visual review)
+**Defect vs design decision.** Before "fixing" something, ask: is this a
+bug, or a choice a competent designer plausibly made? Muted secondary
+styling, whitespace, restrained palettes, and empty states in an app with
+no data yet are NOT defects. DO fix: text clipped/overlapping; elements
+colliding or misaligned; sections rendering raw/unstyled; unreadable
+contrast; controls that look dead or misplaced; inconsistent siblings;
+unexplained dead space (empty is fine only when it says why); an
+unstructured wall of text.
 
-The platform records the app's runtime behavior; read BOTH before
-validating and treat every ERROR entry as a defect to fix:
-
-- `{project_path}/backend/logs/frontend_console.log` — runtime crashes,
-  unhandled rejections, failed requests captured from the live preview
-- the newest `{project_path}/backend/logs/backend_*.log` — unhandled
-  500s and tracebacks
-
-Validation runs the same check (step `runtime.logs`) over the validation
-window and REFUSES on recorded errors — finding them yourself first is
-cheaper.
+Fix the CSS/layout, let the dev server hot-reload, re-screenshot. Repeat
+until the resting page reads as a designed application. Also check
+`mcp_playwright-mcp_browser_console_messages` — a styled page that logs
+runtime errors is still broken (see VERIFY.md).

@@ -1,117 +1,112 @@
-/**
- * Profile Page — edit username, email, and change password.
- *
- * Copy this file into your project's frontend/components/auth/ directory.
- *
- * Usage:
- *   import { ProfilePage } from './components/auth/ProfilePage'
- *   {showProfile && <ProfilePage onClose={() => setShowProfile(false)} />}
- */
-
-import { useState } from 'react'
-import { Button, Card, Alert } from '../ui'
+/** ProfilePage — edit name and change password (PB user record update). */
+import { useState, type FormEvent } from 'react'
+import { pb } from '@/lib/pb'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuth } from './AuthProvider'
-import { FormField } from './AuthLayout'
-import { authService } from '../../services/AuthService'
 
-interface ProfilePageProps {
-  onClose?: () => void
-}
-
-export function ProfilePage({ onClose }: ProfilePageProps) {
-  const { user, logout } = useAuth()
-
-  const [username, setUsername] = useState(user?.username || '')
-  const [email, setEmail] = useState(user?.email || '')
-  const [profileMsg, setProfileMsg] = useState('')
-  const [profileErr, setProfileErr] = useState('')
-  const [profileLoading, setProfileLoading] = useState(false)
-
-  const [currentPassword, setCurrentPassword] = useState('')
+export function ProfilePage({ onClose }: { onClose?: () => void }) {
+  const { user } = useAuth()
+  const [name, setName] = useState(user?.name ?? '')
+  const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [passwordMsg, setPasswordMsg] = useState('')
-  const [passwordErr, setPasswordErr] = useState('')
-  const [passwordLoading, setPasswordLoading] = useState(false)
-
-  const handleUpdateProfile = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setProfileMsg(''); setProfileErr('')
-    setProfileLoading(true)
-    try {
-      await authService.updateProfile({ username, email })
-      setProfileMsg('Profile updated')
-    } catch (err) {
-      setProfileErr(err instanceof Error ? err.message : 'Update failed')
-    } finally {
-      setProfileLoading(false)
-    }
-  }
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setPasswordMsg(''); setPasswordErr('')
-    if (newPassword !== confirmPassword) { setPasswordErr('Passwords do not match'); return }
-    if (newPassword.length < 6) { setPasswordErr('Password must be at least 6 characters'); return }
-    setPasswordLoading(true)
-    try {
-      await authService.changePassword(currentPassword, newPassword)
-      setPasswordMsg('Password changed')
-      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
-    } catch (err) {
-      setPasswordErr(err instanceof Error ? err.message : 'Password change failed')
-    } finally {
-      setPasswordLoading(false)
-    }
-  }
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   if (!user) return null
 
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setMessage('')
+    setError('')
+    setBusy(true)
+    try {
+      const changes: Record<string, string> = { name }
+      if (newPassword) {
+        // PB requires the current password to authorize a password change,
+        // and invalidates the session token afterwards — re-authenticate.
+        changes.oldPassword = oldPassword
+        changes.password = newPassword
+        changes.passwordConfirm = newPassword
+      }
+      await pb.collection('users').update(user.id, changes)
+      if (newPassword) {
+        await pb
+          .collection('users')
+          .authWithPassword(user.email, newPassword)
+        setOldPassword('')
+        setNewPassword('')
+      }
+      setMessage('Profile updated')
+    } catch {
+      setError(
+        newPassword
+          ? 'Update failed — is the current password correct?'
+          : 'Update failed',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div style={{ maxWidth: 500, margin: '0 auto', padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-      {onClose && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--font-weight-semibold)', margin: 0, color: 'var(--text-primary)' }}>Profile</h2>
-          <Button variant="ghost" size="sm" onClick={onClose}>Back</Button>
-        </div>
-      )}
-
-      <Card style={{ padding: 'var(--space-4)' }}>
-        <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-3)', color: 'var(--text-primary)' }}>
-          Account Info
-        </h3>
-        {profileMsg && <Alert variant="success" style={{ marginBottom: 'var(--space-3)' }}>{profileMsg}</Alert>}
-        {profileErr && <Alert variant="error" style={{ marginBottom: 'var(--space-3)' }}>{profileErr}</Alert>}
-        <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          <FormField label="Username" value={username} onChange={setUsername} />
-          <FormField label="Email" type="email" value={email} onChange={setEmail} />
-          <Button type="submit" variant="primary" loading={profileLoading}>Save Changes</Button>
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle>Profile</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="profile-name">Name</Label>
+            <Input
+              id="profile-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="profile-old-password">Current password</Label>
+            <Input
+              id="profile-old-password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Only to change your password"
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="profile-new-password">New password</Label>
+            <Input
+              id="profile-new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+          {message && <p className="text-sm text-muted-foreground">{message}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Saving…' : 'Save'}
+            </Button>
+            {onClose && (
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Close
+              </Button>
+            )}
+          </div>
         </form>
-      </Card>
-
-      <Card style={{ padding: 'var(--space-4)' }}>
-        <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-3)', color: 'var(--text-primary)' }}>
-          Change Password
-        </h3>
-        {passwordMsg && <Alert variant="success" style={{ marginBottom: 'var(--space-3)' }}>{passwordMsg}</Alert>}
-        {passwordErr && <Alert variant="error" style={{ marginBottom: 'var(--space-3)' }}>{passwordErr}</Alert>}
-        <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          <FormField label="Current Password" type="password" value={currentPassword} onChange={setCurrentPassword} required />
-          <FormField label="New Password" type="password" value={newPassword} onChange={setNewPassword} placeholder="At least 6 characters" required />
-          <FormField label="Confirm New Password" type="password" value={confirmPassword} onChange={setConfirmPassword} required />
-          <Button type="submit" variant="primary" loading={passwordLoading}>Change Password</Button>
-        </form>
-      </Card>
-
-      <Card style={{ padding: 'var(--space-4)', borderColor: 'var(--color-error)' }}>
-        <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--font-weight-semibold)', marginBottom: 'var(--space-2)', color: 'var(--color-error)' }}>
-          Sign Out
-        </h3>
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: '0 0 var(--space-3)' }}>
-          You will need to sign in again to access your account.
-        </p>
-        <Button variant="danger" onClick={logout}>Sign Out</Button>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   )
 }

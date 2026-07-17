@@ -113,7 +113,9 @@ def _spec_type_to_param(
         if len(variants) < len(schema["anyOf"]):
             required = False
         schema = _resolve_ref(spec, variants[0]) if variants else {}
-    out: Dict[str, Any] = {"type": _TYPE_MAP.get(schema.get("type", "string"), "string")}
+    out: Dict[str, Any] = {
+        "type": _TYPE_MAP.get(schema.get("type", "string"), "string")
+    }
     if "enum" in schema:
         out["enum"] = schema["enum"]
         out.pop("type", None)
@@ -147,9 +149,7 @@ def _is_param_segment(segment: str) -> bool:
     return segment.startswith("{") and segment.endswith("}")
 
 
-def classify_route(
-    route: Dict[str, Any], all_paths: set
-) -> str:
+def classify_route(route: Dict[str, Any], all_paths: set) -> str:
     """Return 'system' | 'crud' | 'candidate' for a route."""
     path, method = route["path"], route["method"]
     if path in SYSTEM_PATHS or any(path.startswith(p) for p in SYSTEM_PREFIXES):
@@ -175,9 +175,11 @@ def classify_route(
         if method == "POST":
             # Create is CRUD only when it looks like a resource (collection
             # GET or /{id} sibling); POST /api/search|/api/stats are verbs.
-            has_sibling = ("/api/" + rest[0]) in all_paths and any(
-                r == "GET" for r in _methods_of(all_paths, "/api/" + rest[0])
-            ) or any(p.startswith(f"/api/{rest[0]}/{{") for p in all_paths)
+            has_sibling = (
+                ("/api/" + rest[0]) in all_paths
+                and any(r == "GET" for r in _methods_of(all_paths, "/api/" + rest[0]))
+                or any(p.startswith(f"/api/{rest[0]}/{{") for p in all_paths)
+            )
             return "crud" if has_sibling else "candidate"
         return "candidate"
 
@@ -210,7 +212,11 @@ def analyze_routes(spec: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     _METHODS_BY_PATH = {}
     for r in routes:
         _METHODS_BY_PATH.setdefault(r["path"], []).append(r["method"])
-    buckets: Dict[str, List[Dict[str, Any]]] = {"system": [], "crud": [], "candidate": []}
+    buckets: Dict[str, List[Dict[str, Any]]] = {
+        "system": [],
+        "crud": [],
+        "candidate": [],
+    }
     for route in routes:
         buckets[classify_route(route, all_paths)].append(route)
     return buckets
@@ -224,7 +230,9 @@ def _op_name_for(route: Dict[str, Any]) -> str:
         if re.fullmatch(r"[a-z][a-z0-9_]*", name):
             return name
     # Fallback: verb-ish from path segments
-    segments = [s for s in route["path"].strip("/").split("/") if not _is_param_segment(s)]
+    segments = [
+        s for s in route["path"].strip("/").split("/") if not _is_param_segment(s)
+    ]
     segments = [s for s in segments if s != "api"]
     base = "_".join(segments) or "op"
     return f"{route['method'].lower()}_{base}"
@@ -317,7 +325,9 @@ def check_manifest(
 
     raw, parse_error = _load_manifest_raw(project_path)
     if parse_error:
-        return [{"level": "error", "message": parse_error, "fix": "fix the JSON syntax"}]
+        return [
+            {"level": "error", "message": parse_error, "fix": "fix the JSON syntax"}
+        ]
     if raw is None:
         if spec and analyze_routes(spec)["candidate"]:
             findings.append(
@@ -341,7 +351,11 @@ def check_manifest(
     for name, op_def in ops.items():
         if not isinstance(op_def, dict):
             findings.append(
-                {"level": "error", "message": f"op '{name}' is not an object", "fix": "make it an object"}
+                {
+                    "level": "error",
+                    "message": f"op '{name}' is not an object",
+                    "fix": "make it an object",
+                }
             )
             continue
         if any(name.startswith(p) for p in operations.RESERVED_PREFIXES):
@@ -376,7 +390,7 @@ def check_manifest(
                     {
                         "level": "error",
                         "message": f"op '{name}': path params {sorted(missing)} not in declared params",
-                        "fix": f"declare them, e.g. \"{next(iter(missing))}\": \"int\"",
+                        "fix": f'declare them, e.g. "{next(iter(missing))}": "int"',
                     }
                 )
             if spec and (method, path) not in spec_routes:
@@ -401,12 +415,20 @@ def check_manifest(
                 )
             if not cmd.strip():
                 findings.append(
-                    {"level": "error", "message": f"op '{name}': empty shell command", "fix": "set executor.cmd"}
+                    {
+                        "level": "error",
+                        "message": f"op '{name}': empty shell command",
+                        "fix": "set executor.cmd",
+                    }
                 )
         elif executor_type == "sql":
             if not (executor.get("sql") or "").strip():
                 findings.append(
-                    {"level": "error", "message": f"op '{name}': empty sql", "fix": "set executor.sql"}
+                    {
+                        "level": "error",
+                        "message": f"op '{name}': empty sql",
+                        "fix": "set executor.sql",
+                    }
                 )
         else:
             findings.append(
@@ -420,8 +442,10 @@ def check_manifest(
     # Coverage lint: candidate routes with no op and not explicitly ignored
     if spec:
         covered = {
-            (str((op.get("executor") or {}).get("method", "POST")).upper(),
-             (op.get("executor") or {}).get("path", ""))
+            (
+                str((op.get("executor") or {}).get("method", "POST")).upper(),
+                (op.get("executor") or {}).get("path", ""),
+            )
             for op in ops.values()
             if isinstance(op, dict)
             and str((op.get("executor") or {}).get("type", "http")).lower() == "http"
@@ -457,8 +481,10 @@ def sync_manifest(
     ignore_routes = set(raw.get("ignore_routes") or [])
 
     covered = {
-        (str((op.get("executor") or {}).get("method", "POST")).upper(),
-         (op.get("executor") or {}).get("path", ""))
+        (
+            str((op.get("executor") or {}).get("method", "POST")).upper(),
+            (op.get("executor") or {}).get("path", ""),
+        )
         for op in ops.values()
         if isinstance(op, dict)
     }

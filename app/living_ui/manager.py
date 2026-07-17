@@ -16,7 +16,6 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -35,6 +34,10 @@ except ImportError:
     import logging
 
     logger = logging.getLogger(__name__)
+
+from app.living_ui.ownership import OwnershipMixin
+from app.living_ui.ports import PortAllocationMixin
+from app.living_ui.tunnels import TunnelMixin
 
 if TYPE_CHECKING:
     from app.task.task_manager import TaskManager
@@ -91,10 +94,6 @@ class LivingUIProject:
     # living_ui_notify_ready: no fresh pass, no ready. Runtime-only — a
     # restart requires re-validation by design.
     validation_passed_at: Optional[float] = None  # NOT serialized
-    # Rendered-layout metrics from the dev preview's reveal engine (design
-    # gate) + when they were measured. Runtime-only.
-    design_metrics: Optional[Dict[str, Any]] = None  # NOT serialized
-    design_metrics_at: Optional[float] = None  # NOT serialized
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -121,11 +120,23 @@ class LivingUIProject:
             "uiTheme": self.ui_theme,
             "devPort": self.dev_port,
             "devUrl": self.dev_url,
+            # Task linkage MUST survive restarts: the ghost guard, the build
+            # director, and the budget-reset hook all match task <-> project
+            # by this — without it every restored project looked ownerless.
+            "taskId": self.task_id,
         }
 
 
-class LivingUIManager:
-    """Manages Living UI project lifecycle."""
+class LivingUIManager(OwnershipMixin, PortAllocationMixin, TunnelMixin):
+    """Manages Living UI project lifecycle.
+
+    Cohesive concerns live in mixins (each is a facet of this one class,
+    not a reusable library): OwnershipMixin (ownership.py — the
+    ensure_project_owner funnel), PortAllocationMixin (ports.py — port
+    pool + orphan eviction), TunnelMixin (tunnels.py — LAN/tunnel
+    sharing). This module keeps the registry, launch/validation pipeline,
+    process lifecycle, and watchdog.
+    """
 
     def __init__(self, workspace_root: Path, template_path: Path):
         """
@@ -166,6 +177,9 @@ class LivingUIManager:
         # a watchdog retry must never run two npm installs concurrently
         # (concurrent npm corrupts node_modules).
         self._dev_preview_locks: Dict[str, asyncio.Lock] = {}
+        # No-change validate guard: project_id -> (source signature at last
+        # FAILED validation, its error list). See launch_and_verify.
+        self._last_validate_attempt: Dict[str, Tuple[str, tuple]] = {}
 
         # Ensure workspace directory exists
         self.living_ui_dir = self.workspace_root / "living_ui"
@@ -193,6 +207,63 @@ class LivingUIManager:
         self._trigger_queue = trigger_queue
         self._trigger_service = trigger_service
         logger.info("[LIVING_UI] Task manager and trigger queue bound")
+        self.reconcile_interrupted_builds()
+
+    def reconcile_interrupted_builds(self) -> None:
+        """Mark orphaned mid-creation projects as errored (boot reconcile).
+
+        Runs once the task manager is bound (AFTER boot restore + the ghost
+        guard, which cancels all but the newest creation task). Any project
+        still in "creating" whose owning task is not alive-and-running was
+        interrupted by a restart and will never be finished by anyone —
+        flip it to error with an actionable note instead of letting the
+        watchdog nurse it forever. Fail-open."""
+        try:
+            for project in list(self.projects.values()):
+                if project.status != "creating":
+                    continue
+                task = (
+                    self._task_manager.tasks.get(project.task_id)
+                    if (self._task_manager and project.task_id)
+                    else None
+                )
+                if task is not None and getattr(task, "status", "") == "running":
+                    continue  # legitimate resumed build
+                logger.info(
+                    f"[LIVING_UI] Reconciling interrupted build: {project.id} "
+                    f"('{project.name}') — no live creation task"
+                )
+                self.update_project_status(
+                    project.id,
+                    "error",
+                    "Build was interrupted by a restart and not resumed — "
+                    "ask me to rebuild it.",
+                )
+            # Invariant check (OBSERVABILITY ONLY — never mutate here): every
+            # live owner task must carry the development workflow; the
+            # ensure_project_owner funnel installs it on every path. If this
+            # fires, an ownership path bypassed the funnel — find and fix
+            # that path, don't patch the symptom at restore time.
+            for project in list(self.projects.values()):
+                task = (
+                    self._task_manager.tasks.get(project.task_id)
+                    if (self._task_manager and project.task_id)
+                    else None
+                )
+                if (
+                    task is not None
+                    and getattr(task, "status", "") == "running"
+                    and getattr(task, "workflow_id", None)
+                    not in ("living_ui_development", "living_ui_creation")
+                ):
+                    logger.warning(
+                        f"[LIVING_UI] INVARIANT LEAK: project {project.id} "
+                        f"('{project.name}') is owned by WORKFLOW-LESS task "
+                        f"{project.task_id} — an ownership path bypassed "
+                        "ensure_project_owner"
+                    )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] reconcile_interrupted_builds failed: {e}")
 
     # ========================================================================
     # Watchdog - monitors running projects and restarts crashed processes
@@ -265,9 +336,8 @@ class LivingUIManager:
                     # watchdog spacing — start_dev_preview repairs the
                     # install and is idempotent when a server is already up.
                     if project.status == "creating":
-                        if (
-                            project.dev_url is None
-                            and self._dev_preview_eligible(project)
+                        if project.dev_url is None and self._dev_preview_eligible(
+                            project
                         ):
                             task = dev_preview_tasks.get(project_id)
                             if task is None or task.done():
@@ -470,38 +540,32 @@ class LivingUIManager:
         project_path = Path(project.path)
         log_snippets = []
 
-        # Backend logs
-        backend_subprocess_log = (
-            project_path / "backend" / "logs" / "subprocess_output.log"
-        )
-        if backend_subprocess_log.exists():
-            try:
-                content = backend_subprocess_log.read_text(encoding="utf-8")
-                log_snippets.append(
-                    f"=== Backend subprocess log (last 1000 chars) ===\n{content[-1000:]}"
-                )
-            except Exception:
-                pass
-
-        # Backend app-level logs (most recent session)
-        backend_logs_dir = project_path / "backend" / "logs"
-        if backend_logs_dir.exists():
-            session_logs = sorted(backend_logs_dir.glob("backend_*.log"), reverse=True)
-            if session_logs:
+        # Backend log (the pipeline writes PocketBase output here; the
+        # legacy FastAPI path is kept for pre-PocketBase projects)
+        for label, log_path in (
+            ("Backend log", project_path / "logs" / "backend_output.log"),
+            (
+                "Backend log (legacy)",
+                project_path / "backend" / "logs" / "subprocess_output.log",
+            ),
+        ):
+            if log_path.exists():
                 try:
-                    content = session_logs[0].read_text(encoding="utf-8")
+                    content = log_path.read_text(encoding="utf-8")
                     log_snippets.append(
-                        f"=== Backend session log (last 1000 chars) ===\n{content[-1000:]}"
+                        f"=== {label} (last 1000 chars) ===\n{content[-1000:]}"
                     )
+                    break
                 except Exception:
                     pass
 
-        # Health status
-        health_status_file = project_path / "backend" / "logs" / "health_status.json"
-        if health_status_file.exists():
+        # Frontend console capture (PocketBase system hooks persist it here)
+        console_log = project_path / "pb_data" / "craftbot_console.jsonl"
+        if console_log.exists():
             try:
+                content = console_log.read_text(encoding="utf-8")
                 log_snippets.append(
-                    f"=== Health status ===\n{health_status_file.read_text(encoding='utf-8')}"
+                    f"=== Frontend console (last 1000 chars) ===\n{content[-1000:]}"
                 )
             except Exception:
                 pass
@@ -560,7 +624,8 @@ STEPS:
 4. Verify the project is running by checking that the restart succeeded
 
 Follow the living-ui-creator skill instructions for the project structure.
-The backend is a FastAPI app at {project.path}/backend/main.py
+The backend is PocketBase (collections in {project.path}/config/schema.json,
+custom routes in {project.path}/pb_hooks/)
 The frontend is a Vite+React app at {project.path}/frontend/"""
 
         try:
@@ -569,7 +634,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 task_instruction=task_instruction,
                 mode="complex",
                 action_sets=["file_operations", "code_execution", "living_ui", "core"],
-                selected_skills=["living-ui-creator"],
+                # Sub-workflow: purpose-built system prompt replaces the
+                # general agent's (skills stay on disk as reference material).
+                workflow_id="living_ui_development",
             )
 
             if self._trigger_service is not None:
@@ -579,7 +646,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     TriggerSpec(
                         source=TriggerSource.LIVING_UI_CRASH_FIX,
                         description=f"[Living UI] Fix crash: {project.name}",
-                        priority=30,  # Higher priority than normal creation tasks
+                        priority=5,  # beat continuation triggers or the fix never starts
                         session_id=task_id,
                         payload={
                             "type": "living_ui_crash_fix",
@@ -590,7 +657,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             else:
                 trigger = Trigger(
                     fire_at=time.time(),
-                    priority=30,  # Higher priority than normal creation tasks
+                    priority=5,  # beat continuation triggers or the fix never starts
                     next_action_description=f"[Living UI] Fix crash: {project.name}",
                     session_id=task_id,
                     payload={
@@ -600,8 +667,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 )
                 await self._trigger_queue.put(trigger)
 
-            project.task_id = task_id
-            self._save_projects()
+            # Ownership funnel: the fix task becomes the owner with a fresh
+            # round budget (the crash fix is new work on existing code).
+            await self.ensure_project_owner(project_id, task_id, reset_state=True)
             logger.info(
                 f"[LIVING_UI:WATCHDOG] Created fix task {task_id} for {project.name} ({project_id})"
             )
@@ -676,6 +744,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             # valid across restarts.
                             dev_port=project_data.get("devPort"),
                         )
+                        # Restore the task linkage (see to_dict note).
+                        project.task_id = project_data.get("taskId")
                         # Keep the saved tunnel URL optimistically; reachability
                         # is verified in a background thread below so startup
                         # doesn't block on a HEAD request per tunneled project.
@@ -704,39 +774,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             except Exception as e:
                 logger.error(f"[LIVING_UI] Failed to load projects: {e}")
 
-    def _validate_saved_tunnels(self, entries: List[Tuple[str, str]]) -> None:
-        """Verify saved tunnel URLs are still reachable; clear dead ones.
-
-        Runs on a background thread at startup so the event loop never blocks
-        on network round-trips. Dead tunnels are cleared and persisted.
-        """
-        import urllib.request
-
-        changed = False
-        for project_id, url in entries:
-            alive = False
-            try:
-                req = urllib.request.Request(url, method="HEAD")
-                urllib.request.urlopen(req, timeout=3)
-                alive = True
-            except Exception:
-                pass
-            project = self.projects.get(project_id)
-            if not project or project.tunnel_url != url:
-                continue  # Deleted or re-tunneled while we were checking
-            if alive:
-                logger.info(
-                    f"[LIVING_UI] Tunnel still active for '{project.name}': {url}"
-                )
-            else:
-                logger.info(
-                    f"[LIVING_UI] Tunnel expired for '{project.name}', clearing"
-                )
-                project.tunnel_url = None
-                changed = True
-        if changed:
-            self._save_projects()
-
     def _save_projects(self) -> None:
         """Save projects to persistent storage."""
         try:
@@ -745,148 +782,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"[LIVING_UI] Failed to save projects: {e}")
-
-    def _allocate_port(self) -> int:
-        """Allocate a free port for a Living UI project.
-
-        Checks both the internal tracking set AND actual system port usage
-        to avoid conflicts with orphan processes.
-        """
-        with self._ports_lock:
-            for port in range(self._port_range[0], self._port_range[1] + 1):
-                # Skip if tracked as used
-                if port in self._used_ports:
-                    continue
-                # Skip if actually in use on the system
-                if self._is_port_in_use(port):
-                    logger.warning(
-                        f"[LIVING_UI] Port {port} in use by external process, skipping"
-                    )
-                    continue
-                self._used_ports.add(port)
-                return port
-            raise RuntimeError("No available ports in the Living UI port range")
-
-    def _release_port(self, port: int) -> None:
-        """Release a port back to the pool."""
-        with self._ports_lock:
-            self._used_ports.discard(port)
-
-    def _is_port_in_use(self, port: int) -> bool:
-        """Check if a port is actually in use on the system."""
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            return s.connect_ex(("localhost", port)) == 0
-
-    def _get_pids_on_ports(
-        self, ports_to_check: Optional[Set[int]] = None
-    ) -> Dict[int, str]:
-        """
-        Get PIDs of processes listening on ports in the Living UI range.
-        Uses a single system call for efficiency.
-
-        Args:
-            ports_to_check: Optional set of specific ports to check.
-                           If None, checks all ports in the Living UI range.
-
-        Returns:
-            Dict mapping port numbers to PIDs
-        """
-        port_pids = {}
-
-        if os.name == "nt":
-            # Windows: run netstat once and parse all results
-            try:
-                result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    shell=True,
-                    timeout=5,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            addr = parts[1]
-                            pid = parts[-1]
-                            if ":" in addr:
-                                try:
-                                    port = int(addr.split(":")[-1])
-                                    # Check if port is in range and optionally in the filter set
-                                    if (
-                                        self._port_range[0]
-                                        <= port
-                                        <= self._port_range[1]
-                                    ):
-                                        if (
-                                            ports_to_check is None
-                                            or port in ports_to_check
-                                        ):
-                                            port_pids[port] = pid
-                                except ValueError:
-                                    pass
-            except Exception as e:
-                logger.warning(f"[LIVING_UI] Failed to get ports via netstat: {e}")
-        else:
-            # Linux/Mac: use lsof
-            try:
-                result = subprocess.run(
-                    ["lsof", "-i", "-P", "-n"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                for line in result.stdout.split("\n"):
-                    if "LISTEN" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            # PID is typically the second column
-                            pid = parts[1]
-                            # Find the port in the line
-                            for part in parts:
-                                if ":" in part:
-                                    try:
-                                        port = int(part.split(":")[-1])
-                                        if (
-                                            self._port_range[0]
-                                            <= port
-                                            <= self._port_range[1]
-                                        ):
-                                            if (
-                                                ports_to_check is None
-                                                or port in ports_to_check
-                                            ):
-                                                port_pids[port] = pid
-                                                break
-                                    except ValueError:
-                                        pass
-            except Exception as e:
-                logger.warning(f"[LIVING_UI] Failed to get ports via lsof: {e}")
-
-        return port_pids
-
-    def _kill_process_by_pid(self, pid: str) -> bool:
-        """
-        Kill a process by its PID.
-
-        Args:
-            pid: Process ID to kill
-
-        Returns:
-            True if process was killed, False otherwise
-        """
-        try:
-            if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", pid], capture_output=True, shell=True
-                )
-            else:
-                subprocess.run(["kill", "-9", pid], capture_output=True)
-            return True
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] Failed to kill process {pid}: {e}")
-            return False
 
     async def _wait_for_server(self, port: int, timeout: int = 10) -> bool:
         """
@@ -935,100 +830,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             await asyncio.sleep(0.5)
         return False
 
-    async def _run_backend_tests(
-        self, project_id: str, mode: str, port: int = 0
-    ) -> bool:
-        """
-        Run backend tests using test_runner.py.
-
-        Args:
-            project_id: Project ID to test
-            mode: "internal" (pre-server) or "external" (post-server HTTP tests)
-            port: Backend port (required for external mode)
-
-        Returns:
-            True if all tests pass, False otherwise
-        """
-        project = self.projects.get(project_id)
-        if not project:
-            return False
-
-        backend_path = Path(project.path) / "backend"
-        test_runner = backend_path / "test_runner.py"
-        if not test_runner.exists():
-            logger.warning(
-                f"[LIVING_UI] No test_runner.py for {project_id}, skipping {mode} tests"
-            )
-            return True  # No tests = pass (backwards compat with older projects)
-
-        logger.info(
-            f"[LIVING_UI] Running {mode} tests for {project.name} ({project_id})..."
-        )
-
-        cmd = [sys.executable, str(test_runner), f"--{mode}"]
-        if mode == "external" and port:
-            cmd.extend(["--port", str(port)])
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=str(backend_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-
-            stderr_str = stderr.decode("utf-8", errors="replace").strip()
-
-            if stderr_str:
-                # stderr contains the test runner's logging output
-                for line in stderr_str.split("\n")[-20:]:  # Last 20 lines
-                    logger.debug(f"[LIVING_UI:TEST] {line}")
-
-            if proc.returncode == 0:
-                logger.info(
-                    f"[LIVING_UI] {mode.capitalize()} tests passed for {project_id}"
-                )
-                return True
-            else:
-                # Read the detailed results file
-                if mode == "internal":
-                    results_file = backend_path / "logs" / "test_discovery.json"
-                else:
-                    results_file = backend_path / "logs" / "test_results.json"
-
-                error_details = ""
-                if results_file.exists():
-                    try:
-                        results = json.loads(results_file.read_text(encoding="utf-8"))
-                        errors = results.get("errors", [])
-                        error_details = "; ".join(
-                            f"[{e.get('test', '?')}] {e.get('error', '?')}"
-                            for e in errors[:5]
-                        )
-                    except Exception:
-                        pass
-
-                logger.error(
-                    f"[LIVING_UI] {mode.capitalize()} tests failed for {project_id}: {error_details or stderr_str[-500:]}"
-                )
-                return False
-
-        except asyncio.TimeoutError:
-            logger.error(
-                f"[LIVING_UI] {mode.capitalize()} tests timed out for {project_id}"
-            )
-            return False
-        except Exception as e:
-            logger.error(
-                f"[LIVING_UI] Failed to run {mode} tests for {project_id}: {e}"
-            )
-            return False
-
-    # ========================================================================
-    # Manifest-driven launch pipeline
-    # ========================================================================
-
     def _get_launch_lock(self, project_id: str) -> asyncio.Lock:
         """Per-project lock serializing launch/stop (see __init__ note)."""
         lock = self._launch_locks.get(project_id)
@@ -1036,6 +837,49 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             lock = asyncio.Lock()
             self._launch_locks[project_id] = lock
         return lock
+
+    def _already_running_result(self, project) -> Optional[dict]:
+        """Success dict for a healthy, already-running, STILL-VALIDATED
+        project, else None (= run the real pipeline).
+
+        The validated check is load-bearing: a post-pass code edit clears
+        ``validation_passed_at`` (see invalidate_validation), and this fast
+        path never sets it — so short-circuiting a running-but-invalidated
+        project reports "validation PASSED" while ``is_validated()`` stays
+        False, and living_ui_notify_ready refuses forever
+        Running but invalidated must fall through to the full pipeline so a
+        pass can actually be re-conferred.
+
+        A fast path only — its result still flows through launch_and_verify's
+        recording block like any other validate outcome.
+        """
+        if not (
+            project
+            and project.status == "running"
+            and project.url
+            and project.validation_passed_at
+        ):
+            return None
+        backend_ok = (
+            project.backend_process is None or project.backend_process.poll() is None
+        )
+        serving = (
+            (project.process is not None and project.process.poll() is None)
+            or (project.app_process is not None and project.app_process.poll() is None)
+            or (bool(project.port) and self._is_port_in_use(project.port))
+        )
+        if not (backend_ok and serving):
+            return None
+        logger.info(
+            f"[LIVING_UI:PIPELINE] {project.id} already running — skipping duplicate launch"
+        )
+        return {
+            "status": "success",
+            "url": project.url,
+            "backend_url": project.backend_url,
+            "port": project.port,
+            "note": "already running",
+        }
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -1045,7 +889,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         + tab page, retry while a slow first attempt is still testing) wait
         for the in-flight launch instead of killing its freshly started
         backend mid-pipeline. Once the lock is acquired, an already-running
-        healthy project returns success immediately.
+        healthy project returns success immediately — but ONLY while its
+        validation pass is still current; running-but-invalidated re-runs
+        the full pipeline.
 
         Returns:
             {"status": "success", "url": "...", "backend_url": "...", "port": N}
@@ -1058,49 +904,117 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             )
         async with lock:
             project = self.projects.get(project_id)
-            if project and project.status == "running":
-                backend_ok = (
-                    project.backend_process is None
-                    or project.backend_process.poll() is None
-                )
-                serving = (
-                    (project.process is not None and project.process.poll() is None)
-                    or (
-                        project.app_process is not None
-                        and project.app_process.poll() is None
-                    )
-                    or (bool(project.port) and self._is_port_in_use(project.port))
-                )
-                if backend_ok and serving and project.url:
-                    logger.info(
-                        f"[LIVING_UI:PIPELINE] {project_id} already running — skipping duplicate launch"
-                    )
-                    return {
-                        "status": "success",
-                        "url": project.url,
-                        "backend_url": project.backend_url,
-                        "port": project.port,
-                        "note": "already running",
-                    }
-            return await self._launch_and_verify_impl(project_id)
+            result = self._already_running_result(project)
+            if result is None:
+                result = await self._launch_and_verify_impl(project_id)
+            # Feed the no-change guard: remember the source signature of a
+            # FAILED attempt so an identical retry is refused; a success (or
+            # a refusal by the guard itself) clears/keeps state accordingly.
+            try:
+                if project and project.project_type == "native":
+                    if result.get("status") == "success":
+                        self._last_validate_attempt.pop(project_id, None)
+                    elif result.get("step") != "validation.unchanged":
+                        self._last_validate_attempt[project_id] = (
+                            self._source_signature(Path(project.path)),
+                            tuple(result.get("errors") or [])[:15],
+                        )
+            except Exception:
+                pass
+            # Feed the build director. EVERY outcome of EVERY validate must be
+            # recorded — post-launch failures and the already-running fast
+            # path included — or the build loop's round/launched state
+            # silently freezes. This is the wrapper's single exit; nothing
+            # above may return early. Fail-open.
+            try:
+                if project and (
+                    project.project_type == "native"
+                    or result.get("status") == "success"
+                ):
+                    from app.workflows.living_ui.steps import record_validate_outcome
+
+                    record_validate_outcome(Path(project.path), result)
+            except Exception:
+                pass
+            return result
 
     async def _launch_and_verify_impl(self, project_id: str) -> dict:
         """
-        The launch pipeline body. Only ever runs under the per-project
-        launch lock — call launch_and_verify, never this directly.
+        The launch pipeline body — an orchestrator over the named stages
+        below. Only ever runs under the per-project launch lock (call
+        launch_and_verify, never this directly).
 
-        Runs backend and frontend tracks in parallel to collect all errors at once.
-        Only starts servers if all pre-start checks pass.
+        Stage contract: each stage returns an error result dict to stop the
+        pipeline, or None to continue; success is produced only by
+        _finish_launch at the end. Validation tracks run in parallel to
+        collect ALL errors before any server starts.
+        """
+        setup, err = self._pipeline_setup(project_id)
+        if err:
+            return err
+        project, project_path, pipeline = setup
 
-        Dependency graph:
-            pip install ──→ internal tests ──→ unit + compatibility tests (parallel)
-            npm install ──→ npm run build
-            Both tracks run in parallel. If ANY errors, return all without starting servers.
-            If clean: start backend → health check → external tests → start frontend.
+        logger.info(
+            f"[LIVING_UI:PIPELINE] Starting launch pipeline for {project.name} ({project_id})"
+        )
+        pipeline_started = datetime.now()
+
+        # Ensure index.html has the CraftBot theme sync listener (self-healing for older installs)
+        self._patch_theme_listener(project_path)
+
+        # Single-process mode (external apps) has its own pipeline.
+        app_cfg = pipeline.get("app")
+        if app_cfg:
+            return await self._launch_single_process(
+                project_id, project, project_path, app_cfg
+            )
+
+        await self._prepare_workspace(project, project_path)
+
+        if not self._has_files_changed(project_path):
+            logger.info(
+                "[LIVING_UI:PIPELINE] No source changes detected — skipping tests/build, starting servers directly"
+            )
+            return await self._launch_servers_only(
+                project_id, project, project_path, pipeline
+            )
+
+        # Clean up old log files so each launch starts fresh (if enabled)
+        if project.log_cleanup:
+            self._cleanup_project_logs(project_path)
+
+        err = await self._run_validation_tracks(project, project_path, pipeline)
+        if err:
+            return err
+
+        ops_warnings: List[str] = []
+        backend_cfg = pipeline.get("backend")
+        if backend_cfg:
+            err, ops_warnings = await self._start_backend_stage(
+                project_id, project, project_path, backend_cfg, pipeline_started
+            )
+            if err:
+                return err
+
+        frontend_cfg = pipeline.get("frontend")
+        if frontend_cfg:
+            err = await self._start_frontend_stage(
+                project_id, project, project_path, frontend_cfg
+            )
+            if err:
+                return err
+
+        return self._finish_launch(project_id, project, project_path, ops_warnings)
+
+    def _pipeline_setup(self, project_id: str):
+        """Resolve the project, refuse unchanged retries, load the manifest
+        and rewrite its ports to the allocated ones.
+
+        Returns ((project, project_path, pipeline), None) or (None, error).
         """
         project = self.projects.get(project_id)
         if not project:
-            return {
+            return None, {
                 "status": "error",
                 "step": "setup",
                 "errors": [f"Project not found: {project_id}"],
@@ -1108,82 +1022,49 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         project_path = Path(project.path)
         if not project_path.exists():
-            return {
+            return None, {
                 "status": "error",
                 "step": "setup",
                 "errors": [f"Project path not found: {project.path}"],
             }
+
+        # No-change guard: re-validating an UNCHANGED project after a failure
+        # is pure spin. If nothing in the source tree moved since the last
+        # failing attempt, refuse with the same error list instead of
+        # re-running the whole pipeline.
+        #
+        # CREATION-PHASE ONLY BY DESIGN: post-launch, a validate with no source
+        # change is a legitimate relaunch (restart a stopped app), not spin —
+        # refusing it there would block the relaunch.
+        if (
+            project.project_type == "native"
+            and not (project_path / ".last_launch").exists()
+        ):
+            try:
+                last = self._last_validate_attempt.get(project_id)
+                if last is not None and last[0] == self._source_signature(project_path):
+                    return None, {
+                        "status": "error",
+                        "step": "validation.unchanged",
+                        "errors": [
+                            "NOTHING has changed since the last failed "
+                            "validation — running it again cannot pass. Fix "
+                            "the previously reported errors (dispatch the "
+                            "responsible specialists), then validate once:"
+                        ]
+                        + list(last[1])[:15],
+                    }
+            except Exception:
+                pass
 
         # Every pipeline attempt invalidates the previous pass until this
         # attempt succeeds — a stale "validation passed" must never gate-keep
         # notify_ready after the project has demonstrably changed or failed.
         project.validation_passed_at = None
 
-        # Completeness gate: a project still being CREATED may not launch
-        # while its MainView is the untouched template placeholder. The todo
-        # list is the agent's self-report and can be wrong (observed: all
-        # feature todos marked complete with zero code written, then
-        # notify_ready on the raw template); the filesystem cannot lie.
-        # Applies only to mid-creation launches — relaunches of finished
-        # projects and external/imported apps are never gated.
-        if project.status == "creating" and project.project_type == "native":
-            from .pace_guard import mounting_errors, skeleton_missing
-
-            if skeleton_missing(project_path):
-                return {
-                    "status": "error",
-                    "step": "completeness.check",
-                    "errors": [
-                        "The app has not been built yet: frontend/components/"
-                        "MainView.tsx still contains the untouched template "
-                        "placeholder. Whatever the todo list says, no UI has "
-                        "been created — do NOT mark todos complete without "
-                        "doing the work. Build the app first: write the "
-                        "layout wireframe (skill Phase 1.5 — MainView as the "
-                        "full-page frame with its CSS, then one styled "
-                        "component file per region), take each component "
-                        "through backend + wiring (Phase 2-7), then run "
-                        "living_ui_validate until it passes."
-                    ],
-                }
-            # The wireframe exists — but is the built UI actually ON SCREEN?
-            # A wireframe-only app, or components that exist on disk but are
-            # never imported by MainView, ships an unusable skeleton. Refuse.
-            mount_errors = mounting_errors(project_path)
-            if mount_errors:
-                return {
-                    "status": "error",
-                    "step": "completeness.check",
-                    "errors": mount_errors,
-                }
-            # Design gate: the dev preview measured the real rendered layout.
-            # Overflow, clipped text, empty sections, or a mostly-void page
-            # fail fast, before the expensive pipeline runs.
-            design_errors = self.design_review_errors(project)
-            if design_errors:
-                return {
-                    "status": "error",
-                    "step": "design.review",
-                    "errors": design_errors,
-                }
-            # Visual judgment gate: the VLM reviews the resting-page
-            # screenshot like a human design reviewer — no thresholds,
-            # deliberate minimal/full-bleed layouts pass; unfinished-looking
-            # pages are refused with the reviewer's specific reasons.
-            judgment_errors = await asyncio.to_thread(
-                self._design_judgment_errors, project
-            )
-            if judgment_errors:
-                return {
-                    "status": "error",
-                    "step": "design.judgment",
-                    "errors": judgment_errors,
-                }
-
-        # Load manifest
         manifest_path = project_path / "config" / "manifest.json"
         if not manifest_path.exists():
-            return {
+            return None, {
                 "status": "error",
                 "step": "setup",
                 "errors": ["config/manifest.json not found"],
@@ -1196,15 +1077,13 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             if not project.backend_port:
                 project.backend_port = self._allocate_port()
 
-            # Read manifest and resolve ports — always use project's current ports
-            # regardless of what's hardcoded in the manifest file
+            # Read manifest and resolve ports — always use project's current
+            # ports regardless of what's hardcoded in the manifest file
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             old_ports = manifest.get("ports", {})
             old_frontend = str(old_ports.get("frontend", old_ports.get("app", "")))
             old_backend = str(old_ports.get("backend", ""))
 
-            # Map old ports to current allocated ports (single pass, whole
-            # numbers only — see _rewrite_ports_in_manifest)
             port_map = {}
             if old_frontend and old_frontend != str(project.port):
                 port_map[old_frontend] = str(project.port)
@@ -1221,7 +1100,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     f"[LIVING_UI:PIPELINE] Updated manifest ports: frontend={project.port}, backend={project.backend_port}"
                 )
         except Exception as e:
-            return {
+            return None, {
                 "status": "error",
                 "step": "setup",
                 "errors": [f"Failed to parse manifest: {e}"],
@@ -1229,35 +1108,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         pipeline = manifest.get("pipeline", {})
         if not pipeline:
-            return {
+            return None, {
                 "status": "error",
                 "step": "setup",
                 "errors": ["No pipeline defined in manifest"],
             }
+        return (project, project_path, pipeline), None
 
-        logger.info(
-            f"[LIVING_UI:PIPELINE] Starting launch pipeline for {project.name} ({project_id})"
-        )
-        pipeline_started = datetime.now()
-
-        # Ensure index.html has the CraftBot theme sync listener (self-healing for older installs)
-        self._patch_theme_listener(project_path)
-        # Self-heal style packs: sync system-managed theme files from the
-        # current template so apps created before a pack existed pick it up
-        # on their next launch (the rebuild below bundles them).
-        self._sync_style_packs(project_path)
-
-        # Check for single-process mode (external apps)
-        app_cfg = pipeline.get("app")
-        if app_cfg:
-            return await self._launch_single_process(
-                project_id, project, project_path, app_cfg
-            )
-
-        # Platform-owned additive schema migration: agents edit models.py, and
-        # bare create_all never adds columns to existing tables — without this
-        # step every model change 500s the routes and blocks the smoke test.
-        # Runs for ALL native projects regardless of their database.py version.
+    async def _prepare_workspace(self, project, project_path: Path) -> None:
+        """Pre-build hygiene: schema migration, orphan processes, walk DB wipe.
+        Every part is best-effort — none of it may block a launch."""
+        # Platform-owned additive schema migration: bare create_all never adds
+        # columns to existing tables — without this step a model change 500s
+        # the routes. Runs for ALL native projects regardless of engine.
         try:
             from .migration import run_migration
 
@@ -1279,10 +1142,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     f"{migrate_result['output'][-300:]}"
                 )
         except Exception as e:
-            logger.warning(f"[LIVING_UI:PIPELINE] Migration step error (continuing): {e}")
+            logger.warning(
+                f"[LIVING_UI:PIPELINE] Migration step error (continuing): {e}"
+            )
 
-        # Stop any existing processes from previous launch attempts
-        # This prevents orphan uvicorn/vite processes accumulating on repeated calls
+        # Stop any existing processes from previous launch attempts so orphan
+        # backend/vite processes never accumulate on repeated calls.
         if project.backend_process and project.backend_process.poll() is None:
             logger.info(
                 "[LIVING_UI:PIPELINE] Killing existing backend process before relaunch"
@@ -1296,39 +1161,45 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             self._terminate_process(project.process)
             project.process = None
 
-        # Check if source files changed since last successful launch
-        files_changed = self._has_files_changed(project_path)
+        # Walk hygiene: the browser walk judges first-launch behavior, which
+        # is only meaningful against an EMPTY database. Runs AFTER the old
+        # servers are killed so no live writer can race the delete.
+        #
+        # CREATION-PHASE ONLY BY DESIGN (not the .last_launch disease): once
+        # the app has launched, its rows are real data — the walk creates them
+        # to prove persistence works, and the user's own use creates more.
+        # Wiping post-launch would destroy exactly what we asked for.
+        if (
+            project.project_type == "native"
+            and not (project_path / ".last_launch").exists()
+        ):
+            try:
+                from .data_plane import wipe_all_entity_rows
 
-        if not files_changed:
-            logger.info(
-                "[LIVING_UI:PIPELINE] No source changes detected — skipping tests/build, starting servers directly"
-            )
-            # Fast path — just start servers
-            return await self._launch_servers_only(
-                project_id, project, project_path, pipeline
-            )
+                schema_file = project_path / "config" / "schema.json"
+                if schema_file.exists():
+                    await asyncio.to_thread(
+                        wipe_all_entity_rows,
+                        project_path,
+                        json.loads(schema_file.read_text(encoding="utf-8")),
+                    )
+            except Exception as e:
+                logger.warning(f"[LIVING_UI:PIPELINE] Walk DB wipe skipped: {e}")
 
-        # Clean up old log files so each launch starts fresh (if enabled)
-        if project.log_cleanup:
-            self._cleanup_project_logs(project_path)
-
-        # ================================================================
-        # PHASE 1: Parallel validation (collect ALL errors before starting)
-        # ================================================================
-
+    async def _run_validation_tracks(
+        self, project, project_path: Path, pipeline: dict
+    ) -> Optional[dict]:
+        """Backend and frontend validation in parallel; ALL errors collected
+        before any server starts. None = clean."""
         backend_cfg = pipeline.get("backend")
         frontend_cfg = pipeline.get("frontend")
 
-        # Run backend and frontend validation tracks in parallel
         backend_task = None
         frontend_task = None
 
         if backend_cfg:
-            backend_cwd = project_path / backend_cfg.get("cwd", "backend")
             backend_task = asyncio.create_task(
-                self._validate_backend_track(
-                    project_id, project_path, backend_cfg, backend_cwd
-                )
+                self._validate_backend_track(project_path, backend_cfg)
             )
 
         if frontend_cfg:
@@ -1336,63 +1207,85 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             if str(frontend_cwd) == ".":
                 frontend_cwd = project_path
             frontend_task = asyncio.create_task(
-                self._validate_frontend_track(project_id, frontend_cfg, frontend_cwd)
+                self._validate_frontend_track(project.id, frontend_cfg, frontend_cwd)
             )
 
-        # Wait for both tracks to complete
         all_errors: List[str] = []
-
         if backend_task:
-            backend_errors = await backend_task
-            all_errors.extend(backend_errors)
-
+            all_errors.extend(await backend_task)
         if frontend_task:
-            frontend_errors = await frontend_task
-            all_errors.extend(frontend_errors)
+            all_errors.extend(await frontend_task)
 
-        # Exact-normalized dedup: one broken import cascades through the
-        # internal/unit/pytest/compat steps as the SAME message — show each
-        # distinct failure once (no similarity heuristics, byte-identical
-        # after stripping the [step] prefix and collapsing whitespace).
+        # Exact-normalized dedup: one broken import cascades through several
+        # steps as the SAME message — show each distinct failure once.
         all_errors = self._dedupe_errors(all_errors)
 
-        # If ANY errors from either track, return them all at once
-        if all_errors:
-            logger.error(
-                f"[LIVING_UI:PIPELINE] Validation failed with {len(all_errors)} error(s)"
+        if not all_errors:
+            logger.info(
+                "[LIVING_UI:PIPELINE] All validation passed, starting servers..."
             )
-            for err in all_errors[:10]:
-                logger.error(f"[LIVING_UI:PIPELINE]   {err}")
-            project.status = "error"
-            project.error = f"{len(all_errors)} validation error(s)"
-            self._save_projects()
-            return {"status": "error", "step": "validation", "errors": all_errors}
+            return None
 
-        logger.info("[LIVING_UI:PIPELINE] All validation passed, starting servers...")
+        logger.error(
+            f"[LIVING_UI:PIPELINE] Validation failed with {len(all_errors)} error(s)"
+        )
+        for err in all_errors[:10]:
+            logger.error(f"[LIVING_UI:PIPELINE]   {err}")
+        project.status = "error"
+        project.error = f"{len(all_errors)} validation error(s)"
+        self._save_projects()
+        return {"status": "error", "step": "validation", "errors": all_errors}
 
-        # ================================================================
-        # PHASE 2: Start servers (sequential — needs running processes)
-        # ================================================================
+    async def _start_and_gate_backend(
+        self,
+        project_id: str,
+        project,
+        project_path: Path,
+        backend_cfg: dict,
+    ) -> Optional[dict]:
+        """THE backend start sequence, shared by the full pipeline and the
+        fast (no-source-change) relaunch path: allocate/free the port,
+        provision + start the process (PocketBase or manifest command),
+        gate on health, then import the declared collections.
 
-        ops_warnings: List[str] = []
+        Returns an error result dict to stop the caller, or None on success
+        (project.backend_process/backend_url are set)."""
+        backend_cwd = project_path / backend_cfg.get("cwd", "backend")
+        backend_port = project.backend_port
+        if not backend_port:
+            backend_port = self._allocate_port()
+            project.backend_port = backend_port
 
-        # --- Start backend ---
-        if backend_cfg:
-            backend_cwd = project_path / backend_cfg.get("cwd", "backend")
-            backend_port = project.backend_port
-            if not backend_port:
-                backend_port = self._allocate_port()
-                project.backend_port = backend_port
+        if not await self._ensure_port_available(backend_port):
+            return {
+                "status": "error",
+                "step": "backend.port",
+                "errors": [f"Port {backend_port} is occupied and could not be freed"],
+            }
 
-            if not await self._ensure_port_available(backend_port):
+        # PocketBase: the platform owns the start command — bootstrap the
+        # superuser (never serve into PB's browser installer), serve
+        # pb_data/pb_hooks, then import the declared collections after health.
+        if backend_cfg.get("engine") == "pocketbase":
+            from app.living_ui import pocketbase_runtime as pbrt
+
+            backend_cwd = project_path
+            # Bootstrap is idempotent; retry once for transient first-boot
+            # races before refusing to serve an unprovisioned instance.
+            if not (
+                pbrt.bootstrap_superuser(project_path)
+                or pbrt.bootstrap_superuser(project_path)
+            ):
                 return {
                     "status": "error",
-                    "step": "backend.port",
+                    "step": "backend.start",
                     "errors": [
-                        f"Port {backend_port} is occupied and could not be freed"
+                        "PocketBase superuser bootstrap failed — refusing "
+                        "to serve an unprovisioned instance"
                     ],
                 }
-
+            start_cmd = pbrt.serve_command(project_path, backend_port)
+        else:
             start_cmd = backend_cfg.get("start", "")
             if not start_cmd:
                 return {
@@ -1401,182 +1294,233 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     "errors": ["No start command in manifest"],
                 }
 
-            logs_dir = backend_cwd / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            log_file = logs_dir / "subprocess_output.log"
+        logs_dir = project_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = logs_dir / "backend_output.log"
 
-            # Generate bridge token for integration proxy
-            from uuid import uuid4
+        # Generate bridge token for integration proxy
+        from uuid import uuid4
 
-            project.bridge_token = str(uuid4())
+        project.bridge_token = str(uuid4())
 
-            backend_process = self._start_process(
-                backend_cwd, start_cmd, log_file, port=backend_port, project=project
-            )
-            project.backend_process = backend_process
-            logger.info(f"[LIVING_UI:PIPELINE] Backend starting on port {backend_port}")
+        backend_process = self._start_process(
+            backend_cwd, start_cmd, log_file, port=backend_port, project=project
+        )
+        project.backend_process = backend_process
+        logger.info(f"[LIVING_UI:PIPELINE] Backend starting on port {backend_port}")
 
-            # Health check
-            health_url = backend_cfg.get("health")
-            if health_url:
-                healthy = await self._wait_for_health_check(health_url, timeout=20)
-                if not healthy:
-                    log_tail = self._read_log_tail(log_file, 1000)
-                    if backend_process.poll() is not None:
-                        err = f"Backend process exited with code {backend_process.returncode}"
-                        self._close_process_log(backend_process)
-                    else:
-                        err = f"Backend not responding at {health_url}"
-                        self._terminate_process(backend_process)
-                    project.backend_process = None
-                    return {
-                        "status": "error",
-                        "step": "backend.health",
-                        "errors": [err, log_tail],
-                    }
-
-            project.backend_url = f"http://localhost:{backend_port}"
-            logger.info(f"[LIVING_UI:PIPELINE] Backend healthy on port {backend_port}")
-
-            # Post-start tests (external smoke tests)
-            for test in backend_cfg.get("post_start_tests", []):
-                result = await self._run_pipeline_command(
-                    backend_cwd,
-                    test["command"],
-                    step_name=f"backend.post_start.{test['name']}",
-                )
-                if result["status"] == "error" and test.get("required", True):
-                    errors = (
-                        self._collect_test_errors(project_path, test["name"])
-                        or result["errors"]
+        health_url = backend_cfg.get("health")
+        if health_url:
+            healthy = await self._wait_for_health_check(health_url, timeout=20)
+            if not healthy:
+                log_tail = self._read_log_tail(log_file, 1000)
+                if backend_process.poll() is not None:
+                    err = (
+                        f"Backend process exited with code {backend_process.returncode}"
                     )
-                    await self.stop_backend(project_id)
-                    return {
-                        "status": "error",
-                        "step": f"backend.post_start.{test['name']}",
-                        "errors": errors,
-                    }
-
-            # Runtime-log review (creating projects): the fatal failures
-            # that shipped before this gate — sections crashing at render,
-            # unhandled 500s — were already RECORDED in logs nothing read.
-            if project.status == "creating":
-                log_errors = await asyncio.to_thread(
-                    self._review_runtime_logs, project_path, pipeline_started
-                )
-                if log_errors:
-                    logger.error(
-                        f"[LIVING_UI:PIPELINE] [runtime.logs] "
-                        f"{len(log_errors)} runtime error(s) recorded during "
-                        f"validation for {project_id}"
-                    )
-                    await self.stop_backend(project_id)
-                    return {
-                        "status": "error",
-                        "step": "runtime.logs",
-                        "errors": log_errors,
-                    }
-
-            # Validate the operations manifest against the live OpenAPI:
-            # structural errors (dead routes, undeclared path params, broken
-            # templates) block the launch with precise fixes; coverage gaps
-            # are warnings so heuristics can't brick a launch.
-            try:
-                from .ops_analyzer import check_manifest, fetch_openapi
-
-                spec = await asyncio.to_thread(
-                    fetch_openapi, f"http://localhost:{backend_port}"
-                )
-                findings = await asyncio.to_thread(
-                    check_manifest, project_path, spec
-                )
-                ops_errors = [
-                    f"{f['message']} — fix: {f['fix']}"
-                    for f in findings
-                    if f["level"] == "error"
-                ]
-                ops_warnings = [
-                    f"{f['message']} — fix: {f['fix']}"
-                    for f in findings
-                    if f["level"] == "warning"
-                ]
-                if ops_errors:
-                    await self.stop_backend(project_id)
-                    return {
-                        "status": "error",
-                        "step": "operations.check",
-                        "errors": ops_errors,
-                    }
-                for warning in ops_warnings:
-                    logger.warning(f"[LIVING_UI:PIPELINE] ops manifest: {warning}")
-            except Exception as e:
-                logger.warning(
-                    f"[LIVING_UI:PIPELINE] ops manifest check skipped: {e}"
-                )
-                ops_warnings = []
-
-        # --- Start frontend ---
-        if frontend_cfg:
-            frontend_cwd = project_path / frontend_cfg.get("cwd", ".")
-            if str(frontend_cwd) == ".":
-                frontend_cwd = project_path
-
-            frontend_port = project.port
-            if not frontend_port:
-                frontend_port = self._allocate_port()
-                project.port = frontend_port
-
-            if not await self._ensure_port_available(frontend_port):
-                await self.stop_backend(project_id)
-                return {
-                    "status": "error",
-                    "step": "frontend.port",
-                    "errors": [
-                        f"Port {frontend_port} is occupied and could not be freed"
-                    ],
-                }
-
-            start_cmd = frontend_cfg.get("start", "")
-            if not start_cmd:
-                await self.stop_backend(project_id)
-                return {
-                    "status": "error",
-                    "step": "frontend.start",
-                    "errors": ["No start command in manifest"],
-                }
-
-            frontend_log = self._create_frontend_log(project_path)
-
-            frontend_process = self._start_process(
-                frontend_cwd, start_cmd, frontend_log, port=frontend_port
-            )
-            project.process = frontend_process
-            project.port = frontend_port
-            logger.info(
-                f"[LIVING_UI:PIPELINE] Frontend starting on port {frontend_port}"
-            )
-
-            server_ready = await self._wait_for_server(frontend_port, timeout=15)
-            if not server_ready:
-                log_tail = self._read_log_tail(frontend_log, 1000)
-                if frontend_process.poll() is not None:
-                    err = f"Frontend process exited with code {frontend_process.returncode}"
-                    self._close_process_log(frontend_process)
+                    self._close_process_log(backend_process)
                 else:
-                    err = f"Frontend not responding on port {frontend_port}"
-                    self._terminate_process(frontend_process)
-                project.process = None
-                await self.stop_backend(project_id)
+                    err = f"Backend not responding at {health_url}"
+                    self._terminate_process(backend_process)
+                project.backend_process = None
                 return {
                     "status": "error",
-                    "step": "frontend.health",
+                    "step": "backend.health",
                     "errors": [err, log_tail],
                 }
 
-            project.url = f"http://localhost:{frontend_port}"
-            logger.info(f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}")
+        project.backend_url = f"http://localhost:{backend_port}"
+        logger.info(f"[LIVING_UI:PIPELINE] Backend healthy on port {backend_port}")
 
-        # === SUCCESS ===
+        # PocketBase: import the declared collections (idempotent — also
+        # covers a wiped/replaced pb_data since the last full launch).
+        if backend_cfg.get("engine") == "pocketbase":
+            from app.living_ui import pocketbase_runtime as pbrt
+
+            import_err = await asyncio.to_thread(
+                pbrt.import_collections, project_path, backend_port
+            )
+            if import_err:
+                await self.stop_backend(project_id)
+                return {
+                    "status": "error",
+                    "step": "backend.schema",
+                    "errors": [import_err],
+                }
+        return None
+
+    async def _start_backend_stage(
+        self,
+        project_id: str,
+        project,
+        project_path: Path,
+        backend_cfg: dict,
+        pipeline_started,
+    ):
+        """Start + gate the backend. Returns (error_or_None, ops_warnings)."""
+        err = await self._start_and_gate_backend(
+            project_id, project, project_path, backend_cfg
+        )
+        if err:
+            return err, []
+        backend_port = project.backend_port
+
+        # PocketBase: regenerate the typed frontend surface before anything
+        # tests or walks the app (the collections themselves were imported
+        # by _start_and_gate_backend).
+        if backend_cfg.get("engine") == "pocketbase":
+            from .typegen import regenerate_types
+
+            regenerate_types(project_path)
+
+        # Dirty-DB guard: the walk's first-launch criteria require an empty
+        # database and the wipe ran earlier in this pipeline — rows here mean
+        # the wipe regressed or something seeded data between wipe and boot.
+        #
+        # CREATION-PHASE ONLY BY DESIGN: it is paired with the wipe in
+        # _prepare_workspace, and post-launch rows are expected (real data).
+        if (
+            project.project_type == "native"
+            and not (project_path / ".last_launch").exists()
+        ):
+            dirty = await self._dirty_db_rows(project.backend_url, project_path)
+            if dirty:
+                await self.stop_backend(project_id)
+                return {
+                    "status": "error",
+                    "step": "walk.dirty_db",
+                    "errors": [
+                        "The database is NOT empty at launch — the walk's "
+                        "first-launch checks would report false failures. "
+                        "This is a platform hygiene problem, not an app "
+                        f"bug. Rows found: {dirty}"
+                    ],
+                }, []
+
+        # Runtime-log review: fatal failures (sections crashing at render,
+        # unhandled 500s) are RECORDED in logs — read them and fail the
+        # validate they belong to. Runs for EVERY validate of a native
+        # project: _review_runtime_logs only counts entries from THIS
+        # validation window and fails open on unreadable logs.
+        if project.project_type == "native":
+            log_errors = await asyncio.to_thread(
+                self._review_runtime_logs, project_path, pipeline_started
+            )
+            if log_errors:
+                logger.error(
+                    f"[LIVING_UI:PIPELINE] [runtime.logs] "
+                    f"{len(log_errors)} runtime error(s) recorded during "
+                    f"validation for {project_id}"
+                )
+                await self.stop_backend(project_id)
+                return {
+                    "status": "error",
+                    "step": "runtime.logs",
+                    "errors": log_errors,
+                }, []
+
+        # Validate the operations manifest against the live OpenAPI:
+        # structural errors (dead routes, undeclared path params, broken
+        # templates) block the launch with precise fixes; coverage gaps
+        # are warnings so heuristics can't brick a launch.
+        ops_warnings: List[str] = []
+        try:
+            from .ops_analyzer import check_manifest, fetch_openapi
+
+            spec = await asyncio.to_thread(
+                fetch_openapi, f"http://localhost:{backend_port}"
+            )
+            findings = await asyncio.to_thread(check_manifest, project_path, spec)
+            ops_errors = [
+                f"{f['message']} — fix: {f['fix']}"
+                for f in findings
+                if f["level"] == "error"
+            ]
+            ops_warnings = [
+                f"{f['message']} — fix: {f['fix']}"
+                for f in findings
+                if f["level"] == "warning"
+            ]
+            if ops_errors:
+                await self.stop_backend(project_id)
+                return {
+                    "status": "error",
+                    "step": "operations.check",
+                    "errors": ops_errors,
+                }, []
+            for warning in ops_warnings:
+                logger.warning(f"[LIVING_UI:PIPELINE] ops manifest: {warning}")
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:PIPELINE] ops manifest check skipped: {e}")
+            ops_warnings = []
+
+        return None, ops_warnings
+
+    async def _start_frontend_stage(
+        self, project_id: str, project, project_path: Path, frontend_cfg: dict
+    ) -> Optional[dict]:
+        """Start + health-check the frontend server. None = ready."""
+        frontend_cwd = project_path / frontend_cfg.get("cwd", ".")
+        if str(frontend_cwd) == ".":
+            frontend_cwd = project_path
+
+        frontend_port = project.port
+        if not frontend_port:
+            frontend_port = self._allocate_port()
+            project.port = frontend_port
+
+        if not await self._ensure_port_available(frontend_port):
+            await self.stop_backend(project_id)
+            return {
+                "status": "error",
+                "step": "frontend.port",
+                "errors": [f"Port {frontend_port} is occupied and could not be freed"],
+            }
+
+        start_cmd = frontend_cfg.get("start", "")
+        if not start_cmd:
+            await self.stop_backend(project_id)
+            return {
+                "status": "error",
+                "step": "frontend.start",
+                "errors": ["No start command in manifest"],
+            }
+
+        frontend_log = self._create_frontend_log(project_path)
+        frontend_process = self._start_process(
+            frontend_cwd, start_cmd, frontend_log, port=frontend_port
+        )
+        project.process = frontend_process
+        project.port = frontend_port
+        logger.info(f"[LIVING_UI:PIPELINE] Frontend starting on port {frontend_port}")
+
+        server_ready = await self._wait_for_server(frontend_port, timeout=15)
+        if not server_ready:
+            log_tail = self._read_log_tail(frontend_log, 1000)
+            if frontend_process.poll() is not None:
+                err = f"Frontend process exited with code {frontend_process.returncode}"
+                self._close_process_log(frontend_process)
+            else:
+                err = f"Frontend not responding on port {frontend_port}"
+                self._terminate_process(frontend_process)
+            project.process = None
+            await self.stop_backend(project_id)
+            return {
+                "status": "error",
+                "step": "frontend.health",
+                "errors": [err, log_tail],
+            }
+
+        project.url = f"http://localhost:{frontend_port}"
+        logger.info(f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}")
+        return None
+
+    def _finish_launch(
+        self, project_id: str, project, project_path: Path, ops_warnings: List[str]
+    ) -> dict:
+        """Record the successful launch. Success means the app is RUNNING —
+        not yet "done"; the independent walk_verify gate sets
+        validation_passed_at once it confirms the features actually work."""
         # The production preview is up — the Live Construction View's dev
         # server has served its purpose. (Killing it doesn't blank the dev
         # iframe: the page persists visually until the host swaps to the
@@ -1584,7 +1528,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         self.stop_dev_preview(project_id)
         project.status = "running"
         project.error = None
-        project.validation_passed_at = time.time()
         self._save_projects()
         self._save_launch_timestamp(project_path)
 
@@ -1617,62 +1560,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         backend_cfg = pipeline.get("backend")
         frontend_cfg = pipeline.get("frontend")
 
-        # Start backend
+        # Start backend — the SAME start/gate sequence as the full pipeline
+        # (one implementation; only tests/build are skipped on this path).
         if backend_cfg:
-            backend_cwd = project_path / backend_cfg.get("cwd", "backend")
-            backend_port = project.backend_port
-            if not backend_port:
-                backend_port = self._allocate_port()
-                project.backend_port = backend_port
-
-            if not await self._ensure_port_available(backend_port):
-                return {
-                    "status": "error",
-                    "step": "backend.port",
-                    "errors": [f"Port {backend_port} occupied"],
-                }
-
-            start_cmd = backend_cfg.get("start", "")
-            if start_cmd:
-                logs_dir = backend_cwd / "logs"
-                logs_dir.mkdir(parents=True, exist_ok=True)
-                log_file = logs_dir / "subprocess_output.log"
-
-                # Generate bridge token for integration proxy
-                from uuid import uuid4
-
-                project.bridge_token = str(uuid4())
-
-                backend_process = self._start_process(
-                    backend_cwd, start_cmd, log_file, port=backend_port, project=project
-                )
-                project.backend_process = backend_process
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Backend starting on port {backend_port} (fast)"
-                )
-
-                health_url = backend_cfg.get("health")
-                if health_url:
-                    healthy = await self._wait_for_health_check(health_url, timeout=20)
-                    if not healthy:
-                        log_tail = self._read_log_tail(log_file, 1000)
-                        if backend_process.poll() is not None:
-                            err = f"Backend process exited with code {backend_process.returncode}"
-                            self._close_process_log(backend_process)
-                        else:
-                            err = f"Backend not responding at {health_url}"
-                            self._terminate_process(backend_process)
-                        project.backend_process = None
-                        return {
-                            "status": "error",
-                            "step": "backend.health",
-                            "errors": [err, log_tail],
-                        }
-
-                project.backend_url = f"http://localhost:{backend_port}"
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Backend healthy on port {backend_port}"
-                )
+            err = await self._start_and_gate_backend(
+                project_id, project, project_path, backend_cfg
+            )
+            if err:
+                return err
 
         # Start frontend
         if frontend_cfg:
@@ -1743,57 +1638,40 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         }
 
     async def _validate_backend_track(
-        self, project_id: str, project_path: Path, backend_cfg: dict, backend_cwd: Path
+        self, project_path: Path, backend_cfg: dict
     ) -> List[str]:
-        """
-        Run backend validation: install → internal tests → unit + compatibility tests (parallel).
+        """PocketBase pre-start checks: binary availability + a parseable
+        collections declaration. CRUD needs no tests (PB is trusted like
+        shadcn); custom pb_hooks routes are smoked post-start.
+
         Returns list of error strings (empty = all passed).
         """
         errors: List[str] = []
-
-        # 1. Install
-        install_cmd = backend_cfg.get("install")
-        if install_cmd and backend_cwd.exists():
-            result = await self._run_pipeline_command(
-                backend_cwd, install_cmd, step_name="backend.install"
+        if backend_cfg.get("engine") != "pocketbase":
+            # Legacy FastAPI manifests are no longer validated (the Python
+            # backend pipeline was removed with the PocketBase pivot).
+            logger.warning(
+                "[LIVING_UI:PIPELINE] Unsupported backend engine "
+                f"{backend_cfg.get('engine')!r} — skipping backend validation"
             )
-            if result["status"] == "error":
-                errors.append(
-                    f"[backend.install] {result['errors'][0] if result.get('errors') else 'install failed'}"
-                )
-                return errors  # Can't test without dependencies
+            return errors
 
-        # 2. Internal tests (must run first — generates test_discovery.json)
-        tests = backend_cfg.get("tests", [])
-        internal_tests = [t for t in tests if t["name"] == "internal"]
-        other_tests = [t for t in tests if t["name"] != "internal"]
+        from app.living_ui import pocketbase_runtime as pbrt
 
-        for test in internal_tests:
-            result = await self._run_pipeline_command(
-                backend_cwd, test["command"], step_name=f"backend.tests.{test['name']}"
+        try:
+            await asyncio.to_thread(pbrt.ensure_binary)
+        except Exception as e:
+            errors.append(f"[backend.pocketbase] {e}")
+            return errors
+        try:
+            pbrt.load_schema(project_path)
+        except FileNotFoundError:
+            pass  # no schema yet — PB still serves (empty app)
+        except Exception as e:
+            errors.append(
+                "[backend.schema] config/schema.json is not valid "
+                f"PocketBase collections JSON: {e}"
             )
-            if result["status"] == "error" and test.get("required", True):
-                detailed = self._collect_test_errors(project_path, test["name"])
-                errors.extend(detailed or result.get("errors", []))
-
-        # 3. Remaining tests in parallel (unit + compatibility)
-        if other_tests:
-            parallel_tasks = []
-            for test in other_tests:
-                parallel_tasks.append(
-                    self._run_pipeline_command(
-                        backend_cwd,
-                        test["command"],
-                        step_name=f"backend.tests.{test['name']}",
-                    )
-                )
-            results = await asyncio.gather(*parallel_tasks)
-
-            for test, result in zip(other_tests, results):
-                if result["status"] == "error" and test.get("required", True):
-                    detailed = self._collect_test_errors(project_path, test["name"])
-                    errors.extend(detailed or result.get("errors", []))
-
         return errors
 
     async def _validate_frontend_track(
@@ -1819,6 +1697,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     )
                     return errors  # Can't build without dependencies
 
+        # (Coding Agent pivot: shadcn/ui is VENDORED in the template — plain
+        # editable files, already wired. No install step to half-fail.)
+
         # 2. Build
         build_cmd = frontend_cfg.get("build")
         if build_cmd:
@@ -1834,22 +1715,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
     @staticmethod
     def _certifi_ssl_env() -> dict:
-        """SSL CA bundle env for project subprocesses. This Windows
-        environment can't load the OS cert store from Python (the app itself
-        needs a certifi shim in app/main.py) — without these vars any HTTPS
-        fetch inside a project backend or its tests dies with SSL errors,
-        which has repeatedly blocked validation. Fail-silent."""
-        try:
-            import certifi
+        """SSL CA bundle env for project subprocesses (shared impl in
+        app.workflows.living_ui.workspace — Workspace.run injects the same
+        vars, so pipeline and verify_build subprocesses can't drift)."""
+        from app.workflows.living_ui.workspace import certifi_ssl_env
 
-            ca = certifi.where()
-            return {"SSL_CERT_FILE": ca, "REQUESTS_CA_BUNDLE": ca}
-        except Exception:
-            return {}
+        return certifi_ssl_env()
 
-    def _review_runtime_logs(
-        self, project_path: Path, since: "datetime"
-    ) -> List[str]:
+    def _review_runtime_logs(self, project_path: Path, since: "datetime") -> List[str]:
         """Runtime-error evidence the platform records but nothing used to
         read: the app's own backend log (unhandled 500s, tracebacks) and the
         captured frontend console (runtime crashes, failed requests). Only
@@ -1974,20 +1847,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         except Exception as e:
             logger.error(f"[LIVING_UI:PIPELINE] [{step_name}] ERROR: {e}")
             return {"status": "error", "step": step_name, "errors": [str(e)]}
-
-    async def _ensure_port_available(self, port: int) -> bool:
-        """Ensure a port is available, killing orphan processes if needed."""
-        if not self._is_port_in_use(port):
-            return True
-
-        logger.warning(f"[LIVING_UI:PIPELINE] Port {port} in use, attempting to free")
-        self._kill_process_on_port(port)
-        await asyncio.sleep(1)
-
-        if self._is_port_in_use(port):
-            logger.error(f"[LIVING_UI:PIPELINE] Could not free port {port}")
-            return False
-        return True
 
     _python_path_cache: Optional[str] = None
 
@@ -2186,6 +2045,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     f"(exit {install.returncode}) in {project_path}"
                 )
                 return False
+            # (Coding Agent pivot: shadcn/ui is VENDORED in the template — no
+            # install step.)
             return True
         finally:
             try:
@@ -2234,12 +2095,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             # dies instantly with "'vite' is not recognized"). npm install
             # over an existing tree is a cheap no-op repair.
             if not self._node_modules_healthy(project_path):
-                logger.info(
-                    f"[LIVING_UI:DEV_PREVIEW] npm install for {project_id}..."
-                )
-                if not await self._dev_preview_install(
-                    project_path, dev_log, project
-                ):
+                logger.info(f"[LIVING_UI:DEV_PREVIEW] npm install for {project_id}...")
+                if not await self._dev_preview_install(project_path, dev_log, project):
                     return False
                 if not self._node_modules_healthy(project_path):
                     logger.warning(
@@ -2284,6 +2141,17 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.info(
                 f"[LIVING_UI:DEV_PREVIEW] Live at {project.dev_url} for {project_id}"
             )
+            # PocketBase also runs DURING construction — it's the
+            # platform binary (always healthy), so builders and the live
+            # preview get real data/CRUD from the first minute (the vite
+            # proxy forwards /api to it).
+            try:
+                if (Path(project.path) / "pb_hooks").exists() and not (
+                    project.backend_process and project.backend_process.poll() is None
+                ):
+                    await self.launch_backend(project_id)
+            except Exception as e:
+                logger.warning(f"[LIVING_UI:DEV_PREVIEW] PocketBase start: {e}")
             from .broadcast import broadcast_living_ui_dev_preview
 
             await broadcast_living_ui_dev_preview(project_id, project.dev_url)
@@ -2349,15 +2217,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.warning(
                 f"[LIVING_UI] No bridge token for process: project={'yes' if project else 'no'}, token={'yes' if project and project.bridge_token else 'no'}"
             )
-        if project:
-            # Default file-storage root inside the CraftBot workspace, so
-            # user uploads are directly visible to the agent's file tools.
-            # The app's backend/.env FILES_DIR (if set) overrides this —
-            # resolution lives in the template's files_routes.py.
-            env["LIVING_UI_FILES_DIR"] = str(
-                self.workspace_root / "living_ui_files" / project.id
-            )
-
         try:
             if os.name == "nt":
                 process = subprocess.Popen(
@@ -2388,39 +2247,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         process._craftbot_log_handle = log_handle
         return process
 
-    def _collect_test_errors(self, project_path: Path, test_name: str) -> List[str]:
-        """Read structured test results and extract EVERY error message.
-
-        The runner modes write JSON; the agent's pytest suite writes JUnit
-        XML (pytest's own structured contract — one entry per failing test,
-        no output-parsing, no truncation)."""
-        if test_name == "agent_tests":
-            return self._collect_junit_errors(
-                project_path / "backend" / "logs" / "test_agent.xml"
-            )
-        errors = []
-        # Map test names to result files
-        file_map = {
-            "internal": "test_discovery.json",
-            "unit": "test_unit.json",
-            "compatibility": "test_compatibility.json",
-            "external": "test_results.json",
-        }
-        result_file = (
-            project_path
-            / "backend"
-            / "logs"
-            / file_map.get(test_name, f"test_{test_name}.json")
-        )
-        if result_file.exists():
-            try:
-                data = json.loads(result_file.read_text(encoding="utf-8"))
-                for err in data.get("errors", []):
-                    errors.append(f"[{err.get('test', '?')}] {err.get('error', '?')}")
-            except Exception:
-                pass
-        return errors
-
     @staticmethod
     def _dedupe_errors(errors: List[str]) -> List[str]:
         """Drop repeats that are byte-identical after stripping a leading
@@ -2437,58 +2263,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         return out
 
     @staticmethod
-    def _collect_junit_errors(xml_path: Path) -> List[str]:
-        """One entry per failed/errored testcase from a JUnit XML report."""
-        if not xml_path.exists():
-            return []
-        try:
-            import xml.etree.ElementTree as ET
-
-            root = ET.parse(xml_path).getroot()
-            errors: List[str] = []
-            for case in root.iter("testcase"):
-                for kind in ("failure", "error"):
-                    node = case.find(kind)
-                    if node is None:
-                        continue
-                    test_id = f"{case.get('classname', '?')}::{case.get('name', '?')}"
-                    message = (node.get("message") or "").strip()
-                    if not message and (node.text or "").strip():
-                        message = (node.text or "").strip().splitlines()[-1]
-                    errors.append(f"[{test_id}] {message or kind}")
-            return errors
-        except Exception:
-            return []
-
-    @staticmethod
     def _cleanup_project_logs(project_path: Path) -> None:
         """Clean up old log files so each launch/restart starts fresh."""
-        log_files_to_clean = [
-            project_path / "backend" / "logs" / "subprocess_output.log",
-            project_path / "backend" / "logs" / "frontend_console.log",
-            project_path / "backend" / "logs" / "test_discovery.json",
-            project_path / "backend" / "logs" / "test_unit.json",
-            project_path / "backend" / "logs" / "test_compatibility.json",
-            project_path / "backend" / "logs" / "test_results.json",
-            project_path / "backend" / "logs" / "health_status.json",
-            project_path / "logs" / "frontend_output.log",  # Legacy non-timestamped
-            project_path / "backend" / "logs" / "latest.log",  # Legacy pointer file
-        ]
-        for log_file in log_files_to_clean:
-            try:
-                if log_file.exists():
-                    log_file.unlink()
-            except Exception:
-                pass
-        # Clean up old session logs — keep only the 5 most recent of each type
-        backend_logs_dir = project_path / "backend" / "logs"
-        if backend_logs_dir.exists():
-            session_logs = sorted(backend_logs_dir.glob("backend_*.log"), reverse=True)
-            for old_log in session_logs[5:]:
-                try:
-                    old_log.unlink()
-                except Exception:
-                    pass
+        legacy_log = project_path / "logs" / "frontend_output.log"
+        try:
+            if legacy_log.exists():
+                legacy_log.unlink()
+        except Exception:
+            pass
+        # Clean up old session logs — keep only the 5 most recent
         frontend_logs_dir = project_path / "logs"
         if frontend_logs_dir.exists():
             session_logs = sorted(
@@ -2671,6 +2454,95 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         except Exception as e:
             logger.warning(f"[LIVING_UI] Could not patch index.html: {e}")
 
+    async def _dirty_db_rows(
+        self, backend_url: str, project_path: Path
+    ) -> Dict[str, int]:
+        """Entity tables that still contain rows (creation-phase guard).
+
+        Reads the sqlite file directly (read-only) — no HTTP, no shape
+        assumptions. Empty dict = clean. Fail-open on any error (a broken
+        check must not block a launch; the wipe already ran)."""
+        try:
+            schema_file = Path(project_path) / "config" / "schema.json"
+            db_path = Path(project_path) / "pb_data" / "data.db"
+            if not db_path.exists():
+                db_path = Path(project_path) / "backend" / "living_ui.db"  # legacy
+            if not schema_file.exists() or not db_path.exists():
+                return {}
+            import sqlite3 as _sqlite3
+
+            schema = json.loads(schema_file.read_text(encoding="utf-8"))
+            # PocketBase table names are EXACTLY the collection names.
+            cols = schema.get("collections") if isinstance(schema, dict) else schema
+            tables = [
+                c["name"] for c in (cols or []) if isinstance(c, dict) and c.get("name")
+            ]
+
+            def _count() -> Dict[str, int]:
+                found: Dict[str, int] = {}
+                conn = _sqlite3.connect(
+                    f"file:{db_path.as_posix()}?mode=ro", uri=True, timeout=5.0
+                )
+                try:
+                    existing = {
+                        r[0]
+                        for r in conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        )
+                    }
+                    for table in tables:
+                        if table not in existing:
+                            continue
+                        n = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[
+                            0
+                        ]
+                        if n:
+                            found[table] = n
+                finally:
+                    conn.close()
+                return found
+
+            return await asyncio.to_thread(_count)
+        except Exception as e:
+            logger.debug(f"[LIVING_UI:PIPELINE] dirty-db check skipped: {e}")
+            return {}
+
+    def _source_signature(project_path: Path) -> str:
+        """Cheap fingerprint of the project's editable source tree.
+
+        (path, mtime_ns, size) over backend/frontend/config, skipping
+        node_modules/__pycache__/logs. Two identical signatures mean no
+        agent edit happened between validation attempts — re-validating
+        cannot produce a different outcome.
+        """
+        import hashlib
+
+        h = hashlib.sha256()
+        # `pb_hooks` is the PocketBase project's BACKEND (custom
+        # routes). It was missing here (a pre-R20 list), so a repair that
+        # only edited pb_hooks read as "no change" → the loop falsely
+        # reported validation.unchanged and escalated to the user after ~2
+        # rounds despite real backend fixes. `backend` stays for legacy
+        # FastAPI projects.
+        skip_dirs = {"node_modules", "__pycache__", "logs"}
+        for sub in ("pb_hooks", "backend", "frontend", "config"):
+            base = project_path / sub
+            if not base.is_dir():
+                continue
+            # os.walk with in-place dirs pruning: rglob would descend into
+            # node_modules (tens of thousands of files) only to filter them
+            # afterwards — per validate, on the pipeline's hot path.
+            for dirpath, dirnames, filenames in os.walk(base):
+                dirnames[:] = sorted(d for d in dirnames if d not in skip_dirs)
+                for fname in sorted(filenames):
+                    p = Path(dirpath) / fname
+                    try:
+                        st = p.stat()
+                    except OSError:
+                        continue
+                    h.update(f"{p}|{st.st_mtime_ns}|{st.st_size}\n".encode())
+        return h.hexdigest()
+
     @staticmethod
     def _save_launch_timestamp(project_path: Path) -> None:
         """Save current time as last successful launch timestamp."""
@@ -2691,10 +2563,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
     async def launch_backend(self, project_id: str) -> bool:
         """
-        Launch the backend (FastAPI) server for a Living UI project.
+        Launch the backend (PocketBase) server for a Living UI project.
 
-        The backend holds all state and persists to SQLite.
-        It should be launched before the frontend.
+        PocketBase holds all state (pb_data/, SQLite) and serves CRUD +
+        the app's custom pb_hooks routes. Launched before the frontend.
 
         Args:
             project_id: Project ID to launch backend for
@@ -2708,11 +2580,17 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return False
 
         project_path = Path(project.path)
-        backend_path = project_path / "backend"
 
-        if not backend_path.exists():
-            logger.warning(f"[LIVING_UI] No backend directory for {project_id}")
-            return True  # Not an error, just no backend
+        if (
+            not (project_path / "pb_hooks").exists()
+            and (project_path / "backend").exists()
+        ):
+            # Pre-Round-20 project (FastAPI backend) — leave it alone.
+            logger.warning(
+                f"[LIVING_UI] {project_id} is a legacy FastAPI project; "
+                "PocketBase launch skipped"
+            )
+            return True
 
         # If backend port is occupied, allocate a new one instead of killing
         backend_port = project.backend_port
@@ -2731,20 +2609,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             project.backend_port = backend_port
 
         try:
-            # Start the FastAPI backend using uvicorn
+            # Start the PocketBase backend (the data layer is
+            # PocketBase — single pinned binary, pb_data/ + pb_hooks/).
             logger.info(
-                f"[LIVING_UI] Starting backend for {project_id} on port {backend_port}"
+                f"[LIVING_UI] Starting PocketBase for {project_id} on port {backend_port}"
             )
+            from app.living_ui import pocketbase_runtime as pbrt
 
-            # Backend has its own file-based logger (logger.py in template),
-            # but also capture subprocess stdout/stderr to a fallback log file
-            # so we can diagnose startup crashes before the app logger initializes
-            logs_dir = backend_path / "logs"
+            logs_dir = project_path / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
-            subprocess_log = logs_dir / "subprocess_output.log"
+            subprocess_log = logs_dir / "backend_output.log"
             subprocess_log_handle = open(subprocess_log, "a", encoding="utf-8")
             subprocess_log_handle.write(
-                f"\n{'=' * 60}\n[{datetime.now().isoformat()}] Starting uvicorn on port {backend_port}\n{'=' * 60}\n"
+                f"\n{'=' * 60}\n[{datetime.now().isoformat()}] Starting PocketBase on port {backend_port}\n{'=' * 60}\n"
             )
             subprocess_log_handle.flush()
 
@@ -2754,59 +2631,43 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             bridge_token = str(uuid4())
             project.bridge_token = bridge_token
 
-            # Build env with integration bridge vars
+            # Build env with integration bridge vars (pb_hooks callLLM
+            # reads CRAFTBOT_BRIDGE_URL via $os.getenv)
             bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
             backend_env = os.environ.copy()
             backend_env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"
             backend_env["CRAFTBOT_BRIDGE_TOKEN"] = bridge_token
 
-            # Use python -m uvicorn to run the backend
-            if os.name == "nt":
-                # Windows
-                backend_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "uvicorn",
-                        "main:app",
-                        "--host",
-                        "0.0.0.0",
-                        "--port",
-                        str(backend_port),
-                    ],
-                    cwd=str(backend_path),
-                    env=backend_env,
-                    stdout=subprocess_log_handle,
-                    stderr=subprocess_log_handle,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                # Linux/Mac
-                backend_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "uvicorn",
-                        "main:app",
-                        "--host",
-                        "0.0.0.0",
-                        "--port",
-                        str(backend_port),
-                    ],
-                    cwd=str(backend_path),
-                    env=backend_env,
-                    stdout=subprocess_log_handle,
-                    stderr=subprocess_log_handle,
-                )
+            # Superuser MUST exist before serve — otherwise PocketBase
+            # boots into its browser installer, which no user or agent
+            # should ever see. Retry once, then fail the launch loudly.
+            if not pbrt.bootstrap_superuser(project_path):
+                if not pbrt.bootstrap_superuser(project_path):
+                    logger.error(
+                        f"[LIVING_UI] PocketBase superuser bootstrap failed "
+                        f"twice for {project_id} — refusing to serve an "
+                        "unprovisioned instance (browser installer)."
+                    )
+                    subprocess_log_handle.close()
+                    return False
+            backend_process = subprocess.Popen(
+                pbrt.serve_command(project_path, backend_port),
+                cwd=str(project_path),
+                env=backend_env,
+                stdout=subprocess_log_handle,
+                stderr=subprocess_log_handle,
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+                else 0,
+            )
 
             backend_process._craftbot_log_handle = subprocess_log_handle
             project.backend_process = backend_process
 
-            # Wait for health check to pass
-            health_url = f"http://localhost:{backend_port}/health"
+            # Wait for health check to pass (PB native health; the legacy
+            # /health path is also served by pb_hooks/_craftbot.pb.js)
+            health_url = f"http://localhost:{backend_port}/api/health"
             logger.info(
                 f"[LIVING_UI] Waiting for backend health check at {health_url}..."
             )
@@ -2833,8 +2694,20 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 return False
 
             project.backend_url = f"http://localhost:{backend_port}"
+            # Import the declared collections (idempotent; deleteMissing
+            # stays False so system collections survive) + regenerate the
+            # typed frontend surface.
+            import_err = await asyncio.to_thread(
+                pbrt.import_collections, project_path, backend_port
+            )
+            if import_err:
+                logger.error(f"[LIVING_UI] collections import: {import_err}")
+            else:
+                from .typegen import regenerate_types
+
+                regenerate_types(project_path)
             logger.info(
-                f"[LIVING_UI] Backend started successfully on port {backend_port}"
+                f"[LIVING_UI] PocketBase started successfully on port {backend_port}"
             )
             return True
 
@@ -2904,63 +2777,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 pass
         finally:
             self._close_process_log(process)
-
-    def _kill_process_on_port(self, port: int) -> bool:
-        """
-        Kill any process listening on the specified port (Windows-specific).
-
-        Args:
-            port: The port to free
-
-        Returns:
-            True if a process was killed, False otherwise
-        """
-        if os.name != "nt":
-            # Linux/Mac: use lsof and kill
-            try:
-                result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"], capture_output=True, text=True
-                )
-                if result.stdout.strip():
-                    pids = result.stdout.strip().split("\n")
-                    for pid in pids:
-                        subprocess.run(["kill", "-9", pid], capture_output=True)
-                    logger.info(f"[LIVING_UI] Killed process(es) on port {port}")
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[LIVING_UI] Failed to kill process on port {port}: {e}"
-                )
-            return False
-        else:
-            # Windows: use netstat and taskkill
-            try:
-                result = subprocess.run(
-                    ["netstat", "-ano"], capture_output=True, text=True, shell=True
-                )
-                killed = False
-                for line in result.stdout.split("\n"):
-                    if f":{port}" in line and "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            pid = parts[-1]
-                            # /T kills entire process tree (shell + child processes)
-                            subprocess.run(
-                                ["taskkill", "/T", "/F", "/PID", pid],
-                                capture_output=True,
-                                shell=True,
-                            )
-                            logger.info(
-                                f"[LIVING_UI] Killed process tree {pid} on port {port}"
-                            )
-                            killed = True
-                if killed:
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[LIVING_UI] Failed to kill process on port {port}: {e}"
-                )
-            return False
 
     def cleanup_on_startup(self) -> None:
         """
@@ -3111,6 +2927,21 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 "{{FEATURES}}": ", ".join(features or []),
             },
         )
+
+        # Provision the PocketBase superuser AT BIRTH: every project's
+        # pb_data ships with the local admin already created, so no serve
+        # — platform-launched or manual — can ever hit PB's browser
+        # installer. Fail-open (launch_backend bootstraps again anyway).
+        try:
+            from app.living_ui import pocketbase_runtime as pbrt
+
+            if not pbrt.bootstrap_superuser(project_path):
+                logger.warning(
+                    f"[LIVING_UI] scaffold-time PocketBase bootstrap failed "
+                    f"for {project_id} (will retry at launch)"
+                )
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] scaffold-time PB bootstrap skipped: {e}")
 
         # Create project instance
         project = LivingUIProject(
@@ -3379,223 +3210,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 self.projects[project_id].error = error
             self._save_projects()
 
-    def set_project_task(self, project_id: str, task_id: str) -> None:
-        """Associate a task ID with a project."""
-        if project_id in self.projects:
-            self.projects[project_id].task_id = task_id
-
     # ────────────────────────────────────────────────────────────────────
     # Design review (Live Construction View feeds this)
     #
-    # The reveal engine in the dev preview measures the REAL rendered
-    # layout (overflow, clipped text, empty sections, viewport fill) and
-    # periodically captures a screenshot. Metrics gate validation; the
-    # screenshot is written to logs/design_preview.png for the agent's
-    # describe_image self-review.
-    # ────────────────────────────────────────────────────────────────────
-
-    def set_design_metrics(self, project_id: str, metrics: Dict[str, Any]) -> None:
-        project = self.projects.get(project_id)
-        if not project or not isinstance(metrics, dict):
-            return
-        project.design_metrics = metrics
-        project.design_metrics_at = time.time()
-
-    def save_design_screenshot(self, project_id: str, data_url: str) -> None:
-        """Persist the dev preview's periodic screenshot so the agent can
-        review its own UI with describe_image. Size is governed at the
-        source (the engine caps capture resolution). Fail-silent."""
-        project = self.projects.get(project_id)
-        if not project or not project.path or not isinstance(data_url, str):
-            return
-        try:
-            import base64
-
-            raw = base64.b64decode(data_url.split(",")[-1])
-            if not raw:
-                return
-            out = Path(project.path) / "logs" / "design_preview.png"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(raw)
-        except Exception as e:
-            logger.debug(f"[LIVING_UI] design screenshot save failed: {e}")
-
-    def _design_metrics_current(self, project: "LivingUIProject") -> bool:
-        """Metrics are current when measured AFTER the last frontend change —
-        staleness is derived from the build itself, not from a clock window.
-        With no observable frontend changes, existing metrics count as
-        current (nothing has invalidated them)."""
-        if not project.design_metrics or not project.design_metrics_at:
-            return False
-        try:
-            from .construction_events import get_buffered_events
-
-            last_frontend_ms = max(
-                (
-                    e.get("ts", 0)
-                    for e in get_buffered_events(project.id)
-                    if e.get("area") == "frontend"
-                ),
-                default=0,
-            )
-            return project.design_metrics_at * 1000 >= last_frontend_ms
-        except Exception:
-            return True
-
-    # The ONLY design policy is this reviewed rubric — judgment, not
-    # geometry. Edge-to-edge banners, minimal pages, and sparse empty
-    # states all pass when they look deliberate; there is no threshold
-    # deciding what users may or may not do with their layout.
-    DESIGN_JUDGMENT_PROMPT = (
-        "You are reviewing a screenshot of a web app's RESTING page (what a "
-        "user sees on first open, often before any data exists).\n"
-        "Verdict: does this read as a DESIGNED application at rest?\n\n"
-        "PASS when the page shows deliberate design: clear structure, "
-        "breathing room, a designed empty state (a centered/hero'd 'no data "
-        "yet' moment is great). Intentional minimalism, edge-to-edge / "
-        "full-bleed content, banners touching the viewport edge, and sparse "
-        "pages are all FINE when they look deliberate.\n\n"
-        "FAIL only for unfinished-looking layouts a human reviewer would "
-        "bounce on sight: content welded into one corner while the rest of "
-        "the screen is an empty void, stray unstructured fragments with no "
-        "page composition, controls crammed against edges with no "
-        "intentional layout, or a page that looks half-loaded or broken.\n\n"
-        'Respond with STRICT JSON only: {"pass": true, "problems": []} or '
-        '{"pass": false, "problems": ["specific, actionable problem", ...]}'
-    )
-
-    def _design_screenshot_current(
-        self, project: "LivingUIProject", shot: Path
-    ) -> bool:
-        """The screenshot is current when captured AFTER the last frontend
-        change — same derivation as _design_metrics_current."""
-        try:
-            from .construction_events import get_buffered_events
-
-            last_frontend_ms = max(
-                (
-                    e.get("ts", 0)
-                    for e in get_buffered_events(project.id)
-                    if e.get("area") == "frontend"
-                ),
-                default=0,
-            )
-            return shot.stat().st_mtime * 1000 >= last_frontend_ms
-        except Exception:
-            return True
-
-    def _design_judgment_errors(self, project: "LivingUIProject") -> List[str]:
-        """Visual judgment gate: the platform VLM reviews the resting-page
-        screenshot (logs/design_preview.png, captured live by the dev
-        preview) the way a human design reviewer would. Complements the
-        mechanical gate: facts there, judgment here. Fail-open everywhere —
-        a missing/stale screenshot, an unavailable VLM, or a malformed
-        verdict never blocks a launch (a judgment gate must not brick
-        builds when the judge is out)."""
-        try:
-            shot = Path(project.path) / "logs" / "design_preview.png"
-            if not shot.exists():
-                logger.info(
-                    "[LIVING_UI:PIPELINE] design.judgment skipped: no "
-                    "design_preview.png (headless build)"
-                )
-                return []
-            if not self._design_screenshot_current(project, shot):
-                logger.info(
-                    "[LIVING_UI:PIPELINE] design.judgment skipped: screenshot "
-                    "predates the last frontend change"
-                )
-                return []
-            from app.internal_action_interface import InternalActionInterface as IAI
-
-            if IAI.vlm_interface is None:
-                logger.info(
-                    "[LIVING_UI:PIPELINE] design.judgment skipped: VLM unavailable"
-                )
-                return []
-            raw = IAI.describe_image(str(shot), self.DESIGN_JUDGMENT_PROMPT)
-            match = re.search(r"\{.*\}", raw or "", re.S)
-            verdict = json.loads(match.group(0)) if match else None
-            if not isinstance(verdict, dict) or verdict.get("pass") is not False:
-                return []
-            problems = [
-                str(p).strip()
-                for p in (verdict.get("problems") or [])
-                if str(p).strip()
-            ]
-            if not problems:
-                return []  # a refusal without actionable reasons is malformed
-            return (
-                ["DESIGN (visual review of the rendered resting page):"]
-                + [f"- {p}" for p in problems]
-                + [
-                    "Fix the layout (watch the live preview update), then "
-                    "run living_ui_validate again."
-                ]
-            )
-        except Exception as e:
-            logger.warning(f"[LIVING_UI:PIPELINE] design.judgment skipped: {e}")
-            return []
-
-    def design_review_errors(self, project: "LivingUIProject") -> List[str]:
-        """Deterministic design gate from real rendered-layout metrics.
-        Empty list when fine or when no current metrics exist (fail-open —
-        headless builds have no dev preview to measure). Every check here is
-        an ABSENCE/PRESENCE fact about the rendered page — no judgment
-        thresholds (visual judgment belongs to the describe_image review)."""
-        try:
-            metrics = project.design_metrics
-            if not self._design_metrics_current(project):
-                return []
-            errors: List[str] = []
-            if metrics.get("overflowX"):
-                errors.append(
-                    "DESIGN: the page overflows horizontally — content is "
-                    "wider than the viewport. Nothing may escape AppShell; "
-                    "fix widths/min-widths so the layout fits."
-                )
-            clipped = int(metrics.get("clippedText") or 0)
-            if clipped > 0:
-                errors.append(
-                    f"DESIGN: {clipped} text element(s) are clipped "
-                    f"(text cut off mid-word). Give inputs/labels room "
-                    f"(full-width inside their Section) or allow wrapping."
-                )
-            empty = int(metrics.get("emptySections") or 0)
-            if empty > 0:
-                errors.append(
-                    f"DESIGN: {empty} Section(s) render EMPTY (no visible "
-                    f"content). Every Section must show real content or an "
-                    f"intentional EmptyState."
-                )
-            # NOTE: viewportFill is reported in the metrics for the agent's
-            # information but deliberately NOT gated — "how full is full
-            # enough" is a judgment call that belongs to the describe_image
-            # design review, not a platform constant.
-            # Visual richness: an all-text page (ZERO icons/images — an
-            # absence fact, not a quota) looks unfinished. Only judged once
-            # skeletons are gone — wireframe metrics legitimately have none.
-            icons = metrics.get("iconCount")
-            if (
-                isinstance(icons, (int, float))
-                and int(icons) == 0
-                and int(metrics.get("skeletons") or 0) == 0
-            ):
-                errors.append(
-                    "DESIGN: the UI contains ZERO icons or images — all-text "
-                    "pages look unfinished. Add lucide-react icons to the "
-                    "header, section actions, buttons, and empty states, and "
-                    "use IconBadge/StatCard accents where they fit."
-                )
-            if errors:
-                errors.append(
-                    "Fix the layout/CSS (watch the live preview update), "
-                    "then run living_ui_validate again."
-                )
-            return errors
-        except Exception:
-            return []
-
     def is_validated(self, project_id: str) -> bool:
         """True when the full launch pipeline has passed for this project and
         nothing has invalidated the pass since (code write, failed attempt,
@@ -3702,9 +3319,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 if f.is_file() and f.name != "requirements.md"
             )
         reference_files_str = (
-            "\n".join(
-                f"- {project.path}/reference/{name}" for name in reference_files
-            )
+            "\n".join(f"- {project.path}/reference/{name}" for name in reference_files)
             if reference_files
             else "None"
         )
@@ -3726,11 +3341,14 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 task_instruction=task_instruction,
                 mode="complex",
                 action_sets=["file_operations", "code_execution", "living_ui", "core"],
-                selected_skills=["living-ui-creator"],
+                # Sub-workflow: purpose-built system prompt replaces the
+                # general agent's (skills stay on disk as reference material).
+                workflow_id="living_ui_development",
             )
 
-            # Associate task with project
-            self.set_project_task(project_id, task_id)
+            # Associate task with project (the ownership funnel; fresh
+            # scaffold → state is already clean, no reset needed)
+            await self.ensure_project_owner(project_id, task_id, reset_state=False)
 
             # Update project status
             self.update_project_status(project_id, "creating")
@@ -3743,7 +3361,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     TriggerSpec(
                         source=TriggerSource.LIVING_UI_DEV,
                         description=f"[Living UI] Create: {project.name}",
-                        priority=50,
+                        # Must BEAT running tasks' continuation triggers
+                        # (priority 7): the queue serves ready triggers
+                        # lowest-priority-number first, and 50 starved a
+                        # new creation task forever while restored tasks
+                        # kept the consumer busy.
+                        priority=5,
                         session_id=task_id,
                         payload={
                             "type": "living_ui_development",
@@ -3754,7 +3377,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             else:
                 trigger = Trigger(
                     fire_at=time.time(),
-                    priority=50,
+                    priority=5,  # beat continuation triggers (see above)
                     next_action_description=f"[Living UI] Create: {project.name}",
                     session_id=task_id,
                     payload={
@@ -4079,9 +3702,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         )
 
         safe_ops = {
-            name: op_def
-            for name, op_def in ops.items()
-            if op_def.get("safe") is True
+            name: op_def for name, op_def in ops.items() if op_def.get("safe") is True
         }
         if not safe_ops:
             errors.append(
@@ -4458,8 +4079,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             except Exception as e:
                 logger.error(f"[LIVING_UI] Failed to delete project directory: {e}")
 
-        # Delete the project's default file-storage dir (uploads served by
-        # files_routes.py; lives in the workspace, keyed by THIS project id)
+        # Delete the project's workspace uploads dir (legacy FastAPI-era
+        # projects only; PocketBase apps store uploads in pb_data/storage)
         files_dir = self.workspace_root / "living_ui_files" / project_id
         if files_dir.exists():
             try:
@@ -4654,252 +4275,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         logger.info(f"[LIVING_UI] Imported project '{name}' ({project_id}) from ZIP")
         return project
-
-    def get_project_url(self, project_id: str) -> Optional[str]:
-        """Get the URL for a running project."""
-        project = self.projects.get(project_id)
-        if project and project.status == "running":
-            return project.url
-        return None
-
-    # ------------------------------------------------------------------
-    # LAN & Tunnel sharing
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def get_lan_ip() -> Optional[str]:
-        """Get the machine's LAN IP address."""
-        try:
-            # Connect to a public IP to determine the right interface
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            try:
-                return socket.gethostbyname(socket.gethostname())
-            except Exception:
-                return None
-
-    def get_lan_url(self, project_id: str) -> Optional[str]:
-        """Get the LAN-accessible URL for a running project.
-
-        Uses the backend port since the backend also serves the frontend
-        static files — single port for everything.
-        """
-        project = self.projects.get(project_id)
-        if not project or project.status != "running":
-            return None
-        # Prefer backend port (serves both API + frontend static files)
-        port = project.backend_port or project.port
-        if not port:
-            return None
-        ip = self.get_lan_ip()
-        if not ip or ip.startswith("127."):
-            return None
-        return f"http://{ip}:{port}"
-
-    # Cloudflared binary download URLs per platform
-    _CLOUDFLARED_URLS = {
-        "win32": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        "darwin": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
-        "linux": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-    }
-
-    def _get_cloudflared_path(self) -> Optional[str]:
-        """Find cloudflared — check PATH first, then our local bin directory."""
-        system_path = shutil.which("cloudflared")
-        if system_path:
-            return system_path
-        # Check our local bin
-        import sys
-
-        ext = ".exe" if sys.platform == "win32" else ""
-        local_bin = Path(__file__).parent.parent / "bin" / f"cloudflared{ext}"
-        if local_bin.exists():
-            return str(local_bin)
-        return None
-
-    async def _ensure_cloudflared(self) -> Optional[str]:
-        """Find cloudflared or auto-install it. Returns the binary path or None."""
-        path = self._get_cloudflared_path()
-        if path:
-            return path
-
-        logger.info("[LIVING_UI] cloudflared not found, auto-installing...")
-        import sys
-        import urllib.request
-
-        platform_key = sys.platform
-        if platform_key not in self._CLOUDFLARED_URLS:
-            logger.error(f"[LIVING_UI] Unsupported platform: {platform_key}")
-            return None
-
-        bin_dir = Path(__file__).parent.parent / "bin"
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        ext = ".exe" if platform_key == "win32" else ""
-        target = bin_dir / f"cloudflared{ext}"
-
-        try:
-            url = self._CLOUDFLARED_URLS[platform_key]
-            req = urllib.request.Request(url, headers={"User-Agent": "CraftBot"})
-            resp = urllib.request.urlopen(req, timeout=60)
-
-            if platform_key == "darwin":
-                import tarfile
-                import io
-
-                with tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
-                    for member in tar.getmembers():
-                        if "cloudflared" in member.name:
-                            f = tar.extractfile(member)
-                            if f:
-                                target.write_bytes(f.read())
-                                break
-            else:
-                target.write_bytes(resp.read())
-
-            if platform_key != "win32":
-                target.chmod(0o755)
-
-            logger.info(f"[LIVING_UI] cloudflared installed at {target}")
-            return str(target)
-        except Exception as e:
-            logger.error(f"[LIVING_UI] Failed to download cloudflared: {e}")
-            if target.exists():
-                target.unlink()
-            return None
-
-    async def start_tunnel(
-        self, project_id: str, provider: str = "cloudflared"
-    ) -> Optional[str]:
-        """Start a cloudflare tunnel for remote access. Returns the public URL."""
-        logger.info(f"[LIVING_UI] start_tunnel called for {project_id}")
-        project = self.projects.get(project_id)
-        if not project or project.status != "running":
-            logger.warning(
-                f"[LIVING_UI] Cannot start tunnel: project={project is not None}, status={project.status if project else 'N/A'}"
-            )
-            return None
-
-        logger.info("[LIVING_UI] Stopping any existing tunnel...")
-        await self.stop_tunnel(project_id)
-
-        # Only kill orphans on first tunnel start (no other tunnels active)
-        other_tunnels = any(
-            p.tunnel_process is not None and p.id != project_id
-            for p in self.projects.values()
-        )
-        if not other_tunnels:
-            logger.info(
-                "[LIVING_UI] No other tunnels active, cleaning orphan cloudflared processes..."
-            )
-            try:
-                if os.name == "nt":
-                    subprocess.run(
-                        [
-                            "powershell",
-                            "-Command",
-                            "Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue",
-                        ],
-                        capture_output=True,
-                        timeout=5,
-                    )
-                else:
-                    subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
-                await asyncio.sleep(1)
-            except Exception:
-                pass
-
-        port = project.backend_port or project.port
-        if not port:
-            return None
-
-        cloudflared = await self._ensure_cloudflared()
-        if not cloudflared:
-            logger.error("[LIVING_UI] cloudflared binary not found")
-            return None
-
-        logger.info(
-            f"[LIVING_UI] Starting cloudflared: {cloudflared} tunnel --url http://localhost:{port}"
-        )
-        proc = subprocess.Popen(
-            [cloudflared, "tunnel", "--url", f"http://localhost:{port}"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NO_WINDOW
-            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
-        )
-        logger.info(f"[LIVING_UI] cloudflared started, PID={proc.pid}, parsing URL...")
-        url = await self._parse_cloudflare_url(proc)
-        logger.info(f"[LIVING_UI] cloudflared URL parse result: {url}")
-
-        if url:
-            project.tunnel_process = proc
-            project.tunnel_url = url
-            self._save_projects()
-            logger.info(f"[LIVING_UI] Tunnel started for {project.name}: {url}")
-            return url
-        else:
-            self._terminate_process(proc)
-            logger.error("[LIVING_UI] Failed to get tunnel URL")
-            return None
-
-    async def stop_tunnel(self, project_id: str) -> None:
-        """Stop the tunnel for a project."""
-        project = self.projects.get(project_id)
-        if not project:
-            return
-        if project.tunnel_process:
-            self._terminate_process(project.tunnel_process)
-            project.tunnel_process = None
-        project.tunnel_url = None
-        self._save_projects()
-        logger.info(f"[LIVING_UI] Tunnel stopped for {project.name}")
-
-    async def _parse_cloudflare_url(
-        self, proc: subprocess.Popen, timeout: int = 30
-    ) -> Optional[str]:
-        """Parse the public URL from cloudflared output."""
-        import re
-        import threading
-
-        url_result = [None]
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
-
-        def _read_stream(stream):
-            try:
-                for line_bytes in stream:
-                    text = line_bytes.decode("utf-8", errors="replace")
-                    match = pattern.search(text)
-                    if match:
-                        url_result[0] = match.group(0)
-                        return
-            except Exception:
-                pass
-
-        # Read both stdout and stderr in parallel threads
-        t1 = threading.Thread(target=_read_stream, args=(proc.stdout,), daemon=True)
-        t2 = threading.Thread(target=_read_stream, args=(proc.stderr,), daemon=True)
-        t1.start()
-        t2.start()
-
-        # Wait for either thread to find the URL
-        deadline = time.time() + timeout
-        while time.time() < deadline and url_result[0] is None:
-            if proc.poll() is not None and url_result[0] is None:
-                break
-            await asyncio.sleep(0.5)
-
-        if url_result[0]:
-            logger.info(f"[LIVING_UI] Parsed cloudflare URL: {url_result[0]}")
-        else:
-            logger.error("[LIVING_UI] Failed to parse cloudflare URL within timeout")
-
-        return url_result[0]
 
     async def auto_launch_projects(self, project_ids: List[str] = None) -> None:
         """Auto-launch projects on startup.

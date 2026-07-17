@@ -96,17 +96,6 @@ def write_file(input_data: dict) -> dict:
             "file_path": file_path,
             "bytes_written": bytes_written,
         }
-        # Living UI write-time guard: build-order pace note plus pattern
-        # warnings (route /api prefix, raw HTML controls, missing CSS) for
-        # projects the user is watching being created. Advisory, fail-silent.
-        try:
-            from app.living_ui.pace_guard import review_note_for
-
-            note = review_note_for(file_path)
-            if note:
-                result["message"] = note
-        except Exception:
-            pass
         return result
     except Exception as e:
         return {

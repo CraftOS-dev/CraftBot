@@ -76,6 +76,20 @@ def end_task(input_data: dict) -> dict:
             "message": "Invalid status for end task. Use 'complete' or 'abort'.",
         }
 
+    # Completion gates: domain components (e.g. Living UI's "ENDING IS
+    # EARNED" gate) register listeners on the generic task_end_gate hook
+    # point; the first non-None return is the refusal. Aborts are never
+    # gated; fail-open on infra errors by construction.
+    if status == "complete" and not simulated_mode and session_id:
+        try:
+            from agent_core.core.registry.extensions import first_hook_result
+
+            refusal = first_hook_result("task_end_gate", session_id)
+            if refusal:
+                return {"status": "error", "message": str(refusal)}
+        except Exception:
+            pass
+
     # In simulated mode, skip the actual interface call for testing
     if simulated_mode:
         return {"status": "success", "task_id": "test_task_id"}

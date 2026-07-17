@@ -495,10 +495,39 @@ class ContextEngine:
                 "Mode: Complex task - use todos in event stream to track progress",
             ]
 
-            skill_instructions = self.get_skill_instructions(session_id=session_id)
-            if skill_instructions:
-                lines.append("")
-                lines.append(skill_instructions)
+            # Sub-workflow tasks carry their own purpose-built system prompt;
+            # re-rendering full skill bodies here every turn is exactly the
+            # bloat they exist to avoid (skill files stay readable on disk).
+            include_skills = True
+            workflow = None
+            try:
+                from agent_core.core.registry.task_workflows import (
+                    resolve_task_workflow,
+                )
+
+                workflow = resolve_task_workflow(current_task)
+                if workflow is not None and not workflow.include_skills:
+                    include_skills = False
+            except Exception:
+                include_skills = True
+
+            if include_skills:
+                skill_instructions = self.get_skill_instructions(session_id=session_id)
+                if skill_instructions:
+                    lines.append("")
+                    lines.append(skill_instructions)
+
+            # Workflow-computed per-turn state (e.g. the Living UI build
+            # directive: code decides the next step, the LLM executes it).
+            # Fail-open: a workflow hook failure must never break a turn.
+            if workflow is not None:
+                try:
+                    provided = workflow.task_state(current_task)
+                    if provided:
+                        lines.append("")
+                        lines.append(str(provided))
+                except Exception as e:
+                    logger.debug(f"[CONTEXT_ENGINE] workflow.task_state failed: {e}")
 
             lines.append("</current_task>")
             return "\n".join(lines)

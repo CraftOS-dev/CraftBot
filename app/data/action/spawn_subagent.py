@@ -1,10 +1,11 @@
 from agent_core import action
 
-# Importing the sub-agent package triggers ``app.subagent.definitions`` to
-# load, which populates the registry. We use the populated registry below
-# to build the action's description and ``agent_type`` enum dynamically —
-# adding a new sub-agent type then only requires editing
-# ``app/subagent/definitions/<your_agent>.py``; this action file stays
+# Importing the sub-agent package triggers the workflow packages to load,
+# which populates the registry (definitions live with their workflows:
+# ``app/workflows/<domain>/subagents/*.py``). We use the populated
+# registry below to build the action's description and ``agent_type``
+# enum dynamically — adding a new sub-agent type then only requires a new
+# file under its workflow's ``subagents/`` folder; this action file stays
 # untouched.
 #
 # IMPORTANT: this action file follows the CraftBot convention that
@@ -58,6 +59,14 @@ from app.subagent import list_subagent_names, get_subagent_definition
                 "context from your task carries over — include every file "
                 "path, URL, identifier, criterion, and output-shape "
                 "requirement the sub-agent needs."
+            ),
+        },
+        "project_id": {
+            "type": "string",
+            "description": (
+                "Optional id of the platform resource this sub-agent works "
+                "on. Set automatically by platform workflows for outcome "
+                "routing — omit it when spawning manually."
             ),
         },
     },

@@ -207,12 +207,25 @@ def run_migration(
     """
     backend = Path(project_path) / "backend"
     if not (backend / "models.py").exists():
-        return {"status": "skipped", "output": "no backend/models.py", "added": [], "rebuilt": []}
-    if not external_database_url(project_path) and not (backend / "living_ui.db").exists():
+        return {
+            "status": "skipped",
+            "output": "no backend/models.py",
+            "added": [],
+            "rebuilt": [],
+        }
+    if (
+        not external_database_url(project_path)
+        and not (backend / "living_ui.db").exists()
+    ):
         # First launch on local SQLite: the app's own create_all builds the
         # fresh schema. (With an external DATABASE_URL we always run — the
         # remote schema may exist and need reconciling.)
-        return {"status": "skipped", "output": "no database yet", "added": [], "rebuilt": []}
+        return {
+            "status": "skipped",
+            "output": "no database yet",
+            "added": [],
+            "rebuilt": [],
+        }
 
     logs_dir = backend / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +233,12 @@ def run_migration(
     try:
         script_path.write_text(MIGRATION_SCRIPT, encoding="utf-8")
     except Exception as e:
-        return {"status": "error", "output": f"could not write script: {e}", "added": [], "rebuilt": []}
+        return {
+            "status": "error",
+            "output": f"could not write script: {e}",
+            "added": [],
+            "rebuilt": [],
+        }
 
     python = python_executable or sys.executable
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -234,7 +252,12 @@ def run_migration(
             creationflags=creation_flags,
         )
     except subprocess.TimeoutExpired:
-        return {"status": "error", "output": f"migration timed out after {timeout}s", "added": [], "rebuilt": []}
+        return {
+            "status": "error",
+            "output": f"migration timed out after {timeout}s",
+            "added": [],
+            "rebuilt": [],
+        }
     except Exception as e:
         return {"status": "error", "output": str(e), "added": [], "rebuilt": []}
 
@@ -243,9 +266,9 @@ def run_migration(
     rebuilt: List[str] = []
     for line in output.splitlines():
         if line.startswith("MIGRATE ADDED: "):
-            added = [c.strip() for c in line[len("MIGRATE ADDED: "):].split(",")]
+            added = [c.strip() for c in line[len("MIGRATE ADDED: ") :].split(",")]
         elif line.startswith("MIGRATE REBUILT: "):
-            rebuilt = [c.strip() for c in line[len("MIGRATE REBUILT: "):].split(";")]
+            rebuilt = [c.strip() for c in line[len("MIGRATE REBUILT: ") :].split(";")]
     if completed.returncode != 0:
         logger.warning(f"[LIVING_UI:MIGRATE] {project_path}: {output[-500:]}")
         return {
@@ -271,7 +294,9 @@ def run_migration(
 # ---------------------------------------------------------------------------
 
 _TABLENAME_RE = re.compile(r"__tablename__\s*=\s*[\"']([A-Za-z_][A-Za-z0-9_]*)[\"']")
-_COLUMN_RE = re.compile(r"^\s+([a-z_][a-z0-9_]*)\s*(?::[^=]+)?=\s*(?:Column|mapped_column)\(", re.M)
+_COLUMN_RE = re.compile(
+    r"^\s+([a-z_][a-z0-9_]*)\s*(?::[^=]+)?=\s*(?:Column|mapped_column)\(", re.M
+)
 
 
 def declared_schema(project_path: Path) -> Dict[str, List[str]]:
@@ -303,9 +328,7 @@ def declared_schema(project_path: Path) -> Dict[str, List[str]]:
     return tables
 
 
-def detect_drift(
-    project_path: Path, db_schema: Dict[str, Any]
-) -> Dict[str, List[str]]:
+def detect_drift(project_path: Path, db_schema: Dict[str, Any]) -> Dict[str, List[str]]:
     """Compare models.py declarations against the live DB schema.
 
     Returns {"missing_tables": [...], "missing_columns": ["table.col", ...]}.

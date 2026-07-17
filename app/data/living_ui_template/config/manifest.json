@@ -9,7 +9,7 @@
   "createdAt": "{{CREATED_AT}}",
   "entrypoint": {
     "frontend": "frontend/main.tsx",
-    "backend": "backend/main.py"
+    "backend": "pb_hooks"
   },
   "ports": {
     "frontend": {{PORT}},
@@ -17,24 +17,13 @@
   },
   "pipeline": {
     "backend": {
-      "cwd": "backend",
-      "install": "python -m pip install -r requirements.txt",
-      "tests": [
-        {"name": "internal", "command": "python test_runner.py --internal", "required": true},
-        {"name": "unit", "command": "python test_runner.py --unit", "required": true},
-        {"name": "agent_tests", "command": "python -m pytest tests/ -q --tb=short --junit-xml=logs/test_agent.xml", "required": true},
-        {"name": "compatibility", "command": "python test_runner.py --compatibility", "required": false}
-      ],
-      "start": "python -m uvicorn main:app --host 0.0.0.0 --port {{BACKEND_PORT}}",
-      "health": "http://localhost:{{BACKEND_PORT}}/health",
-      "post_start_tests": [
-        {"name": "external", "command": "python test_runner.py --external --port {{BACKEND_PORT}}", "required": true}
-      ]
+      "engine": "pocketbase",
+      "health": "http://localhost:{{BACKEND_PORT}}/api/health"
     },
     "frontend": {
       "cwd": ".",
       "install": "npm install",
-      "build": "npm run build",
+      "build": "npm run build:debug",
       "start": "npm run preview -- --port {{PORT}}",
       "health": null
     }

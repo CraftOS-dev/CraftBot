@@ -345,6 +345,33 @@ class SessionStorage:
 
     # ─────────────────────── Utilities ───────────────────────────────────────
 
+    def clear_tasks(self) -> int:
+        """Wipe persisted TASK state: active_tasks + every task event stream.
+
+        Backs the settings "Reset Agent → tasks" checkbox. Without this, a
+        selective tasks reset only cleared the in-memory managers — the
+        active_tasks rows survived in sessions.db and every killed-mid-run
+        task resurrected as a running ghost on the next boot (observed:
+        four resurrected 'Create Living UI' conductors scaffolding four
+        duplicate projects). The main conversation stream and conversation
+        history are left alone — they belong to the 'conversation' reset.
+
+        Returns the number of task rows removed.
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM active_tasks")
+            removed = cursor.rowcount
+            conn.execute(
+                "DELETE FROM event_records WHERE stream_id != ?", (MAIN_STREAM_ID,)
+            )
+            conn.execute(
+                "DELETE FROM event_streams WHERE stream_id != ?", (MAIN_STREAM_ID,)
+            )
+            conn.commit()
+        logger.info(f"[SessionStorage] Cleared {removed} persisted task(s)")
+        return removed
+
     def clear_all(self) -> None:
         """Wipe all persisted session data."""
         with sqlite3.connect(self._db_path) as conn:

@@ -15,7 +15,7 @@ Architecture:
               - Injects UI snapshot + screenshot capture (agent observation)
               - Provides /health, /api/logs, /api/ui-snapshot,
                 /api/ui-screenshot — the same A-layer contract native
-                Living UIs get from system_routes.py
+                Living UIs get from pb_hooks/_craftbot.pb.js
               - Captures frontend logs to logs/frontend_console.log
               - Forwards everything else transparently
 

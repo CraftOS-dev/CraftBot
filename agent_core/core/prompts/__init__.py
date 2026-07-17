@@ -105,9 +105,9 @@ from agent_core.core.prompts.skill import (
     ACTION_SET_SELECTION_PROMPT,
 )
 
-# Sub-agent prompts now live alongside the sub-agent runtime, in
-# ``app.subagent.definitions`` (per-type system prompts) and
-# ``app.subagent.context_engine`` (shared output-format contract).
+# Sub-agent prompts live with their workflows — per-type system prompts
+# in ``app/workflows/<domain>/subagents/`` — and the shared output-format
+# contract in ``app.subagent.context_engine``.
 
 __all__ = [
     # Registry

@@ -188,9 +188,7 @@ def _dispatch_todos(project_id: str, todos: List[Dict[str, Any]]) -> bool:
     return False
 
 
-async def broadcast_living_ui_dev_preview(
-    project_id: str, url: Optional[str]
-) -> bool:
+async def broadcast_living_ui_dev_preview(project_id: str, url: Optional[str]) -> bool:
     """Announce a project's dev-preview URL (or None when it stops).
 
     The Live Construction View points its iframe at this URL while the
@@ -202,9 +200,7 @@ async def broadcast_living_ui_dev_preview(
     return False
 
 
-async def _broadcast_build_event_async(
-    project_id: str, event: Dict[str, Any]
-) -> bool:
+async def _broadcast_build_event_async(project_id: str, event: Dict[str, Any]) -> bool:
     if _broadcast_build_event_callback:
         await _broadcast_build_event_callback(project_id, event)
         return True

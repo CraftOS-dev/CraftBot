@@ -9,7 +9,6 @@ based on user queries using LLM reasoning.
 from __future__ import annotations
 
 import json
-import ast
 from typing import Optional, List, Dict, Any, Tuple
 
 from agent_core.core.state import get_state, get_session_or_none
@@ -21,7 +20,6 @@ from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from agent_core.core.prompts import (
     SELECT_ACTION_PROMPT,
-    SELECT_ACTION_IN_TASK_PROMPT,
     SELECT_ACTION_IN_GUI_PROMPT,
     SELECT_ACTION_IN_SIMPLE_TASK_PROMPT,
     GUI_ACTION_SPACE_PROMPT,
@@ -113,6 +111,23 @@ class ActionRouter:
             logger.debug(f"[ACTION] Could not discover messaging actions: {e}")
             conversation_mode_actions = base_actions
 
+        # Domain-registered conversation actions (agent_core stays blind):
+        # each "conversation_actions" listener returns action names to offer
+        # in conversation mode (e.g. living_ui_develop — the direct entry
+        # for Living UI work, replacing task_start + skill guessing).
+        try:
+            from agent_core.core.registry.extensions import hook_listeners
+
+            for listener in hook_listeners("conversation_actions"):
+                try:
+                    for name in listener() or []:
+                        if name not in conversation_mode_actions:
+                            conversation_mode_actions.append(name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         action_candidates = []
 
         for action in conversation_mode_actions:
@@ -129,23 +144,7 @@ class ActionRouter:
                 )
 
         # Pull just-in-time guidance for any integrations the user named.
-        # No-ops to "" when nothing matches; never raises. See the helper
-        # in the host app — kept out of agent_core so the package stays
-        # integration-agnostic.
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
-            )
-
-            # TODO: Is keyword based deterministic search good enough?
-            integration_essentials = get_essentials_for_message(query)
-            logger.info(
-                f"[ACTION] integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] integration essentials lookup failed: {e}")
-            integration_essentials = ""
+        integration_essentials = self._get_integration_essentials(query, "conversation")
 
         # Build the instruction prompt for the LLM
         full_prompt = SELECT_ACTION_PROMPT.format(
@@ -155,59 +154,11 @@ class ActionRouter:
             integration_essentials=integration_essentials,
         )
 
-        max_format_retries = 3
-        current_prompt = full_prompt
-
-        for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(
-                current_prompt, is_task=False, prompt_name="SELECT_ACTION"
-            )
-
-            # Parse parallel action decisions with format error detection
-            actions, format_error = self._parse_parallel_action_decisions(decision)
-
-            if format_error:
-                # LLM returned wrong format - retry with feedback
-                logger.warning(
-                    f"[FORMAT ERROR] Conversation mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
-                )
-
-                if attempt < max_format_retries - 1:
-                    current_prompt = self._augment_prompt_with_format_error(
-                        full_prompt, attempt + 1, decision, format_error
-                    )
-                    continue
-                else:
-                    raise ValueError(
-                        f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
-                    )
-
-            if not actions:
-                # Empty action list (no format error) - return empty decision
-                return [
-                    {
-                        "action_name": "",
-                        "parameters": {},
-                        "reasoning": decision.get("reasoning", ""),
-                    }
-                ]
-
-            # Validate and filter parallel actions (GUI_mode=False for conversation)
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
-
-            if validated_actions:
-                action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(
-                    f"[PARALLEL] Conversation mode selected {len(validated_actions)} action(s): {action_names}"
-                )
-                return validated_actions
-
-            logger.warning(
-                f"No valid actions found during conversation selection attempt {attempt + 1}"
-            )
-
-        raise ValueError("Invalid selected action returned by LLM after retries.")
+        return await self._decide_actions_with_format_retry(
+            full_prompt,
+            mode_label="Conversation mode",
+            prompt_name="SELECT_ACTION",
+        )
 
     @profile("action_router_select_action_in_task", OperationCategory.ACTION_ROUTING)
     async def select_action_in_task(
@@ -216,6 +167,7 @@ class ActionRouter:
         action_type: Optional[str] = None,
         GUI_mode=False,
         session_id: Optional[str] = None,
+        user_message: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         When a task is running, this action selection will be used.
@@ -226,6 +178,9 @@ class ActionRouter:
             action_type: Optional action type hint supplied to the LLM.
             GUI_mode: Whether the user is interacting through a GUI.
             session_id: Optional session ID for session-specific state lookup.
+            user_message: The routed user message for THIS turn (None for
+                continuation turns) — handed to a workflow step program so
+                code can decide whether to answer between steps.
 
         Returns:
             List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
@@ -234,129 +189,23 @@ class ActionRouter:
         Raises:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
-        action_candidates = []
+        # The turn itself lives on the shared AgentLoop skeleton
+        # (app/agentic/loop.py): step-program consult → code step |
+        # directive → LLM turn. TaskTurn (app/agentic/task_driver.py) is
+        # the task driver's policy — it builds prompts and validates
+        # decisions with THIS router's helpers and returns the decision
+        # payloads for agent_base to execute. Import deferred: agent_core
+        # must not import app.* at module load.
+        from app.agentic.task_driver import TaskTurn
 
-        # List of filtered actions
-        ignore_actions = ["ignore", "task_start"]
-
-        # Get compiled action list from task's action sets
-        compiled_actions = self._get_current_task_compiled_actions(
-            session_id=session_id
-        )
-
-        # Use static compiled list - NO RAG SEARCH
-        action_candidates = self._build_candidates_from_compiled_list(
-            compiled_actions, GUI_mode, ignore_actions
-        )
-        logger.info(
-            f"ActionRouter using compiled action list: {len(action_candidates)} actions"
-        )
-
-        # Build the instruction prompt for the LLM
-        task_state = self.context_engine.get_task_state(session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
-
-        # Pull integration essentials the same way conversation-mode does
-        # (see select_action). Without this, the task-mode LLM loses sight
-        # of integration-specific shortcuts (e.g. WhatsApp's `to: "user"`
-        # self-send) once the agent enters task mode and starts asking the
-        # user for info the integration could look up itself.
-        # Match against both the current step's query and the task state so
-        # the platform name from the original user request still triggers a
-        # match even after the per-step query is generic ("Perform the next
-        # best action...").
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
-            )
-
-            integration_essentials = get_essentials_for_message(
-                f"{query}\n{task_state}"
-            )
-            logger.info(
-                f"[ACTION] task-mode integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
-            integration_essentials = ""
-
-        decision_prompt_name = "SELECT_ACTION_IN_TASK"
-        static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            task_state=task_state,
-            event_stream="",  # Empty for static prompt
+        turn = TaskTurn(
+            self,
             query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
+            GUI_mode=GUI_mode,
+            session_id=session_id,
+            user_message=user_message,
         )
-        full_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            task_state=task_state,
-            event_stream=event_stream_content,
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
-        )
-
-        max_format_retries = 3
-        current_prompt = full_prompt
-
-        for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(
-                current_prompt,
-                is_task=True,
-                static_prompt=static_prompt,
-                call_type=LLMCallType.ACTION_SELECTION,
-                session_id=session_id,
-                prompt_name=decision_prompt_name,
-            )
-
-            # Parse parallel action decisions with format error detection
-            actions, format_error = self._parse_parallel_action_decisions(decision)
-
-            if format_error:
-                # LLM returned wrong format - retry with feedback
-                logger.warning(
-                    f"[FORMAT ERROR] Task mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
-                )
-
-                if attempt < max_format_retries - 1:
-                    current_prompt = self._augment_prompt_with_format_error(
-                        full_prompt, attempt + 1, decision, format_error
-                    )
-                    continue
-                else:
-                    raise ValueError(
-                        f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
-                    )
-
-            if not actions:
-                # Empty action list (no format error) - return empty decision for backward compatibility
-                return [
-                    {
-                        "action_name": "",
-                        "parameters": {},
-                        "reasoning": decision.get("reasoning", ""),
-                    }
-                ]
-
-            # Validate and filter parallel actions
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode)
-
-            if validated_actions:
-                action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(
-                    f"[PARALLEL] Selected {len(validated_actions)} action(s): {action_names}"
-                )
-                return validated_actions
-
-            logger.warning(
-                f"No valid actions found during selection attempt {attempt + 1}"
-            )
-
-        raise ValueError("Invalid selected action returned by LLM after retries.")
+        return await turn.run_turn(self._get_current_task(session_id))
 
     @profile(
         "action_router_select_action_in_simple_task", OperationCategory.ACTION_ROUTING
@@ -410,31 +259,11 @@ class ActionRouter:
         # even after the agent has left conversation mode. Match against
         # the per-step query AND the task state so the original platform
         # keyword still triggers a hit.
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
-            )
-
-            integration_essentials = get_essentials_for_message(
-                f"{query}\n{task_state}"
-            )
-            logger.info(
-                f"[ACTION] simple-task integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] simple-task essentials lookup failed: {e}")
-            integration_essentials = ""
+        integration_essentials = self._get_integration_essentials(
+            f"{query}\n{task_state}", "simple-task"
+        )
 
         decision_prompt_name = "SELECT_ACTION_IN_SIMPLE_TASK"
-        static_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            task_state=task_state,
-            event_stream="",  # Empty for static prompt
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
-        )
         full_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -444,67 +273,13 @@ class ActionRouter:
             integration_essentials=integration_essentials,
         )
 
-        max_format_retries = 3
-        current_prompt = full_prompt
-
-        for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(
-                current_prompt,
-                is_task=True,
-                static_prompt=static_prompt,
-                call_type=LLMCallType.ACTION_SELECTION,
-                session_id=session_id,
-                prompt_name=decision_prompt_name,
-            )
-
-            # Parse parallel action decisions with format error detection
-            actions, format_error = self._parse_parallel_action_decisions(decision)
-
-            if format_error:
-                # LLM returned wrong format - retry with feedback
-                logger.warning(
-                    f"[FORMAT ERROR] Simple task attempt {attempt + 1}/{max_format_retries}: {format_error}"
-                )
-
-                if attempt < max_format_retries - 1:
-                    # Augment prompt with format error feedback for retry
-                    current_prompt = self._augment_prompt_with_format_error(
-                        full_prompt, attempt + 1, decision, format_error
-                    )
-                    continue
-                else:
-                    # Max retries reached - abort
-                    raise ValueError(
-                        f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
-                    )
-
-            if not actions:
-                # Empty action list (no format error) - return empty decision
-                return [
-                    {
-                        "action_name": "",
-                        "parameters": {},
-                        "reasoning": decision.get("reasoning", ""),
-                    }
-                ]
-
-            # Validate and filter parallel actions
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
-
-            if validated_actions:
-                action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(
-                    f"[PARALLEL] Simple task selected {len(validated_actions)} action(s): {action_names}"
-                )
-                return validated_actions
-
-            # Actions parsed but not valid (action not found, etc.)
-            logger.warning(
-                f"No valid actions found during simple task selection attempt {attempt + 1}"
-            )
-
-        raise ValueError("Invalid selected action returned by LLM after retries.")
+        return await self._decide_actions_with_format_retry(
+            full_prompt,
+            mode_label="Simple task",
+            prompt_name=decision_prompt_name,
+            is_task=True,
+            session_id=session_id,
+        )
 
     @profile("action_router_select_action_in_GUI", OperationCategory.ACTION_ROUTING)
     async def select_action_in_GUI(
@@ -545,12 +320,6 @@ class ActionRouter:
             session_id=session_id
         )
         decision_prompt_name = "SELECT_ACTION_IN_GUI"
-        static_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            task_state=task_state,
-            event_stream="",  # Empty for static prompt
-            gui_action_space=GUI_ACTION_SPACE_PROMPT,
-        )
         full_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -565,7 +334,6 @@ class ActionRouter:
             decision = await self._prompt_for_decision(
                 current_prompt,
                 is_task=True,
-                static_prompt=static_prompt,
                 call_type=LLMCallType.GUI_ACTION_SELECTION,
                 session_id=session_id,
                 prompt_name=decision_prompt_name,
@@ -616,10 +384,10 @@ class ActionRouter:
         self,
         prompt: str,
         is_task: bool = False,
-        static_prompt: Optional[str] = None,
         call_type: str = LLMCallType.ACTION_SELECTION,
         session_id: Optional[str] = None,
         prompt_name: Optional[str] = None,
+        turn_directive: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Prompt the LLM for an action decision with session caching support.
@@ -627,16 +395,17 @@ class ActionRouter:
         Args:
             prompt: The full prompt to send to the LLM.
             is_task: Whether this is a task-related call.
-            static_prompt: Optional static portion for caching.
             call_type: Type of LLM call for cache keying.
             session_id: Optional session ID for session-specific state lookup.
             prompt_name: Identity of the named prompt, tagged onto the captured
                 LLM call for per-prompt profiling.
+            turn_directive: Optional instruction that must reach the model
+                THIS turn (a step program's "llm" prompt). Appended after
+                the delta on delta turns — the full prompt already carries
+                it via the query slot, but delta turns would otherwise send
+                only events and the directive would never be seen (the
+                Round-13 task_state delivery failure).
         """
-        max_retries = 3
-        last_error: Optional[Exception] = None
-        current_prompt = prompt
-
         # Get current task_id for session cache (if running in a task)
         # Use session_id if provided, otherwise fall back to global state
         if session_id:
@@ -650,105 +419,116 @@ class ActionRouter:
         else:
             current_task_id = ""
 
-        for attempt in range(max_retries):
-            # KV CACHING: System prompt is STATIC only (no dynamic content)
-            # agent_info is included for all modes to provide consistent agent context
+        # Sub-workflow tasks run with their own purpose-built system prompt
+        # instead of the general agent's (identity/soul/policies/file-system
+        # rules) — same task machinery, focused context.
+        # KV CACHING: the system prompt is STATIC only (no dynamic content);
+        # agent_info is included for consistent agent context.
+        workflow = (
+            self._get_current_task_workflow(session_id or current_task_id)
+            if is_task
+            else None
+        )
+        if workflow is not None:
+            system_prompt = workflow.system_prompt
+        else:
             system_prompt, _ = self.context_engine.make_prompt(
                 user_flags={"query": False, "expected_output": False},
                 system_flags={"agent_info": True},
             )
 
+        # Session registered (complex task): the whole decide phase — delta
+        # orchestration, LLM call, parse, retry-with-feedback (incl. provider
+        # errors) — is the shared TurnEngine (app/agentic/engine), the same
+        # one the sub-agent runner uses. It owns ALL retries on this path.
+        if (
+            current_task_id
+            and is_task
+            and self.llm_interface.has_session_cache(current_task_id, call_type)
+        ):
+            return await self._decide_via_session_engine(
+                session_key=current_task_id,
+                call_type=call_type,
+                system_prompt=system_prompt,
+                first_prompt=prompt,
+                turn_directive=turn_directive,
+                prompt_name=prompt_name,
+                session_id=session_id,
+            )
+
+        # No session registered (simple task / conversation mode): plain
+        # prefix-cached calls with this router's own retry loop.
+        return await self._decide_uncached(system_prompt, prompt, prompt_name)
+
+    async def _decide_via_session_engine(
+        self,
+        *,
+        session_key: str,
+        call_type: str,
+        system_prompt: str,
+        first_prompt: str,
+        turn_directive: Optional[str],
+        prompt_name: Optional[str],
+        session_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """One engine-backed decide over the provider session cache."""
+        from agent_core import get_event_stream_manager
+        from app.agentic.engine import (
+            DecideConfig,
+            append_step_directive,
+            decide,
+        )
+
+        event_stream_manager = get_event_stream_manager()
+        effective_session_id = session_id or session_key
+        stream = (
+            event_stream_manager.get_stream_by_id(effective_session_id)
+            if event_stream_manager
+            else None
+        )
+        decision, _err = await decide(
+            self.llm_interface,
+            stream,
+            DecideConfig(
+                session_key=session_key,
+                call_type=call_type,
+                system_prompt=system_prompt,
+                first_prompt=first_prompt,
+                # Tasks send raw delta events as the turn prompt; a step
+                # directive (if any) rides AFTER the events so it's the
+                # last thing the model reads before deciding.
+                delta_prompt_builder=lambda delta: append_step_directive(
+                    delta, turn_directive
+                ),
+                parse=self._parse_action_decision,
+                augment_retry=self._augment_prompt_with_feedback,
+                prompt_name=prompt_name,
+                on_exhaust="raise",
+            ),
+        )
+        decision.setdefault("parameters", {})
+        decision["parameters"] = self._ensure_parameters(decision.get("parameters"))
+        return decision
+
+    async def _decide_uncached(
+        self,
+        system_prompt: str,
+        prompt: str,
+        prompt_name: Optional[str],
+    ) -> Dict[str, Any]:
+        """Plain (non-session) decide: prefix-cached calls, parse, and this
+        router's retry-with-feedback loop."""
+        max_retries = 3
+        last_error: Optional[Exception] = None
+        current_prompt = prompt
+
+        for attempt in range(max_retries):
             raw_response = None
 
             try:
-                # Use session cache if we're in a task context AND session is registered
-                if current_task_id and is_task:
-                    has_session = self.llm_interface.has_session_cache(
-                        current_task_id, call_type
-                    )
-
-                    if has_session:
-                        # Session is registered (complex task) - use session caching
-                        # CRITICAL: Use session-specific stream to prevent event leakage
-                        from agent_core import get_event_stream_manager
-
-                        event_stream_manager = get_event_stream_manager()
-                        # Use get_stream_by_id with session_id to get the correct task's stream
-                        effective_session_id = session_id or current_task_id
-                        stream = (
-                            event_stream_manager.get_stream_by_id(effective_session_id)
-                            if event_stream_manager
-                            else None
-                        )
-                        has_synced_before = (
-                            stream.has_session_sync(call_type) if stream else False
-                        )
-
-                        if has_synced_before:
-                            # We've made calls before - send only delta events
-                            # CRITICAL: Pass session_id to get delta from the correct stream
-                            delta_events, has_delta = (
-                                self.context_engine.get_event_stream_delta(
-                                    call_type, session_id=effective_session_id
-                                )
-                            )
-
-                            if has_delta:
-                                # Send only the new events
-                                logger.info(
-                                    f"[SESSION CACHE] Sending delta events for {call_type}"
-                                )
-                                raw_response = await self.llm_interface.generate_response_with_session_async(
-                                    task_id=current_task_id,
-                                    call_type=call_type,
-                                    user_prompt=delta_events,
-                                    system_prompt_for_new_session=system_prompt,
-                                    prompt_name=prompt_name,
-                                )
-                                # Mark events as synced after successful call
-                                self.context_engine.mark_event_stream_synced(
-                                    call_type, session_id=effective_session_id
-                                )
-                            else:
-                                # No new events - this could mean summarization happened
-                                logger.info(
-                                    f"[SESSION CACHE] No delta events, resetting cache for {call_type}"
-                                )
-                                self.llm_interface.end_session_cache(
-                                    current_task_id, call_type
-                                )
-                                self.context_engine.reset_event_stream_sync(
-                                    call_type, session_id=effective_session_id
-                                )
-                                # Fall through to first-call path
-                                has_synced_before = False
-
-                        if not has_synced_before:
-                            # First call with session - send full prompt to establish session
-                            logger.info(
-                                f"[SESSION CACHE] Creating new session for {call_type} (first call)"
-                            )
-                            raw_response = await self.llm_interface.generate_response_with_session_async(
-                                task_id=current_task_id,
-                                call_type=call_type,
-                                user_prompt=current_prompt,
-                                system_prompt_for_new_session=system_prompt,
-                                prompt_name=prompt_name,
-                            )
-                            # Mark events as synced after successful session creation
-                            self.context_engine.mark_event_stream_synced(
-                                call_type, session_id=effective_session_id
-                            )
-                    else:
-                        # No session registered (simple task) - use prefix cache / regular response
-                        raw_response = await self.llm_interface.generate_response_async(
-                            system_prompt, current_prompt, prompt_name=prompt_name
-                        )
-                else:
-                    # Not in task context - use regular response
-                    raw_response = await self.llm_interface.generate_response_async(
-                        system_prompt, current_prompt, prompt_name=prompt_name
-                    )
+                raw_response = await self.llm_interface.generate_response_async(
+                    system_prompt, current_prompt, prompt_name=prompt_name
+                )
 
                 # Validate response before parsing
                 if not raw_response or (
@@ -823,60 +603,143 @@ class ActionRouter:
             raise last_error
         raise ValueError("Unable to parse LLM decision")
 
+    def _get_integration_essentials(self, text: str, label: str) -> str:
+        """Just-in-time integration guidance matched against ``text``.
+
+        No-ops to "" when nothing matches; never raises. The lookup lives
+        in the host app — kept out of agent_core so the package stays
+        integration-agnostic (deferred import)."""
+        try:
+            from app.data.action.integrations._integration_essentials import (
+                get_essentials_for_message,
+            )
+
+            # TODO: Is keyword based deterministic search good enough?
+            essentials = get_essentials_for_message(text)
+            logger.info(
+                f"[ACTION] {label} integration essentials: "
+                f"{len(essentials)} chars injected"
+            )
+            return essentials
+        except Exception as e:
+            logger.debug(f"[ACTION] {label} essentials lookup failed: {e}")
+            return ""
+
+    async def _decide_actions_with_format_retry(
+        self,
+        full_prompt: str,
+        *,
+        mode_label: str,
+        prompt_name: str,
+        is_task: bool = False,
+        call_type: str = LLMCallType.ACTION_SELECTION,
+        session_id: Optional[str] = None,
+        turn_directive: Optional[str] = None,
+        GUI_mode: bool = False,
+        allowed_actions: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """The action-decision loop every batch selection mode shares:
+        decide → parse the batch contract → format-error retry (≤3 with
+        feedback) → optional step allow-list filter → validate.
+
+        Returns validated decision payloads, or the single empty decision
+        when the model (or the allow-list filter) selected nothing; raises
+        ``ValueError`` after exhausting retries."""
+        max_format_retries = 3
+        current_prompt = full_prompt
+
+        for attempt in range(max_format_retries):
+            decision = await self._prompt_for_decision(
+                current_prompt,
+                is_task=is_task,
+                call_type=call_type,
+                session_id=session_id,
+                prompt_name=prompt_name,
+                turn_directive=turn_directive,
+            )
+
+            actions, format_error = self._parse_parallel_action_decisions(decision)
+            if format_error:
+                logger.warning(
+                    f"[FORMAT ERROR] {mode_label} attempt "
+                    f"{attempt + 1}/{max_format_retries}: {format_error}"
+                )
+                if attempt < max_format_retries - 1:
+                    current_prompt = self._augment_prompt_with_format_error(
+                        full_prompt, attempt + 1, decision, format_error
+                    )
+                    continue
+                raise ValueError(
+                    f"LLM output format error after {max_format_retries} "
+                    f"attempts. Last error: {format_error}. Task aborted to "
+                    "prevent token waste."
+                )
+
+            if not actions:
+                return self._empty_decision(decision)
+
+            # An "llm" step bounds the decision: anything outside its
+            # allow-list is dropped (the step said what this turn is FOR).
+            if allowed_actions:
+                allowed_set = set(allowed_actions)
+                outside = [
+                    a for a in actions if a.get("action_name") not in allowed_set
+                ]
+                if outside:
+                    logger.warning(
+                        f"[STEP] {session_id} dropped actions outside the "
+                        f"step allow-list: "
+                        f"{[a.get('action_name') for a in outside]}"
+                    )
+                    actions = [
+                        a for a in actions if a.get("action_name") in allowed_set
+                    ]
+                    if not actions:
+                        return self._empty_decision(decision)
+
+            validated_actions = self._validate_parallel_actions(actions, GUI_mode)
+            if validated_actions:
+                logger.info(
+                    f"[PARALLEL] {mode_label} selected "
+                    f"{len(validated_actions)} action(s): "
+                    f"{[a.get('action_name') for a in validated_actions]}"
+                )
+                return validated_actions
+
+            logger.warning(
+                f"No valid actions found during {mode_label} selection "
+                f"attempt {attempt + 1}"
+            )
+
+        raise ValueError("Invalid selected action returned by LLM after retries.")
+
+    @staticmethod
+    def _empty_decision(decision: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """The no-op decision payload (model chose nothing this turn)."""
+        return [
+            {
+                "action_name": "",
+                "parameters": {},
+                "reasoning": decision.get("reasoning", ""),
+            }
+        ]
+
     def _parse_action_decision(
         self, raw: str
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        # Check for empty or None response from LLM
-        if not raw or (isinstance(raw, str) and not raw.strip()):
-            logger.error("LLM returned empty response")
-            return (
-                None,
-                "LLM returned an empty response. This may indicate an API error or the model failed to generate output.",
-            )
+        """Raw LLM text \u2192 decision dict.
 
-        # Normalize Windows/encoding artifacts (BOM, CRLF, etc.)
-        # This handles Windows CRLF line endings and encoding issues
-        normalized = raw
+        Delegates to the shared parser (app/agentic/parsing) \u2014 one
+        implementation for every loop; this call site gains markdown-fence
+        stripping (previously a burned retry). The task-format action-list
+        extraction (format-error coaching) stays in this router because it
+        is specific to the task prompt contract."""
+        from app.agentic.parsing import parse_decision_dict
 
-        # Remove BOM if present (Windows encoding artifact)
-        if normalized.startswith("\ufeff"):
-            normalized = normalized[1:]
-
-        # Normalize line endings to LF (convert CRLF to LF)
-        normalized = normalized.replace("\r\n", "\n")
-
-        # Remove any remaining carriage returns
-        normalized = normalized.replace("\r", "")
-
-        # Strip all leading/trailing whitespace
-        normalized = normalized.strip()
-
-        if not normalized:
-            logger.error(
-                f"Response was empty after normalization. Original: {repr(raw)}"
-            )
-            return (
-                None,
-                "LLM response was empty or only contained whitespace after normalization.",
-            )
-
-        try:
-            parsed = json.loads(normalized)
-        except json.JSONDecodeError as json_error:
-            try:
-                parsed = ast.literal_eval(normalized)
-            except Exception as eval_error:
-                logger.error(f"Unable to parse action decision: {repr(normalized)}")
-                return (
-                    None,
-                    f"json error: {json_error}; literal_eval error: {eval_error}",
-                )
-
-        if not isinstance(parsed, dict):
-            logger.error(f"Parsed action decision is not a dict: {repr(normalized)}")
-            return None, "parsed value is not a dictionary"
-
-        return parsed, None
+        decision, err = parse_decision_dict(raw)
+        if decision is None:
+            logger.error(f"Unable to parse action decision: {err} | {repr(raw)[:300]}")
+        return decision, err
 
     def _augment_prompt_with_feedback(
         self,
@@ -1325,6 +1188,29 @@ class ActionRouter:
             )
 
         return candidates
+
+    def _get_current_task(self, session_id: Optional[str] = None):
+        """The current Task for ``session_id`` (session state first, global
+        state fallback), or None. Fail-open."""
+        try:
+            session = get_session_or_none(session_id)
+            if session and session.current_task:
+                return session.current_task
+            return get_state().current_task
+        except Exception:
+            return None
+
+    def _get_current_task_workflow(self, session_id: Optional[str] = None):
+        """The workflow for the current task, or None (= default
+        behavior). A workflow gives the task a purpose-built system prompt
+        and opts out of general-agent injections. Fail-open: any problem
+        resolving it means "no workflow"."""
+        try:
+            from agent_core.core.registry.task_workflows import resolve_task_workflow
+
+            return resolve_task_workflow(self._get_current_task(session_id))
+        except Exception:
+            return None
 
     def _get_current_task_compiled_actions(
         self, session_id: Optional[str] = None

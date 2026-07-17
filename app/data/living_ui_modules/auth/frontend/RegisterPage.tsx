@@ -1,63 +1,106 @@
-/**
- * Register Page — email, username, password form using preset UI components.
- *
- * Copy this file into your project's frontend/components/auth/ directory.
- */
-
-import { useState } from 'react'
-import { Button } from '../ui'
+/** RegisterPage — account creation card (first user becomes admin). */
+import { useState, type FormEvent } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuth } from './AuthProvider'
-import { AuthLayout, FormField, AuthSwitchLink } from './AuthLayout'
 
-interface RegisterPageProps {
+export function RegisterPage({
+  onSwitchToLogin,
+}: {
   onSwitchToLogin: () => void
-}
-
-export function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
+}) {
   const { register } = useAuth()
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match')
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters')
       return
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters')
-      return
-    }
-
-    setLoading(true)
+    setBusy(true)
     try {
-      await register(email, username, password)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      await register(email, password, name)
+    } catch {
+      setError('Could not create the account — is the email already in use?')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
   return (
-    <AuthLayout
-      title="Create Account"
-      error={error}
-      footer={<AuthSwitchLink text="Already have an account?" linkText="Sign in" onClick={onSwitchToLogin} />}
-    >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <FormField label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" required />
-        <FormField label="Username" value={username} onChange={setUsername} placeholder="Choose a username" required />
-        <FormField label="Password" type="password" value={password} onChange={setPassword} placeholder="At least 6 characters" required />
-        <FormField label="Confirm Password" type="password" value={confirmPassword} onChange={setConfirmPassword} placeholder="Re-enter your password" required />
-        <Button type="submit" variant="primary" fullWidth loading={loading}>Create Account</Button>
-      </form>
-    </AuthLayout>
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Create account</CardTitle>
+          <CardDescription>
+            The first account becomes the admin.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="register-name">Name</Label>
+              <Input
+                id="register-name"
+                required
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="register-email">Email</Label>
+              <Input
+                id="register-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="register-password">Password</Label>
+              <Input
+                id="register-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? 'Creating…' : 'Create account'}
+            </Button>
+          </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Already have an account?{' '}
+            <button
+              type="button"
+              className="underline underline-offset-4 hover:text-foreground"
+              onClick={onSwitchToLogin}
+            >
+              Sign in
+            </button>
+          </p>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

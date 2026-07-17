@@ -30,7 +30,7 @@ Declare ops for behavior: "render", "publish", "recalculate", "make_move",
 }
 ```
 
-- `op_name`: lowercase snake_case, optionally namespaced with the app domain
+- `op_name`: lowercase declared-name, optionally namespaced with the app domain
   (`render_timeline`, `game.make_move`). MUST NOT start with the reserved
   prefixes `data.` `sql.` `http.` `job.` `ui.` `app.` (owned by built-ins).
 - `mode`: `sync` (default) runs to completion; `job` (shell executors only)
@@ -64,7 +64,7 @@ mismatches return a precise error naming the parameter.
 ### http — call a backend endpoint (most common)
 
 ```json
-"executor": {"type": "http", "method": "PUT", "path": "/api/habits/{habit_id}/entry",
+"executor": {"type": "http", "method": "PUT", "path": "/api/custom/habits/{habit_id}/entry",
              "body": {"source": "agent"}}
 ```
 
@@ -112,8 +112,8 @@ snapshots the database first. Use only for pure data transformations.
 ```json
 "move_card": {
   "description": "Move a card to a column, reordering neighbors",
-  "params": {"card_id": "int", "column": "string", "position": "int?"},
-  "executor": {"type": "http", "method": "POST", "path": "/api/cards/move"}
+  "params": {"card_id": "string", "column": "string", "position": "int?"},
+  "executor": {"type": "http", "method": "POST", "path": "/api/custom/cards/move"}
 }
 ```
 
@@ -122,7 +122,7 @@ snapshots the database first. Use only for pure data transformations.
 "render_timeline": {
   "description": "Render the timeline to MP4 (minutes — poll job.status)",
   "params": {"preset": {"enum": ["draft", "final"], "default": "draft"}},
-  "executor": {"type": "shell", "cmd": "python backend/render.py --preset {preset}"},
+  "executor": {"type": "shell", "cmd": "python scripts/render.py --preset {preset}"},
   "mode": "job"
 }
 ```
@@ -132,24 +132,25 @@ snapshots the database first. Use only for pure data transformations.
 "make_move": {
   "description": "Make a move; returns the new game state",
   "params": {"from": "string", "to": "string"},
-  "executor": {"type": "http", "method": "POST", "path": "/api/game/move"}
+  "executor": {"type": "http", "method": "POST", "path": "/api/custom/game/move"}
 }
 ```
 
 ## Tooling: generate, don't hand-author
 
 ```
-livingui <project> ops-sync            # preview ops generated from the live OpenAPI
+livingui <project> ops-sync            # preview ops generated from the running backend's routes
 livingui <project> ops-sync --write    # merge them into operations.json (never touches existing ops)
 livingui <project> ops-check           # validate: dead routes, missing path params, broken
                                        # shell templates, placeholder descriptions, coverage
 ```
 
-`ops-sync` derives names from your route functions, params (types, enums,
-defaults) from your Pydantic schemas, and descriptions from your route
-docstrings — your job is only to polish the descriptions. Non-CRUD routes
+`ops-sync` derives ops from the backend's routes where it can — but
+custom pb_hooks endpoints are plain JS (`routerAdd`), with no typed
+schemas to read: declare each op's `params` yourself (the hook validates
+them by hand) and write descriptions worth reading. Non-CRUD routes
 that should NOT be ops go in the manifest's top-level `"ignore_routes"`
-list (e.g. `"ignore_routes": ["POST /api/internal-recalc"]`) so the
+list (e.g. `"ignore_routes": ["POST /api/custom/internal-recalc"]`) so the
 decision is explicit and `ops-check` stays clean. The launch pipeline runs
 the same checks: errors block, coverage gaps warn.
 
@@ -175,7 +176,7 @@ while the app is running:
 "daily_digest": {
   "description": "Email the user a summary of open tasks every morning.",
   "params": {},
-  "executor": {"type": "http", "method": "POST", "path": "/api/digest/send"},
+  "executor": {"type": "http", "method": "POST", "path": "/api/custom/digest/send"},
   "mode": "sync",
   "schedule": "daily 09:00"
 }
