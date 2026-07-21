@@ -32,7 +32,7 @@ def test_communication_rules_hard_rule_present():
         REPO_ROOT / "agent_file_system" / "AGENT.md",
         REPO_ROOT / "app" / "data" / "agent_file_system_template" / "AGENT.md",
     ):
-        assert EFFECT_MARKER in path.read_text()
+        assert EFFECT_MARKER in path.read_text(encoding="utf-8")
 
 
 def test_framework_prompts_carry_the_same_honesty_rule():
@@ -47,7 +47,9 @@ def test_framework_prompts_carry_the_same_honesty_rule():
 
 
 def test_send_message_schema_reinforces_honesty():
-    text = (REPO_ROOT / "app" / "data" / "action" / "send_message.py").read_text()
+    text = (REPO_ROOT / "app" / "data" / "action" / "send_message.py").read_text(
+        encoding="utf-8"
+    )
     assert "there's no way I can do that" in text
     assert NO_RETRY_ESCALATION in text
 
@@ -63,7 +65,7 @@ def test_gmail_integration_md_documents_no_signature_and_config_path():
         / "integrations"
         / "gmail"
         / "INTEGRATION.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert NO_SIGNATURE_MARKER in text
     assert NO_ESCALATION_MARKER in text
     assert "gmail_config.json" in text
@@ -76,7 +78,7 @@ def test_outlook_integration_md_documents_no_signature():
         / "integrations"
         / "outlook"
         / "INTEGRATION.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert NO_SIGNATURE_MARKER in text
     assert NO_ESCALATION_MARKER in text
 
@@ -86,7 +88,7 @@ def test_set_requirement_documented_with_grounding_rules():
         REPO_ROOT / "agent_file_system" / "AGENT.md",
         REPO_ROOT / "app" / "data" / "agent_file_system_template" / "AGENT.md",
     ):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         assert "set_requirement" in text
         assert "Before locking in a requirement, check it's actually achievable" in text
         assert "Marking a requirement `satisfied` requires the same grounding" in text
