@@ -4,7 +4,8 @@ import { register } from '../socket/messageRegistry'
 
 // Tasks + actions are normalized by id. We keep insertion order rather than
 // re-sorting, since the backend pushes them in chronological order and the
-// pagination cursor reads from the oldest entry's createdAt.
+// pagination cursor reads from the oldest *ended* entry's createdAt (active
+// tasks are always loaded in full up front, never paginated).
 const adapter = createEntityAdapter<ActionItem, string>({
   selectId: (a) => a.id,
 })
@@ -160,9 +161,9 @@ export default tasksSlice.reducer
 // --- inbound message handlers --------------------------------------------
 
 register('init', (data, dispatch) => {
-  const d = data as { actions?: ActionItem[] } | undefined
+  const d = data as { actions?: ActionItem[]; actionsHasMore?: boolean } | undefined
   const actions = d?.actions || []
-  const hasMore = actions.filter(a => a.itemType === 'task').length >= 15
+  const hasMore = !!d?.actionsHasMore
   dispatch(setInitial({ actions, hasMore }))
 })
 

@@ -1,5 +1,6 @@
 import type { RootState } from '../index'
 import { tasksAdapter } from '../slices/tasksSlice'
+import { isEndedStatus } from '../../utils/taskStatus'
 
 const adapterSelectors = tasksAdapter.getSelectors<RootState>((state) => state.tasks)
 
@@ -25,16 +26,17 @@ export const selectResumingTaskId = (state: RootState): string | null =>
 export const selectDeletingTaskId = (state: RootState): string | null =>
   state.tasks.deletingTaskId
 
-// For action_history pagination: cursor is the oldest task's createdAt
-// (falling back to the oldest action of any kind if no tasks present).
+// For action_history pagination: cursor is the oldest *ended* task's
+// createdAt, since pagination only ever walks ended-task history — active
+// tasks are always loaded in full up front (see tasksSlice.ts).
 export const selectOldestTaskCreatedAt = (state: RootState): number | undefined => {
   for (const id of state.tasks.ids) {
     const entry = state.tasks.entities[id]
-    if (entry?.itemType === 'task' && entry.createdAt !== undefined) return entry.createdAt
+    if (entry?.itemType === 'task' && isEndedStatus(entry.status) && entry.createdAt !== undefined) {
+      return entry.createdAt
+    }
   }
-  // Fallback: first entry's createdAt.
-  const firstId = state.tasks.ids[0]
-  return firstId !== undefined ? state.tasks.entities[firstId]?.createdAt : undefined
+  return undefined
 }
 
 export const selectHasAnyActions = (state: RootState): boolean =>

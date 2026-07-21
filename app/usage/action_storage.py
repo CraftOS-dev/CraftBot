@@ -22,6 +22,9 @@ except Exception:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
+TERMINAL_STATUSES = ("completed", "error", "cancelled")
+
+
 def _decode_skills(value: Optional[str]) -> List[str]:
     """Decode the JSON-encoded selected_skills column. Tolerates legacy NULL/garbage."""
     if not value:
@@ -431,17 +434,16 @@ class ActionStorage:
         Returns:
             List of removed item IDs (terminal tasks + their child actions).
         """
-        terminal_statuses = ("completed", "error", "cancelled")
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
 
-            placeholders = ",".join("?" for _ in terminal_statuses)
+            placeholders = ",".join("?" for _ in TERMINAL_STATUSES)
             cursor.execute(
                 f"""
                 SELECT id FROM action_items
                 WHERE item_type = 'task' AND status IN ({placeholders})
                 """,
-                terminal_statuses,
+                TERMINAL_STATUSES,
             )
             terminal_task_ids = [row[0] for row in cursor.fetchall()]
 
@@ -558,6 +560,48 @@ class ActionStorage:
             conn.commit()
             return cursor.rowcount
 
+    @staticmethod
+    def _items_for_ids(cursor: sqlite3.Cursor, task_ids: List[str]) -> List[StoredActionItem]:
+        """Fetch the given tasks plus all their child actions, ordered by created_at ascending."""
+        if not task_ids:
+            return []
+
+        placeholders = ",".join("?" * len(task_ids))
+        cursor.execute(
+            f"""
+            SELECT id, name, status, item_type, parent_id, created_at,
+                   completed_at, input_data, output_data, error_message,
+                   selected_skills, workflow_id,
+                   input_tokens, output_tokens, cache_tokens
+            FROM action_items
+            WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
+            ORDER BY created_at ASC
+        """,
+            task_ids + task_ids,
+        )
+        rows = cursor.fetchall()
+
+        return [
+            StoredActionItem(
+                id=row[0],
+                name=row[1],
+                status=row[2],
+                item_type=row[3],
+                parent_id=row[4],
+                created_at=row[5],
+                completed_at=row[6],
+                input_data=row[7],
+                output_data=row[8],
+                error_message=row[9],
+                selected_skills=_decode_skills(row[10]),
+                workflow_id=row[11],
+                input_tokens=row[12],
+                output_tokens=row[13],
+                cache_tokens=row[14],
+            )
+            for row in rows
+        ]
+
     def get_recent_tasks_with_actions(
         self,
         task_limit: int = 15,
@@ -573,7 +617,6 @@ class ActionStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            # Get recent task IDs
             cursor.execute(
                 """
                 SELECT id FROM action_items
@@ -584,46 +627,53 @@ class ActionStorage:
                 (task_limit,),
             )
             task_ids = [row[0] for row in cursor.fetchall()]
+            return self._items_for_ids(cursor, task_ids)
 
-            if not task_ids:
-                return []
+    def get_active_and_recent_ended_tasks(
+        self,
+        ended_limit: int = 15,
+        active_limit: int = 500,
+    ) -> List[StoredActionItem]:
+        """
+        Get every active (non-terminal) task plus the N most recent ended
+        tasks, and all their child actions. Active tasks are returned in
+        full (not subject to `ended_limit`) so incomplete work is always
+        fully visible without needing to page through history for it.
 
-            # Get those tasks + all their child actions
-            placeholders = ",".join("?" * len(task_ids))
+        Args:
+            ended_limit: Maximum number of completed/error/cancelled tasks to return.
+            active_limit: Defensive cap on the number of active tasks returned.
+
+        Returns:
+            List of items (tasks + their actions) ordered by created_at ascending.
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+
+            placeholders = ",".join("?" for _ in TERMINAL_STATUSES)
             cursor.execute(
                 f"""
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-                WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
-                ORDER BY created_at ASC
+                SELECT id FROM action_items
+                WHERE item_type = 'task' AND status NOT IN ({placeholders})
+                ORDER BY created_at DESC
+                LIMIT ?
             """,
-                task_ids + task_ids,
+                TERMINAL_STATUSES + (active_limit,),
             )
-            rows = cursor.fetchall()
+            active_ids = [row[0] for row in cursor.fetchall()]
 
-            return [
-                StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
-                )
-                for row in rows
-            ]
+            cursor.execute(
+                f"""
+                SELECT id FROM action_items
+                WHERE item_type = 'task' AND status IN ({placeholders})
+                ORDER BY created_at DESC
+                LIMIT ?
+            """,
+                TERMINAL_STATUSES + (ended_limit,),
+            )
+            ended_ids = [row[0] for row in cursor.fetchall()]
+
+            return self._items_for_ids(cursor, active_ids + ended_ids)
 
     def get_tasks_before(
         self,
@@ -631,7 +681,9 @@ class ActionStorage:
         task_limit: int = 15,
     ) -> List[StoredActionItem]:
         """
-        Get tasks (and their actions) older than a given timestamp.
+        Get ended tasks (and their actions) older than a given timestamp.
+        Active (non-terminal) tasks are excluded since they're always
+        loaded up front rather than paginated.
 
         Args:
             before_timestamp: Unix timestamp upper bound (exclusive), in seconds.
@@ -642,56 +694,18 @@ class ActionStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            # Get older task IDs
+            placeholders = ",".join("?" for _ in TERMINAL_STATUSES)
             cursor.execute(
-                """
+                f"""
                 SELECT id FROM action_items
-                WHERE item_type = 'task' AND created_at < ?
+                WHERE item_type = 'task' AND status IN ({placeholders}) AND created_at < ?
                 ORDER BY created_at DESC
                 LIMIT ?
             """,
-                (before_timestamp, task_limit),
+                TERMINAL_STATUSES + (before_timestamp, task_limit),
             )
             task_ids = [row[0] for row in cursor.fetchall()]
-
-            if not task_ids:
-                return []
-
-            placeholders = ",".join("?" * len(task_ids))
-            cursor.execute(
-                f"""
-                SELECT id, name, status, item_type, parent_id, created_at,
-                       completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id,
-                       input_tokens, output_tokens, cache_tokens
-                FROM action_items
-                WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
-                ORDER BY created_at ASC
-            """,
-                task_ids + task_ids,
-            )
-            rows = cursor.fetchall()
-
-            return [
-                StoredActionItem(
-                    id=row[0],
-                    name=row[1],
-                    status=row[2],
-                    item_type=row[3],
-                    parent_id=row[4],
-                    created_at=row[5],
-                    completed_at=row[6],
-                    input_data=row[7],
-                    output_data=row[8],
-                    error_message=row[9],
-                    selected_skills=_decode_skills(row[10]),
-                    workflow_id=row[11],
-                    input_tokens=row[12],
-                    output_tokens=row[13],
-                    cache_tokens=row[14],
-                )
-                for row in rows
-            ]
+            return self._items_for_ids(cursor, task_ids)
 
     def get_task_count(self) -> int:
         """Get total number of tasks (not actions)."""

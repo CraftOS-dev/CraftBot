@@ -6,6 +6,7 @@ import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '.
 import type { ActionItem } from '../../types'
 import { useSkillCreator } from './useSkillCreator'
 import { getActivePlaceholder, type ActivePlaceholder } from '../../utils/taskPlaceholder'
+import { isEndedStatus } from '../../utils/taskStatus'
 import { useTaskListAutoScroll, useTaskListFLIP } from '../../hooks'
 import { getActionRenderer, parseIO } from './actionRenderers/renderers'
 import styles from './TasksPage.module.css'
@@ -595,12 +596,11 @@ export function TasksPage() {
   // and selection lookups work unchanged.
   const { tasks, activeTasks, endedTasks } = useMemo(() => {
     const taskItems = actions.filter(a => a.itemType === 'task')
-    const isEnded = (s: string) => s === 'completed' || s === 'error' || s === 'cancelled'
     const byNewestFirst = (a: ActionItem, b: ActionItem) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
     const byNewestEnded = (a: ActionItem, b: ActionItem) =>
       (b.completedAt ?? b.createdAt ?? 0) - (a.completedAt ?? a.createdAt ?? 0)
-    const active = taskItems.filter(t => !isEnded(t.status)).sort(byNewestFirst)
-    const ended = taskItems.filter(t => isEnded(t.status)).sort(byNewestEnded)
+    const active = taskItems.filter(t => !isEndedStatus(t.status)).sort(byNewestFirst)
+    const ended = taskItems.filter(t => isEndedStatus(t.status)).sort(byNewestEnded)
     return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
   }, [actions])
 

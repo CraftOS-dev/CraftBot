@@ -167,6 +167,7 @@ export interface InitialState {
   currentTask: { id: string; name: string } | null
   messages: ChatMessage[]
   actions: ActionItem[]
+  actionsHasMore?: boolean
   status: string
   dashboardMetrics?: DashboardMetrics
   needsHardOnboarding?: boolean

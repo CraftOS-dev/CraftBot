@@ -427,12 +427,13 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
         self._adapter = adapter
         self._items: List[ActionItem] = []
         self._storage = None
+        self._initial_has_more_ended = False
         self._init_storage()
 
     def _init_storage(self) -> None:
         """Initialize storage and load persisted actions."""
         try:
-            from app.usage.action_storage import get_action_storage
+            from app.usage.action_storage import TERMINAL_STATUSES, get_action_storage
 
             self._storage = get_action_storage()
 
@@ -442,8 +443,21 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
             )
             self._storage.mark_running_as_cancelled(exclude=restored_ids)
 
-            # Load recent tasks (and their child actions) from storage
-            stored_items = self._storage.get_recent_tasks_with_actions(task_limit=15)
+            # Load every active task plus the most recent ended tasks (and
+            # their child actions) from storage. Active tasks are loaded in
+            # full here rather than paginated, so they're never discovered
+            # later via scroll pagination and don't "pop in" above already
+            # rendered rows.
+            ended_limit = 15
+            stored_items = self._storage.get_active_and_recent_ended_tasks(
+                ended_limit=ended_limit
+            )
+            ended_count = sum(
+                1
+                for s in stored_items
+                if s.item_type == "task" and s.status in TERMINAL_STATUSES
+            )
+            self._initial_has_more_ended = ended_count == ended_limit
             for stored in stored_items:
                 self._items.append(
                     ActionItem(
@@ -877,6 +891,10 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
     def get_items(self) -> List[ActionItem]:
         """Get all loaded items."""
         return self._items.copy()
+
+    def get_initial_has_more(self) -> bool:
+        """Whether there are more ended tasks beyond the initial load."""
+        return self._initial_has_more_ended
 
     def get_tasks_before(
         self, before_timestamp: float, task_limit: int = 15
@@ -8805,6 +8823,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
                 for a in self._action_panel.get_items()
             ],
+            "actionsHasMore": self._action_panel.get_initial_has_more(),
             "status": self._status_bar.get_status(),
             "dashboardMetrics": metrics.to_dict(),
         }

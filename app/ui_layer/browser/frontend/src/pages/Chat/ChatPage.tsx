@@ -5,6 +5,7 @@ import { IconButton, StatusIndicator } from '../../components/ui'
 import { Chat } from '../../components/Chat'
 import { MascotDisplay } from '@mascot'
 import { getActivePlaceholder } from '../../utils/taskPlaceholder'
+import { isEndedStatus } from '../../utils/taskStatus'
 import { useTaskListAutoScroll, useTaskListFLIP, useMascotVisibility } from '../../hooks'
 import type { ActionItem } from '../../types'
 import styles from './ChatPage.module.css'
@@ -99,12 +100,11 @@ export function ChatPage() {
   // stays correct.
   const { tasks, activeTasks, endedTasks } = useMemo(() => {
     const taskItems = actions.filter(a => a.itemType === 'task')
-    const isEnded = (s: string) => s === 'completed' || s === 'error' || s === 'cancelled'
     const byNewestFirst = (a: ActionItem, b: ActionItem) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
     const byNewestEnded = (a: ActionItem, b: ActionItem) =>
       (b.completedAt ?? b.createdAt ?? 0) - (a.completedAt ?? a.createdAt ?? 0)
-    const active = taskItems.filter(t => !isEnded(t.status)).sort(byNewestFirst)
-    const ended = taskItems.filter(t => isEnded(t.status)).sort(byNewestEnded)
+    const active = taskItems.filter(t => !isEndedStatus(t.status)).sort(byNewestFirst)
+    const ended = taskItems.filter(t => isEndedStatus(t.status)).sort(byNewestEnded)
     return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
   }, [actions])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
