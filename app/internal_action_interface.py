@@ -417,6 +417,9 @@ class InternalActionInterface:
                 errors.append(f"Cannot attach directory: {fp}")
 
         if errors:
+            logger.warning(
+                f"[do_chat_with_attachments] Attachment(s) not ready: {errors}"
+            )
             return {"success": False, "files_sent": 0, "errors": errors}
 
         ui_adapter = InternalActionInterface.ui_adapter

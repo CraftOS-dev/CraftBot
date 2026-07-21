@@ -1,4 +1,5 @@
 from agent_core import action
+from agent_core.utils.logger import logger
 
 
 @action(
@@ -81,10 +82,13 @@ async def send_message_with_attachment(input_data: dict) -> dict:
             errors.append(f"Cannot attach directory: {fp}")
 
     if errors:
+        logger.warning(
+            f"[send_message_with_attachment] Attachment(s) not ready, message not sent: {errors}"
+        )
         return {
             "status": "error",
             "fire_at_delay": 0,
-            "wait_for_user_reply": wait_for_user_reply,
+            "wait_for_user_reply": False,
             "files_sent": 0,
             "errors": errors,
         }
@@ -105,15 +109,23 @@ async def send_message_with_attachment(input_data: dict) -> dict:
         message, file_paths, session_id=session_id
     )
 
-    fire_at_delay = 10800 if wait_for_user_reply else 0
     files_sent = result.get("files_sent", 0)
     errors = result.get("errors")
 
     # Determine status based on whether all files were sent successfully
     if result.get("success", False):
         status = "ok"
+        fire_at_delay = 10800 if wait_for_user_reply else 0
     else:
         status = "error"
+        # Nothing was actually sent, so there is nothing for the user to
+        # reply to - don't let the agent go dark waiting on a message that
+        # never arrived.
+        fire_at_delay = 0
+        wait_for_user_reply = False
+        logger.warning(
+            f"[send_message_with_attachment] Failed to send attachment(s): {errors}"
+        )
 
     response = {
         "status": status,
