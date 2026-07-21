@@ -152,7 +152,8 @@ class LLMInterface:
         self._initialized = False
         self._deferred = deferred
 
-        # Store for reinitialization
+        # Last-applied api_key/base_url, used by reinitialize() to detect
+        # whether a Settings save actually changed anything.
         self._init_api_key = api_key
         self._init_base_url = base_url
 
@@ -297,6 +298,33 @@ class LLMInterface:
                 None  # app context not available (e.g. agent_core standalone)
             )
 
+        # Diff against the currently-live config so a Settings save that
+        # didn't actually change anything (or only changed the model within
+        # the same provider) doesn't have to nuke every active task's
+        # accumulated session state. `target_model is not None` guards the
+        # no-op fast path off in the app-context-unavailable edge case above,
+        # where we can't tell what "unchanged" means — fall through to the
+        # full-reset path there, matching prior behavior.
+        old_provider = self.provider
+        old_model = self.model
+        old_api_key = self._init_api_key
+        old_base_url = self._init_base_url
+        provider_unchanged = target_provider == old_provider
+        nothing_changed = (
+            provider_unchanged
+            and target_model is not None
+            and target_model == old_model
+            and target_api_key == old_api_key
+            and target_base_url == old_base_url
+        )
+
+        if nothing_changed:
+            logger.info(
+                "[LLM] Reinitialize no-op — provider/model/credentials "
+                "unchanged, skipping reset"
+            )
+            return self._initialized
+
         try:
             logger.info(
                 f"[LLM] Reinitializing with provider: {target_provider}, model: {target_model or 'registry default'}"
@@ -329,15 +357,21 @@ class LLMInterface:
                     base_url=self.byteplus_base_url,
                     model=self.model,
                 )
-                # Reset session system prompts and multi-turn message histories
-                self._session_system_prompts = {}
-                self._anthropic_session_messages = {}
-                self._bedrock_session_messages = {}
-                self._openrouter_anthropic_session_messages = {}
-                self._gemini_session_messages = {}
-                self._openai_compat_session_messages = {}
             else:
                 self._byteplus_cache_manager = None
+
+            if provider_unchanged:
+                # Model/credentials-only change: the message-history buffers
+                # are provider-agnostic message lists the new model can
+                # consume as-is, so keep them — the prefix cache takes one
+                # miss and re-warms instead of rebuilding from scratch.
+                logger.info(
+                    f"[LLM] Model-only reinit within provider {self.provider}: "
+                    f"preserving session histories"
+                )
+            else:
+                # Real provider change: message formats differ across
+                # providers, so the accumulated histories aren't reusable.
                 self._session_system_prompts = {}
                 self._anthropic_session_messages = {}
                 self._bedrock_session_messages = {}
@@ -363,6 +397,11 @@ class LLMInterface:
                     f"(was {self._consecutive_failures})"
                 )
                 self._consecutive_failures = 0
+
+            # Track last-applied credentials so the next reinitialize() call
+            # can tell whether anything actually changed.
+            self._init_api_key = target_api_key
+            self._init_base_url = target_base_url
 
             logger.info(
                 f"[LLM] Reinitialized successfully with provider: {self.provider}, model: {self.model}"
@@ -1570,15 +1609,35 @@ class LLMInterface:
 
         try:
             if not self._byteplus_cache_manager.has_session(task_id, call_type):
-                raise ValueError(f"No session cache found for {session_key}")
+                # The cache manager was rebuilt (e.g. a model-only Settings
+                # change recreates it since BytePlus sessions are server-side
+                # and model-bound), emptying its session registry — but the
+                # system prompt survives a model-only reinit, so reseed a
+                # fresh session instead of failing this turn outright.
+                system_prompt = self._session_system_prompts.get(session_key)
+                if not system_prompt:
+                    raise ValueError(f"No session cache found for {session_key}")
 
-            result = self._byteplus_cache_manager.chat_with_session(
-                task_id=task_id,
-                call_type=call_type,
-                user_prompt=user_prompt,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+                logger.info(
+                    f"[BYTEPLUS] No session cache for {session_key} — "
+                    f"reseeding a fresh session from the stored system prompt"
+                )
+                result = self._byteplus_cache_manager.create_session_cache(
+                    task_id=task_id,
+                    call_type=call_type,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+            else:
+                result = self._byteplus_cache_manager.chat_with_session(
+                    task_id=task_id,
+                    call_type=call_type,
+                    user_prompt=user_prompt,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
 
             logger.info(f"BYTEPLUS SESSION RESPONSE: {result}")
 
