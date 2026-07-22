@@ -854,7 +854,13 @@ class LLMInterface:
             deferred=deferred,
         )
 
-        logger.info(f"[LLM FACTORY] {ctx}")
+        _safe_ctx = {k: v for k, v in ctx.items() if k != "byteplus"}
+        if ctx.get("byteplus"):
+            _safe_ctx["byteplus"] = {
+                "api_key": "<redacted>",
+                "base_url": ctx["byteplus"].get("base_url"),
+            }
+        logger.info(f"[LLM FACTORY] {_safe_ctx}")
 
         self.provider = ctx["provider"]
         self.model = ctx["model"]
