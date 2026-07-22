@@ -603,6 +603,7 @@ export function TasksPage() {
     const ended = taskItems.filter(t => isEndedStatus(t.status)).sort(byNewestEnded)
     return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
   }, [actions])
+  const taskOrderKey = useMemo(() => tasks.map(t => t.id).join(','), [tasks])
 
   // Scroll behavior + scroll-to-top pagination for the All Tasks list.
   // Same hook as ChatPage's Tasks & Actions sidebar so the two behave
@@ -617,7 +618,7 @@ export function TasksPage() {
   // FLIP animates a task sliding from active → ended (or vice-versa) and the
   // surrounding rows shifting up/down to accommodate. Operates on whatever
   // <div> each row registers via `flipRef(task.id)`.
-  const flipRef = useTaskListFLIP()
+  const flipRef = useTaskListFLIP(taskOrderKey)
 
   const selectedTask = useMemo(
     () => tasks.find(t => t.id === selectedTaskId) ?? null,
@@ -830,11 +831,6 @@ export function TasksPage() {
         </div>
 
         <div className={styles.listContent} ref={listContentRef}>
-          {loadingOlderActions && (
-            <div className={styles.loadingOlder}>
-              <Loader2 size={14} className={styles.spinning} /> Loading older tasks...
-            </div>
-          )}
           {tasks.length === 0 ? (
             <div className={styles.emptyState}>
               <p>No tasks yet</p>
@@ -960,6 +956,11 @@ export function TasksPage() {
                       </React.Fragment>
                     )
                   })}
+                  {loadingOlderActions && (
+                    <div className={styles.loadingOlder}>
+                      <Loader2 size={14} className={styles.spinning} /> Loading older tasks...
+                    </div>
+                  )}
                 </>
               )
             })()

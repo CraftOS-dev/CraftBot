@@ -30,13 +30,20 @@ export const selectDeletingTaskId = (state: RootState): string | null =>
 // createdAt, since pagination only ever walks ended-task history — active
 // tasks are always loaded in full up front (see tasksSlice.ts).
 export const selectOldestTaskCreatedAt = (state: RootState): number | undefined => {
+  // Entities are appended in fetch order (no sortComparer), so each new
+  // "older tasks" page lands after earlier entries in `ids` — scanning for
+  // the first match would freeze on the first page's oldest entry forever.
+  // Take the true minimum across everything loaded instead.
+  let oldest: number | undefined
   for (const id of state.tasks.ids) {
     const entry = state.tasks.entities[id]
     if (entry?.itemType === 'task' && isEndedStatus(entry.status) && entry.createdAt !== undefined) {
-      return entry.createdAt
+      if (oldest === undefined || entry.createdAt < oldest) {
+        oldest = entry.createdAt
+      }
     }
   }
-  return undefined
+  return oldest
 }
 
 export const selectHasAnyActions = (state: RootState): boolean =>

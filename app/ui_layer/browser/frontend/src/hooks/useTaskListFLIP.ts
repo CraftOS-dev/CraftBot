@@ -17,8 +17,12 @@ const ANIMATION_DURATION_MS = 250
  *   so user scrolling doesn't trigger spurious animations.
  * - Forces a synchronous reflow between Invert and Play so the inverted
  *   transform commits in the same frame as it was applied — no flicker.
+ * - Re-measures only when `orderKey` changes (pass a stable string derived
+ *   from the visible task id order), not on every render — renders caused by
+ *   unrelated state (e.g. a loading spinner toggling) shouldn't re-animate
+ *   rows that didn't actually move.
  */
-export function useTaskListFLIP() {
+export function useTaskListFLIP(orderKey: string) {
   const elementsRef = useRef<Map<string, HTMLElement>>(new Map())
   const prevPositionsRef = useRef<Map<string, number>>(new Map())
 
@@ -50,7 +54,7 @@ export function useTaskListFLIP() {
     })
 
     prevPositionsRef.current = newPositions
-  })
+  }, [orderKey])
 
   return setRef
 }

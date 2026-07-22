@@ -8,6 +8,7 @@ interface Pagination {
 
 const NEAR_TOP_PX = 100
 const NEAR_BOTTOM_PX = 100
+const RECENT_SCROLL_GUARD_MS = 200
 
 /**
  * Auto-scroll + scroll-to-bottom pagination for a non-virtualized list whose
@@ -16,8 +17,12 @@ const NEAR_BOTTOM_PX = 100
  * - On the first render with items present, jumps to the top (latest).
  * - When the item count grows, sticks to the top only if the user was near
  *   the top — if they scrolled down to inspect older entries, stays put.
- * - When the user scrolls near the bottom, calls `loadMore()` and preserves
- *   the visible anchor so freshly appended items don't yank the viewport.
+ *   Suppressed while the user is actively scrolling so the auto-follow
+ *   doesn't fight live wheel/trackpad input.
+ * - When the user scrolls near the bottom, calls `loadMore()`. Items are
+ *   always appended below the current view (lists are newest-at-top,
+ *   oldest-at-bottom, and `loadMore()` only fetches older items), so the
+ *   existing scrollTop stays valid on its own — no restore is performed.
  *
  * Shared by ChatPage's Tasks & Actions sidebar and TasksPage's All Tasks
  * list so the two stay in sync.
@@ -28,13 +33,22 @@ export function useTaskListAutoScroll<T extends HTMLElement>(
   { hasMore, loading, loadMore }: Pagination,
 ): void {
   const wasNearTopRef = useRef(true)
+  // Tracked alongside wasNearTopRef so the auto-follow below can tell a
+  // genuine "near top" apart from a short list where the whole scrollable
+  // range fits inside NEAR_TOP_PX, making "near top" and "near bottom" true
+  // simultaneously.
+  const wasNearBottomRef = useRef(false)
   const hasInitialScrolledRef = useRef(false)
   const prevItemCountRef = useRef(0)
   const prevLoadingRef = useRef(false)
-  // Captured on scroll-to-bottom before triggering pagination; cleared by the
-  // layout effect once the appended items have settled.
-  const pendingRestoreScrollTopRef = useRef<number | null>(null)
-  const pendingRestoreScrollHeightRef = useRef<number | null>(null)
+  // Guards against re-triggering loadMore() while a request is already in
+  // flight; self-healing (cleared whenever `loading` is false) so it can't
+  // wedge shut if loadMore() bails out internally without ever setting
+  // `loading` true.
+  const loadInFlightRef = useRef(false)
+  // Timestamp of the last scroll event, used to suppress the near-top
+  // auto-follow while the user is actively scrolling.
+  const lastScrollAtRef = useRef(0)
 
   // Mirror latest pagination props into a ref so the scroll listener doesn't
   // tear down and re-attach on every render of the parent.
@@ -45,17 +59,13 @@ export function useTaskListAutoScroll<T extends HTMLElement>(
     const el = ref.current
     if (!el) return
     const handleScroll = () => {
+      lastScrollAtRef.current = Date.now()
       wasNearTopRef.current = el.scrollTop < NEAR_TOP_PX
       const { hasMore: hm, loading: ld, loadMore: lm } = paginationRef.current
       const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (
-        distFromBottom < NEAR_BOTTOM_PX &&
-        hm &&
-        !ld &&
-        pendingRestoreScrollHeightRef.current === null
-      ) {
-        pendingRestoreScrollTopRef.current = el.scrollTop
-        pendingRestoreScrollHeightRef.current = el.scrollHeight
+      wasNearBottomRef.current = distFromBottom < NEAR_BOTTOM_PX
+      if (distFromBottom < NEAR_BOTTOM_PX && hm && !ld && !loadInFlightRef.current) {
+        loadInFlightRef.current = true
         lm()
       }
     }
@@ -72,18 +82,14 @@ export function useTaskListAutoScroll<T extends HTMLElement>(
     const grew = itemCount > prevItemCountRef.current
     prevItemCountRef.current = itemCount
 
-    // Pagination just finished (loading true→false): keep the user anchored
-    // where they were when they triggered the load. Newly appended items
-    // grow scrollHeight; preserving scrollTop alone is enough.
-    if (
-      wasLoading &&
-      !loading &&
-      pendingRestoreScrollHeightRef.current !== null &&
-      pendingRestoreScrollTopRef.current !== null
-    ) {
-      el.scrollTop = pendingRestoreScrollTopRef.current
-      pendingRestoreScrollHeightRef.current = null
-      pendingRestoreScrollTopRef.current = null
+    if (!loading) {
+      loadInFlightRef.current = false
+    }
+
+    // Pagination just finished: items were appended below the current
+    // viewport, so the existing scrollTop is already correct — nothing to
+    // restore.
+    if (wasLoading && !loading) {
       return
     }
 
@@ -95,8 +101,16 @@ export function useTaskListAutoScroll<T extends HTMLElement>(
       return
     }
 
-    // New item while the user was following the head — auto-follow to top.
-    if (grew && wasNearTopRef.current) {
+    // New item while the user was following the head — auto-follow to top,
+    // unless the user is actively mid-scroll (avoids fighting live input) or
+    // the list is short enough that "near top" and "near bottom" overlap
+    // (avoids fighting an in-progress bottom pagination).
+    if (
+      grew &&
+      wasNearTopRef.current &&
+      !wasNearBottomRef.current &&
+      Date.now() - lastScrollAtRef.current > RECENT_SCROLL_GUARD_MS
+    ) {
       el.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [itemCount, loading, ref])

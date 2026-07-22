@@ -107,6 +107,7 @@ export function ChatPage() {
     const ended = taskItems.filter(t => isEndedStatus(t.status)).sort(byNewestEnded)
     return { tasks: [...active, ...ended], activeTasks: active, endedTasks: ended }
   }, [actions])
+  const taskOrderKey = useMemo(() => tasks.map(t => t.id).join(','), [tasks])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
   const getActionsForTask = (taskId: string) =>
@@ -126,7 +127,7 @@ export function ChatPage() {
   // FLIP animates a task sliding from active → ended (or vice-versa) and the
   // surrounding rows shifting up/down to accommodate. Each row registers its
   // outer <div> via `flipRef(task.id)`.
-  const flipRef = useTaskListFLIP()
+  const flipRef = useTaskListFLIP(taskOrderKey)
 
   const [mascotVisible] = useMascotVisibility()
 
@@ -155,11 +156,6 @@ export function ChatPage() {
           <h3>All Tasks</h3>
         </div>
         <div className={styles.actionList} ref={actionListRef}>
-          {loadingOlderActions && (
-            <div className={styles.loadingOlder}>
-              <Loader2 size={14} className={styles.spinning} /> Loading older tasks...
-            </div>
-          )}
           {tasks.length === 0 ? (
             <div className={styles.emptyActions}>
               <p>No active tasks</p>
@@ -329,6 +325,11 @@ export function ChatPage() {
                     </React.Fragment>
                   )
                 })}
+                {loadingOlderActions && (
+                  <div className={styles.loadingOlder}>
+                    <Loader2 size={14} className={styles.spinning} /> Loading older tasks...
+                  </div>
+                )}
               </>
             )
           })()}
