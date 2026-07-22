@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from app.ui_layer.state.ui_state import UIState, AgentStateType, ActionItemState
 
@@ -126,7 +126,6 @@ class UIStateStore:
                 display_name=item_data["display_name"],
                 item_type=item_data["item_type"],
                 status=item_data.get("status", "running"),
-                task_id=item_data.get("task_id"),
                 created_at=item_data.get("created_at", 0.0),
             )
             state.action_items[item.id] = item
@@ -153,21 +152,6 @@ class UIStateStore:
         def clear_action_items(state: UIState, _: Any) -> UIState:
             state.action_items.clear()
             state.action_order.clear()
-            state.selected_task_id = None
-            return state
-
-        def set_current_task(state: UIState, data: Optional[Dict]) -> UIState:
-            if data is None:
-                state.current_task_id = None
-                state.current_task_name = None
-            else:
-                state.current_task_id = data.get("task_id")
-                state.current_task_name = data.get("task_name")
-            state.status_message = _generate_status_message(state)
-            return state
-
-        def select_task(state: UIState, task_id: Optional[str]) -> UIState:
-            state.selected_task_id = task_id
             return state
 
         def show_menu(state: UIState, show: bool) -> UIState:
@@ -221,8 +205,6 @@ class UIStateStore:
             "UPDATE_ACTION_ITEM": update_action_item,
             "REMOVE_ACTION_ITEM": remove_action_item,
             "CLEAR_ACTION_ITEMS": clear_action_items,
-            "SET_CURRENT_TASK": set_current_task,
-            "SELECT_TASK": select_task,
             "SHOW_MENU": show_menu,
             "SHOW_SETTINGS": show_settings,
             "SET_SETTINGS_TAB": set_settings_tab,
@@ -238,14 +220,6 @@ class UIStateStore:
 
 def _generate_status_message(state: UIState) -> str:
     """Generate status message based on current state."""
-    if state.agent_state == AgentStateType.IDLE:
-        return "Agent is idle"
-    elif state.agent_state == AgentStateType.WORKING:
-        if state.current_task_name:
-            return f"Working on: {state.current_task_name}"
+    if state.agent_state == AgentStateType.WORKING:
         return "Agent is working..."
-    elif state.agent_state == AgentStateType.WAITING_FOR_USER:
-        return "Waiting for your response"
-    elif state.agent_state == AgentStateType.TASK_COMPLETED:
-        return "Task completed"
     return "Agent is idle"

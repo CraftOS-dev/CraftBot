@@ -11,7 +11,6 @@ from agent_core import (
     MemoryPointer,
     MemoryChunk,
     MemoryFileWatcher,
-    create_memory_processing_task,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "MemoryPointer",
     "MemoryChunk",
     "MemoryFileWatcher",
-    "create_memory_processing_task",
 ]

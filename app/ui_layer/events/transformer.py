@@ -12,6 +12,11 @@ silently hidden because `"ignore" in message_lower` matched).
 
 If you need a new variant, add it to `EventType` and to the dispatch table
 below. Producers must set `event_type` explicitly on every `log()` call.
+
+Every transformed UI event carries the session id it came from — the second
+argument of `transform()` (the owning session's event-stream id; "main" for
+the main session). It is stored on `UIEvent.task_id` (a legacy field name;
+see event_types.py).
 """
 
 from __future__ import annotations
@@ -28,10 +33,9 @@ if TYPE_CHECKING:
 
 def _to_wire_json(value: Optional[dict]) -> Optional[str]:
     """Serialize a structured payload to the JSON string the frontend
-    expects on `ActionItem.input` / `ActionItem.output` (see
-    `frontend/src/types/index.ts` — those fields are typed `string`,
-    and `parseDict` calls `.trim()` on them). Returns None when there's
-    nothing to send.
+    expects on `ActionItem.input` / `ActionItem.output` (those fields are
+    typed `string` on the wire, and the frontend's `parseDict` calls
+    `.trim()` on them). Returns None when there's nothing to send.
     """
     if value is None:
         return None
@@ -55,12 +59,11 @@ def _display_name_for(action_name: str | None, display_name: str | None) -> str:
 
 
 # Action names whose action_start / action_end events are not surfaced in
-# the action panel. These are internal control-flow actions, not user-visible
-# work. Matched on the exact `event.action_name` field — never against
-# `kind` or `message` substrings.
+# the activity feed. These are internal control-flow actions, not
+# user-visible work. Matched on the exact `event.action_name` field — never
+# against `kind` or `message` substrings.
 HIDDEN_ACTION_NAMES: frozenset[str] = frozenset(
     {
-        "task_start",
         "ignore",
     }
 )
@@ -78,7 +81,7 @@ class EventTransformer:
     def transform(
         cls,
         event: "Event",
-        task_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> Optional[UIEvent]:
         """Transform an agent event to a UI event, or None if it should be hidden."""
         et = event.event_type
@@ -98,24 +101,24 @@ class EventTransformer:
         message = event.display_message or event.message
         # `handler` is a bound classmethod descriptor — cls is supplied
         # automatically; we only pass the per-call args.
-        return handler(event, message, timestamp, task_id)
+        return handler(event, message, timestamp, session_id)
 
     # ───────────────────────────── builders ─────────────────────────────
 
     @classmethod
     def _build_agent_message(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         return UIEvent(
             type=UIEventType.AGENT_MESSAGE,
-            data={"message": message},
+            data={"message": message, "session_id": session_id},
             timestamp=ts,
-            task_id=task_id,
+            task_id=session_id,
         )
 
     @classmethod
     def _build_user_message(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         # User messages are emitted directly by UIController.submit_message()
         # to avoid double display in chat; we suppress the event-stream echo.
@@ -123,76 +126,45 @@ class EventTransformer:
 
     @classmethod
     def _build_system_message(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         return UIEvent(
             type=UIEventType.SYSTEM_MESSAGE,
-            data={"message": message},
+            data={"message": message, "session_id": session_id},
             timestamp=ts,
-            task_id=task_id,
+            task_id=session_id,
         )
 
     @classmethod
     def _build_error_message(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         return UIEvent(
             type=UIEventType.ERROR_MESSAGE,
-            data={"message": message},
+            data={"message": message, "session_id": session_id},
             timestamp=ts,
-            task_id=task_id,
+            task_id=session_id,
         )
 
     @classmethod
     def _build_reasoning(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
-        reasoning_id = f"{task_id or 'main'}:reasoning:{ts.timestamp()}"
+        reasoning_id = f"{session_id or 'main'}:reasoning:{ts.timestamp()}"
         return UIEvent(
             type=UIEventType.REASONING,
             data={
                 "reasoning_id": reasoning_id,
                 "content": message,
-                "task_id": task_id,
+                "session_id": session_id,
             },
             timestamp=ts,
-            task_id=task_id,
-        )
-
-    @classmethod
-    def _build_task_start(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
-    ) -> Optional[UIEvent]:
-        return UIEvent(
-            type=UIEventType.TASK_START,
-            data={
-                "task_id": task_id or "",
-                "task_name": message,
-                "message": message,
-            },
-            timestamp=ts,
-            task_id=task_id,
-        )
-
-    @classmethod
-    def _build_task_end(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
-    ) -> Optional[UIEvent]:
-        status = event.task_status or "completed"
-        return UIEvent(
-            type=UIEventType.TASK_END,
-            data={
-                "task_id": task_id or "",
-                "message": message,
-                "status": status,
-            },
-            timestamp=ts,
-            task_id=task_id,
+            task_id=session_id,
         )
 
     @classmethod
     def _build_action_start(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         canonical = event.action_name or ""
         if canonical in HIDDEN_ACTION_NAMES:
@@ -200,30 +172,30 @@ class EventTransformer:
         # action_id is set by the producer (action_manager.run_id) so start
         # and end events correlate without ad-hoc dict tracking.
         action_id = (
-            event.action_id or f"{task_id or 'main'}:{canonical}:{ts.timestamp()}"
+            event.action_id or f"{session_id or 'main'}:{canonical}:{ts.timestamp()}"
         )
         return UIEvent(
             type=UIEventType.ACTION_START,
             data={
                 "action_id": action_id,
                 # The UI's `ActionItem.name` is the display name; the canonical
-                # name is what the action library lookup uses (see TasksPage's
-                # `getActionRenderer(item.name)` — it normalizes either form).
+                # name is what the action library lookup uses (the frontend
+                # normalizes either form).
                 "action_name": _display_name_for(canonical, event.action_display_name),
                 "message": message,
-                "task_id": task_id,
+                "session_id": session_id,
                 # Frontend `ActionItem.input` is typed `string` and gets
                 # passed through `parseDict`; serialize the structured dict
                 # to JSON so the existing renderers keep working.
                 "input": _to_wire_json(event.action_input),
             },
             timestamp=ts,
-            task_id=task_id,
+            task_id=session_id,
         )
 
     @classmethod
     def _build_action_end(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         canonical = event.action_name or ""
         if canonical in HIDDEN_ACTION_NAMES:
@@ -233,7 +205,7 @@ class EventTransformer:
         # Status is derived from the structured output, not from message text.
         is_error = bool(output and output.get("status") == "error")
         action_id = (
-            event.action_id or f"{task_id or 'main'}:{canonical}:{ts.timestamp()}"
+            event.action_id or f"{session_id or 'main'}:{canonical}:{ts.timestamp()}"
         )
         error_message = output.get("error") if is_error and output else None
 
@@ -246,32 +218,18 @@ class EventTransformer:
                 "status": "error" if is_error else "completed",
                 "error": is_error,
                 "error_message": error_message,
-                "task_id": task_id,
+                "session_id": session_id,
                 # Frontend `ActionItem.output` is typed `string`; serialize
                 # the structured dict to JSON for `parseDict` compatibility.
                 "output": _to_wire_json(output),
             },
             timestamp=ts,
-            task_id=task_id,
-        )
-
-    @classmethod
-    def _build_waiting_for_user(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
-    ) -> Optional[UIEvent]:
-        return UIEvent(
-            type=UIEventType.WAITING_FOR_USER,
-            data={
-                "task_id": task_id or "",
-                "message": message,
-            },
-            timestamp=ts,
-            task_id=task_id,
+            task_id=session_id,
         )
 
     @classmethod
     def _build_hidden(
-        cls, event: "Event", message: str, ts: datetime, task_id: Optional[str]
+        cls, event: "Event", message: str, ts: datetime, session_id: Optional[str]
     ) -> Optional[UIEvent]:
         """Event types that exist in the agent's stream but never surface in the UI."""
         return None
@@ -307,12 +265,14 @@ def _install_dispatch() -> None:
         EventType.SYSTEM: EventTransformer._build_system_message,
         EventType.ERROR: EventTransformer._build_error_message,
         EventType.REASONING: EventTransformer._build_reasoning,
-        EventType.TASK_START: EventTransformer._build_task_start,
-        EventType.TASK_END: EventTransformer._build_task_end,
         EventType.ACTION_START: EventTransformer._build_action_start,
         EventType.ACTION_END: EventTransformer._build_action_end,
-        EventType.WAITING_FOR_USER: EventTransformer._build_waiting_for_user,
-        # Intentionally hidden from the UI:
+        # Intentionally hidden from the UI (legacy core enum values with no
+        # UI surface — nothing emits the first three anymore; TODOS flows
+        # through SessionManager's post-update-todos hooks instead):
+        EventType.TASK_START: EventTransformer._build_hidden,
+        EventType.TASK_END: EventTransformer._build_hidden,
+        EventType.WAITING_FOR_USER: EventTransformer._build_hidden,
         EventType.RELEVANT_MEMORIES: EventTransformer._build_hidden,
         EventType.TODOS: EventTransformer._build_hidden,
         EventType.INTERNAL: EventTransformer._build_hidden,

@@ -1,71 +1,118 @@
-import { createSlice, createEntityAdapter, PayloadAction } from '@reduxjs/toolkit'
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { ChatMessage } from '../../types'
 import { register } from '../socket/messageRegistry'
 
-// Messages are normalized by messageId. Optimistic ("pending") messages use
+// Chat messages keyed per session. Each bucket keeps its messages in
+// timestamp-ascending order. Optimistic ("pending") messages use
 // `pending:<clientId>` as their messageId until the server echo arrives —
 // then `addOrReconcile` swaps the temp entry for the real one in place.
-const adapter = createEntityAdapter<ChatMessage, string>({
-  selectId: (m) => m.messageId,
-  sortComparer: (a, b) => a.timestamp - b.timestamp,
-})
-
-interface MessagesExtraState {
+interface SessionMessages {
+  items: ChatMessage[]
   hasMore: boolean
   loadingOlder: boolean
 }
 
-const initialState = adapter.getInitialState<MessagesExtraState>({
-  hasMore: false,
-  loadingOlder: false,
-})
+interface MessagesState {
+  bySession: Record<string, SessionMessages>
+}
+
+const initialState: MessagesState = {
+  bySession: {},
+}
+
+function bucketFor(state: MessagesState, sessionId: string): SessionMessages {
+  let bucket = state.bySession[sessionId]
+  if (!bucket) {
+    bucket = { items: [], hasMore: false, loadingOlder: false }
+    state.bySession[sessionId] = bucket
+  }
+  return bucket
+}
+
+function sortBucket(bucket: SessionMessages) {
+  bucket.items.sort((a, b) => a.timestamp - b.timestamp)
+}
+
+// Upsert by messageId, preserving timestamp order.
+function upsertMessage(bucket: SessionMessages, message: ChatMessage) {
+  const idx = bucket.items.findIndex(m => m.messageId === message.messageId)
+  if (idx === -1) {
+    bucket.items.push(message)
+  } else {
+    bucket.items[idx] = message
+  }
+  sortBucket(bucket)
+}
 
 const messagesSlice = createSlice({
   name: 'messages',
   initialState,
   reducers: {
-    setInitial(state, action: PayloadAction<{ messages: ChatMessage[]; hasMore: boolean }>) {
-      adapter.setAll(state, action.payload.messages)
-      state.hasMore = action.payload.hasMore
-      state.loadingOlder = false
+    setInitial(state, action: PayloadAction<{ messages: ChatMessage[] }>) {
+      state.bySession = {}
+      for (const msg of action.payload.messages) {
+        if (!msg.sessionId) continue
+        bucketFor(state, msg.sessionId).items.push(msg)
+      }
+      for (const bucket of Object.values(state.bySession)) {
+        sortBucket(bucket)
+        // Heuristic: a full first page implies more history exists.
+        bucket.hasMore = bucket.items.length >= 50
+      }
     },
     addOrReconcile(state, action: PayloadAction<ChatMessage>) {
       const incoming = action.payload
+      if (!incoming.sessionId) return
+      const bucket = bucketFor(state, incoming.sessionId)
       if (incoming.clientId) {
-        // Find a pending entry with the same clientId and swap it for the
-        // confirmed server message. Keeping it in place preserves scroll
-        // position and avoids a duplicate bubble.
-        const tempId = state.ids.find((id) => {
-          const entry = state.entities[id]
-          return entry?.pending && entry.clientId === incoming.clientId
-        })
-        if (tempId !== undefined) {
-          adapter.removeOne(state, tempId)
-        }
+        // Swap the pending optimistic entry (same clientId) for the
+        // confirmed server message so no duplicate bubble appears.
+        const tempIdx = bucket.items.findIndex(
+          m => m.pending && m.clientId === incoming.clientId,
+        )
+        if (tempIdx !== -1) bucket.items.splice(tempIdx, 1)
       }
-      adapter.upsertOne(state, { ...incoming, pending: false })
+      upsertMessage(bucket, { ...incoming, pending: false })
     },
     addOptimistic(state, action: PayloadAction<ChatMessage>) {
-      adapter.upsertOne(state, action.payload)
+      if (!action.payload.sessionId) return
+      upsertMessage(bucketFor(state, action.payload.sessionId), action.payload)
     },
-    prependMany(state, action: PayloadAction<{ messages: ChatMessage[]; hasMore: boolean }>) {
-      adapter.upsertMany(state, action.payload.messages)
-      state.hasMore = action.payload.hasMore
-      state.loadingOlder = false
+    prependMany(state, action: PayloadAction<{
+      sessionId: string
+      messages: ChatMessage[]
+      hasMore: boolean
+    }>) {
+      const bucket = bucketFor(state, action.payload.sessionId)
+      for (const msg of action.payload.messages) {
+        upsertMessage(bucket, msg)
+      }
+      bucket.hasMore = action.payload.hasMore
+      bucket.loadingOlder = false
     },
-    clear(state) {
-      adapter.removeAll(state)
-      state.hasMore = false
-      state.loadingOlder = false
+    clearSession(state, action: PayloadAction<{ sessionId: string | null }>) {
+      const { sessionId } = action.payload
+      if (sessionId === null) {
+        state.bySession = {}
+      } else {
+        delete state.bySession[sessionId]
+      }
     },
-    setLoadingOlder(state, action: PayloadAction<boolean>) {
-      state.loadingOlder = action.payload
+    dropSession(state, action: PayloadAction<{ sessionId: string }>) {
+      delete state.bySession[action.payload.sessionId]
     },
-    markOptionSelected(state, action: PayloadAction<{ messageId: string; value: string }>) {
-      const { messageId, value } = action.payload
-      const entry = state.entities[messageId]
+    setLoadingOlder(state, action: PayloadAction<{ sessionId: string; loading: boolean }>) {
+      bucketFor(state, action.payload.sessionId).loadingOlder = action.payload.loading
+    },
+    markOptionSelected(state, action: PayloadAction<{
+      sessionId: string
+      messageId: string
+      value: string
+    }>) {
+      const bucket = state.bySession[action.payload.sessionId]
+      const entry = bucket?.items.find(m => m.messageId === action.payload.messageId)
       if (entry && !entry.optionSelected) {
-        entry.optionSelected = value
+        entry.optionSelected = action.payload.value
       }
     },
   },
@@ -76,20 +123,19 @@ export const {
   addOrReconcile,
   addOptimistic,
   prependMany,
-  clear,
+  clearSession,
+  dropSession,
   setLoadingOlder,
   markOptionSelected,
 } = messagesSlice.actions
 
-export const messagesAdapter = adapter
 export default messagesSlice.reducer
 
 // --- inbound message handlers --------------------------------------------
 
 register('init', (data, dispatch) => {
   const d = data as { messages?: ChatMessage[] } | undefined
-  const messages = d?.messages || []
-  dispatch(setInitial({ messages, hasMore: messages.length >= 50 }))
+  dispatch(setInitial({ messages: d?.messages || [] }))
 })
 
 register('chat_message', (data, dispatch) => {
@@ -97,10 +143,26 @@ register('chat_message', (data, dispatch) => {
 })
 
 register('chat_history', (data, dispatch) => {
-  const d = data as { messages?: ChatMessage[]; hasMore?: boolean }
-  dispatch(prependMany({ messages: d.messages || [], hasMore: !!d.hasMore }))
+  const d = data as { sessionId?: string; messages?: ChatMessage[]; hasMore?: boolean }
+  if (!d.sessionId) return
+  dispatch(prependMany({
+    sessionId: d.sessionId,
+    messages: d.messages || [],
+    hasMore: !!d.hasMore,
+  }))
 })
 
-register('chat_clear', (_data, dispatch) => {
-  dispatch(clear())
+register('chat_clear', (data, dispatch) => {
+  const d = data as { sessionId?: string | null } | undefined
+  dispatch(clearSession({ sessionId: d?.sessionId ?? null }))
+})
+
+register('session_cleared', (data, dispatch) => {
+  const d = data as { sessionId?: string } | undefined
+  if (d?.sessionId) dispatch(clearSession({ sessionId: d.sessionId }))
+})
+
+register('session_deleted', (data, dispatch) => {
+  const d = data as { sessionId?: string } | undefined
+  if (d?.sessionId) dispatch(dropSession({ sessionId: d.sessionId }))
 })

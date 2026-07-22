@@ -4,9 +4,9 @@ from agent_core import action
 @action(
     name="set_requirement",
     description=(
-        "Record (or update) the concrete, checkable requirements that define DONE for this task's deliverable. "
-        "This is the SCOPE of the output, NOT a plan of work — for work-tracking, use 'task_update_todos'. "
-        "Call this in the very first step of a complex task (BEFORE acknowledging the user) to lock in WHAT the "
+        "Record (or update) the concrete, checkable requirements that define DONE for the current deliverable. "
+        "This is the SCOPE of the output, NOT a plan of work — for work-tracking, use 'update_todos'. "
+        "Call this in the very first step of substantial work (BEFORE acknowledging the user) to lock in WHAT the "
         "finished deliverable must contain and look like; call it again during Collect if new information forces a scope update; "
         "call it again during Verify to mark each item satisfied or violated.\n\n"
         "Every requirement MUST be concrete and falsifiable. A reader who has never seen this task should be able to look at the "
@@ -89,7 +89,9 @@ def set_requirement(input_data: dict) -> dict:
     if not simulated_mode:
         import app.internal_action_interface as iai
 
-        result = iai.InternalActionInterface.update_requirements(requirements)
+        result = iai.InternalActionInterface.update_requirements(
+            requirements, session_id=input_data.get("_session_id")
+        )
         status = "success" if result.get("status") in ("ok", "success") else "error"
         return {"status": status}
 

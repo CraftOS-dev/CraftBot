@@ -1,0 +1,304 @@
+/* Timeline blocks for inline activity (reasoning + actions) rendered in the
+   session chat timeline. Extracted from the retired task-transcript view. */
+
+/* Timeline row: icon gutter + content column. Each new item slides up + fades
+   in so streaming additions don't pop abruptly. */
+.transcriptItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  scroll-margin-top: var(--space-3);
+  z-index: 1;
+  animation: transcriptItemAppear 180ms ease-out;
+}
+
+@keyframes transcriptItemAppear {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcriptItem {
+    animation: none;
+  }
+}
+
+.gutter {
+  width: 24px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* Icon wrapper — solid background so the icon reads cleanly */
+.gutterIcon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--bg-primary);
+}
+
+/* Hollow circle for reasoning items */
+.reasoningCircle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border-secondary);
+  flex-shrink: 0;
+}
+
+/* Action content column: name + duration (no card), then IO boxes */
+.actionContent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: 2px;
+}
+
+.actionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.actionName {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actionDuration {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Reasoning content sits in the same column position as action content */
+.reasoningContent {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-top: 2px;
+}
+
+.reasoningPlaceholder {
+  opacity: 0.6;
+}
+
+/* Shared box holding Input / Output / Error / More-detail trigger / Details */
+.actionBox {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Labelled section inside the box (Input / Output / Error / expanded Details) */
+.actionSection {
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.actionSection + .actionSection {
+  border-top: 1px solid var(--border-primary);
+}
+
+/* Row at the bottom of the box that holds the More detail toggle */
+.actionMoreRow {
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--border-primary);
+}
+
+.ioLabel {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Plain-text streaming content; transparent inside an actionSection since
+   the parent box already provides padding/background. */
+.contentText {
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.actionSection .contentText {
+  background: transparent;
+  padding: 0;
+  max-height: 280px;
+}
+
+/* "More detail" toggle */
+.moreDetailBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.moreDetailBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.moreDetailChevron {
+  transition: transform var(--transition-fast);
+}
+
+.moreDetailChevron.expanded {
+  transform: rotate(90deg);
+}
+
+/* Detail grid (key/value pairs) */
+.detailList {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.detailList dt {
+  color: var(--text-muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailList dd {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Action's expanded detail grid — borderless, since it sits inside .actionBox */
+.actionDetailList {
+  grid-template-columns: 100px 1fr;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.codeBlock {
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.errorBlock {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+/* Nested detail list for JSON data */
+.nestedList {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-primary);
+  margin-top: var(--space-1);
+}
+
+.nestedList dt {
+  color: var(--text-muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nestedList dd {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Expandable value for long text */
+.expandableValue {
+  display: inline;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.expandButton {
+  display: inline;
+  margin-left: var(--space-2);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.expandButton:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--text-primary);
+}
+
+/* Responsive tightening */
+@media (max-width: 768px) {
+  .detailList {
+    grid-template-columns: 100px 1fr;
+  }
+  .nestedList {
+    grid-template-columns: 90px 1fr;
+  }
+  .actionSection {
+    padding: var(--space-2);
+  }
+  .contentText {
+    max-height: 200px;
+  }
+}

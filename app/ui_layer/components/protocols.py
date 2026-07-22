@@ -25,8 +25,13 @@ class ChatComponentProtocol(Protocol):
         """
         ...
 
-    async def clear(self) -> None:
-        """Clear all messages from the chat log."""
+    async def clear(self, session_id: Optional[str] = None) -> None:
+        """
+        Clear messages from the chat log.
+
+        Args:
+            session_id: Only clear this session's messages (None = all)
+        """
         ...
 
     def scroll_to_bottom(self) -> None:
@@ -46,15 +51,16 @@ class ChatComponentProtocol(Protocol):
 @runtime_checkable
 class ActionPanelProtocol(Protocol):
     """
-    Protocol for action panel components.
+    Protocol for activity feed components.
 
-    Defines the interface for displaying tasks and actions.
-    Used by Browser interface.
+    Defines the interface for broadcasting per-session activity items
+    (actions and reasoning). Used by the Browser interface, where the
+    items render inline in each session's chat.
     """
 
     async def add_item(self, item: ActionItem) -> None:
         """
-        Add an action item to the panel.
+        Add an activity item to the feed.
 
         Args:
             item: The action item to add
@@ -74,21 +80,22 @@ class ActionPanelProtocol(Protocol):
     async def update_item_by_name(
         self,
         action_name: str,
-        task_id: str,
+        session_id: str,
         status: str,
         action_id: str = "",
         output: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
         """
-        Update an item's status by matching name and task.
+        Update an item's status by matching name and session.
 
-        Finds the most recent running action with the given name under the task
-        and updates its status. Falls back to ID matching if action_id provided.
+        Finds the most recent running action with the given name in the
+        session and updates its status. Falls back to ID matching if
+        action_id provided.
 
         Args:
             action_name: Name of the action to update
-            task_id: Parent task ID
+            session_id: Session the action belongs to
             status: New status ("running", "completed", "error")
             action_id: Optional exact action ID to match first
             output: Output data from the action
@@ -112,31 +119,9 @@ class ActionPanelProtocol(Protocol):
         """
         ...
 
-    async def update_item_tokens(
-        self,
-        item_id: str,
-        input_tokens: int,
-        output_tokens: int,
-        cache_tokens: int,
-    ) -> None:
-        """
-        Update a task item's cumulative LLM token usage counters.
-
-        Called per-LLM-call to push the running totals (input, output, cache)
-        to the UI so the user sees them tick up while the task runs and
-        frozen at the final value when it completes.
-
-        Args:
-            item_id: ID of the task item to update
-            input_tokens: Cumulative input tokens for this task
-            output_tokens: Cumulative output tokens for this task
-            cache_tokens: Cumulative cache tokens for this task (read+creation)
-        """
-        ...
-
     async def remove_item(self, item_id: str) -> None:
         """
-        Remove an item from the panel.
+        Remove an item from the feed.
 
         Args:
             item_id: ID of the item to remove
@@ -144,41 +129,12 @@ class ActionPanelProtocol(Protocol):
         ...
 
     async def clear(self) -> None:
-        """Clear all items from the panel."""
-        ...
-
-    async def clear_terminal_tasks(self) -> int:
-        """
-        Remove tasks whose status is completed/error/cancelled, along with
-        their child actions. Running/waiting tasks are preserved.
-
-        Returns:
-            Number of items removed.
-        """
-        ...
-
-    async def delete_terminal_task(self, task_id: str) -> List[str]:
-        """
-        Remove a single ended task (completed/error/cancelled) and its child
-        actions. No-ops if the task is missing or still active.
-
-        Returns:
-            List of removed item IDs (task + child actions).
-        """
-        ...
-
-    def select_task(self, task_id: Optional[str]) -> None:
-        """
-        Select a task for detail view.
-
-        Args:
-            task_id: ID of task to select, or None to deselect
-        """
+        """Clear all items from the feed."""
         ...
 
     def get_items(self) -> List[ActionItem]:
         """
-        Get all items in the panel.
+        Get all items in the feed.
 
         Returns:
             List of all action items

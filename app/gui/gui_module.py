@@ -32,7 +32,7 @@ GUI_MODE_ACTIONS = [
     "send_message",
     "wait",
     "set_mode",
-    "task_update_todos",
+    "update_todos",
     # GUI interaction actions
     "mouse_click",
     "mouse_move",
@@ -64,10 +64,10 @@ open_application(exe_path='<path>', args=[]) # Launch Windows app at exe_path wi
 window_control(operation='<op>', title='<substring>') # operation: 'focus'|'close'|'maximize'|'minimize'. Matches window by title substring.
 clipboard_read() # Read current clipboard content.
 clipboard_write(content='<string>') # Write text to clipboard.
-send_message(message='<string>', wait_for_user_reply=false) # Send message to user. Set wait_for_user_reply=true to pause for response.
+send_message(message='<string>', continue_work=false) # Send message to user. Default ends the run; set continue_work=true for progress updates while you keep working.
 wait(seconds=<number>) # Pause for seconds (max 60).
 set_mode(target_mode='<cli|gui>') # Switch agent mode. Use 'cli' when GUI task is complete.
-task_update_todos(todos=[{content, status}, ...]) # Update todo list. status: 'pending'|'in_progress'|'completed'.
+update_todos(todos=[{content, status}, ...]) # Update todo list. status: 'pending'|'in_progress'|'completed'.
 """
 
 

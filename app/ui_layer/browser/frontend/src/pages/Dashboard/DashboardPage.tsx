@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Activity,
   Package,
@@ -145,13 +145,6 @@ export function DashboardPage() {
     }
   }, [connected, requestFilteredMetrics, filteredMetricsCache])
 
-  // Calculate statistics from actions
-  const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
-  const completedTasks = useMemo(() => tasks.filter(t => t.status === 'completed').length, [tasks])
-  const failedTasks = useMemo(() => tasks.filter(t => t.status === 'error' || t.status === 'cancelled').length, [tasks])
-  const runningTasks = useMemo(() => tasks.filter(t => t.status === 'running').length, [tasks])
-  const totalActions = useMemo(() => actions.filter(a => a.itemType === 'action').length, [actions])
-
   // Use metrics from WebSocket if available
   const metrics = dashboardMetrics
 
@@ -177,8 +170,6 @@ export function DashboardPage() {
   const diskPercent = metrics?.system.diskPercent ?? 0
   const diskUsed = metrics?.system.diskUsedGb ?? 0
   const diskTotal = metrics?.system.diskTotalGb ?? 0
-  const networkSent = metrics?.system.networkSentMb ?? 0
-  const networkRecv = metrics?.system.networkRecvMb ?? 0
   const networkSentRate = metrics?.system.networkSentRateKbps ?? 0
   const networkRecvRate = metrics?.system.networkRecvRateKbps ?? 0
 
@@ -188,8 +179,6 @@ export function DashboardPage() {
 
   // Usage metrics - use cached filtered metrics for all periods (including 'total')
   const usageFilteredData = filteredMetricsCache[usagePeriod]
-  const requestsLastHour = usageFilteredData?.usage.requestsLastHour ?? (metrics?.usage.requestsLastHour ?? 0)
-  const requestsToday = usageFilteredData?.usage.requestsToday ?? (metrics?.usage.requestsToday ?? 0)
   const peakHour = usageFilteredData?.usage.peakHour ?? (metrics?.usage.peakHour ?? 0)
   const hourlyDistribution = usageFilteredData?.usage.hourlyDistribution ?? (metrics?.usage.hourlyDistribution ?? Array(24).fill(0))
   const usageRequestCount = hourlyDistribution.reduce((sum, count) => sum + count, 0)
@@ -199,22 +188,18 @@ export function DashboardPage() {
 
   // Task counts - use cached filtered metrics for all periods (including 'total')
   const taskFilteredData = filteredMetricsCache[taskPeriod]
-  const taskCompleted = taskFilteredData?.task.completed ?? (metrics?.task.completed ?? completedTasks)
-  const taskFailed = taskFilteredData?.task.failed ?? (metrics?.task.failed ?? failedTasks)
-  const taskRunning = taskFilteredData?.task.running ?? (metrics?.task.running ?? runningTasks)
-  const taskTotal = taskFilteredData?.task.total ?? (metrics?.task.total ?? (completedTasks + failedTasks + runningTasks))
+  const taskCompleted = taskFilteredData?.task.completed ?? (metrics?.task.completed ?? 0)
+  const taskFailed = taskFilteredData?.task.failed ?? (metrics?.task.failed ?? 0)
+  const taskRunning = taskFilteredData?.task.running ?? (metrics?.task.running ?? 0)
+  const taskTotal = taskFilteredData?.task.total ?? (metrics?.task.total ?? 0)
   const taskSuccessRate = taskFilteredData?.task.successRate ?? (metrics?.task.successRate ?? 100)
 
   // MCP metrics
-  const mcpTotalServers = metrics?.mcp?.totalServers ?? 0
   const mcpConnectedServers = metrics?.mcp?.connectedServers ?? 0
-  const mcpTotalTools = metrics?.mcp?.totalTools ?? 0
   const mcpTotalCalls = metrics?.mcp?.totalCalls ?? 0
-  const mcpServers = metrics?.mcp?.servers ?? []
   const mcpTopTools = metrics?.mcp?.topTools ?? []
 
   // Skill metrics
-  const skillTotal = metrics?.skill?.totalSkills ?? 0
   const skillEnabled = metrics?.skill?.enabledSkills ?? 0
   const skillTotalInvocations = metrics?.skill?.totalInvocations ?? 0
   const topSkills = metrics?.skill?.topSkills ?? []

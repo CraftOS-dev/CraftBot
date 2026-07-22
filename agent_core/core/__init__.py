@@ -12,7 +12,13 @@ from agent_core.core.embedding_interface import EmbeddingInterface
 from agent_core.core.vlm_interface import VLMInterface
 from agent_core.core.database_interface import DatabaseInterface
 from agent_core.core.trigger import Trigger
-from agent_core.core.task import Task, TodoItem, TodoStatus
+from agent_core.core.session import (
+    Session,
+    SessionType,
+    TodoItem,
+    TodoStatus,
+    MAIN_SESSION_ID,
+)
 from agent_core.core.action_framework import (
     ActionRegistry,
     ActionMetadata,
@@ -55,10 +61,12 @@ __all__ = [
     "get_cache_metrics",
     # Trigger
     "Trigger",
-    # Task
-    "Task",
+    # Session
+    "Session",
+    "SessionType",
     "TodoItem",
     "TodoStatus",
+    "MAIN_SESSION_ID",
     # Action framework
     "ActionRegistry",
     "ActionMetadata",

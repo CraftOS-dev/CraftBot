@@ -24,7 +24,7 @@ class ResetCommand(Command):
         return """Reset the agent to its initial state.
 
 This will:
-- Clear the current task
+- Delete all chat sessions and clear the main session
 - Clear action history
 - Reset the conversation context
 
@@ -34,6 +34,7 @@ Note: This does not affect saved settings or credentials."""
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the reset command."""
         # Show immediate feedback, then perform reset in background

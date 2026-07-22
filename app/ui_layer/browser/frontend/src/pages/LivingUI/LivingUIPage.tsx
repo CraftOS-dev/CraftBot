@@ -121,16 +121,11 @@ export function LivingUIPage() {
   // A question the agent mirrored onto this screen (waiting on the user's reply).
   const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
 
-  // Answer from the screen → send back as a reply targeting the creation task's
-  // session (Rule 2 in chat routing resumes the waiting task). Mirrors a chat reply.
+  // Answer from the screen → sent as a normal chat message into the
+  // project's session, where the waiting agent picks it up.
   const handleAnswer = (text: string) => {
     if (!projectId || !pendingQuestion) return
-    sendMessage(
-      text,
-      undefined,
-      { sessionId: pendingQuestion.sessionId, originalMessage: pendingQuestion.message },
-      projectId,
-    )
+    sendMessage(text, undefined, pendingQuestion.sessionId)
     dispatch(clearPendingQuestion({ projectId }))
   }
 
@@ -343,12 +338,14 @@ export function LivingUIPage() {
             tooltip="Theme"
             onClick={() => setShowThemeModal(true)}
           />
-          <IconButton
-            size="sm"
-            icon={<MessageSquare size={14} />}
-            tooltip={showChat ? 'Hide Chat' : 'Show Chat'}
-            onClick={() => setShowChat(prev => !prev)}
-          />
+          {project.sessionId && (
+            <IconButton
+              size="sm"
+              icon={<MessageSquare size={14} />}
+              tooltip={showChat ? 'Hide Chat' : 'Show Chat'}
+              onClick={() => setShowChat(prev => !prev)}
+            />
+          )}
           <IconButton
             size="sm"
             active={isFullscreen}
@@ -419,8 +416,10 @@ export function LivingUIPage() {
           )}
         </div>
 
-        {/* Resize Handle */}
-        {showChat && (
+        {/* Resize Handle. The chat panel only exists when the backend gave
+            this project a backing session — older projects without one just
+            show the Living UI full-width. */}
+        {showChat && project.sessionId && (
           <div
             className={`${styles.resizeHandle} ${isResizing ? styles.resizing : ''}`}
             onPointerDown={handlePointerDown}
@@ -428,7 +427,7 @@ export function LivingUIPage() {
         )}
 
         {/* Chat Panel */}
-        {showChat && (
+        {showChat && project.sessionId && (
           <div
             className={styles.chatPanel}
             style={
@@ -438,7 +437,7 @@ export function LivingUIPage() {
             }
           >
             <Chat
-              livingUIId={projectId}
+              sessionId={project.sessionId}
               placeholder="Ask about this Living UI..."
               emptyMessage="Chat with the agent"
             />

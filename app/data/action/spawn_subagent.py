@@ -130,20 +130,18 @@ def spawn_subagent(input_data: dict) -> dict:
         }
 
     # ActionManager injects _session_id; for spawn_subagent this is the
-    # PARENT task's id (recorded on the SubAgent for traceability).
+    # PARENT session's id (recorded on the SubAgent for traceability).
     parent_task_id = input_data.get("_session_id")
 
-    # Resolve the parent task's temp dir so the child's event stream can
-    # externalize oversized action outputs (same mechanism as the main
+    # Resolve the parent session's workspace dir so the child's event stream
+    # can externalize oversized action outputs (same mechanism as the main
     # agent). Falls back to None (externalization off) when spawned outside
-    # a task or the task has no temp dir.
+    # a session or the session has no workspace dir.
     parent_temp_dir = None
-    if parent_task_id and InternalActionInterface.task_manager is not None:
-        parent_task = InternalActionInterface.task_manager.get_task_by_id(
-            parent_task_id
-        )
-        if parent_task is not None:
-            parent_temp_dir = getattr(parent_task, "temp_dir", None) or None
+    if parent_task_id and InternalActionInterface.session_manager is not None:
+        parent_session = InternalActionInterface.session_manager.get(parent_task_id)
+        if parent_session is not None:
+            parent_temp_dir = getattr(parent_session, "workspace_dir", None) or None
 
     mgr = InternalActionInterface.subagent_manager
     action_manager = InternalActionInterface.action_manager

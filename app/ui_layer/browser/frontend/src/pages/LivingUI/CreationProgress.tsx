@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Lightbulb } from 'lucide-react'
-import type { LivingUITodo } from '../../types'
+import type { LivingUITodo } from '../../store/slices/livingUiSlice'
 import { useRotatingHint } from '../../hooks'
 import { CraftBotMascot } from '@mascot'
 import styles from './LivingUIPage.module.css'

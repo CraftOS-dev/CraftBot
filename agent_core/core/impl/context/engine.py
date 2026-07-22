@@ -261,6 +261,44 @@ class ContextEngine:
         """
         return LANGUAGE_INSTRUCTION
 
+    def create_system_capability_catalog(self) -> str:
+        """Create the Capability Catalog system block.
+
+        Lists every available action set and every enabled skill with a
+        one-line description, so any session can discover and load
+        capabilities on demand (add_action_sets / use_skill). The catalog
+        is stable per boot, so it lives in the cached system prefix.
+        """
+        lines = ["<capability_catalog>"]
+
+        try:
+            from app.action.action_set import action_set_manager
+
+            sets_text = action_set_manager.format_sets_for_prompt(exclude_core=True)
+            lines.append(
+                "Action sets you can load with 'add_action_sets' "
+                "(your session always has 'core'):"
+            )
+            lines.append(sets_text if sets_text else "(no additional action sets)")
+        except Exception as e:
+            logger.debug(f"[CONTEXT] Capability catalog: action sets failed: {e}")
+
+        try:
+            from app.skill import skill_manager
+
+            skills = skill_manager.list_skills_for_selection()
+            lines.append("")
+            lines.append("Skills you can load with 'use_skill':")
+            if skills:
+                lines.extend(f"- {name}: {desc}" for name, desc in skills.items())
+            else:
+                lines.append("(no skills available)")
+        except Exception as e:
+            logger.debug(f"[CONTEXT] Capability catalog: skills failed: {e}")
+
+        lines.append("</capability_catalog>")
+        return "\n".join(lines)
+
     def create_system_base_instruction(self) -> str:
         """Create a system message of instruction."""
         return "Please assist the user using the context given in the conversation or event stream."
@@ -270,34 +308,26 @@ class ContextEngine:
     def get_event_stream(self, session_id: Optional[str] = None) -> str:
         """Get the event stream content for inclusion in user prompts.
 
+        Sessions are fully isolated: the prompt contains ONLY this session's
+        stream. There is no cross-session conversation history — long-term
+        memory (injected as relevant_memories events) is the only bridge
+        between sessions.
+
         Args:
             session_id: Optional session ID for session-specific state lookup.
-                        If provided, reads DIRECTLY from EventStreamManager's task-specific stream.
-                        This is CRITICAL for concurrent task execution - reading from
-                        StateSession.event_stream would return a stale snapshot, not live events.
+                        If provided, reads DIRECTLY from EventStreamManager's
+                        per-session stream. Reading from StateSession.event_stream
+                        would return a stale snapshot, not live events.
 
         Returns:
-            Formatted string containing:
-            1. Conversation history (recent user/agent messages from before this task)
-            2. Current task's event stream (real-time events for this task)
+            Formatted <event_stream> block for this session.
         """
         sections = []
 
-        # Current date/time goes in this dynamic tail (NOT the cached system
-        # prefix) so the prompt prefix stays byte-stable for cache hits.
-        # sections.append(self.current_datetime_block())
-
-        # Get conversation history (recent messages from BEFORE this task)
-        # This provides context without injecting into the actual event stream
-        conversation_history = self._format_conversation_history()
-        if conversation_history:
-            sections.append(conversation_history)
-
-        # Get current task's event stream
+        # Get the session's event stream
         event_stream = None
 
-        # CRITICAL: Read directly from EventStreamManager's task-specific stream
-        # Do NOT use StateSession.event_stream - that's just a snapshot taken at session start
+        # CRITICAL: Read directly from EventStreamManager's per-session stream
         if session_id:
             try:
                 event_stream_manager = self.state_manager.event_stream_manager
@@ -323,53 +353,6 @@ class ContextEngine:
             sections.append("<event_stream>\n(no events yet)\n</event_stream>")
 
         return "\n\n".join(sections)
-
-    def _format_conversation_history(self, limit: int = 20) -> str:
-        """Format recent conversation messages for inclusion in prompts.
-
-        This retrieves messages from EventStreamManager's conversation history
-        (stored separately from event streams) and formats them as a preamble.
-        These are messages from BEFORE the current task was created.
-
-        Args:
-            limit: Maximum number of messages to include. Defaults to 20.
-
-        Returns:
-            Formatted conversation history section, or empty string if no history.
-        """
-        try:
-            event_stream_manager = self.state_manager.event_stream_manager
-            if not event_stream_manager:
-                return ""
-
-            recent_messages = event_stream_manager.get_recent_conversation_messages(
-                limit
-            )
-            if not recent_messages:
-                return ""
-
-            lines = [
-                "<conversation_history>",
-                "Recent conversation context (messages from before this task):",
-                "",
-            ]
-
-            for event in recent_messages:
-                # Format: [kind]: message
-                # kind already includes platform info (e.g., "user message from platform: Telegram")
-                lines.append(f"[{event.kind}]: {event.message}")
-
-            lines.append("")
-            lines.append(
-                "Note: This is historical context. The current task's events are in <event_stream> below."
-            )
-            lines.append("</conversation_history>")
-
-            return "\n".join(lines)
-
-        except Exception as e:
-            logger.warning(f"[CONTEXT] Failed to format conversation history: {e}")
-            return ""
 
     def get_event_stream_delta(
         self, call_type: str, session_id: Optional[str] = None
@@ -447,86 +430,76 @@ class ContextEngine:
         except Exception:
             pass
 
-    def get_task_state(self, session_id: Optional[str] = None) -> str:
-        """Get the current task state for inclusion in user prompts.
+    def get_session_state(self, session_id: Optional[str] = None) -> str:
+        """Get the current session's state block for inclusion in user prompts.
 
         Args:
             session_id: Optional session ID for session-specific state lookup.
-                        If provided, uses session-specific task.
                         Falls back to global state if session not found.
         """
         # Try session-specific state first
-        session = get_session_or_none(session_id)
-        if session and session.current_task:
-            current_task = session.current_task
+        state_session = get_session_or_none(session_id)
+        if state_session and state_session.current_session:
+            session = state_session.current_session
         else:
             # CRITICAL: Log warning when falling back to global state
             if session_id:
                 logger.warning(
-                    f"[CONTEXT_ENGINE] get_task_state: Session not found for session_id={session_id!r}, "
-                    f"falling back to global STATE. This may cause context leakage!"
+                    f"[CONTEXT_ENGINE] get_session_state: Session not found for "
+                    f"session_id={session_id!r}, falling back to global STATE. "
+                    f"This may cause context leakage!"
                 )
-            current_task = get_state().current_task
+            session = get_state().current_session
 
-        # Active Task ID lives in task_state (relocated from agent_state).
         if session:
-            task_id = session.get_agent_properties().get("current_task_id", "")
-        else:
-            task_id = get_state().get_agent_properties().get("current_task_id", "")
-
-        if current_task:
-            is_simple = getattr(current_task, "mode", "complex") == "simple"
-
-            if is_simple:
-                return (
-                    "<current_task>\n"
-                    f"Active Task ID: {task_id}\n"
-                    f"Task: {current_task.name} [SIMPLE MODE]\n"
-                    f"Instruction: {current_task.instruction}\n"
-                    "Mode: Simple task - execute directly, no todos required\n"
-                    "</current_task>"
-                )
-
             lines = [
-                "<current_task>",
-                f"Active Task ID: {task_id}",
-                f"Task: {current_task.name}",
-                f"Instruction: {current_task.instruction}",
-                "Mode: Complex task - use todos in event stream to track progress",
+                "<session>",
+                f"Session ID: {session.id}",
+                f"Session Type: {session.type}",
             ]
+            if session.title:
+                lines.append(f"Session Title: {session.title}")
+            if getattr(session, "living_ui_project_id", None):
+                lines.append(f"Living UI Project: {session.living_ui_project_id}")
+            lines.append(
+                f"Loaded Action Sets: {['core'] + list(session.action_sets)}"
+            )
+            if session.selected_skills:
+                lines.append(f"Loaded Skills: {list(session.selected_skills)}")
 
             skill_instructions = self.get_skill_instructions(session_id=session_id)
             if skill_instructions:
                 lines.append("")
                 lines.append(skill_instructions)
 
-            lines.append("</current_task>")
+            lines.append("</session>")
             return "\n".join(lines)
-        return "<current_task>\n(no active task)\n</current_task>"
+        return "<session>\n(session state unavailable)\n</session>"
 
     def get_skill_instructions(self, session_id: Optional[str] = None) -> str:
-        """Get instructions from skills selected for the current task.
+        """Get instructions from skills loaded into the session.
 
         Args:
             session_id: Optional session ID for session-specific state lookup.
         """
         # Try session-specific state first
-        session = get_session_or_none(session_id)
-        if session and session.current_task:
-            current_task = session.current_task
+        state_session = get_session_or_none(session_id)
+        if state_session and state_session.current_session:
+            session = state_session.current_session
         else:
             # CRITICAL: Log warning when falling back to global state
             if session_id:
                 logger.warning(
-                    f"[CONTEXT_ENGINE] get_skill_instructions: Session not found for session_id={session_id!r}, "
-                    f"falling back to global STATE. This may cause context leakage!"
+                    f"[CONTEXT_ENGINE] get_skill_instructions: Session not found for "
+                    f"session_id={session_id!r}, falling back to global STATE. "
+                    f"This may cause context leakage!"
                 )
-            current_task = get_state().current_task
+            session = get_state().current_session
 
-        if not current_task:
+        if not session:
             return ""
 
-        selected_skills = getattr(current_task, "selected_skills", [])
+        selected_skills = getattr(session, "selected_skills", [])
         if not selected_skills:
             return ""
 
@@ -540,7 +513,7 @@ class ContextEngine:
 
             return (
                 "<active_skills>\n"
-                "Follow these skill instructions for this task:\n\n"
+                "Follow these skill instructions for the current work:\n\n"
                 f"{instructions}\n"
                 "</active_skills>"
             )
@@ -615,6 +588,7 @@ class ContextEngine:
             "policy": True,
             "environment": True,
             "file_system": True,
+            "capability_catalog": True,
             "base_instruction": True,
         }
         user_default_flags = {
@@ -634,6 +608,7 @@ class ContextEngine:
             ("role_info", self.create_system_role_info),
             ("environment", self.create_system_environmental_context),
             ("file_system", self.create_system_file_system_context),
+            ("capability_catalog", self.create_system_capability_catalog),
             ("base_instruction", self.create_system_base_instruction),
         ]
 

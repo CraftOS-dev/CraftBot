@@ -122,7 +122,6 @@ class ScheduledTask:
     # Configuration
     enabled: bool = True
     priority: int = 50  # Trigger priority (lower = higher priority)
-    mode: str = "simple"  # Task mode: "simple" or "complex"
     recurring: bool = (
         True  # True for recurring tasks, False for one-time immediate tasks
     )
@@ -141,8 +140,6 @@ class ScheduledTask:
             raise ValueError("id is required")
         if not self.name:
             raise ValueError("name is required")
-        if self.mode not in ("simple", "complex"):
-            raise ValueError(f"mode must be 'simple' or 'complex', got {self.mode}")
 
     def to_dict(self, include_runtime: bool = False) -> Dict[str, Any]:
         """
@@ -158,7 +155,6 @@ class ScheduledTask:
             "schedule": self.schedule.raw_expression,  # Store raw expression for human readability
             "enabled": self.enabled,
             "priority": self.priority,
-            "mode": self.mode,
             "recurring": self.recurring,
             "action_sets": self.action_sets,
             "skills": self.skills,
@@ -197,7 +193,6 @@ class ScheduledTask:
             schedule=parsed_schedule,
             enabled=data.get("enabled", True),
             priority=data.get("priority", 50),
-            mode=data.get("mode", "simple"),
             recurring=data.get("recurring", True),
             action_sets=data.get("action_sets", []),
             skills=data.get("skills", []),

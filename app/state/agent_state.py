@@ -4,15 +4,20 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 from app.state.types import AgentProperties
-from app.task import Task
+from app.session import Session
 from agent_core.core.state.session import StateSession
 
 
 @dataclass
 class AgentState:
-    """Authoritative runtime state for the agent."""
+    """Process-global runtime state mirror.
 
-    current_task: Optional[Task] = None
+    Per-session state lives in StateSession (keyed by session id); this
+    global bag mirrors the most recent turn's context for legacy readers
+    and holds truly process-wide handles (event bus, main loop).
+    """
+
+    current_session: Optional[Session] = None
     event_stream: Optional[str] = None
     gui_mode: bool = False
     agent_properties: AgentProperties = AgentProperties(
@@ -28,8 +33,8 @@ class AgentState:
     # asyncio.run_coroutine_threadsafe. Typed Any to avoid importing asyncio.
     main_loop: Any = None
 
-    def update_current_task(self, new_task: Optional[Task]) -> None:
-        self.current_task = new_task
+    def update_current_session(self, new_session: Optional[Session]) -> None:
+        self.current_session = new_session
 
     def update_event_stream(self, new_event_stream: Optional[str]) -> None:
         self.event_stream = new_event_stream
@@ -40,18 +45,18 @@ class AgentState:
     def refresh(
         self,
         *,
-        current_task: Optional[Task] = None,
+        current_session: Optional[Session] = None,
         event_stream: Optional[str] = None,
         gui_mode: Optional[bool] = None,
     ) -> None:
         """Update only fields that changed."""
-        self.current_task = current_task
+        self.current_session = current_session
         self.event_stream = event_stream
-        self.gui_mode = gui_mode
+        self.gui_mode = bool(gui_mode)
 
     def set_agent_property(self, key, value):
         """
-        Sets a global agent property (not specific to any task).
+        Sets a global agent property (not specific to any session).
         """
         self.agent_properties.set_property(key, value)
 
@@ -73,15 +78,14 @@ STATE = AgentState()
 
 
 def get_session_props(session_id: Optional[str] = None) -> AgentProperties:
-    """Return the AgentProperties bag that owns per-task counters
-    (token_count, action_count) for the active task.
+    """Return the AgentProperties bag that owns per-run counters
+    (token_count, action_count) for a session.
 
     If `session_id` is given, returns that session's properties; otherwise
     uses STATE.agent_properties.current_task_id to find the active session.
-    Falls back to the global STATE.agent_properties when no session exists
-    (e.g. conversation mode or before a task is created).
+    Falls back to the global STATE.agent_properties when no session exists.
 
-    This is the single source of truth for per-task counters — the global
+    This is the single source of truth for per-run counters — the global
     STATE counters must not be used for limit checks or token attribution.
     """
     sid = session_id or STATE.agent_properties.get_property("current_task_id", "")

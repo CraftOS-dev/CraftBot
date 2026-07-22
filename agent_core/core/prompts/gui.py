@@ -30,7 +30,7 @@ Follow these instructions carefully:
 8. You MUST check if the previous reasoning and action works as intended or not and how it affects your current action.
 9. If an interaction based action is not working as intended, you should try to reason about the problem and adjust accordingly.
 10. Pay close attention to the current mode of the agent - CLI or GUI.
-11. If the current todo is complete, use 'task_update_todos' to mark it as completed.
+11. If the current todo is complete, use 'update_todos' to mark it as completed.
 12. If the result of the task has been achieved, you MUST use 'switch_mode' action to switch to CLI mode.
 </reasoning_protocol>
 
@@ -94,7 +94,7 @@ Follow these instructions carefully:
 8. You MUST check if the previous reasoning and action works as intended or not and how it affects your current action.
 9. If an interaction based action is not working as intended, you should try to reason about the problem and adjust accordingly.
 10. Pay close attention to the current mode of the agent - CLI or GUI.
-11. If the current todo is complete, use 'task_update_todos' to mark it as completed.
+11. If the current todo is complete, use 'update_todos' to mark it as completed.
 12. If the result of the task has been achieved, you MUST use 'switch_mode' action to switch to CLI mode.
 </reasoning_protocol>
 

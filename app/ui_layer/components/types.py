@@ -59,7 +59,7 @@ class ChatMessage:
         timestamp: Unix timestamp when the message was created
         message_id: Optional unique identifier for the message
         attachments: Optional list of file attachments
-        task_session_id: Optional task session ID for reply feature
+        session_id: The chat session this message belongs to ("main" default)
         options: Optional list of interactive options/buttons
         option_selected: Value of the option that was selected, if any
     """
@@ -70,7 +70,7 @@ class ChatMessage:
     timestamp: float = field(default_factory=time.time)
     message_id: Optional[str] = None
     attachments: Optional[List[Attachment]] = None
-    task_session_id: Optional[str] = None
+    session_id: str = "main"
     options: Optional[List[ChatMessageOption]] = None
     option_selected: Optional[str] = None
     # Client-generated UUID from the sender; echoed back so the browser can
@@ -78,53 +78,76 @@ class ChatMessage:
     client_id: Optional[str] = None
 
     def __post_init__(self) -> None:
-        """Generate message_id if not provided."""
+        """Generate message_id if not provided; normalize session id."""
         if self.message_id is None:
             self.message_id = f"{self.sender}:{self.timestamp}"
+        if not self.session_id:
+            self.session_id = "main"
+
+    def to_dict(self) -> dict:
+        """Serialize for the WS wire format. Always emits sessionId."""
+        data: dict = {
+            "sender": self.sender,
+            "content": self.content,
+            "style": self.style,
+            "timestamp": self.timestamp,
+            "messageId": self.message_id,
+            "sessionId": self.session_id,
+        }
+        if self.client_id:
+            data["clientId"] = self.client_id
+        if self.attachments:
+            data["attachments"] = [
+                {
+                    "name": att.name,
+                    "path": att.path,
+                    "type": att.type,
+                    "size": att.size,
+                    "url": att.url,
+                }
+                for att in self.attachments
+            ]
+        if self.options:
+            data["options"] = [
+                {"label": o.label, "value": o.value, "style": o.style}
+                for o in self.options
+            ]
+        if self.option_selected:
+            data["optionSelected"] = self.option_selected
+        return data
 
 
 @dataclass
 class ActionItem:
     """
-    Data structure for action panel item.
+    Data structure for an activity feed item.
 
-    Represents a task or action in the action panel.
+    Represents an action or reasoning entry rendered inline in a
+    session's chat (the per-session activity feed).
 
     Attributes:
         id: Unique identifier
         name: Display name
         status: Current status ("running", "completed", "error")
-        item_type: Either "task" or "action"
-        parent_id: Parent task ID (for actions under a task)
+        item_type: Either "action" or "reasoning"
+        session_id: The session whose stream produced this item
         created_at: Unix timestamp when created
         completed_at: Unix timestamp when completed/errored
         input_data: Input parameters/schema for the action
         output_data: Output/result of the action
         error_message: Error message if action failed
-        selected_skills: Skills attached to the task (task-level only)
-        workflow_id: Internal workflow this task belongs to (task-level only)
     """
 
     id: str
     name: str
     status: str  # "running", "completed", "error"
-    item_type: str  # "task" or "action"
-    parent_id: Optional[str] = None
+    item_type: str  # "action" or "reasoning"
+    session_id: str = "main"
     created_at: float = field(default_factory=time.time)
     completed_at: Optional[float] = None
     input_data: Optional[str] = None
     output_data: Optional[str] = None
     error_message: Optional[str] = None
-    selected_skills: List[str] = field(default_factory=list)
-    workflow_id: Optional[str] = None
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
-    cache_tokens: Optional[int] = None
-
-    @property
-    def is_task(self) -> bool:
-        """Check if this is a task."""
-        return self.item_type == "task"
 
     @property
     def is_action(self) -> bool:

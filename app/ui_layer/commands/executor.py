@@ -49,6 +49,7 @@ class CommandExecutor:
         self,
         message: str,
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> bool:
         """
         Try to execute a command from a message.
@@ -59,6 +60,7 @@ class CommandExecutor:
         Args:
             message: The user's input message
             adapter_id: ID of the adapter that sent the message
+            session_id: The session the command was typed in (main if None)
 
         Returns:
             True if a command was executed (even if it failed),
@@ -88,7 +90,7 @@ class CommandExecutor:
 
         # Execute the command
         try:
-            result = await command.execute(args, adapter_id)
+            result = await command.execute(args, adapter_id, session_id=session_id)
         except Exception as e:
             result = CommandResult(
                 success=False,

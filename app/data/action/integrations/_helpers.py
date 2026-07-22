@@ -104,11 +104,7 @@ def record_outgoing_message(platform_name: str, recipient: str, text: str) -> No
         sm = iai.InternalActionInterface.state_manager
         if sm:
             label = f"[Sent via {platform_name} to {recipient}]: {text}"
-            sm.event_stream_manager.record_conversation_message(
-                f"agent message to platform: {platform_name}",
-                label,
-            )
-            sm._append_to_conversation_history("agent", label)
+            sm.record_agent_message(label, platform=platform_name)
     except Exception:
         pass
 

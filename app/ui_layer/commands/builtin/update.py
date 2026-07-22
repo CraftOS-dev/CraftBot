@@ -42,6 +42,7 @@ dependencies, and restart CraftBot automatically."""
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         """Execute the update command."""
         from app.updater import check_for_update

@@ -21,9 +21,7 @@ from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from agent_core.core.prompts import (
     SELECT_ACTION_PROMPT,
-    SELECT_ACTION_IN_TASK_PROMPT,
     SELECT_ACTION_IN_GUI_PROMPT,
-    SELECT_ACTION_IN_SIMPLE_TASK_PROMPT,
     GUI_ACTION_SPACE_PROMPT,
 )
 from agent_core.utils.logger import logger
@@ -73,72 +71,58 @@ class ActionRouter:
         self.llm_interface = llm_interface
         self.context_engine = context_engine
 
+
     @profile("action_router_select_action", OperationCategory.ACTION_ROUTING)
-    async def select_action(
+    async def select_action_in_session(
         self,
         query: str,
-        action_type: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Default action selection function when not in a task.
+        The one action-selection call for a session turn.
         Supports parallel action selection - returns a list of actions.
-        For now, only choosing between chat, ignore or create and start task.
 
         Args:
-            query: User's request that should be satisfied by an action.
-            action_type: Optional type filter forwarded to the LLM.
+            query: The turn's instruction (the trigger description).
+            session_id: Session ID for session-specific state lookup.
 
         Returns:
-            List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
-            ``parameters``, and ``reasoning`` for execution.
+            List[Dict[str, Any]]: List of decision payloads, each with
+            ``action_name``, ``parameters``, and ``reasoning`` for execution.
 
         Raises:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
-        # Base conversation mode actions
-        base_actions = ["send_message", "task_start", "ignore"]
+        # Get compiled action list from the session's loaded action sets
+        compiled_actions = self._get_session_compiled_actions(session_id=session_id)
 
-        # Dynamically add messaging actions for connected platforms.
-        # Curation (which actions match which integration) lives in the host —
-        # the package only reports which platforms are currently connected.
-        try:
-            from app.data.action.integrations._routing import (
-                get_messaging_actions_for_connected,
-            )
+        # Use static compiled list - NO RAG SEARCH
+        action_candidates = self._build_candidates_from_compiled_list(
+            compiled_actions, GUI_mode=False, ignore_actions=None
+        )
+        logger.info(
+            f"ActionRouter using compiled action list: {len(action_candidates)} actions"
+        )
 
-            conversation_mode_actions = (
-                base_actions + get_messaging_actions_for_connected()
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] Could not discover messaging actions: {e}")
-            conversation_mode_actions = base_actions
-
-        action_candidates = []
-
-        for action in conversation_mode_actions:
-            act = self.action_library.retrieve_action(action_name=action)
-            if act:
-                action_candidates.append(
-                    {
-                        "name": act.name,
-                        "description": act.description,
-                        "type": act.action_type,
-                        "input_schema": act.input_schema,
-                        "output_schema": act.output_schema,
-                    }
-                )
+        # Build the instruction prompt for the LLM
+        session_state = self.context_engine.get_session_state(session_id=session_id)
+        event_stream_content = self.context_engine.get_event_stream(
+            session_id=session_id
+        )
 
         # Pull just-in-time guidance for any integrations the user named.
-        # No-ops to "" when nothing matches; never raises. See the helper
-        # in the host app — kept out of agent_core so the package stays
-        # integration-agnostic.
+        # Match against both the current turn's query and the session state so
+        # the platform name from the original user request still triggers a
+        # match even after the per-turn query is generic ("Perform the next
+        # best action...").
         try:
             from app.data.action.integrations._integration_essentials import (
                 get_essentials_for_message,
             )
 
-            # TODO: Is keyword based deterministic search good enough?
-            integration_essentials = get_essentials_for_message(query)
+            integration_essentials = get_essentials_for_message(
+                f"{query}\n{session_state}"
+            )
             logger.info(
                 f"[ACTION] integration essentials: "
                 f"{len(integration_essentials)} chars injected"
@@ -147,152 +131,16 @@ class ActionRouter:
             logger.debug(f"[ACTION] integration essentials lookup failed: {e}")
             integration_essentials = ""
 
-        # Build the instruction prompt for the LLM
-        full_prompt = SELECT_ACTION_PROMPT.format(
-            event_stream=self.context_engine.get_event_stream(),
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
-        )
-
-        max_format_retries = 3
-        current_prompt = full_prompt
-
-        for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(
-                current_prompt, is_task=False, prompt_name="SELECT_ACTION"
-            )
-
-            # Parse parallel action decisions with format error detection
-            actions, format_error = self._parse_parallel_action_decisions(decision)
-
-            if format_error:
-                # LLM returned wrong format - retry with feedback
-                logger.warning(
-                    f"[FORMAT ERROR] Conversation mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
-                )
-
-                if attempt < max_format_retries - 1:
-                    current_prompt = self._augment_prompt_with_format_error(
-                        full_prompt, attempt + 1, decision, format_error
-                    )
-                    continue
-                else:
-                    raise ValueError(
-                        f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
-                    )
-
-            if not actions:
-                # Empty action list (no format error) - return empty decision
-                return [
-                    {
-                        "action_name": "",
-                        "parameters": {},
-                        "reasoning": decision.get("reasoning", ""),
-                    }
-                ]
-
-            # Validate and filter parallel actions (GUI_mode=False for conversation)
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
-
-            if validated_actions:
-                action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(
-                    f"[PARALLEL] Conversation mode selected {len(validated_actions)} action(s): {action_names}"
-                )
-                return validated_actions
-
-            logger.warning(
-                f"No valid actions found during conversation selection attempt {attempt + 1}"
-            )
-
-        raise ValueError("Invalid selected action returned by LLM after retries.")
-
-    @profile("action_router_select_action_in_task", OperationCategory.ACTION_ROUTING)
-    async def select_action_in_task(
-        self,
-        query: str,
-        action_type: Optional[str] = None,
-        GUI_mode=False,
-        session_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        When a task is running, this action selection will be used.
-        Supports parallel action selection - returns a list of actions.
-
-        Args:
-            query: Task-level instruction for the next step.
-            action_type: Optional action type hint supplied to the LLM.
-            GUI_mode: Whether the user is interacting through a GUI.
-            session_id: Optional session ID for session-specific state lookup.
-
-        Returns:
-            List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
-            ``parameters``, and ``reasoning`` for execution.
-
-        Raises:
-            ValueError: If LLM returns invalid format 3 times consecutively.
-        """
-        action_candidates = []
-
-        # List of filtered actions
-        ignore_actions = ["ignore", "task_start"]
-
-        # Get compiled action list from task's action sets
-        compiled_actions = self._get_current_task_compiled_actions(
-            session_id=session_id
-        )
-
-        # Use static compiled list - NO RAG SEARCH
-        action_candidates = self._build_candidates_from_compiled_list(
-            compiled_actions, GUI_mode, ignore_actions
-        )
-        logger.info(
-            f"ActionRouter using compiled action list: {len(action_candidates)} actions"
-        )
-
-        # Build the instruction prompt for the LLM
-        task_state = self.context_engine.get_task_state(session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
-
-        # Pull integration essentials the same way conversation-mode does
-        # (see select_action). Without this, the task-mode LLM loses sight
-        # of integration-specific shortcuts (e.g. WhatsApp's `to: "user"`
-        # self-send) once the agent enters task mode and starts asking the
-        # user for info the integration could look up itself.
-        # Match against both the current step's query and the task state so
-        # the platform name from the original user request still triggers a
-        # match even after the per-step query is generic ("Perform the next
-        # best action...").
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
-            )
-
-            integration_essentials = get_essentials_for_message(
-                f"{query}\n{task_state}"
-            )
-            logger.info(
-                f"[ACTION] task-mode integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
-            integration_essentials = ""
-
-        decision_prompt_name = "SELECT_ACTION_IN_TASK"
-        static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            task_state=task_state,
+        decision_prompt_name = "SELECT_ACTION"
+        static_prompt = SELECT_ACTION_PROMPT.format(
+            session_state=session_state,
             event_stream="",  # Empty for static prompt
             query=query,
             action_candidates=self._format_candidates(action_candidates),
             integration_essentials=integration_essentials,
         )
-        full_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
-            task_state=task_state,
+        full_prompt = SELECT_ACTION_PROMPT.format(
+            session_state=session_state,
             event_stream=event_stream_content,
             query=query,
             action_candidates=self._format_candidates(action_candidates),
@@ -318,7 +166,7 @@ class ActionRouter:
             if format_error:
                 # LLM returned wrong format - retry with feedback
                 logger.warning(
-                    f"[FORMAT ERROR] Task mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
+                    f"[FORMAT ERROR] Attempt {attempt + 1}/{max_format_retries}: {format_error}"
                 )
 
                 if attempt < max_format_retries - 1:
@@ -329,7 +177,7 @@ class ActionRouter:
                 else:
                     raise ValueError(
                         f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
+                        f"Last error: {format_error}. Run aborted to prevent token waste."
                     )
 
             if not actions:
@@ -343,7 +191,7 @@ class ActionRouter:
                 ]
 
             # Validate and filter parallel actions
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode)
+            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
 
             if validated_actions:
                 action_names = [a.get("action_name") for a in validated_actions]
@@ -354,154 +202,6 @@ class ActionRouter:
 
             logger.warning(
                 f"No valid actions found during selection attempt {attempt + 1}"
-            )
-
-        raise ValueError("Invalid selected action returned by LLM after retries.")
-
-    @profile(
-        "action_router_select_action_in_simple_task", OperationCategory.ACTION_ROUTING
-    )
-    async def select_action_in_simple_task(
-        self,
-        query: str,
-        session_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Action selection for simple task mode - streamlined without todo workflow.
-        Supports parallel action selection - returns a list of actions.
-
-        Args:
-            query: Task-level instruction for the next step.
-            session_id: Optional session ID for session-specific state lookup.
-
-        Returns:
-            List[Dict[str, Any]]: List of decision payloads, each with ``action_name``,
-            ``parameters``, and ``reasoning`` for execution.
-
-        Raises:
-            ValueError: If LLM returns invalid format 3 times consecutively.
-        """
-        action_candidates = []
-
-        # Exclude todo management, ignore, and task_start for simple tasks
-        ignore_actions = ["ignore", "task_update_todos", "task_start"]
-
-        # Get compiled action list from task's action sets
-        compiled_actions = self._get_current_task_compiled_actions(
-            session_id=session_id
-        )
-
-        # Use static compiled list - NO RAG SEARCH
-        action_candidates = self._build_candidates_from_compiled_list(
-            compiled_actions, GUI_mode=False, ignore_actions=ignore_actions
-        )
-        logger.info(
-            f"ActionRouter (simple task) using compiled action list: {len(action_candidates)} actions"
-        )
-
-        # Build the instruction prompt
-        task_state = self.context_engine.get_task_state(session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
-
-        # Inject integration essentials so the simple-task LLM still sees
-        # integration-specific shortcuts (e.g. WhatsApp's `to: "user"`)
-        # even after the agent has left conversation mode. Match against
-        # the per-step query AND the task state so the original platform
-        # keyword still triggers a hit.
-        try:
-            from app.data.action.integrations._integration_essentials import (
-                get_essentials_for_message,
-            )
-
-            integration_essentials = get_essentials_for_message(
-                f"{query}\n{task_state}"
-            )
-            logger.info(
-                f"[ACTION] simple-task integration essentials: "
-                f"{len(integration_essentials)} chars injected"
-            )
-        except Exception as e:
-            logger.debug(f"[ACTION] simple-task essentials lookup failed: {e}")
-            integration_essentials = ""
-
-        decision_prompt_name = "SELECT_ACTION_IN_SIMPLE_TASK"
-        static_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            task_state=task_state,
-            event_stream="",  # Empty for static prompt
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
-        )
-        full_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            task_state=task_state,
-            event_stream=event_stream_content,
-            query=query,
-            action_candidates=self._format_candidates(action_candidates),
-            integration_essentials=integration_essentials,
-        )
-
-        max_format_retries = 3
-        current_prompt = full_prompt
-
-        for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(
-                current_prompt,
-                is_task=True,
-                static_prompt=static_prompt,
-                call_type=LLMCallType.ACTION_SELECTION,
-                session_id=session_id,
-                prompt_name=decision_prompt_name,
-            )
-
-            # Parse parallel action decisions with format error detection
-            actions, format_error = self._parse_parallel_action_decisions(decision)
-
-            if format_error:
-                # LLM returned wrong format - retry with feedback
-                logger.warning(
-                    f"[FORMAT ERROR] Simple task attempt {attempt + 1}/{max_format_retries}: {format_error}"
-                )
-
-                if attempt < max_format_retries - 1:
-                    # Augment prompt with format error feedback for retry
-                    current_prompt = self._augment_prompt_with_format_error(
-                        full_prompt, attempt + 1, decision, format_error
-                    )
-                    continue
-                else:
-                    # Max retries reached - abort
-                    raise ValueError(
-                        f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
-                    )
-
-            if not actions:
-                # Empty action list (no format error) - return empty decision
-                return [
-                    {
-                        "action_name": "",
-                        "parameters": {},
-                        "reasoning": decision.get("reasoning", ""),
-                    }
-                ]
-
-            # Validate and filter parallel actions
-            validated_actions = self._validate_parallel_actions(actions, GUI_mode=False)
-
-            if validated_actions:
-                action_names = [a.get("action_name") for a in validated_actions]
-                logger.info(
-                    f"[PARALLEL] Simple task selected {len(validated_actions)} action(s): {action_names}"
-                )
-                return validated_actions
-
-            # Actions parsed but not valid (action not found, etc.)
-            logger.warning(
-                f"No valid actions found during simple task selection attempt {attempt + 1}"
             )
 
         raise ValueError("Invalid selected action returned by LLM after retries.")
@@ -532,7 +232,7 @@ class ActionRouter:
         Raises:
             ValueError: If LLM returns invalid format 3 times consecutively.
         """
-        compiled_actions = self._get_current_task_compiled_actions(
+        compiled_actions = self._get_session_compiled_actions(
             session_id=session_id
         )
         logger.info(
@@ -540,20 +240,20 @@ class ActionRouter:
         )
 
         # Build the instruction prompt for the LLM
-        task_state = self.context_engine.get_task_state(session_id=session_id)
+        session_state = self.context_engine.get_session_state(session_id=session_id)
         event_stream_content = self.context_engine.get_event_stream(
             session_id=session_id
         )
         decision_prompt_name = "SELECT_ACTION_IN_GUI"
         static_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            task_state=task_state,
+            session_state=session_state,
             event_stream="",  # Empty for static prompt
             gui_action_space=GUI_ACTION_SPACE_PROMPT,
         )
         full_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            task_state=task_state,
+            session_state=session_state,
             event_stream=event_stream_content,
             gui_action_space=GUI_ACTION_SPACE_PROMPT,
         )
@@ -1214,40 +914,6 @@ class ActionRouter:
 
         dropped_actions = []
 
-        # A message that waits for a user reply keeps the task parked until the
-        # user responds — so ending the task in the same batch is contradictory.
-        # task_end tears down the session, which means the user's reply can never
-        # be routed back to the waiting task (it gets orphaned into a new session).
-        # Resolve the conflict in favour of waiting: drop task_end, keep the task
-        # alive. The agent should end the task only AFTER the user replies.
-        def _wants_reply(action_dict: Dict[str, Any]) -> bool:
-            v = (action_dict.get("parameters") or {}).get("wait_for_user_reply")
-            if isinstance(v, str):
-                return v.strip().lower() == "true"
-            return bool(v)
-
-        waits_for_reply = any(_wants_reply(a) for a in actions)
-        if waits_for_reply and any(a.get("action_name") == "task_end" for a in actions):
-            kept = []
-            for action_dict in actions:
-                if action_dict.get("action_name") == "task_end":
-                    dropped_action = action_dict.copy()
-                    dropped_action["_error"] = (
-                        "Action dropped: cannot end the task in the same step as a "
-                        "message with wait_for_user_reply=true. The task must stay "
-                        "active to receive the user's reply — call task_end only "
-                        "after the user has responded."
-                    )
-                    dropped_actions.append(dropped_action)
-                    logger.warning(
-                        "[PARALLEL] Dropping task_end paired with "
-                        "wait_for_user_reply=true — keeping task parked so the "
-                        "user's reply can be routed back to it."
-                    )
-                else:
-                    kept.append(action_dict)
-            actions = kept
-
         # Check for non-parallelizable actions by looking up each action's parallelizable attribute
         # If found, we need to keep the non-parallelizable action (not just the first action)
         non_parallel_action = None
@@ -1336,29 +1002,34 @@ class ActionRouter:
 
         return candidates
 
-    def _get_current_task_compiled_actions(
+    def _get_session_compiled_actions(
         self, session_id: Optional[str] = None
     ) -> List[str]:
         """
-        Get the compiled action list from the current task.
+        Get the compiled action list from a session.
 
         Args:
             session_id: Optional session ID for session-specific state lookup.
         """
         # Try session-specific state first
-        session = get_session_or_none(session_id)
-        if session and session.current_task:
-            task = session.current_task
+        state_session = get_session_or_none(session_id)
+        if state_session and state_session.current_session:
+            session = state_session.current_session
         else:
             # CRITICAL: Log warning when falling back to global state
-            # This could indicate a race condition in concurrent task execution
+            # This could indicate a race condition in concurrent execution
             if session_id:
                 logger.warning(
                     f"[ACTION_ROUTER] Session not found for session_id={session_id!r}, "
-                    f"falling back to global STATE. This may cause context leakage in concurrent tasks!"
+                    f"falling back to global STATE. This may cause context leakage "
+                    f"across concurrent sessions!"
                 )
-            task = get_state().current_task
+            session = get_state().current_session
 
-        if task and hasattr(task, "compiled_actions") and task.compiled_actions:
-            return task.compiled_actions
+        if (
+            session
+            and hasattr(session, "compiled_actions")
+            and session.compiled_actions
+        ):
+            return session.compiled_actions
         return []

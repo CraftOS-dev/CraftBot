@@ -23,10 +23,14 @@ from agent_core import action
             ],
             "description": "List of absolute paths to the files to attach. Use full absolute paths (e.g., C:/path/to/file.pdf or /home/user/file.pdf). All files must exist at their specified locations.",
         },
-        "wait_for_user_reply": {
+        "continue_work": {
             "type": "boolean",
             "example": False,
-            "description": "True if this action requires user's response to proceed. If set to true, phrase the message as a question so the user has something to reply to.",
+            "description": (
+                "False (default): this is your final message for now — the run ends and "
+                "the session waits for the user. True: this is a progress update and you "
+                "will keep working after sending it."
+            ),
         },
     },
     output_schema={
@@ -35,10 +39,10 @@ from agent_core import action
             "example": "ok",
             "description": "'ok' if all files sent successfully, 'error' if any files failed to send.",
         },
-        "fire_at_delay": {
-            "type": "number",
-            "example": 10800,
-            "description": "Delay in seconds before the next follow-up action should be scheduled. 10800 seconds (3 hours) if wait_for_user_reply is true, otherwise 0.",
+        "end_turn": {
+            "type": "boolean",
+            "example": True,
+            "description": "True when this message ends the current run.",
         },
         "files_sent": {
             "type": "integer",
@@ -54,16 +58,16 @@ from agent_core import action
     test_payload={
         "message": "Here are some test files.",
         "file_paths": ["C:/test/example1.txt", "C:/test/example2.txt"],
-        "wait_for_user_reply": False,
+        "continue_work": False,
         "simulated_mode": True,
     },
 )
 async def send_message_with_attachment(input_data: dict) -> dict:
     message = input_data["message"]
     file_paths = input_data.get("file_paths", [])
-    wait_for_user_reply = bool(input_data.get("wait_for_user_reply", False))
+    continue_work = bool(input_data.get("continue_work", False))
     simulated_mode = input_data.get("simulated_mode", False)
-    # Extract session_id injected by ActionManager for multi-task isolation
+    # Extract session_id injected by ActionManager for multi-session isolation
     session_id = input_data.get("_session_id")
 
     # Ensure file_paths is a list
@@ -83,8 +87,7 @@ async def send_message_with_attachment(input_data: dict) -> dict:
     if errors:
         return {
             "status": "error",
-            "fire_at_delay": 0,
-            "wait_for_user_reply": wait_for_user_reply,
+            "end_turn": False,
             "files_sent": 0,
             "errors": errors,
         }
@@ -93,8 +96,7 @@ async def send_message_with_attachment(input_data: dict) -> dict:
     if simulated_mode:
         return {
             "status": "success",
-            "fire_at_delay": 10800 if wait_for_user_reply else 0,
-            "wait_for_user_reply": wait_for_user_reply,
+            "end_turn": not continue_work,
             "files_sent": len(file_paths),
         }
 
@@ -105,7 +107,6 @@ async def send_message_with_attachment(input_data: dict) -> dict:
         message, file_paths, session_id=session_id
     )
 
-    fire_at_delay = 10800 if wait_for_user_reply else 0
     files_sent = result.get("files_sent", 0)
     errors = result.get("errors")
 
@@ -117,8 +118,7 @@ async def send_message_with_attachment(input_data: dict) -> dict:
 
     response = {
         "status": status,
-        "fire_at_delay": fire_at_delay,
-        "wait_for_user_reply": wait_for_user_reply,
+        "end_turn": not continue_work,
         "files_sent": files_sent,
     }
 

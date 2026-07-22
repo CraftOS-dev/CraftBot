@@ -2,8 +2,8 @@
 """
 app.usage.chat_storage
 
-SQLite-based storage for chat messages.
-Provides local persistence for chat history across agent restarts.
+SQLite-based storage for chat messages, keyed by session.
+Provides local persistence for every session's chat history across restarts.
 """
 
 from __future__ import annotations
@@ -15,11 +15,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agent_core.core.session import MAIN_SESSION_ID
+
 try:
     from app.logger import logger
 except Exception:
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+
+_ROW_COLUMNS = (
+    "message_id, sender, content, style, timestamp, attachments, "
+    "session_id, options, option_selected"
+)
 
 
 @dataclass
@@ -32,7 +40,7 @@ class StoredChatMessage:
     style: str
     timestamp: float
     attachments: Optional[List[Dict[str, Any]]] = None
-    task_session_id: Optional[str] = None
+    session_id: str = MAIN_SESSION_ID
     options: Optional[List[Dict[str, Any]]] = None
     option_selected: Optional[str] = None
 
@@ -44,11 +52,10 @@ class StoredChatMessage:
             "content": self.content,
             "style": self.style,
             "timestamp": self.timestamp,
+            "sessionId": self.session_id,
         }
         if self.attachments:
             result["attachments"] = self.attachments
-        if self.task_session_id:
-            result["taskSessionId"] = self.task_session_id
         if self.options:
             result["options"] = self.options
         if self.option_selected:
@@ -56,11 +63,25 @@ class StoredChatMessage:
         return result
 
 
+def _row_to_message(row) -> StoredChatMessage:
+    return StoredChatMessage(
+        message_id=row[0],
+        sender=row[1],
+        content=row[2],
+        style=row[3],
+        timestamp=row[4],
+        attachments=json.loads(row[5]) if row[5] else None,
+        session_id=row[6] or MAIN_SESSION_ID,
+        options=json.loads(row[7]) if row[7] else None,
+        option_selected=row[8],
+    )
+
+
 class ChatStorage:
     """
     SQLite-based storage for chat messages.
 
-    Provides local persistence for chat history.
+    Every message belongs to a session; reads are session-scoped.
     Messages are stored in a SQLite database in app/data/.usage.
     """
 
@@ -96,6 +117,9 @@ class ChatStorage:
                     style TEXT NOT NULL,
                     timestamp REAL NOT NULL,
                     attachments TEXT,
+                    session_id TEXT NOT NULL DEFAULT 'main',
+                    options TEXT,
+                    option_selected TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -110,27 +134,30 @@ class ChatStorage:
                 ON chat_messages(message_id)
             """)
 
-            # Migration: Add new columns if they don't exist
+            # Migration from the pre-session schema: rename task_session_id →
+            # session_id and map untagged rows to the main session.
             cursor.execute("PRAGMA table_info(chat_messages)")
             columns = [col[1] for col in cursor.fetchall()]
-            if "task_session_id" not in columns:
-                cursor.execute("""
-                    ALTER TABLE chat_messages
-                    ADD COLUMN task_session_id TEXT
-                """)
-                logger.info("[ChatStorage] Migrated: added task_session_id column")
+            if "session_id" not in columns:
+                cursor.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT 'main'"
+                )
+                if "task_session_id" in columns:
+                    cursor.execute(
+                        "UPDATE chat_messages SET session_id = COALESCE(task_session_id, 'main')"
+                    )
+                logger.info("[ChatStorage] Migrated: added session_id column")
             if "options" not in columns:
-                cursor.execute("""
-                    ALTER TABLE chat_messages
-                    ADD COLUMN options TEXT
-                """)
-                logger.info("[ChatStorage] Migrated: added options column")
+                cursor.execute("ALTER TABLE chat_messages ADD COLUMN options TEXT")
             if "option_selected" not in columns:
-                cursor.execute("""
-                    ALTER TABLE chat_messages
-                    ADD COLUMN option_selected TEXT
-                """)
-                logger.info("[ChatStorage] Migrated: added option_selected column")
+                cursor.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN option_selected TEXT"
+                )
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_session
+                ON chat_messages(session_id, timestamp)
+            """)
 
             conn.commit()
 
@@ -149,7 +176,7 @@ class ChatStorage:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO chat_messages
-                (message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected)
+                (message_id, sender, content, style, timestamp, attachments, session_id, options, option_selected)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
@@ -159,7 +186,7 @@ class ChatStorage:
                     message.style,
                     message.timestamp,
                     json.dumps(message.attachments) if message.attachments else None,
-                    message.task_session_id,
+                    message.session_id or MAIN_SESSION_ID,
                     json.dumps(message.options) if message.options else None,
                     message.option_selected,
                 ),
@@ -169,6 +196,7 @@ class ChatStorage:
 
     def get_messages(
         self,
+        session_id: Optional[str] = None,
         limit: int = 500,
         offset: int = 0,
     ) -> List[StoredChatMessage]:
@@ -176,6 +204,7 @@ class ChatStorage:
         Get chat messages ordered by timestamp.
 
         Args:
+            session_id: Restrict to one session (None = all sessions).
             limit: Maximum number of messages to return.
             offset: Number of messages to skip.
 
@@ -184,37 +213,37 @@ class ChatStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
-                FROM chat_messages
-                ORDER BY timestamp ASC
-                LIMIT ? OFFSET ?
-            """,
-                (limit, offset),
-            )
-            rows = cursor.fetchall()
-
-            return [
-                StoredChatMessage(
-                    message_id=row[0],
-                    sender=row[1],
-                    content=row[2],
-                    style=row[3],
-                    timestamp=row[4],
-                    attachments=json.loads(row[5]) if row[5] else None,
-                    task_session_id=row[6],
-                    options=json.loads(row[7]) if row[7] else None,
-                    option_selected=row[8],
+            if session_id:
+                cursor.execute(
+                    f"""
+                    SELECT {_ROW_COLUMNS}
+                    FROM chat_messages
+                    WHERE session_id = ?
+                    ORDER BY timestamp ASC
+                    LIMIT ? OFFSET ?
+                """,
+                    (session_id, limit, offset),
                 )
-                for row in rows
-            ]
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT {_ROW_COLUMNS}
+                    FROM chat_messages
+                    ORDER BY timestamp ASC
+                    LIMIT ? OFFSET ?
+                """,
+                    (limit, offset),
+                )
+            return [_row_to_message(row) for row in cursor.fetchall()]
 
-    def get_recent_messages(self, limit: int = 100) -> List[StoredChatMessage]:
+    def get_recent_messages(
+        self, session_id: Optional[str] = None, limit: int = 100
+    ) -> List[StoredChatMessage]:
         """
-        Get most recent messages.
+        Get most recent messages for a session.
 
         Args:
+            session_id: Restrict to one session (None = all sessions).
             limit: Maximum number of messages to return.
 
         Returns:
@@ -222,48 +251,54 @@ class ChatStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            # Get last N messages ordered by timestamp DESC, then reverse
-            cursor.execute(
-                """
-                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
-                FROM chat_messages
-                ORDER BY timestamp DESC
-                LIMIT ?
-            """,
-                (limit,),
-            )
-            rows = cursor.fetchall()
-
-            messages = [
-                StoredChatMessage(
-                    message_id=row[0],
-                    sender=row[1],
-                    content=row[2],
-                    style=row[3],
-                    timestamp=row[4],
-                    attachments=json.loads(row[5]) if row[5] else None,
-                    task_session_id=row[6],
-                    options=json.loads(row[7]) if row[7] else None,
-                    option_selected=row[8],
+            if session_id:
+                cursor.execute(
+                    f"""
+                    SELECT {_ROW_COLUMNS}
+                    FROM chat_messages
+                    WHERE session_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """,
+                    (session_id, limit),
                 )
-                for row in rows
-            ]
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT {_ROW_COLUMNS}
+                    FROM chat_messages
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """,
+                    (limit,),
+                )
+            messages = [_row_to_message(row) for row in cursor.fetchall()]
             # Reverse to get chronological order
             messages.reverse()
             return messages
 
-    def clear_messages(self) -> int:
+    def clear_messages(self, session_id: Optional[str] = None) -> int:
         """
-        Clear all messages.
+        Clear messages — one session's, or all when session_id is None.
 
         Returns:
             Number of messages deleted.
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM chat_messages")
-            count = cursor.fetchone()[0]
-            cursor.execute("DELETE FROM chat_messages")
+            if session_id:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?",
+                    (session_id,),
+                )
+                count = cursor.fetchone()[0]
+                cursor.execute(
+                    "DELETE FROM chat_messages WHERE session_id = ?", (session_id,)
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM chat_messages")
+                count = cursor.fetchone()[0]
+                cursor.execute("DELETE FROM chat_messages")
             conn.commit()
             return count
 
@@ -308,6 +343,7 @@ class ChatStorage:
     def get_messages_before(
         self,
         before_timestamp: float,
+        session_id: Optional[str] = None,
         limit: int = 50,
     ) -> List[StoredChatMessage]:
         """
@@ -315,6 +351,7 @@ class ChatStorage:
 
         Args:
             before_timestamp: Unix timestamp upper bound (exclusive).
+            session_id: Restrict to one session (None = all sessions).
             limit: Maximum number of messages to return.
 
         Returns:
@@ -322,40 +359,43 @@ class ChatStorage:
         """
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT message_id, sender, content, style, timestamp, attachments, task_session_id, options, option_selected
-                FROM chat_messages
-                WHERE timestamp < ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-            """,
-                (before_timestamp, limit),
-            )
-            rows = cursor.fetchall()
-
-            messages = [
-                StoredChatMessage(
-                    message_id=row[0],
-                    sender=row[1],
-                    content=row[2],
-                    style=row[3],
-                    timestamp=row[4],
-                    attachments=json.loads(row[5]) if row[5] else None,
-                    task_session_id=row[6],
-                    options=json.loads(row[7]) if row[7] else None,
-                    option_selected=row[8],
+            if session_id:
+                cursor.execute(
+                    f"""
+                    SELECT {_ROW_COLUMNS}
+                    FROM chat_messages
+                    WHERE timestamp < ? AND session_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """,
+                    (before_timestamp, session_id, limit),
                 )
-                for row in rows
-            ]
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT {_ROW_COLUMNS}
+                    FROM chat_messages
+                    WHERE timestamp < ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """,
+                    (before_timestamp, limit),
+                )
+            messages = [_row_to_message(row) for row in cursor.fetchall()]
             messages.reverse()  # Return in chronological order
             return messages
 
-    def get_message_count(self) -> int:
-        """Get total number of messages."""
+    def get_message_count(self, session_id: Optional[str] = None) -> int:
+        """Get total number of messages (optionally for one session)."""
         with sqlite3.connect(self._db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM chat_messages")
+            if session_id:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?",
+                    (session_id,),
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM chat_messages")
             return cursor.fetchone()[0]
 
     def get_stats(self) -> Dict[str, Any]:

@@ -2,7 +2,7 @@
 
 The browser adapter registers async callbacks at startup. Agent actions
 (running in the main loop) call the broadcast_living_ui_ready / _progress
-wrappers directly. TaskManager hooks (running on a worker thread pool) go
+wrappers directly. SessionManager hooks (running on a worker thread pool) go
 through make_todo_broadcast_hook, which schedules the async broadcast onto
 the main loop in a thread-safe way.
 """
@@ -105,13 +105,13 @@ async def broadcast_living_ui_created(project: Dict[str, Any]) -> bool:
 
 
 async def broadcast_living_ui_question(session_id: str, message: str) -> bool:
-    """Mirror an agent question (a send_message with wait_for_user_reply) onto the
-    Living UI creation screen, so the user can answer even with the chat closed.
+    """Mirror an agent's final question onto the Living UI creation screen,
+    so the user can answer even with the chat closed.
 
-    Resolves the *creating* project from the task/session id and no-ops if the
-    session isn't a Living UI creation task. The on-screen answer is posted back
-    through the normal chat reply path (target_session_id), which resumes the
-    waiting task — no separate resume mechanism is needed. Returns True if mirrored.
+    Resolves the *creating* project from the session id and no-ops if the
+    session isn't a Living UI project session. The on-screen answer is posted
+    back through the normal chat path into the same session, which wakes the
+    waiting run. Returns True if mirrored.
     """
     if not session_id or not _broadcast_question_callback:
         return False
@@ -119,7 +119,7 @@ async def broadcast_living_ui_question(session_id: str, message: str) -> bool:
     if not manager:
         return False
     try:
-        project = manager.get_project_by_task_id(session_id)
+        project = manager.get_project_by_session_id(session_id)
     except Exception:
         project = None
     if not project or getattr(project, "status", None) != "creating":
@@ -215,22 +215,22 @@ def dispatch_living_ui_data_changed(project_id: str) -> bool:
 
 
 def make_todo_broadcast_hook() -> Callable[[Any, List[Dict[str, Any]]], None]:
-    """Build a post-update-todos hook that broadcasts todos for Living UI tasks.
+    """Build a post-update-todos hook that broadcasts todos for Living UI sessions.
 
-    The returned callable matches TaskManager's PostUpdateTodosHook signature:
-        (active_task, updated_todos_as_dicts) -> None
+    The returned callable matches SessionManager's PostUpdateTodosHook signature:
+        (session, updated_todos_as_dicts) -> None
 
-    It filters non-Living-UI tasks by checking whether the task id maps to
-    a project, so registering it globally is safe.
+    It filters non-Living-UI sessions by checking whether the session id maps
+    to a project, so registering it globally is safe.
     """
 
-    def hook(task: Any, todos: List[Dict[str, Any]]) -> None:
+    def hook(session: Any, todos: List[Dict[str, Any]]) -> None:
         manager = get_living_ui_manager()
         if manager is None:
             return
-        project = manager.get_project_by_task_id(task.id)
+        project = manager.get_project_by_session_id(session.id)
         if project is None:
-            return  # non-Living-UI task — silently skip
+            return  # non-Living-UI session — silently skip
         logger.debug(
             f"[LIVING_UI] Broadcasting {len(todos)} todos to project {project.id}"
         )

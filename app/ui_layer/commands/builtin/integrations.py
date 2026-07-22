@@ -73,6 +73,7 @@ class IntegrationCommand(Command):
         self,
         args: List[str],
         adapter_id: str = "",
+        session_id: str | None = None,
     ) -> CommandResult:
         if get_metadata(self._integration_name) is None:
             return CommandResult(

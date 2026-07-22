@@ -13,11 +13,13 @@ import { register } from '../socket/messageRegistry'
 import { getSocketClient } from '../socket/socketInstance'
 
 // Local types — these aren't in src/types but the backend sends them.
+// Shape mirrors the agent's todo tool: content is the imperative label,
+// active_form the present-continuous label shown while in progress.
 export interface LivingUITodo {
   id: string
-  title: string
-  completed: boolean
-  assignee?: string
+  content?: string
+  active_form?: string
+  status: 'pending' | 'in_progress' | 'completed'
 }
 
 // A question the agent asked (send_message with wait_for_user_reply) mirrored

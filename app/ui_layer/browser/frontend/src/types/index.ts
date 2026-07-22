@@ -24,8 +24,8 @@ export interface ChatMessage {
   style: 'user' | 'agent' | 'system' | 'error' | 'info'
   timestamp: number
   messageId: string
+  sessionId: string
   attachments?: Attachment[]
-  taskSessionId?: string  // Links message to a task session for reply feature
   options?: ChatMessageOption[]
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
@@ -33,17 +33,33 @@ export interface ChatMessage {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Action/Task Types
+// Session Types
+// ─────────────────────────────────────────────────────────────────────
+
+export type SessionType = 'main' | 'chat' | 'living_ui'
+
+export interface SessionInfo {
+  id: string
+  type: SessionType
+  title: string
+  createdAt: string
+  lastActiveAt: string
+  livingUiProjectId?: string | null
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Activity Types (inline actions + reasoning in the session timeline)
 // ─────────────────────────────────────────────────────────────────────
 
 export type ActionStatus = 'running' | 'completed' | 'error' | 'pending' | 'cancelled' | 'waiting' | 'paused'
-export type ItemType = 'task' | 'action' | 'reasoning'
+export type ItemType = 'action' | 'reasoning'
 
 export interface ActionItem {
   id: string
   name: string
   status: ActionStatus
   itemType: ItemType
+  sessionId: string
   parentId?: string
   createdAt?: number
   completedAt?: number
@@ -76,13 +92,26 @@ export interface AgentStatus {
 
 export type WSMessageType =
   | 'init'
+  | 'message'
   | 'chat_message'
+  | 'chat_history'
   | 'chat_clear'
   | 'action_add'
   | 'action_update'
   | 'action_remove'
-  | 'action_clear'
+  // Sessions
+  | 'session_create'
+  | 'session_delete'
+  | 'session_rename'
+  | 'session_clear'
+  | 'session_list'
+  | 'session_created'
+  | 'session_updated'
+  | 'session_deleted'
+  | 'session_cleared'
+  | 'agent_state'
   | 'status_update'
+  | 'navigate'
   | 'footage_update'
   | 'footage_clear'
   | 'footage_visibility'
@@ -108,11 +137,8 @@ export type WSMessageType =
   | 'chat_attachment_upload'
   | 'open_file'
   | 'open_folder'
-  // Task control
-  | 'task_cancel'
-  | 'task_cancel_response'
-  // Skill creation from completed task
-  | 'create_skill_from_task'
+  // Skill creation from a session transcript
+  | 'create_skill_from_session'
   | 'skill_meta'
   // Option click (interactive buttons in chat)
   | 'option_click'
@@ -164,9 +190,9 @@ export interface InitialState {
   version?: string
   agentState: AgentState
   guiMode: boolean
-  currentTask: { id: string; name: string } | null
   messages: ChatMessage[]
   actions: ActionItem[]
+  sessions: SessionInfo[]
   status: string
   dashboardMetrics?: DashboardMetrics
   needsHardOnboarding?: boolean
@@ -555,21 +581,10 @@ export interface OpenFolderResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Task Control
-// ─────────────────────────────────────────────────────────────────────
-
-export interface TaskCancelResponse {
-  taskId: string
-  success: boolean
-  status?: 'cancelled' | 'error'
-  error?: string
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Navigation
 // ─────────────────────────────────────────────────────────────────────
 
-export type NavTab = 'chat' | 'tasks' | 'dashboard' | 'screen' | 'workspace' | 'settings' | 'living-ui'
+export type NavTab = 'chat' | 'dashboard' | 'screen' | 'workspace' | 'settings' | 'living-ui'
 
 // ─────────────────────────────────────────────────────────────────────
 // Onboarding Types
@@ -716,6 +731,8 @@ export interface LivingUIProject {
   description: string
   status: LivingUIStatus
   path: string
+  /** Chat session backing this project's chat panel. */
+  sessionId?: string
   port?: number
   url?: string
   createdAt: number

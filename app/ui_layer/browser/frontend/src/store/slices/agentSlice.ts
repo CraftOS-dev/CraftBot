@@ -12,7 +12,6 @@ interface AgentSliceState {
   profilePictureUrl: string
   profilePictureHasCustom: boolean
   status: AgentStatus
-  currentTask: { id: string; name: string } | null
   guiMode: boolean
   footageUrl: string | null
   skillMeta: SkillMeta
@@ -23,7 +22,6 @@ const initialState: AgentSliceState = {
   profilePictureUrl: '/api/agent-profile-picture',
   profilePictureHasCustom: false,
   status: { state: 'idle', message: 'Connecting...', loading: false },
-  currentTask: null,
   guiMode: false,
   footageUrl: null,
   skillMeta: {
@@ -43,9 +41,6 @@ const agentSlice = createSlice({
     },
     setStatusState(state, action: PayloadAction<AgentStatus['state']>) {
       state.status.state = action.payload
-    },
-    setCurrentTask(state, action: PayloadAction<{ id: string; name: string } | null>) {
-      state.currentTask = action.payload
     },
     setFootageUrl(state, action: PayloadAction<string | null>) {
       state.footageUrl = action.payload
@@ -69,7 +64,6 @@ const agentSlice = createSlice({
 export const {
   setStatus,
   setStatusState,
-  setCurrentTask,
   setFootageUrl,
   setGuiMode,
   setSkillMeta,
@@ -94,7 +88,14 @@ register('init', (data, dispatch) => {
   dispatch(setStatus({ message: d.status || 'Ready', loading: false }))
   dispatch(setStatusState(d.agentState || 'idle'))
   dispatch(setGuiMode(d.guiMode || false))
-  dispatch(setCurrentTask(d.currentTask || null))
+})
+
+register('agent_state', (data, dispatch) => {
+  const d = data as { state?: AgentStatus['state']; statusMessage?: string }
+  if (d.state) dispatch(setStatusState(d.state))
+  if (typeof d.statusMessage === 'string') {
+    dispatch(setStatus({ message: d.statusMessage, loading: d.state === 'working' || d.state === 'thinking' }))
+  }
 })
 
 register('status_update', (data, dispatch) => {

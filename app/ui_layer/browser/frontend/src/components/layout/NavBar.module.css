@@ -75,16 +75,23 @@
 
 .collapsed .label,
 .collapsed .livingUITabLabel,
-.collapsed .addLivingUILabel {
+.collapsed .groupEmpty {
   display: none;
 }
 
 .collapsed .navItem,
 .collapsed .livingUITab,
-.collapsed .addLivingUIButton {
+.collapsed .sessionRowButton,
+.collapsed .groupToggle {
   justify-content: center;
   gap: 0;
   padding: var(--space-2) 0;
+}
+
+.collapsed .sessionMenuButton,
+.collapsed .groupAddButton,
+.collapsed .groupChevron {
+  display: none;
 }
 
 .collapsed .navRight {
@@ -274,47 +281,6 @@
   white-space: nowrap;
 }
 
-/* Add Living UI button — subtle, looks like a muted nav item */
-.addLivingUIButton {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  flex-shrink: 0;
-  width: 100%;
-  text-align: left;
-}
-
-.addLivingUIButton:hover {
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-}
-
-.addLivingUIIcon {
-  flex-shrink: 0;
-  transition: transform 0.3s ease;
-}
-
-.addLivingUIButton:hover .addLivingUIIcon {
-  transform: rotate(20deg) scale(1.15);
-}
-
-.addLivingUILabel {
-  white-space: nowrap;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Spinner animation */
 .spinner {
   animation: spin 1s linear infinite;
@@ -327,4 +293,212 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Session rows (Main + chat sessions) and nav groups (Chats / Living UI)
+   ───────────────────────────────────────────────────────────────────── */
+
+.sessionRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+}
+
+/* Children of an expanded group render as an indented tree. */
+.sessionRowIndent {
+  padding-left: var(--space-5);
+}
+
+.sessionRowButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+
+.sessionRow:hover .sessionRowButton {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.sessionRowActive .sessionRowButton {
+  color: var(--text-primary);
+  background: var(--bg-selected);
+  font-weight: var(--font-semibold);
+}
+
+/* Hover "…" options button */
+.sessionMenuButton {
+  position: absolute;
+  right: var(--space-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.sessionRow:hover .sessionMenuButton {
+  opacity: 1;
+}
+
+.sessionMenuButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-selected);
+}
+
+/* Context menu dropdown */
+.sessionMenu {
+  position: absolute;
+  top: calc(100% - 2px);
+  right: var(--space-1);
+  z-index: 30;
+  min-width: 210px;
+  padding: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sessionMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sessionMenuItem:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.sessionMenuItemDanger:hover {
+  color: var(--color-error);
+}
+
+/* Inline rename input */
+.renameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 2px var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+/* Unread dot */
+.unreadDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-primary, #f04a00);
+}
+
+/* Group parent row: chevron toggle + inline "+" */
+.groupRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+}
+
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+
+.groupRow:hover .groupToggle {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.groupChevron {
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.groupChevronOpen {
+  transform: rotate(90deg);
+}
+
+.groupAddButton {
+  position: absolute;
+  right: var(--space-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.groupAddButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-selected);
+}
+
+.groupEmpty {
+  padding: var(--space-1) var(--space-3) var(--space-1) calc(var(--space-5) + var(--space-3));
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  user-select: none;
 }

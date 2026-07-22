@@ -170,7 +170,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
             if (finishedId) next.delete(finishedId)
             else next.clear()
             if (next.size === 0) {
-              const lastProjectId = pendingNavigationsRef.current.at(-1)
+              const lastProjectId = pendingNavigationsRef.current[pendingNavigationsRef.current.length - 1]
               pendingNavigationsRef.current = []
               if (lastProjectId && onInstalledRef.current) {
                 onInstalledRef.current(lastProjectId)

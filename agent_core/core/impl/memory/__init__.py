@@ -11,7 +11,6 @@ from agent_core.core.impl.memory.manager import (
     MemoryChunk,
     MemoryPointer,
     FileIndex,
-    create_memory_processing_task,
 )
 from agent_core.core.impl.memory.memory_file_watcher import MemoryFileWatcher
 
@@ -21,5 +20,4 @@ __all__ = [
     "MemoryPointer",
     "FileIndex",
     "MemoryFileWatcher",
-    "create_memory_processing_task",
 ]

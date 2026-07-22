@@ -35,8 +35,8 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from app.task.task_manager import TaskManager
-    from app.trigger import TriggerQueue
+    from app.session.session_manager import SessionManager
+    from app.triggers import TriggerService
 
 
 @dataclass
@@ -56,7 +56,9 @@ class LivingUIProject:
     features: List[str] = field(default_factory=list)
     theme: str = "system"
     error: Optional[str] = None
-    task_id: Optional[str] = None
+    # The project's dedicated agent session (persisted — every Living UI
+    # project owns one standalone session for its builds, fixes and chat).
+    session_id: Optional[str] = None
     auto_launch: bool = False  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
     project_type: str = "native"  # 'native' or 'external'
@@ -86,6 +88,7 @@ class LivingUIProject:
             "features": self.features,
             "theme": self.theme,
             "error": self.error,
+            "sessionId": self.session_id,
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
             "projectType": self.project_type,
@@ -113,10 +116,9 @@ class LivingUIManager:
         self._used_ports: set = set()
         self._projects_file = self.workspace_root / "living_ui_projects.json"
 
-        # Task and trigger management (set via bind_task_manager)
-        self._task_manager: Optional["TaskManager"] = None
-        self._trigger_queue: Optional["TriggerQueue"] = None
-        self._trigger_service = None  # Optional[TriggerService] — durable emit path
+        # Session and trigger management (set via bind_session_manager)
+        self._session_manager: Optional["SessionManager"] = None
+        self._trigger_service: Optional["TriggerService"] = None
 
         # Watchdog state
         self._watchdog_task: Optional[asyncio.Task] = None
@@ -129,25 +131,52 @@ class LivingUIManager:
         # Load existing projects
         self._load_projects()
 
-    def bind_task_manager(
+    def bind_session_manager(
         self,
-        task_manager: "TaskManager",
-        trigger_queue: "TriggerQueue",
-        trigger_service=None,
+        session_manager: "SessionManager",
+        trigger_service: "TriggerService",
     ) -> None:
         """
-        Bind the task manager and trigger queue for creating development tasks.
+        Bind the session manager and trigger service for driving project sessions.
 
         Args:
-            task_manager: TaskManager instance for creating tasks
-            trigger_queue: TriggerQueue instance for firing triggers
-            trigger_service: Optional TriggerService for durable emits
-                ; falls back to direct queue puts when None.
+            session_manager: SessionManager owning every project's session
+            trigger_service: TriggerService for durable emits into a session
         """
-        self._task_manager = task_manager
-        self._trigger_queue = trigger_queue
+        self._session_manager = session_manager
         self._trigger_service = trigger_service
-        logger.info("[LIVING_UI] Task manager and trigger queue bound")
+        logger.info("[LIVING_UI] Session manager and trigger service bound")
+
+    def ensure_project_session(self, project: "LivingUIProject"):
+        """Ensure the project's dedicated session exists and return it.
+
+        Creates the session on first use with the Living UI toolchain
+        preloaded (living-ui-creator skill + build action sets).
+        """
+        if not self._session_manager:
+            return None
+
+        session = (
+            self._session_manager.get(project.session_id)
+            if project.session_id
+            else None
+        )
+        if session:
+            return session
+
+        from agent_core.core.session import SessionType
+
+        session = self._session_manager.create_session(
+            session_type=SessionType.LIVING_UI,
+            title=project.name,
+            session_id=project.session_id or f"lui_{project.id}",
+            action_sets=["file_operations", "code_execution", "living_ui"],
+            selected_skills=["living-ui-creator"],
+            living_ui_project_id=project.id,
+        )
+        project.session_id = session.id
+        self._save_projects()
+        return session
 
     # ========================================================================
     # Watchdog - monitors running projects and restarts crashed processes
@@ -441,14 +470,12 @@ class LivingUIManager:
         project.backend_process = None
         self._save_projects()
 
-        # Create agent task to investigate and fix
-        if not self._task_manager or not self._trigger_queue:
+        # Wake the project's session to investigate and fix
+        if not self._session_manager or not self._trigger_service:
             logger.error(
-                "[LIVING_UI:WATCHDOG] Cannot escalate — task manager or trigger queue not bound"
+                "[LIVING_UI:WATCHDOG] Cannot escalate — session manager or trigger service not bound"
             )
             return
-
-        from app.trigger import Trigger
 
         task_instruction = f"""Fix a crashed Living UI application.
 
@@ -474,49 +501,29 @@ The backend is a FastAPI app at {project.path}/backend/main.py
 The frontend is a Vite+React app at {project.path}/frontend/"""
 
         try:
-            task_id = self._task_manager.create_task(
-                task_name=f"Fix crashed Living UI: {project.name}",
-                task_instruction=task_instruction,
-                mode="complex",
-                action_sets=["file_operations", "code_execution", "living_ui", "core"],
-                selected_skills=["living-ui-creator"],
+            session = self.ensure_project_session(project)
+            if not session:
+                logger.error("[LIVING_UI:WATCHDOG] Could not resolve project session")
+                return
+
+            from app.triggers import TriggerSource, TriggerSpec
+
+            await self._trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.LIVING_UI_CRASH_FIX,
+                    description=task_instruction,
+                    priority=30,  # Higher priority than normal creation runs
+                    session_id=session.id,
+                    payload={"project_id": project_id},
+                )
             )
 
-            if self._trigger_service is not None:
-                from app.triggers import TriggerSource, TriggerSpec
-
-                await self._trigger_service.emit(
-                    TriggerSpec(
-                        source=TriggerSource.LIVING_UI_CRASH_FIX,
-                        description=f"[Living UI] Fix crash: {project.name}",
-                        priority=30,  # Higher priority than normal creation tasks
-                        session_id=task_id,
-                        payload={
-                            "type": "living_ui_crash_fix",
-                            "project_id": project_id,
-                        },
-                    )
-                )
-            else:
-                trigger = Trigger(
-                    fire_at=time.time(),
-                    priority=30,  # Higher priority than normal creation tasks
-                    next_action_description=f"[Living UI] Fix crash: {project.name}",
-                    session_id=task_id,
-                    payload={
-                        "type": "living_ui_crash_fix",
-                        "project_id": project_id,
-                    },
-                )
-                await self._trigger_queue.put(trigger)
-
-            project.task_id = task_id
-            self._save_projects()
             logger.info(
-                f"[LIVING_UI:WATCHDOG] Created fix task {task_id} for {project.name} ({project_id})"
+                f"[LIVING_UI:WATCHDOG] Queued crash-fix run in session {session.id} "
+                f"for {project.name} ({project_id})"
             )
         except Exception as e:
-            logger.error(f"[LIVING_UI:WATCHDOG] Failed to create fix task: {e}")
+            logger.error(f"[LIVING_UI:WATCHDOG] Failed to queue crash-fix run: {e}")
 
     def _load_projects(self) -> None:
         """Load projects from persistent storage."""
@@ -539,6 +546,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             / 1000,
                             features=project_data.get("features", []),
                             theme=project_data.get("theme", "system"),
+                            session_id=project_data.get("sessionId"),
                             auto_launch=project_data.get("autoLaunch", False),
                             log_cleanup=project_data.get("logCleanup", True),
                             project_type=project_data.get("projectType", "native"),
@@ -2513,49 +2521,41 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 self.projects[project_id].error = error
             self._save_projects()
 
-    def set_project_task(self, project_id: str, task_id: str) -> None:
-        """Associate a task ID with a project."""
-        if project_id in self.projects:
-            self.projects[project_id].task_id = task_id
-
-    def get_project_by_task_id(self, task_id: str) -> Optional["LivingUIProject"]:
-        """Return the Living UI project linked to a given task_id, or None."""
-        if not task_id:
+    def get_project_by_session_id(
+        self, session_id: str
+    ) -> Optional["LivingUIProject"]:
+        """Return the Living UI project owning a given session_id, or None."""
+        if not session_id:
             return None
         for project in self.projects.values():
-            if project.task_id == task_id:
+            if project.session_id == session_id:
                 return project
         return None
 
-    async def create_development_task(self, project_id: str) -> Optional[str]:
+    async def start_development_run(self, project_id: str) -> Optional[str]:
         """
-        Create a task for the agent to develop a Living UI and fire the trigger.
+        Queue a build run in the project's session.
 
-        This creates the task and immediately fires a trigger to start execution.
-        The pattern follows how memory processing and scheduled tasks work.
+        Ensures the project's dedicated session exists (with the Living UI
+        toolchain preloaded) and fires a trigger carrying the full build
+        instruction.
 
         Args:
             project_id: The Living UI project ID to develop
 
         Returns:
-            The task ID if successful, None otherwise
+            The project's session ID if successful, None otherwise
         """
-        from app.trigger import Trigger
-
         project = self.projects.get(project_id)
         if not project:
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return None
 
-        if not self._task_manager:
-            logger.error("[LIVING_UI] Task manager not bound")
+        if not self._session_manager or not self._trigger_service:
+            logger.error("[LIVING_UI] Session manager or trigger service not bound")
             return None
 
-        if not self._trigger_queue:
-            logger.error("[LIVING_UI] Trigger queue not bound")
-            return None
-
-        # Build the task instruction
+        # Build the run instruction
         features_str = (
             ", ".join(project.features) if project.features else "None specified"
         )
@@ -2571,58 +2571,33 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         )
 
         try:
-            # Create the task (synchronous method)
-            # Include living_ui action set so agent can call living_ui_notify_ready
-            task_id = self._task_manager.create_task(
-                task_name=f"Create Living UI: {project.name}",
-                task_instruction=task_instruction,
-                mode="complex",
-                action_sets=["file_operations", "code_execution", "living_ui", "core"],
-                selected_skills=["living-ui-creator"],
-            )
-
-            # Associate task with project
-            self.set_project_task(project_id, task_id)
+            session = self.ensure_project_session(project)
+            if not session:
+                raise RuntimeError("could not create project session")
 
             # Update project status
             self.update_project_status(project_id, "creating")
 
-            # Create and fire the trigger to start execution
-            if self._trigger_service is not None:
-                from app.triggers import TriggerSource, TriggerSpec
+            from app.triggers import TriggerSource, TriggerSpec
 
-                await self._trigger_service.emit(
-                    TriggerSpec(
-                        source=TriggerSource.LIVING_UI_DEV,
-                        description=f"[Living UI] Create: {project.name}",
-                        priority=50,
-                        session_id=task_id,
-                        payload={
-                            "type": "living_ui_development",
-                            "project_id": project_id,
-                        },
-                    )
-                )
-            else:
-                trigger = Trigger(
-                    fire_at=time.time(),
+            await self._trigger_service.emit(
+                TriggerSpec(
+                    source=TriggerSource.LIVING_UI_DEV,
+                    description=task_instruction,
                     priority=50,
-                    next_action_description=f"[Living UI] Create: {project.name}",
-                    session_id=task_id,
-                    payload={
-                        "type": "living_ui_development",
-                        "project_id": project_id,
-                    },
+                    session_id=session.id,
+                    payload={"project_id": project_id},
                 )
-                await self._trigger_queue.put(trigger)
+            )
 
             logger.info(
-                f"[LIVING_UI] Created task {task_id} and fired trigger for project {project_id}"
+                f"[LIVING_UI] Queued build run in session {session.id} "
+                f"for project {project_id}"
             )
-            return task_id
+            return session.id
 
         except Exception as e:
-            logger.error(f"[LIVING_UI] Failed to create development task: {e}")
+            logger.error(f"[LIVING_UI] Failed to start development run: {e}")
             self.update_project_status(project_id, "error", str(e))
             return None
 
@@ -3031,11 +3006,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             app_runtime=app_runtime,
         )
 
-        # Preserve the task link from an adopted placeholder so todo/question
-        # broadcasts (keyed by task id) keep targeting this tab.
+        # Preserve the session link from an adopted placeholder so todo/question
+        # broadcasts (keyed by session id) keep targeting this tab.
         existing = self.projects.get(project_id)
-        if existing and existing.task_id:
-            project.task_id = existing.task_id
+        if existing and existing.session_id:
+            project.session_id = existing.session_id
         self.projects[project_id] = project
         self._save_projects()
 
@@ -3176,6 +3151,19 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 shutil.rmtree(project_path)
             except Exception as e:
                 logger.error(f"[LIVING_UI] Failed to delete project directory: {e}")
+
+        # Delete the project's dedicated session (triggers + streams + rows)
+        if project.session_id:
+            try:
+                if self._trigger_service:
+                    await self._trigger_service.cancel_sessions([project.session_id])
+                if self._session_manager:
+                    self._session_manager.delete_session(project.session_id)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI] Failed to delete project session "
+                    f"{project.session_id}: {e}"
+                )
 
         # Remove from registry
         del self.projects[project_id]
@@ -3352,11 +3340,11 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             app_runtime=app_runtime,
         )
 
-        # Preserve the task link from an adopted placeholder so todo/question
-        # broadcasts (keyed by task id) keep targeting this tab.
+        # Preserve the session link from an adopted placeholder so todo/question
+        # broadcasts (keyed by session id) keep targeting this tab.
         existing = self.projects.get(project_id)
-        if existing and existing.task_id:
-            project.task_id = existing.task_id
+        if existing and existing.session_id:
+            project.session_id = existing.session_id
         self.projects[project_id] = project
         self._save_projects()
 

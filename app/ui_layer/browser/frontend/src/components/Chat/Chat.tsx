@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
-import { Send, Paperclip, X, Loader2, File, AlertCircle, Reply, Mic, MicOff, ChevronDown, Sparkles } from 'lucide-react'
+import { Send, Paperclip, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
@@ -7,9 +7,18 @@ import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator, Attachme
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
+import { ReasoningBlock, ActionBlock } from '../activity/ActivityBlocks'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectPendingPrefill } from '../../store/selectors/chatInput'
 import { clearPendingPrefill } from '../../store/slices/chatInputSlice'
+import {
+  selectSessionMessages,
+  selectSessionHasMoreMessages,
+  selectSessionLoadingOlderMessages,
+  selectSessionOldestMessageTimestamp,
+} from '../../store/selectors/messages'
+import { selectSessionActivity } from '../../store/selectors/activity'
+import type { ActionItem, ChatMessage } from '../../types'
 import styles from './Chat.module.css'
 
 // Pending attachment type
@@ -24,13 +33,19 @@ interface PendingAttachment {
 }
 
 interface ChatProps {
-  /** Optional Living UI project ID — auto-included in messages sent from this chat */
-  livingUIId?: string
+  /** Session whose timeline this chat renders and whose id outgoing messages carry. */
+  sessionId: string
   /** Optional placeholder text for the input */
   placeholder?: string
   /** Optional empty state message */
   emptyMessage?: string
 }
+
+// One row of the linear session timeline: a chat message or an inline
+// activity item (action / reasoning block), merged by timestamp.
+type TimelineEntry =
+  | { kind: 'message'; ts: number; message: ChatMessage }
+  | { kind: 'activity'; ts: number; item: ActionItem }
 
 const MIC_LANGUAGES = [
   { code: 'en-US', label: 'EN', full: 'English' },
@@ -61,16 +76,16 @@ const formatFileSize = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-// Stable per-day key (local time) for grouping consecutive messages by date.
-const getDateKey = (timestamp: number): string => {
-  const d = new Date(timestamp * 1000)
+// Stable per-day key (local time) for grouping consecutive rows by date.
+const getDateKey = (tsMs: number): string => {
+  const d = new Date(tsMs)
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
 // Slack-style date divider label: "Today", "Yesterday", weekday for the
 // last week, otherwise a full localized date.
-const formatDateDivider = (timestamp: number): string => {
-  const date = new Date(timestamp * 1000)
+const formatDateDivider = (tsMs: number): string => {
+  const date = new Date(tsMs)
   const now = new Date()
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
@@ -82,55 +97,51 @@ const formatDateDivider = (timestamp: number): string => {
   yesterday.setDate(yesterday.getDate() - 1)
   if (sameDay(date, yesterday)) return 'Yesterday'
 
-  const msPerDay = 1000 * 60 * 60 * 24
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const daysDiff = Math.round((startOfToday.getTime() - startOfDate.getTime()) / msPerDay)
-
-  if (daysDiff > 0 && daysDiff < 7) {
-    return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
-  }
   if (date.getFullYear() === now.getFullYear()) {
     return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
   }
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
+export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
   const {
-    messages,
-    actions,
     connected,
     sendMessage,
     sendCommand,
     sendOptionClick,
     openFile,
     openFolder,
-    lastSeenMessageId,
-    markMessagesAsSeen,
-    replyTarget,
-    setReplyTarget,
-    clearReplyTarget,
-    loadOlderMessages,
-    hasMoreMessages,
-    loadingOlderMessages,
+    lastSeenBySession,
+    markSessionSeen,
+    requestChatHistory,
     enhancedPrompt,
     enhancePrompt,
     clearEnhancedPrompt,
   } = useWebSocket()
 
-  const status = useDerivedAgentStatus({ actions, messages, connected })
+  const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
+  const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
+  const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
+  const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
+  const oldestMessageTimestamp = useAppSelector(state => selectSessionOldestMessageTimestamp(state, sessionId))
+
+  const status = useDerivedAgentStatus({ actions: activity, messages, connected })
   const { showToast } = useToast()
 
-  // Render messages in server-canonical timestamp order so that the order
-  // users see live matches the order they see after a refresh (where history
-  // is loaded sorted by timestamp). Pending bubbles use client time, so they
-  // land at the end; when the server echo arrives with its real timestamp,
-  // the item may shift a position or two — a CSS transform transition on the
-  // virtualized row animates that shift as a smooth slide.
-  const orderedMessages = useMemo(() => {
-    return messages.slice().sort((a, b) => a.timestamp - b.timestamp)
-  }, [messages])
+  // ONE linear timeline: chat messages + inline activity (reasoning blocks,
+  // action blocks) merged by timestamp. Message timestamps are epoch
+  // seconds; activity createdAt is epoch ms — normalize to ms.
+  const timeline = useMemo<TimelineEntry[]>(() => {
+    const entries: TimelineEntry[] = []
+    for (const message of messages) {
+      entries.push({ kind: 'message', ts: message.timestamp * 1000, message })
+    }
+    for (const item of activity) {
+      entries.push({ kind: 'activity', ts: item.createdAt ?? 0, item })
+    }
+    entries.sort((a, b) => a.ts - b.ts)
+    return entries
+  }, [messages, activity])
 
   const [input, setInput] = useState('')
   const [enhancing, setEnhancing] = useState(false)
@@ -140,6 +151,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<PendingAttachment | null>(null)
+  // Action blocks with their "More detail" section expanded.
+  const [expandedDetailIds, setExpandedDetailIds] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const autocompleteRef = useRef<SlashCommandAutocompleteHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -160,10 +173,19 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   const historyIndexRef = useRef(-1)
   const parentRef = useRef<HTMLDivElement>(null)
   const wasNearBottomRef = useRef(true)
-  const prevMessageCountRef = useRef(0)
+  const prevRowCountRef = useRef(0)
   const hasInitialScrolled = useRef(false)
   const prevScrollTopRef = useRef(0)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+
+  // Ticker so live durations on running action blocks keep updating.
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const hasRunning = activity.some(a => a.status === 'running' || a.status === 'waiting')
+    if (!hasRunning) return
+    const interval = setInterval(() => forceTick(t => t + 1), 100)
+    return () => clearInterval(interval)
+  }, [activity])
 
   const attachmentValidation = useMemo(() => {
     const totalSize = pendingAttachments.reduce((sum, att) => sum + att.size, 0)
@@ -178,19 +200,35 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
   }, [pendingAttachments])
 
   const virtualizer = useVirtualizer({
-    count: orderedMessages.length,
+    count: timeline.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 100,
     overscan: 5,
   })
 
+  // "First unread" divider: frozen on mount so it doesn't chase the user
+  // down the timeline as new messages arrive while they read.
+  const lastSeenMessageId = lastSeenBySession[sessionId] ?? null
+  const firstUnreadMessageIdRef = useRef<string | null | undefined>(undefined)
+  if (firstUnreadMessageIdRef.current === undefined && messages.length > 0) {
+    if (!lastSeenMessageId) {
+      firstUnreadMessageIdRef.current = null
+    } else {
+      const lastSeenIdx = messages.findIndex(m => m.messageId === lastSeenMessageId)
+      firstUnreadMessageIdRef.current =
+        lastSeenIdx === -1 || lastSeenIdx === messages.length - 1
+          ? null
+          : messages[lastSeenIdx + 1].messageId
+    }
+  }
+  const firstUnreadMessageId = firstUnreadMessageIdRef.current ?? null
+
   const getFirstUnreadIndex = useCallback(() => {
-    if (!lastSeenMessageId) return -1
-    const lastSeenIdx = orderedMessages.findIndex(m => m.messageId === lastSeenMessageId)
-    if (lastSeenIdx === -1) return 0
-    if (lastSeenIdx === orderedMessages.length - 1) return -1
-    return lastSeenIdx + 1
-  }, [orderedMessages, lastSeenMessageId])
+    if (!firstUnreadMessageId) return -1
+    return timeline.findIndex(
+      e => e.kind === 'message' && e.message.messageId === firstUnreadMessageId,
+    )
+  }, [timeline, firstUnreadMessageId])
 
   // Close language dropdown when clicking outside
   useEffect(() => {
@@ -230,26 +268,26 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         setShowScrollToBottom(false)
       }
 
-      if (scrollTop < 100 && hasMoreMessages && !loadingOlderMessages) {
-        loadOlderMessages()
+      if (scrollTop < 100 && hasMoreMessages && !loadingOlderMessages && oldestMessageTimestamp !== undefined) {
+        requestChatHistory(sessionId, oldestMessageTimestamp, 50)
       }
     }
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [hasMoreMessages, loadingOlderMessages, loadOlderMessages])
+  }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, requestChatHistory, sessionId])
 
   const scrollToBottom = useCallback(() => {
-    if (orderedMessages.length === 0) return
-    virtualizer.scrollToIndex(orderedMessages.length - 1, { align: 'end', behavior: 'smooth' })
+    if (timeline.length === 0) return
+    virtualizer.scrollToIndex(timeline.length - 1, { align: 'end', behavior: 'smooth' })
     setShowScrollToBottom(false)
-  }, [virtualizer, orderedMessages.length])
+  }, [virtualizer, timeline.length])
 
-  // Scroll to unread on mount, auto-scroll on new messages if near bottom
+  // Scroll to unread on mount, auto-scroll on new rows if near bottom
   useEffect(() => {
-    if (orderedMessages.length === 0) return
+    if (timeline.length === 0) return
 
-    const isNewMessage = orderedMessages.length > prevMessageCountRef.current
-    prevMessageCountRef.current = orderedMessages.length
+    const isNewRow = timeline.length > prevRowCountRef.current
+    prevRowCountRef.current = timeline.length
 
     if (!hasInitialScrolled.current) {
       hasInitialScrolled.current = true
@@ -258,15 +296,15 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         if (firstUnreadIdx !== -1) {
           virtualizer.scrollToIndex(firstUnreadIdx, { align: 'start', behavior: 'auto' })
         } else {
-          virtualizer.scrollToIndex(orderedMessages.length - 1, { align: 'end', behavior: 'auto' })
+          virtualizer.scrollToIndex(timeline.length - 1, { align: 'end', behavior: 'auto' })
         }
-        markMessagesAsSeen()
+        markSessionSeen(sessionId)
       }, 50)
-    } else if (isNewMessage && wasNearBottomRef.current) {
-      virtualizer.scrollToIndex(orderedMessages.length - 1, { align: 'end', behavior: 'smooth' })
-      markMessagesAsSeen()
+    } else if (isNewRow && wasNearBottomRef.current) {
+      virtualizer.scrollToIndex(timeline.length - 1, { align: 'end', behavior: 'smooth' })
+      markSessionSeen(sessionId)
     }
-  }, [orderedMessages.length, virtualizer, getFirstUnreadIndex, markMessagesAsSeen])
+  }, [timeline.length, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId])
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = inputRef.current
@@ -324,22 +362,19 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     setEnhancing(true)
     enhancePrompt(input.trim())
   }, [input, enhancing, enhancePrompt])
-  useEffect(() => {
-    if (replyTarget) inputRef.current?.focus()
-  }, [replyTarget])
 
-  const handleChatReply = useCallback((
-    sessionId: string | undefined,
-    displayName: string,
-    fullContent: string
-  ) => {
-    setReplyTarget({
-      type: 'chat',
-      sessionId,
-      displayName,
-      originalContent: fullContent,
+  const toggleDetailExpansion = useCallback((id: string) => {
+    setExpandedDetailIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
     })
-  }, [setReplyTarget])
+  }, [])
+
+  const handleOptionClick = useCallback((value: string, messageId: string) => {
+    sendOptionClick(value, messageId, sessionId)
+  }, [sendOptionClick, sessionId])
 
   const toggleListening = useCallback(() => {
     if (isListening) {
@@ -362,7 +397,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     recognition.interimResults = true
     recognition.lang = micLang
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
       let finalTranscript = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
@@ -378,7 +414,8 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       }
     }
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onerror = (event: any) => {
       setIsListening(false)
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         alert('Microphone access denied. Please allow microphone permission in your browser settings.')
@@ -406,11 +443,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       }
       historyIndexRef.current = -1
 
-      const replyContext = replyTarget ? {
-        sessionId: replyTarget.sessionId,
-        originalMessage: replyTarget.originalContent,
-      } : undefined
-
       // Stop mic if still listening when message is sent
       if (isListening) {
         recognitionRef.current?.stop()
@@ -431,8 +463,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
         sendMessage(
           trimmed,
           pendingAttachments.length > 0 ? pendingAttachments : undefined,
-          replyContext,
-          livingUIId
+          sessionId,
         )
       }
       if (!connected) {
@@ -441,7 +472,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
       setInput('')
       setPendingAttachments([])
       setAttachmentError(null)
-      clearReplyTarget()
       if (inputRef.current) {
         inputRef.current.style.height = 'auto'
       }
@@ -665,7 +695,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
-          {orderedMessages.length === 0 ? (
+          {timeline.length === 0 ? (
             <div className={styles.emptyState}>
               <div className={styles.emptyIcon}>
                 <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
@@ -674,7 +704,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                 </svg>
               </div>
               <h3>{emptyMessage || 'Start a conversation'}</h3>
-              <p>{livingUIId ? 'Ask the agent about this UI' : 'Send a message to begin interacting with CraftBot'}</p>
+              <p>Send a message to begin interacting with CraftBot</p>
             </div>
           ) : (
             <div
@@ -690,15 +720,21 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                 </div>
               )}
               {virtualizer.getVirtualItems().map((virtualItem) => {
-                const message = orderedMessages[virtualItem.index]
-                const prev = virtualItem.index > 0 ? orderedMessages[virtualItem.index - 1] : null
-                const showDateDivider = !prev || getDateKey(prev.timestamp) !== getDateKey(message.timestamp)
+                const entry = timeline[virtualItem.index]
+                const prev = virtualItem.index > 0 ? timeline[virtualItem.index - 1] : null
+                const showDateDivider = !prev || getDateKey(prev.ts) !== getDateKey(entry.ts)
+                const showUnreadDivider =
+                  entry.kind === 'message' &&
+                  firstUnreadMessageId !== null &&
+                  entry.message.messageId === firstUnreadMessageId
                 // Prefer clientId as the React key so that when a pending optimistic
                 // message is reconciled with the server echo (messageId changes from
                 // `pending:<cid>` to the real id), React reuses the same DOM node —
                 // letting the CSS transform transition animate the slide into
                 // its server-canonical sorted position.
-                const rowKey = message.clientId || message.messageId || virtualItem.index
+                const rowKey = entry.kind === 'message'
+                  ? (entry.message.clientId || entry.message.messageId || virtualItem.index)
+                  : entry.item.id
                 return (
                   <div
                     key={rowKey}
@@ -714,26 +750,42 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
                     }}
                   >
                     {showDateDivider && (
-                      <div className={styles.dateDivider} role="separator" aria-label={formatDateDivider(message.timestamp)}>
+                      <div className={styles.dateDivider} role="separator" aria-label={formatDateDivider(entry.ts)}>
                         <span className={styles.dateDividerLine} />
-                        <span className={styles.dateDividerLabel}>{formatDateDivider(message.timestamp)}</span>
+                        <span className={styles.dateDividerLabel}>{formatDateDivider(entry.ts)}</span>
                         <span className={styles.dateDividerLine} />
                       </div>
                     )}
-                    <ChatMessageItem
-                      message={message}
-                      onOpenFile={openFile}
-                      onOpenFolder={openFolder}
-                      onReply={handleChatReply}
-                      onOptionClick={sendOptionClick}
-                    />
+                    {showUnreadDivider && (
+                      <div className={styles.unreadDivider} role="separator" aria-label="New messages">
+                        <span className={styles.unreadDividerLine} />
+                        <span className={styles.unreadDividerLabel}>New</span>
+                        <span className={styles.unreadDividerLine} />
+                      </div>
+                    )}
+                    {entry.kind === 'message' ? (
+                      <ChatMessageItem
+                        message={entry.message}
+                        onOpenFile={openFile}
+                        onOpenFolder={openFolder}
+                        onOptionClick={handleOptionClick}
+                      />
+                    ) : entry.item.itemType === 'reasoning' ? (
+                      <ReasoningBlock item={entry.item} />
+                    ) : (
+                      <ActionBlock
+                        item={entry.item}
+                        expanded={expandedDetailIds.has(entry.item.id)}
+                        onToggleDetail={() => toggleDetailExpansion(entry.item.id)}
+                      />
+                    )}
                   </div>
                 )
               })}
             </div>
           )}
         </div>
-        {showScrollToBottom && orderedMessages.length > 0 && (
+        {showScrollToBottom && timeline.length > 0 && (
           <button
             type="button"
             className={styles.scrollToBottomBtn}
@@ -745,13 +797,13 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
           </button>
         )}
       </div>
-      
+
       {/* Status bar */}
       <div className={styles.statusBar}>
         <StatusIndicator status={status.state} size="sm" variant="dot" />
         <span>{status.message}</span>
       </div>
-      
+
       {/* Input area */}
       <div className={styles.inputArea}>
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
@@ -816,16 +868,6 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
             </div>
           )}
 
-          {replyTarget && (
-            <div className={styles.replyBar}>
-              <Reply size={14} />
-              <span className={styles.replyText}>Replying to: <em>{replyTarget.displayName}</em></span>
-              <button className={styles.replyCancel} onClick={clearReplyTarget} title="Cancel reply">
-                <X size={14} />
-              </button>
-            </div>
-          )}
-
           {pendingAttachments.length > 0 && (
             <div className={styles.pendingAttachments}>
               {pendingAttachments.map((att, idx) => (
@@ -856,7 +898,7 @@ export function Chat({ livingUIId, placeholder, emptyMessage }: ChatProps) {
               ))}
             </div>
           )}
-          
+
           <SlashCommandAutocomplete
             ref={autocompleteRef}
             input={input}

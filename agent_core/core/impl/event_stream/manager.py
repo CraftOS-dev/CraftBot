@@ -2,8 +2,8 @@
 """
 core.impl.event_stream.manager
 
-Event stream manager that manages, stores, return concurrent event streams
-running under several active tasks.
+Event stream manager that owns one event stream per session (the main
+session included — it is just a session with the well-known id ``main``).
 
 Also handles file-based event logging to:
 - EVENT.md: Complete event history
@@ -14,12 +14,13 @@ Also handles file-based event logging to:
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Optional
 import threading
 
 from agent_core.core.impl.event_stream.event_stream import EventStream
-from agent_core.core.event_stream.event import Event, EventType
+from agent_core.core.event_stream.event import EventType
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
+from agent_core.core.session import MAIN_SESSION_ID
 from agent_core.utils.logger import logger
 from agent_core.utils.file_utils import rotate_md_file_if_needed
 from agent_core.core.state.base import get_state_or_none
@@ -36,9 +37,6 @@ def _is_memory_enabled() -> bool:
         return True  # Default to enabled if settings module not available
 
 
-# Task names that should not log to EVENT_UNPROCESSED.md (to prevent infinite loops)
-SKIP_UNPROCESSED_TASK_NAMES = {"Process Memory Events"}
-
 # Event types that should not be logged to EVENT_UNPROCESSED.md
 # These are routine events that the memory processor always discards anyway
 # Filtering them at write time saves processing and keeps the file smaller
@@ -53,9 +51,6 @@ SKIP_UNPROCESSED_EVENT_TYPES = {
     # Reasoning and observation
     "agent reasoning",
     "screen_description",
-    # Task lifecycle events
-    # "task_start",
-    # "task_end",
     "todos",
     "error",
     # System events
@@ -73,10 +68,11 @@ class EventStreamManager:
         on_stream_persist: Optional[Callable[[str, "EventStream"], None]] = None,
         on_stream_remove_persist: Optional[Callable[[str], None]] = None,
     ) -> None:
-        # Main stream for conversation mode (not task-specific)
-        self._main_stream: EventStream = EventStream(llm=llm, temp_dir=None)
-        # Per-task event streams, keyed by task_id
-        self._task_streams: Dict[str, EventStream] = {}
+        # Per-session event streams, keyed by session_id. The main session's
+        # stream always exists so early boot logging has a destination.
+        self._streams: Dict[str, EventStream] = {
+            MAIN_SESSION_ID: EventStream(llm=llm, temp_dir=None)
+        }
         self.llm = llm
 
         # File-based event logging
@@ -88,134 +84,103 @@ class EventStreamManager:
         self._on_stream_persist = on_stream_persist
         self._on_stream_remove_persist = on_stream_remove_persist
 
-        # Conversation history for context injection into tasks
-        # Stores recent user AND agent messages without affecting UI display
-        self._conversation_history: List[Event] = []
-        self._conversation_history_limit = 50  # Keep last 50 messages
-
     # ───────────────────────────── lifecycle ─────────────────────────────
 
     @property
     def event_stream(self) -> EventStream:
         """Current stream based on context. Backward-compatible property.
 
-        Returns the task stream if a task is active, otherwise the main stream.
-        Uses get_state_or_none() from StateRegistry for state access.
+        Returns the current turn's session stream if resolvable, otherwise
+        the main session's stream.
         """
         state = get_state_or_none()
         if state:
-            task_id = state.get_agent_property("current_task_id", "")
-            if task_id and task_id in self._task_streams:
-                return self._task_streams[task_id]
-        return self._main_stream
+            session_id = state.get_agent_property("current_task_id", "")
+            if session_id and session_id in self._streams:
+                return self._streams[session_id]
+        return self._streams[MAIN_SESSION_ID]
 
     def get_stream(self) -> EventStream:
-        """Return the event stream for this session."""
+        """Return the current turn's event stream."""
         return self.event_stream
 
     def get_main_stream(self) -> EventStream:
-        """Get the main event stream (conversation mode)."""
-        return self._main_stream
+        """Get the main session's event stream."""
+        return self._streams[MAIN_SESSION_ID]
 
-    def create_stream(self, task_id: str, temp_dir=None) -> EventStream:
-        """Create a new per-task event stream."""
+    def create_stream(self, session_id: str, temp_dir=None) -> EventStream:
+        """Create a session's event stream (idempotent: returns existing)."""
+        existing = self._streams.get(session_id)
+        if existing is not None:
+            if temp_dir is not None:
+                existing.temp_dir = temp_dir
+            return existing
         stream = EventStream(llm=self.llm, temp_dir=temp_dir)
-        self._task_streams[task_id] = stream
-        logger.debug(f"[EventStreamManager] Created stream for task {task_id}")
+        self._streams[session_id] = stream
+        logger.debug(f"[EventStreamManager] Created stream for session {session_id}")
         return stream
 
-    def remove_stream(self, task_id: str) -> None:
-        """Remove a task's event stream on task completion."""
-        removed = self._task_streams.pop(task_id, None)
+    def remove_stream(self, session_id: str) -> None:
+        """Remove a session's event stream on session deletion."""
+        if session_id == MAIN_SESSION_ID:
+            logger.warning(
+                "[EventStreamManager] Refusing to remove the main session's stream"
+            )
+            return
+        removed = self._streams.pop(session_id, None)
         if removed:
-            logger.debug(f"[EventStreamManager] Removed stream for task {task_id}")
+            logger.debug(
+                f"[EventStreamManager] Removed stream for session {session_id}"
+            )
 
-    def get_stream_by_id(self, task_id: str) -> EventStream:
-        """Explicit lookup by task_id (no session needed)."""
-        return self._task_streams.get(task_id, self._main_stream)
+    def get_stream_by_id(self, session_id: str) -> EventStream:
+        """Explicit lookup by session_id (falls back to the main stream)."""
+        return self._streams.get(session_id, self._streams[MAIN_SESSION_ID])
+
+    def has_stream(self, session_id: str) -> bool:
+        """Whether a dedicated stream exists for this session."""
+        return session_id in self._streams
 
     def snapshot_main(self, include_summary: bool = True) -> str:
-        """Snapshot the main event stream."""
-        return self._main_stream.to_prompt_snapshot(include_summary=include_summary)
+        """Snapshot the main session's event stream."""
+        return self.get_main_stream().to_prompt_snapshot(
+            include_summary=include_summary
+        )
 
-    def snapshot_by_id(self, task_id: str, include_summary: bool = True) -> str:
-        """Snapshot a specific task's stream (used before StateSession exists)."""
-        stream = self._task_streams.get(task_id, self._main_stream)
-        return stream.to_prompt_snapshot(include_summary=include_summary)
+    def snapshot_by_id(self, session_id: str, include_summary: bool = True) -> str:
+        """Snapshot a specific session's stream."""
+        return self.get_stream_by_id(session_id).to_prompt_snapshot(
+            include_summary=include_summary
+        )
 
     def get_all_streams(self) -> list[EventStream]:
-        """Get all event streams (main + all task streams).
-
-        Used by the UI to watch events from all concurrent tasks.
-
-        Returns:
-            List of all event streams, main stream first, then task streams.
-        """
-        return [self._main_stream] + list(self._task_streams.values())
+        """Get all event streams (used by the UI to watch every session)."""
+        return list(self._streams.values())
 
     def get_all_streams_with_ids(self) -> list[tuple[str, EventStream]]:
-        """Get all event streams with their task IDs.
+        """Get all event streams with their session IDs.
 
-        Used by the UI to watch events from all concurrent tasks and
-        correctly associate events with their source tasks.
+        Used by the UI to watch events from all sessions and associate
+        events with their source session.
 
         Returns:
-            List of (task_id, stream) tuples. Main stream uses empty string as ID.
+            List of (session_id, stream) tuples, main session first.
         """
-        result = [("", self._main_stream)]  # Main stream has no task_id
-        result.extend(self._task_streams.items())
+        result = [(MAIN_SESSION_ID, self._streams[MAIN_SESSION_ID])]
+        result.extend(
+            (sid, stream)
+            for sid, stream in self._streams.items()
+            if sid != MAIN_SESSION_ID
+        )
         return result
 
-    def record_conversation_message(
-        self, kind: str, message: str, display_message: Optional[str] = None
-    ) -> None:
-        """Record a conversation message for context injection into future tasks.
-
-        This stores messages in a separate in-memory list that does NOT affect
-        UI display. Used to track both user and agent messages for injecting
-        conversation history into new tasks.
-
-        Args:
-            kind: Event kind (e.g., "user message from platform: Telegram")
-            message: The message content
-            display_message: Optional display message
-        """
-        event = Event(
-            message=message,
-            kind=kind,
-            severity="INFO",
-            display_message=display_message,
-        )
-        self._conversation_history.append(event)
-
-        # Trim to limit
-        if len(self._conversation_history) > self._conversation_history_limit:
-            self._conversation_history = self._conversation_history[
-                -self._conversation_history_limit :
-            ]
-
-    def get_recent_conversation_messages(self, limit: int = 20) -> List[Event]:
-        """Retrieve recent conversation messages (user AND agent) for context injection.
-
-        Returns messages with their full kind labels including platform info
-        (e.g., "user message from platform: Telegram", "agent message to platform: Discord").
-
-        Args:
-            limit: Maximum number of messages to return. Defaults to 20.
-
-        Returns:
-            List of Event objects, oldest first (for correct injection order).
-        """
-        # Return last N messages from conversation history (oldest first)
-        return self._conversation_history[-limit:]
-
     def clear_all(self) -> None:
-        """Remove all event streams and conversation history."""
-        for stream in self._task_streams.values():
+        """Clear all session streams (main stays registered, emptied)."""
+        for stream in self._streams.values():
             stream.clear()
-        self._task_streams.clear()
-        self._main_stream.clear()
-        self._conversation_history.clear()
+        main = self._streams[MAIN_SESSION_ID]
+        self._streams.clear()
+        self._streams[MAIN_SESSION_ID] = main
 
     # ───────────────────────── file-based logging ─────────────────────────
 
@@ -223,7 +188,7 @@ class EventStreamManager:
         """
         Enable or disable logging to EVENT_UNPROCESSED.md.
 
-        Used during memory processing tasks to prevent infinite loops where
+        Used during memory-processing runs to prevent infinite loops where
         events generated during processing would be added to the unprocessed
         queue.
 
@@ -239,12 +204,6 @@ class EventStreamManager:
         """
         Check if logging to EVENT_UNPROCESSED.md should be skipped.
 
-        This uses both the explicit flag AND checks if the current task
-        is a memory processing task (by name). This provides a robust
-        fallback in case the flag isn't properly set.
-
-        Also checks if memory mode is disabled in settings.
-
         Returns:
             True if logging to EVENT_UNPROCESSED.md should be skipped.
         """
@@ -252,25 +211,8 @@ class EventStreamManager:
         if not _is_memory_enabled():
             return True
 
-        # Check explicit flag
-        if self._skip_unprocessed_logging:
-            return True
-
-        # Fallback: check current task name from state
-        try:
-            state = get_state_or_none()
-            if state:
-                current_task = state.current_task
-                if current_task and current_task.name in SKIP_UNPROCESSED_TASK_NAMES:
-                    logger.debug(
-                        f"[EventStreamManager] Skipping unprocessed logging for task: {current_task.name}"
-                    )
-                    return True
-        except Exception:
-            # If we can't check state, fall back to flag only
-            pass
-
-        return False
+        # Check explicit flag (set during memory-processing runs)
+        return self._skip_unprocessed_logging
 
     def _should_skip_event_type(self, kind: str) -> bool:
         """
@@ -295,15 +237,14 @@ class EventStreamManager:
         Events are written in the format: [YYYY/MM/DD HH:MM:SS] [kind]: message
 
         Args:
-            kind: Event category (e.g., "action", "trigger", "task")
+            kind: Event category (e.g., "action", "trigger")
             message: Event message content
         """
         if not self._agent_file_system_path:
             return
 
         # Format: [YYYY/MM/DD HH:MM:SS] [kind]: message — LOCAL time, matching
-        # state_manager's writes to the same files and the loguru log files
-        # (this line was the lone UTC writer, so entries used to mix clocks).
+        # the loguru log files.
         timestamp = datetime.now().astimezone().strftime("%Y/%m/%d %H:%M:%S")
         event_line = f"[{timestamp}] [{kind}]: {message}\n"
 
@@ -318,7 +259,7 @@ class EventStreamManager:
                 logger.warning(f"[EventStreamManager] Failed to write to EVENT.md: {e}")
 
             # Write to EVENT_UNPROCESSED.md unless:
-            # 1. Task-level skip is active (memory processing task)
+            # 1. Skip is active (memory-processing run)
             # 2. Event type is in the skip list (routine events)
             if not self._should_skip_unprocessed() and not self._should_skip_event_type(
                 kind
@@ -355,11 +296,7 @@ class EventStreamManager:
         task_id: str | None = None,
     ) -> int:
         """
-        Log directly to a session's event stream, creating it on demand.
-
-        The manager records debug breadcrumbs around stream creation to aid in
-        tracing concurrent tasks. Returned indices match those produced by
-        :meth:`EventStream.log` and can be used to correlate updates.
+        Log directly to a session's event stream.
 
         Args:
             kind: Event family such as ``"action_start"`` or ``"warn"``.
@@ -367,9 +304,10 @@ class EventStreamManager:
             severity: Importance level, defaulting to ``"INFO"``.
             display_message: Optional trimmed message for UI surfaces.
             action_name: Optional action label for file-based externalization.
-            task_id: Optional task ID to explicitly specify which stream to log to.
-                     If provided, bypasses global STATE lookup (prevents race conditions
-                     in concurrent task execution). If None, falls back to get_stream().
+            task_id: The session id whose stream receives the event. If None,
+                     falls back to the current turn's stream. (The parameter
+                     keeps its historical name because every producer in the
+                     codebase passes it as a keyword.)
 
         Returns:
             Index of the logged event within the target stream's tail.
@@ -377,24 +315,19 @@ class EventStreamManager:
         logger.debug(
             f"Process Started - Logging event to stream: [{severity}] {kind} - {message}"
         )
-        # Use explicit task_id if provided (for concurrent task isolation)
-        # Otherwise fall back to get_stream() which uses global STATE
-        # CRITICAL: Use `is not None` instead of `if task_id` to handle empty string correctly
-        if task_id is not None and task_id in self._task_streams:
-            stream = self._task_streams[task_id]
-        elif task_id is not None and task_id not in self._task_streams:
-            # Task ID provided but stream not found — fall back to the MAIN stream,
-            # not get_stream(). get_stream() resolves via global STATE.current_task_id
-            # which is the *currently running* task; that path leaks events from a
-            # parallel conversation reaction (e.g. third-party email notification in
-            # session 0489cf) into whatever task happens to be active (e.g. translate
-            # task 15a11d). Only warn if other streams exist (indicates a bug/race).
-            if self._task_streams:
-                logger.warning(
-                    f"[EVENT_STREAM] Task stream not found for task_id={task_id!r}, falling back to main stream. "
-                    f"Available streams: {list(self._task_streams.keys())}"
-                )
-            stream = self._main_stream
+        # Use explicit session id if provided (for cross-session isolation);
+        # otherwise fall back to the current turn's stream.
+        if task_id is not None and task_id in self._streams:
+            stream = self._streams[task_id]
+        elif task_id is not None:
+            # Session id provided but stream not found — fall back to the MAIN
+            # stream so no event is silently attributed to whatever session
+            # happens to be active.
+            logger.warning(
+                f"[EVENT_STREAM] Stream not found for session_id={task_id!r}, "
+                f"falling back to main stream."
+            )
+            stream = self._streams[MAIN_SESSION_ID]
         else:
             stream = self.get_stream()
         idx = stream.log(
@@ -418,7 +351,7 @@ class EventStreamManager:
         return idx
 
     def snapshot(self, include_summary: bool = True) -> str:
-        """Return a prompt snapshot of a specific session, or '(no events)' if not found."""
+        """Return a prompt snapshot of the current turn's stream."""
         stream = self.get_stream()
         if not stream:
             return "(no events)"

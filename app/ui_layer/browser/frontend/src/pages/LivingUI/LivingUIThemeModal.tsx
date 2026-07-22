@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { Modal, ModalBody } from '../../components/ui/Modal'
 import styles from './LivingUIPage.module.css'

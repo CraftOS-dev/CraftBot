@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from './Button'
 import { Modal, ModalBody, ModalFooter } from './Modal'
@@ -20,9 +20,9 @@ export const RESET_ITEMS: ResetItem[] = [
     description: 'Chat messages and the action log.',
   },
   {
-    id: 'tasks',
-    label: 'Tasks',
-    description: 'Current and past task history.',
+    id: 'sessions',
+    label: 'Chat sessions',
+    description: 'All chat sessions and their history.',
   },
   {
     id: 'memory',
