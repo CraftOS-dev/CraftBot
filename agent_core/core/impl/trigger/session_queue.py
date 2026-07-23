@@ -108,6 +108,35 @@ class SessionTriggerQueue:
                 else:
                     await self._cv.wait()
 
+    async def pop_due_batch(self, source: str) -> List[Trigger]:
+        """Pop ALL currently-due triggers with the given ``source``.
+
+        Non-blocking companion to get(): after the consumer claims one
+        trigger, it drains the same-source triggers that piled up while
+        the previous turn was running, so they can be aggregated into a
+        single turn instead of firing turn-after-turn. Triggers of other
+        sources (or not yet due) stay queued untouched.
+
+        Returns the drained triggers in (priority, fire_at, insertion)
+        order; empty when nothing matches.
+        """
+        async with self._cv:
+            if self._closed or not self._heap:
+                return []
+            now = time.time()
+            keep: List[tuple] = []
+            batch: List[tuple] = []
+            while self._heap:
+                entry = heapq.heappop(self._heap)
+                if entry[0] <= now and entry[2].source == source:
+                    batch.append(entry)
+                else:
+                    keep.append(entry)
+            for entry in keep:
+                heapq.heappush(self._heap, entry)
+            batch.sort(key=lambda e: (e[2].priority, e[0], e[1]))
+            return [entry[2] for entry in batch]
+
     async def close(self) -> List[Trigger]:
         """Close the queue (session deletion) and return discarded triggers.
 
