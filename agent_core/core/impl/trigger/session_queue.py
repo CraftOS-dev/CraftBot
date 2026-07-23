@@ -10,8 +10,10 @@ triggers share the session_id, and each one (a user message, a scheduled
 fire, a run continuation) is distinct work that must be delivered.
 
 Ordering: a trigger becomes eligible when its ``fire_at`` arrives; among
-eligible triggers the lowest ``priority`` number wins (user messages preempt
-run continuations), ties broken by ``fire_at`` then insertion order.
+eligible triggers ORDER IS THE ONLY RULE — earliest ``fire_at`` first, ties
+broken by insertion order. There is no priority: at claim time the consumer
+drains ALL due triggers (pop_due_batch) and aggregates them into one turn,
+so preemption between kinds is meaningless.
 """
 
 from __future__ import annotations
@@ -71,9 +73,9 @@ class SessionTriggerQueue:
     async def get(self) -> Trigger:
         """Wait for and return the next due trigger.
 
-        Among all currently-due triggers the lowest priority number wins,
-        so a user message (priority 3) preempts a queued continuation (5+)
-        even when the continuation became due first.
+        Pure arrival order: earliest ``fire_at`` first, ties broken by
+        insertion order. No priority — the consumer aggregates everything
+        that is due into one turn anyway (see pop_due_batch).
         """
         async with self._cv:
             while True:
@@ -81,16 +83,8 @@ class SessionTriggerQueue:
                     raise QueueClosed(self.session_id)
                 now = time.time()
 
-                # Collect all due triggers
-                due: List[tuple] = []
-                while self._heap and self._heap[0][0] <= now:
-                    due.append(heapq.heappop(self._heap))
-
-                if due:
-                    due.sort(key=lambda e: (e[2].priority, e[0], e[1]))
-                    fire_at, seq, trig = due.pop(0)
-                    for entry in due:
-                        heapq.heappush(self._heap, entry)
+                if self._heap and self._heap[0][0] <= now:
+                    _fire_at, _seq, trig = heapq.heappop(self._heap)
                     logger.info(
                         f"[TRIGGER FIRED] session={trig.session_id} | "
                         f"source={trig.source} | desc={trig.next_action_description[:120]}"
@@ -108,33 +102,25 @@ class SessionTriggerQueue:
                 else:
                     await self._cv.wait()
 
-    async def pop_due_batch(self, source: str) -> List[Trigger]:
-        """Pop ALL currently-due triggers with the given ``source``.
+    async def pop_due_batch(self) -> List[Trigger]:
+        """Pop ALL currently-due triggers, regardless of source.
 
         Non-blocking companion to get(): after the consumer claims one
-        trigger, it drains the same-source triggers that piled up while
-        the previous turn was running, so they can be aggregated into a
-        single turn instead of firing turn-after-turn. Triggers of other
-        sources (or not yet due) stay queued untouched.
+        trigger, it drains everything else that is already due (piled up
+        while the previous turn was running) so the whole batch is
+        aggregated into a single turn instead of firing turn-after-turn.
+        Not-yet-due triggers stay queued untouched.
 
-        Returns the drained triggers in (priority, fire_at, insertion)
-        order; empty when nothing matches.
+        Returns the drained triggers in (fire_at, insertion) order; empty
+        when nothing else is due.
         """
         async with self._cv:
             if self._closed or not self._heap:
                 return []
             now = time.time()
-            keep: List[tuple] = []
             batch: List[tuple] = []
-            while self._heap:
-                entry = heapq.heappop(self._heap)
-                if entry[0] <= now and entry[2].source == source:
-                    batch.append(entry)
-                else:
-                    keep.append(entry)
-            for entry in keep:
-                heapq.heappush(self._heap, entry)
-            batch.sort(key=lambda e: (e[2].priority, e[0], e[1]))
+            while self._heap and self._heap[0][0] <= now:
+                batch.append(heapq.heappop(self._heap))
             return [entry[2] for entry in batch]
 
     async def close(self) -> List[Trigger]:

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 from typing import Awaitable, Callable, Dict, Optional, TYPE_CHECKING
 
 from agent_core.core.trigger import Trigger
@@ -31,10 +32,20 @@ if TYPE_CHECKING:
     from app.triggers.service import TriggerService
 
 try:
-    from app.logger import logger
+    from app.logger import (
+        logger,
+        ensure_session_log_sink,
+        remove_session_log_sink,
+    )
 except Exception:
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    def ensure_session_log_sink(session_id: str) -> None:  # type: ignore[misc]
+        return None
+
+    def remove_session_log_sink(session_id: str) -> None:  # type: ignore[misc]
+        return None
 
 
 # How many session turns may run concurrently across all sessions. Serial
@@ -42,58 +53,65 @@ except Exception:
 # cross-session parallelism (LLM rate limits, local resource pressure).
 DEFAULT_MAX_CONCURRENT_TURNS = 3
 
-# Trigger sources that may be AGGREGATED into a single turn when several
-# are due at claim time. User messages that piled up while a run was busy
-# are one conversation, not N work items — firing a separate turn for each
-# makes the agent grind through redundant turns (and re-answer spam
-# one-by-one). Scheduler jobs, Living UI builds, continuations, and the
-# special workflows stay one-trigger-one-turn: each is a distinct unit of
-# work with its own semantics.
-AGGREGATABLE_SOURCES = frozenset({TriggerSource.USER_MESSAGE.value})
-
 ReactFn = Callable[[Trigger], Awaitable[None]]
 
 
 def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
-    """Fold queued same-source triggers into `base` for one aggregated turn.
+    """Fold ALL due triggers into `base` for one aggregated turn.
 
-    The merged description is ONE clean instruction: the raw user messages
-    as a numbered checklist plus an explicit rule for how corrections
-    interact — without it, the LLM reads a batch like "shanghai too /
-    londong / kuala lumpur / I mean london*" as the user changing their
-    mind and settling on the last item, dropping the rest (observed in
-    production). Payload user_message fields are joined; routing fields
-    (platform/contact/channel) take the most recent non-empty value;
-    workflow skill/action-set lists union.
+    No priority, no source filter: everything that is due when the loop
+    claims work becomes ONE turn, as a numbered checklist in arrival
+    order. User-message items show the raw message text (their deferred
+    stream-write entries are carried through so react() logs each one at
+    turn start); other sources show their description tagged with the
+    source name. The correction rule exists because the LLM otherwise
+    reads a batch like "shanghai too / londong / kuala lumpur / I mean
+    london*" as the user settling on the last item and drops the rest
+    (observed in production). Routing fields (platform/contact/channel)
+    take the most recent non-empty value; workflow skill/action-set
+    lists union.
     """
     group = [base] + extras
-    total = len(group)
 
-    # Prefer the raw message text (payload.user_message) for the checklist;
-    # fall back to the trigger description for triggers without one.
     items: list[str] = []
+    all_entries: list[dict] = []
+    user_texts: list[str] = []
     for t in group:
-        raw = ((t.payload or {}).get("user_message") or "").strip()
-        items.append(raw if raw else t.next_action_description)
+        p = t.payload or {}
+        entries = p.get("queued_user_messages")
+        if entries:
+            # Deferred user message(s): checklist shows the raw text.
+            for e in entries:
+                text = (e.get("display") or e.get("content") or "").strip()
+                items.append(f"[user message] {text}")
+                user_texts.append((e.get("content") or text).strip())
+            all_entries.extend(list(entries))
+        elif t.source == TriggerSource.USER_MESSAGE.value and p.get("user_message"):
+            # Pre-upgrade rehydrated user-message row.
+            raw = (p.get("user_message") or "").strip()
+            items.append(f"[user message] {raw}")
+            user_texts.append(raw)
+            all_entries.append(
+                {"label": "user message", "content": raw, "display": raw}
+            )
+        else:
+            items.append(f"[{t.source}] {t.next_action_description}")
 
+    total = len(items)
     numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(items, start=1))
     base.next_action_description = (
-        f"The user sent {total} messages while you were busy. Address EVERY "
-        f"message below. A later message supersedes an earlier one ONLY if it "
-        f"explicitly corrects or withdraws that specific message; otherwise "
-        f"each one is separate work (e.g. multiple items to look up).\n"
+        f"{total} triggers fired for this session and were aggregated into "
+        f"this ONE turn. Address EVERY item below, in order. A later user "
+        f"message supersedes an earlier one ONLY if it explicitly corrects "
+        f"or withdraws that specific message; otherwise each item is "
+        f"separate work.\n"
         f"{numbered}\n"
-        f"Before ending the run, verify each message above was handled or "
-        f"answered."
+        f"Before ending the run, verify each item above was handled."
     )
 
     base.payload = base.payload or {}
-    messages = [base.payload.get("user_message") or ""]
     for t in extras:
         p = t.payload or {}
-        m = p.get("user_message") or ""
-        if m:
-            messages.append(m)
         for key in ("platform", "contact_id", "channel_id"):
             if p.get(key):
                 base.payload[key] = p[key]
@@ -104,9 +122,10 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
             if incoming:
                 current = list(base.payload.get(list_key) or [])
                 base.payload[list_key] = list(dict.fromkeys(current + list(incoming)))
-    joined = "\n\n".join(m for m in messages if m)
-    if joined:
-        base.payload["user_message"] = joined
+    if user_texts:
+        base.payload["user_message"] = "\n\n".join(user_texts)
+    if all_entries:
+        base.payload["queued_user_messages"] = all_entries
     return base
 
 
@@ -197,6 +216,7 @@ class SessionRuntimeManager:
                 await loop_task
             except (asyncio.CancelledError, Exception):
                 pass
+        remove_session_log_sink(session_id)
 
     # ─────────────────────── Internals ───────────────────────────────────────
 
@@ -227,60 +247,74 @@ class SessionRuntimeManager:
         previous turn was running) are drained and merged into the SAME
         turn. All merged rows are claimed together and settle together.
         """
-        logger.info(f"[SessionRuntime] Loop started for session {session_id}")
-        while self._running:
-            try:
-                trig = await queue.get()
-            except QueueClosed:
-                break
-            except asyncio.CancelledError:
-                raise
+        # Give this session its own log folder/sink and tag every line emitted
+        # during its turns with the session id, so each session's logs land in
+        # logs/<run>/<session_id>/session.log.
+        ensure_session_log_sink(session_id)
+        _contextualize = getattr(logger, "contextualize", None)
+        session_ctx = (
+            _contextualize(session=session_id)
+            if _contextualize is not None
+            else nullcontext()
+        )
 
-            extras: list[Trigger] = []
-            if trig.source in AGGREGATABLE_SOURCES:
+        logger.info(f"[SessionRuntime] Loop started for session {session_id}")
+        with session_ctx:
+            while self._running:
                 try:
-                    extras = await queue.pop_due_batch(trig.source)
+                    trig = await queue.get()
+                except QueueClosed:
+                    break
+                except asyncio.CancelledError:
+                    raise
+
+                # Drain EVERYTHING else that is due — all sources — and
+                # aggregate the whole batch into this one turn.
+                extras: list[Trigger] = []
+                try:
+                    extras = await queue.pop_due_batch()
                 except Exception as e:
                     logger.warning(f"[SessionRuntime] Batch drain failed: {e}")
-            group = [trig] + extras
+                group = [trig] + extras
 
-            if self._service:
-                for t in group:
-                    self._service.claim(t)
+                if self._service:
+                    for t in group:
+                        self._service.claim(t)
 
-            if extras:
-                logger.info(
-                    f"[SessionRuntime] Aggregated {len(group)} queued "
-                    f"'{trig.source}' triggers into one turn for {session_id}"
-                )
-                trig = _merge_triggers(trig, extras)
+                if extras:
+                    logger.info(
+                        f"[SessionRuntime] Aggregated {len(group)} queued "
+                        f"trigger(s) ({', '.join(t.source for t in group)}) "
+                        f"into one turn for {session_id}"
+                    )
+                    trig = _merge_triggers(trig, extras)
 
-            try:
-                async with self._turn_semaphore:
-                    await self._react(trig)
-            except asyncio.CancelledError:
-                # Shutdown mid-turn: leave the rows CLAIMED — boot-time
-                # rehydration reclaims them (at-least-once delivery).
-                raise
-            except Exception as e:
-                logger.error(
-                    f"[SessionRuntime] Turn failed for {session_id}: {e}",
-                    exc_info=True,
-                )
+                try:
+                    async with self._turn_semaphore:
+                        await self._react(trig)
+                except asyncio.CancelledError:
+                    # Shutdown mid-turn: leave the rows CLAIMED — boot-time
+                    # rehydration reclaims them (at-least-once delivery).
+                    raise
+                except Exception as e:
+                    logger.error(
+                        f"[SessionRuntime] Turn failed for {session_id}: {e}",
+                        exc_info=True,
+                    )
+                    if self._service:
+                        for t in group:
+                            try:
+                                await self._service.nack(t, str(e))
+                            except Exception as nack_err:
+                                logger.error(
+                                    f"[SessionRuntime] nack failed: {nack_err}"
+                                )
+                    continue
+
                 if self._service:
                     for t in group:
                         try:
-                            await self._service.nack(t, str(e))
-                        except Exception as nack_err:
-                            logger.error(
-                                f"[SessionRuntime] nack failed: {nack_err}"
-                            )
-                continue
-
-            if self._service:
-                for t in group:
-                    try:
-                        await self._service.ack(t)
-                    except Exception as e:
-                        logger.warning(f"[SessionRuntime] ack failed: {e}")
+                            await self._service.ack(t)
+                        except Exception as e:
+                            logger.warning(f"[SessionRuntime] ack failed: {e}")
         logger.info(f"[SessionRuntime] Loop ended for session {session_id}")

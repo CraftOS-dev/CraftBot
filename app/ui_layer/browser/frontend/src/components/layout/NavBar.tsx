@@ -39,6 +39,48 @@ interface NavItem {
   path: string
 }
 
+// Sidebar title with a typewriter reveal: when the auto-title replaces the
+// "New chat" placeholder, the new name types in character by character with
+// a blinking caret. Manual renames and any other title change swap
+// instantly — the animation marks only the LLM-generated christening.
+function AnimatedSessionTitle({ title }: { title: string }) {
+  const [display, setDisplay] = useState(title)
+  const [typing, setTyping] = useState(false)
+  const prevRef = useRef(title)
+
+  useEffect(() => {
+    const prev = prevRef.current
+    prevRef.current = title
+    if (title === prev) return
+    if (prev.trim().toLowerCase() !== 'new chat') {
+      setDisplay(title)
+      return
+    }
+    setTyping(true)
+    setDisplay('')
+    let i = 0
+    const id = window.setInterval(() => {
+      i += 1
+      setDisplay(title.slice(0, i))
+      if (i >= title.length) {
+        window.clearInterval(id)
+        setTyping(false)
+      }
+    }, 40)
+    return () => {
+      window.clearInterval(id)
+      setTyping(false)
+    }
+  }, [title])
+
+  return (
+    <>
+      {display}
+      {typing && <span className={styles.titleCaret} aria-hidden="true" />}
+    </>
+  )
+}
+
 const utilityNavItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} />, path: '/dashboard' },
   { id: 'workspace', label: 'Workspace', icon: <FolderOpen size={16} />, path: '/workspace' },
@@ -368,7 +410,9 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <span className={styles.icon}>
                 {opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
               </span>
-              <span className={styles.label}>{opts.isMain ? 'Main' : session.title}</span>
+              <span className={styles.label}>
+                {opts.isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
+              </span>
               {hasUnread(session.id) && <span className={styles.unreadDot} aria-label="Unread messages" />}
             </button>
             <button
@@ -674,7 +718,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       {isMain ? <MessageSquare size={13} /> : <MessageCircle size={13} />}
                     </span>
                     <span className={styles.flyoutItemLabel}>
-                      {isMain ? 'Main' : session.title}
+                      {isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
                     </span>
                     {hasUnread(session.id) && (
                       <span className={styles.unreadDot} aria-label="Unread messages" />

@@ -197,9 +197,14 @@ def spawn_subagent(input_data: dict) -> dict:
     # sink (filtered on that tag) captures them into <run>/sub_<type>_<id>.log.
     short_id = sub.id[4:] if sub.id.startswith("sub_") else sub.id
     agent_tag = f"sub:{sub.agent_type}:{short_id}"
-    sink_id = add_subagent_log_sink(agent_tag)
+    # Nest the sub-agent's log file inside its parent session's folder and
+    # attribute its lines to that session (so all.log / the session's own log
+    # carry the right session tag). The per-agent sink filters on agent_tag,
+    # so the sub-agent's lines land in <run>/<session>/<tag>.log.
+    log_session = parent_task_id or "main"
+    sink_id = add_subagent_log_sink(agent_tag, log_session)
     try:
-        with logger.contextualize(agent=agent_tag):
+        with logger.contextualize(agent=agent_tag, session=log_session):
             try:
                 asyncio.run(runner.run_to_completion(sub))
             except Exception as e:

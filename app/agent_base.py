@@ -519,21 +519,55 @@ class AgentBase:
             # These run in the main session like any other turn, but a cheap
             # deterministic check first decides whether there is any work at
             # all (memory disabled, nothing due, ...). No LLM call on skip.
+            # NOTE: triggers can arrive AGGREGATED (all due triggers of a
+            # session merge into one turn), so a no-op workflow must never
+            # swallow a batch that also carries user messages — and a
+            # prepared workflow appends to the batch checklist instead of
+            # replacing it.
+            is_aggregated_batch = bool(
+                (trigger.payload or {}).get("queued_user_messages")
+            )
             if trigger.source == TriggerSource.MEMORY.value:
                 prepared = self._prepare_memory_run()
                 if prepared is None:
-                    return
-                trigger.next_action_description, workflow = prepared
-                trigger.payload.update(workflow)
+                    if not is_aggregated_batch:
+                        return
+                else:
+                    desc, workflow = prepared
+                    if is_aggregated_batch:
+                        trigger.next_action_description += (
+                            f"\n\nAlso part of this turn ({trigger.source}): {desc}"
+                        )
+                    else:
+                        trigger.next_action_description = desc
+                    trigger.payload.update(workflow)
             elif trigger.source in (
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
             ):
                 prepared = self._prepare_proactive_run(trigger)
                 if prepared is None:
-                    return
-                trigger.next_action_description, workflow = prepared
-                trigger.payload.update(workflow)
+                    if not is_aggregated_batch:
+                        return
+                else:
+                    desc, workflow = prepared
+                    if is_aggregated_batch:
+                        trigger.next_action_description += (
+                            f"\n\nAlso part of this turn ({trigger.source}): {desc}"
+                        )
+                    else:
+                        trigger.next_action_description = desc
+                    trigger.payload.update(workflow)
+
+            # ----- Deferred user-message stream write -----
+            # User messages enter the event stream HERE — at the start of
+            # their own turn — not at arrival. This keeps the stream
+            # chronologically honest: a message that arrived mid-run can
+            # never appear above the previous run's final reply (which made
+            # the next turn dismiss it as already-handled input). Called for
+            # every trigger: aggregated batches may carry user messages even
+            # when the base trigger is a different source.
+            self._log_deferred_user_messages(trigger, session_id)
 
             trigger_data = self._extract_trigger_data(trigger, session_id)
 
@@ -1059,26 +1093,37 @@ class AgentBase:
         except Exception as e:
             logger.warning(f"[SKILL_CREATOR] Skill reload failed: {e}")
 
-    async def _auto_title_session(self, session_id: str) -> None:
-        """Generate a short sidebar title for a chat session via the LLM."""
+    async def _auto_title_session(
+        self, session_id: str, first_request: Optional[str] = None
+    ) -> None:
+        """Generate a short sidebar title for a chat session via the LLM.
+
+        Titles are based on the USER'S FIRST REQUEST: the primary call site
+        passes it directly when the first message arrives (so the sidebar
+        updates while the run is still working). The run-end fallback call
+        passes nothing and falls back to the event-stream snapshot.
+        """
         session = self.session_manager.get(session_id)
         if not session:
             return
         try:
-            stream = self.event_stream_manager.get_stream_by_id(session_id)
-            if stream is None:
-                return
-            snapshot = stream.to_prompt_snapshot(include_summary=False)
-            if not snapshot or snapshot == "(no events)":
-                return
+            basis = (first_request or "").strip()
+            if not basis:
+                stream = self.event_stream_manager.get_stream_by_id(session_id)
+                if stream is None:
+                    return
+                snapshot = stream.to_prompt_snapshot(include_summary=False)
+                if not snapshot or snapshot == "(no events)":
+                    return
+                basis = snapshot[:4000]
             response = await self.llm.generate_response_async(
                 system_prompt=(
-                    "Generate a concise 2-5 word title for this conversation. "
-                    "Reply with ONLY the title as plain text — no quotes, no "
-                    "JSON, no punctuation at the end, same language as the "
-                    "conversation."
+                    "Generate a concise 2-5 word title for a conversation "
+                    "that starts with the user request below. Reply with "
+                    "ONLY the title as plain text — no quotes, no JSON, no "
+                    "punctuation at the end, same language as the request."
                 ),
-                user_prompt=snapshot[:4000],
+                user_prompt=basis[:2000],
             )
             title = self._sanitize_session_title(response)
             if title:
@@ -1430,6 +1475,54 @@ class AgentBase:
     # Message intake
     # =====================================
 
+    def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
+        """Write a user-message trigger's message(s) into the session stream.
+
+        Called by react() when the trigger is claimed, so each message lands
+        in the stream at the start of its OWN turn (aggregated batches log
+        every message, in order). Also runs the memory injection that used
+        to happen at arrival, so relevant memories still appear right after
+        the message(s) they relate to.
+        """
+        payload = trigger.payload or {}
+        entries = payload.get("queued_user_messages")
+        if not entries:
+            # Rehydrated pre-upgrade rows carry only user_message — but ONLY
+            # for genuine user-message triggers (continuations etc. may carry
+            # a user_message copy in their payload that was already logged).
+            if trigger.source != TriggerSource.USER_MESSAGE.value:
+                return
+            msg = payload.get("user_message") or ""
+            if not msg.strip():
+                return
+            entries = [{"label": "user message", "content": msg, "display": msg}]
+
+        for entry in entries:
+            content = (entry.get("content") or "").strip()
+            if not content:
+                continue
+            self.event_stream_manager.log(
+                entry.get("label") or "user message",
+                content,
+                event_type=EventType.USER_MESSAGE,
+                display_message=entry.get("display") or content,
+                platform=payload.get("platform") or None,
+                task_id=session_id,
+            )
+
+        try:
+            from agent_core.core.impl.memory.injector import inject_memory_event
+
+            query = "\n".join(
+                (e.get("display") or e.get("content") or "") for e in entries
+            ).strip()
+            if query:
+                inject_memory_event(query=query, session_id=session_id)
+        except Exception as e:
+            logger.debug(f"[MEMORY] Deferred injection failed: {e}")
+
+        self.state_manager.bump_event_stream()
+
     @staticmethod
     def _build_living_ui_note(living_ui_project_id: str) -> str:
         """Interaction-context note appended (stream-only) to user messages
@@ -1505,32 +1598,30 @@ class AgentBase:
                 if note:
                     stream_content = f"{chat_content}\n\n{note}"
 
-            # Record the user message on the session's own stream so the UI
-            # shows it immediately and the LLM sees it as part of the stream.
+            # DEFERRED stream write: the message is NOT logged to the
+            # session's event stream here. It rides in the trigger payload
+            # and is written by react() when ITS trigger is claimed — the
+            # start of its own turn. Logging at arrival put messages that
+            # landed mid-run ABOVE the running turn's final reply, so the
+            # next turn read them as old, already-handled input and ended
+            # silently ("shanghai" bug). Chat display is unaffected: the
+            # bubble comes from the UI event bus, and the stream's
+            # USER_MESSAGE echo is suppressed by EventTransformer anyway.
             event_label = (
                 f"user message from platform: {platform}"
                 if platform and platform.lower() != "craftbot interface"
                 else "user message"
             )
-            self.event_stream_manager.log(
-                event_label,
-                stream_content,
-                event_type=EventType.USER_MESSAGE,
-                display_message=chat_content,
-                platform=platform or None,
-                task_id=session_id,
-            )
-
-            # Inject relevant memories right after the user message so the
-            # LLM sees them in the same chronological stream.
-            from agent_core.core.impl.memory.injector import inject_memory_event
-
-            inject_memory_event(query=chat_content, session_id=session_id)
-            self.state_manager.bump_event_stream()
-
             trigger_payload = {
                 "platform": platform,
                 "user_message": stream_content,
+                "queued_user_messages": [
+                    {
+                        "label": event_label,
+                        "content": stream_content,
+                        "display": chat_content,
+                    }
+                ],
             }
             if payload.get("external_event"):
                 trigger_payload["is_self_message"] = payload.get(
@@ -1566,6 +1657,18 @@ class AgentBase:
                     payload=trigger_payload,
                 )
             )
+
+            # Auto-title fresh chat sessions from the user's FIRST request,
+            # fired immediately so the sidebar title types in while the run
+            # is still working (run-end keeps a snapshot-based fallback).
+            if (
+                session is not None
+                and session.type == SessionType.CHAT
+                and session.title in ("", "New chat")
+            ):
+                asyncio.create_task(
+                    self._auto_title_session(session_id, first_request=chat_content)
+                )
 
         except Exception as e:
             logger.error(f"Error handling incoming message: {e}", exc_info=True)

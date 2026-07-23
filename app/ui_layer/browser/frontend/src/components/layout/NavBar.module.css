@@ -654,3 +654,20 @@
   color: var(--text-muted);
   user-select: none;
 }
+
+/* Blinking caret shown while an auto-generated title "types" into the
+   sidebar, replacing the "New chat" placeholder. */
+.titleCaret {
+  display: inline-block;
+  width: 1px;
+  height: 0.9em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: var(--text-secondary);
+  animation: titleCaretBlink 700ms steps(1, end) infinite;
+}
+
+@keyframes titleCaretBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
