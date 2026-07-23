@@ -1,5 +1,5 @@
-import React, { memo, useState, useRef, useEffect } from 'react'
-import { Copy, Check } from 'lucide-react'
+import React, { memo, useState, useRef, useEffect, useMemo } from 'react'
+import { Copy, Check, Reply } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -10,6 +10,23 @@ interface ChatMessageProps {
   onOpenFile: (path: string) => void
   onOpenFolder: (path: string) => void
   onOptionClick?: (value: string, messageId: string) => void
+  /** Hover action on agent bubbles: quote this message in the next send. */
+  onReply?: (displayName: string, originalContent: string) => void
+}
+
+// Reply context marker appended by the backend to a replying user
+// message. The user bubble strips it and renders the quoted agent
+// message as a callout instead.
+const REPLY_MARKER = '[REPLYING TO PREVIOUS AGENT MESSAGE]:'
+
+function parseReplyContext(content: string): { userMessage: string; replyContext: string | null } {
+  const markerIndex = content.indexOf(REPLY_MARKER)
+  if (markerIndex === -1) {
+    return { userMessage: content, replyContext: null }
+  }
+  const userMessage = content.slice(0, markerIndex).trim()
+  const replyContext = content.slice(markerIndex + REPLY_MARKER.length).trim()
+  return { userMessage, replyContext }
 }
 
 export const ChatMessageItem = memo(function ChatMessageItem({
@@ -17,6 +34,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   onOpenFile,
   onOpenFolder,
   onOptionClick,
+  onReply,
 }: ChatMessageProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -34,9 +52,35 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 
   const canCopy = message.style === 'user' || message.style === 'agent'
 
+  // Reply is offered on agent bubbles, except ones presenting options
+  // that require an explicit choice via the option buttons.
+  const hasPendingOptions = !!(message.options && message.options.length > 0)
+  const canReply = message.style === 'agent' && !!onReply && !hasPendingOptions
+
+  // User messages that replied to an agent bubble carry the quoted
+  // original after REPLY_MARKER — split it out for the callout.
+  const { userMessage, replyContext } = useMemo(() => {
+    if (message.style === 'user') {
+      return parseReplyContext(message.content)
+    }
+    return { userMessage: message.content, replyContext: null }
+  }, [message.content, message.style])
+
+  const handleReply = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!canReply) return
+    const displayName = message.content.length > 50
+      ? message.content.slice(0, 50) + '...'
+      : message.content
+    onReply?.(displayName, message.content)
+  }
+
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
-    navigator.clipboard.writeText(message.content).catch(() => {})
+    // For user messages strip the [REPLYING TO ...] marker so the
+    // clipboard only contains what the user actually typed.
+    const text = message.style === 'user' ? userMessage : message.content
+    navigator.clipboard.writeText(text).catch(() => {})
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -52,8 +96,15 @@ export const ChatMessageItem = memo(function ChatMessageItem({
             {new Date(message.timestamp * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
           </span>
         </div>
+        {/* Reply context callout — the quoted agent message, shown above
+            the user's text when this message replied to a bubble. */}
+        {replyContext && (
+          <div className={styles.replyContextCallout}>
+            <MarkdownContent content={replyContext} />
+          </div>
+        )}
         <div className={styles.messageContent}>
-          <MarkdownContent content={message.content} />
+          <MarkdownContent content={userMessage} />
         </div>
         {message.options && message.options.length > 0 && (
           <div className={styles.messageOptions}>
@@ -87,16 +138,27 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         </div>
       )}
       {/* Action buttons - positioned outside the bubble (right for agent,
-          left for user). */}
-      {isHovered && canCopy && (
+          left for user). Stacked vertically when both reply + copy show. */}
+      {isHovered && (canReply || canCopy) && (
         <div className={styles.messageActionsOutside}>
-          <IconButton
-            icon={copied ? <Check size={14} /> : <Copy size={14} />}
-            variant="ghost"
-            size="sm"
-            onClick={handleCopy}
-            tooltip={copied ? 'Copied!' : 'Copy message'}
-          />
+          {canReply && (
+            <IconButton
+              icon={<Reply size={14} />}
+              variant="ghost"
+              size="sm"
+              onClick={handleReply}
+              tooltip="Reply to this message"
+            />
+          )}
+          {canCopy && (
+            <IconButton
+              icon={copied ? <Check size={14} /> : <Copy size={14} />}
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              tooltip={copied ? 'Copied!' : 'Copy message'}
+            />
+          )}
         </div>
       )}
     </div>

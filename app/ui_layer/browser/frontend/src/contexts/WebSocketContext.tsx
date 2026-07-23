@@ -162,7 +162,12 @@ interface WebSocketContextType extends WebSocketState {
   footageUrl: string | null
   skillMeta: SkillMeta
 
-  sendMessage: (content: string, attachments: PendingAttachment[] | undefined, sessionId: string) => void
+  sendMessage: (
+    content: string,
+    attachments: PendingAttachment[] | undefined,
+    sessionId: string,
+    replyContext?: { originalMessage: string },
+  ) => void
   sendCommand: (command: string) => void
   // Session management (sessions are created lazily by the backend on the
   // first message sent with sessionId "new" — there is no create sender)
@@ -361,6 +366,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     content: string,
     attachments: PendingAttachment[] | undefined,
     sessionId: string,
+    replyContext?: { originalMessage: string },
   ) => {
     const clientId = newClientId()
 
@@ -405,6 +411,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         ? { name: att.name, type: att.type, size: att.size, serverPath: att.serverPath }
         : { name: att.name, type: att.type, size: att.size, content: att.content }
       ),
+      replyContext: replyContext || null,
       clientId,
     }))
   }, [sendOrQueue, dispatch])

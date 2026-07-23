@@ -24,7 +24,7 @@ import uuid
 import venv
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from agent_core.utils.logger import logger
 
@@ -102,34 +102,6 @@ def _ensure_persistent_venv() -> Path:
             logger.warning(f"[VENV] Failed to install base packages: {e}")
 
     return python_bin
-
-
-# Optional GUI handler hook - set by agent at startup if GUI mode is needed
-_gui_execute_hook: Optional[Callable[[str, str, Dict, str], Dict]] = None
-
-
-def set_gui_execute_hook(hook: Callable[[str, str, Dict, str], Dict]) -> None:
-    """
-    Set the GUI execution hook for handling GUI mode actions.
-
-    Args:
-        hook: A callable that takes (target, action_code, input_data, mode)
-              and returns a result dict.
-
-    Example:
-        # CraftBot startup:
-        from app.gui.handler import GUIHandler
-        set_gui_execute_hook(
-            lambda target, code, data, mode: GUIHandler.execute_action(target, code, data, mode)
-        )
-    """
-    global _gui_execute_hook
-    _gui_execute_hook = hook
-
-
-def _get_gui_target() -> str:
-    """Get the GUI target container name. Override this if needed."""
-    return "gui_container"
 
 
 # ============================================
@@ -330,10 +302,6 @@ def _atomic_action_venv_process(
     stdout/stderr are suppressed at the OS level so that venv creation
     and other subprocess calls do not corrupt the parent's terminal.
     """
-    # GUI mode - delegate to GUI handler hook
-    if mode == "GUI" and _gui_execute_hook:
-        return _gui_execute_hook(_get_gui_target(), action_code, input_data, mode)
-
     # Suppress worker stdout/stderr to prevent terminal corruption
     saved_stdout, saved_stderr = _suppress_worker_stdio()
 
@@ -542,10 +510,6 @@ def _atomic_action_internal(
     Requirements are pre-installed at startup via install_all_action_requirements().
     """
     try:
-        # GUI mode - delegate to GUI handler hook
-        if mode == "GUI" and action_name != "switch to CLI mode" and _gui_execute_hook:
-            return _gui_execute_hook(_get_gui_target(), action_code, input_data, mode)
-
         import inspect
 
         local_ns = {
@@ -593,18 +557,6 @@ async def _atomic_action_internal_async(
     For sync functions, runs them in a thread pool to avoid blocking.
     """
     try:
-        # GUI mode - delegate to GUI handler hook (sync, run in executor)
-        if mode == "GUI" and action_name != "switch to CLI mode" and _gui_execute_hook:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                THREAD_POOL,
-                _gui_execute_hook,
-                _get_gui_target(),
-                action_code,
-                input_data,
-                mode,
-            )
-
         import inspect
 
         local_ns = {

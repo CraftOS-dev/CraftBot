@@ -19,11 +19,7 @@ from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
-from agent_core.core.prompts import (
-    SELECT_ACTION_PROMPT,
-    SELECT_ACTION_IN_GUI_PROMPT,
-    GUI_ACTION_SPACE_PROMPT,
-)
+from agent_core.core.prompts import SELECT_ACTION_PROMPT
 from agent_core.utils.logger import logger
 
 
@@ -202,108 +198,6 @@ class ActionRouter:
 
             logger.warning(
                 f"No valid actions found during selection attempt {attempt + 1}"
-            )
-
-        raise ValueError("Invalid selected action returned by LLM after retries.")
-
-    @profile("action_router_select_action_in_GUI", OperationCategory.ACTION_ROUTING)
-    async def select_action_in_GUI(
-        self,
-        query: str,
-        action_type: Optional[str] = None,
-        GUI_mode=False,
-        reasoning: str = "",
-        session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        GUI-specific action selection when a task is running.
-
-        Args:
-            query: Task-level instruction for the next step.
-            action_type: Optional action type hint supplied to the LLM.
-            GUI_mode: Whether the user is interacting through a GUI.
-            reasoning: Pre-computed reasoning from VLM/OmniParser about screen state.
-            session_id: Optional session ID for session-specific state lookup.
-
-        Returns:
-            Dict[str, Any]: Decision payload with ``action_name``, ``parameters``,
-            and ``element_to_find`` for execution.
-
-        Raises:
-            ValueError: If LLM returns invalid format 3 times consecutively.
-        """
-        compiled_actions = self._get_session_compiled_actions(
-            session_id=session_id
-        )
-        logger.info(
-            f"ActionRouter (GUI) using compact action space prompt with {len(compiled_actions)} actions"
-        )
-
-        # Build the instruction prompt for the LLM
-        session_state = self.context_engine.get_session_state(session_id=session_id)
-        event_stream_content = self.context_engine.get_event_stream(
-            session_id=session_id
-        )
-        decision_prompt_name = "SELECT_ACTION_IN_GUI"
-        static_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            session_state=session_state,
-            event_stream="",  # Empty for static prompt
-            gui_action_space=GUI_ACTION_SPACE_PROMPT,
-        )
-        full_prompt = SELECT_ACTION_IN_GUI_PROMPT.format(
-            agent_state=self.context_engine.get_agent_state(session_id=session_id),
-            session_state=session_state,
-            event_stream=event_stream_content,
-            gui_action_space=GUI_ACTION_SPACE_PROMPT,
-        )
-
-        max_format_retries = 3
-        current_prompt = full_prompt
-
-        for attempt in range(max_format_retries):
-            decision = await self._prompt_for_decision(
-                current_prompt,
-                is_task=True,
-                static_prompt=static_prompt,
-                call_type=LLMCallType.GUI_ACTION_SELECTION,
-                session_id=session_id,
-                prompt_name=decision_prompt_name,
-            )
-
-            # Check for GUI format errors
-            format_error = self._detect_gui_format_error(decision)
-            if format_error:
-                logger.warning(
-                    f"[FORMAT ERROR] GUI mode attempt {attempt + 1}/{max_format_retries}: {format_error}"
-                )
-
-                if attempt < max_format_retries - 1:
-                    current_prompt = self._augment_prompt_with_gui_format_error(
-                        full_prompt, attempt + 1, decision, format_error
-                    )
-                    continue
-                else:
-                    raise ValueError(
-                        f"LLM output format error after {max_format_retries} attempts. "
-                        f"Last error: {format_error}. Task aborted to prevent token waste."
-                    )
-
-            selected_action_name = decision.get("action_name", "")
-            if selected_action_name == "":
-                return decision
-
-            selected_action = self.action_library.retrieve_action(selected_action_name)
-            if selected_action is not None and _is_visible_in_mode(
-                selected_action, GUI_mode
-            ):
-                decision["parameters"] = self._ensure_parameters(
-                    decision.get("parameters")
-                )
-                return decision
-
-            logger.warning(
-                f"Received invalid action name '{selected_action_name}' during selection attempt {attempt + 1}"
             )
 
         raise ValueError("Invalid selected action returned by LLM after retries.")
@@ -640,87 +534,6 @@ class ActionRouter:
             f"      }}\n"
             f"    }}\n"
             f"  ]\n"
-            f"}}\n"
-            f"```\n\n"
-            f"⚠️ This is attempt {attempt} of 3. If you fail again, the task will be ABORTED.\n"
-            f"Return ONLY the corrected JSON object with the exact format shown above.\n"
-            f"{'=' * 60}\n"
-        )
-        return base_prompt + feedback_block
-
-    def _detect_gui_format_error(self, decision: Dict[str, Any]) -> Optional[str]:
-        """
-        Detect format errors specific to GUI mode responses.
-
-        GUI mode expects: {"action_name": "...", "parameters": {...}}
-
-        Returns:
-            Error message if format is wrong, None if format looks correct.
-        """
-        if decision is None:
-            return "Response is empty or null"
-
-        # Check for "response" key - LLM trying to respond conversationally
-        if "response" in decision and "action_name" not in decision:
-            return (
-                "WRONG FORMAT: You returned a 'response' key instead of the required GUI action format. "
-                "Do NOT respond conversationally. You MUST return a JSON with 'action_name' and 'parameters' fields. "
-                'Example: {"action_name": "send_message", "parameters": {"message": "..."}}'
-            )
-
-        # Check for "action" key instead of "action_name"
-        if "action" in decision and "action_name" not in decision:
-            action_value = decision.get("action", "")
-            return (
-                f"WRONG FORMAT: You used 'action' instead of 'action_name'. "
-                f'Correct your response to: {{"action_name": "{action_value}", "parameters": {{...}}}}'
-            )
-
-        # Check for "actions" array (non-GUI format used in GUI mode)
-        if "actions" in decision and "action_name" not in decision:
-            return (
-                "WRONG FORMAT: You used 'actions' array format, but GUI mode expects single action format. "
-                'Use: {"action_name": "...", "parameters": {...}} (without the actions array)'
-            )
-
-        # Check for "args" instead of "parameters"
-        if "args" in decision and "parameters" not in decision:
-            return (
-                "WRONG FORMAT: You used 'args' instead of 'parameters'. "
-                'Correct your response to: {"action_name": "...", "parameters": {...}}'
-            )
-
-        return None
-
-    def _augment_prompt_with_gui_format_error(
-        self,
-        base_prompt: str,
-        attempt: int,
-        decision: Dict[str, Any],
-        format_error: str,
-    ) -> str:
-        """
-        Augment GUI prompt with format error feedback.
-        """
-        try:
-            raw_response = json.dumps(decision, indent=2, ensure_ascii=False)
-        except Exception:
-            raw_response = str(decision)
-
-        feedback_block = (
-            f"\n\n{'=' * 60}\n"
-            f"⚠️ OUTPUT FORMAT ERROR (Attempt {attempt}/3)\n"
-            f"{'=' * 60}\n\n"
-            f"{format_error}\n\n"
-            f"YOUR INCORRECT RESPONSE:\n"
-            f"```json\n{raw_response}\n```\n\n"
-            f"CORRECT FORMAT REQUIRED (GUI mode - single action):\n"
-            f"```json\n"
-            f"{{\n"
-            f'  "action_name": "<action from action space>",\n'
-            f'  "parameters": {{\n'
-            f'    "<param_name>": <value>\n'
-            f"  }}\n"
             f"}}\n"
             f"```\n\n"
             f"⚠️ This is attempt {attempt} of 3. If you fail again, the task will be ABORTED.\n"

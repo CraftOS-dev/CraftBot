@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
-import { Send, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen } from 'lucide-react'
+import { Send, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
@@ -195,6 +195,13 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
   const [input, setInput] = useState('')
   const [enhancing, setEnhancing] = useState(false)
+  // Reply-to-bubble: set from an agent bubble's hover Reply action. The
+  // next send carries the quoted original so the event stream records
+  // which message the user replied to. No routing — session is explicit.
+  const [replyTarget, setReplyTarget] = useState<{
+    displayName: string
+    originalContent: string
+  } | null>(null)
   const dispatch = useAppDispatch()
   const pendingPrefill = useAppSelector(selectPendingPrefill)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
@@ -340,6 +347,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     if (!sessionResetPendingRef.current) return
     sessionResetPendingRef.current = false
     setInput('')
+    setReplyTarget(null)
     setPendingAttachments([])
     setAttachmentError(null)
     setIsDragOver(false)
@@ -618,6 +626,16 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     sendOptionClick(value, messageId, sessionId)
   }, [sendOptionClick, sessionId])
 
+  // Reply action from an agent bubble — arm the reply bar and focus the
+  // input so the user can type straight away.
+  const handleChatReply = useCallback((displayName: string, originalContent: string) => {
+    setReplyTarget({ displayName, originalContent })
+  }, [])
+
+  useEffect(() => {
+    if (replyTarget) inputRef.current?.focus()
+  }, [replyTarget])
+
   const toggleListening = useCallback(() => {
     if (isListening) {
       recognitionRef.current?.stop()
@@ -706,6 +724,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           trimmed,
           pendingAttachments.length > 0 ? pendingAttachments : undefined,
           sessionId,
+          replyTarget ? { originalMessage: replyTarget.originalContent } : undefined,
         )
       }
       if (!connected) {
@@ -714,6 +733,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       // Sending always snaps the view back to the newest content.
       stickToBottomRef.current = true
       setInput('')
+      setReplyTarget(null)
       setPendingAttachments([])
       setAttachmentError(null)
       if (inputRef.current) {
@@ -1046,6 +1066,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                         onOpenFile={openFile}
                         onOpenFolder={openFolder}
                         onOptionClick={handleOptionClick}
+                        onReply={handleChatReply}
                       />
                     ) : entry.item.itemType === 'reasoning' ? (
                       <ReasoningBlock item={entry.item} />
@@ -1090,6 +1111,16 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {replyTarget && (
+            <div className={styles.replyBar}>
+              <Reply size={14} />
+              <span className={styles.replyText}>Replying to: <em>{replyTarget.displayName}</em></span>
+              <button className={styles.replyCancel} onClick={() => setReplyTarget(null)} title="Cancel reply">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           {(attachmentError || !attachmentValidation.valid) && (
             <div className={styles.attachmentError}>
               <AlertCircle size={14} />

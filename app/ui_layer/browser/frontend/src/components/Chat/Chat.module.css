@@ -295,6 +295,44 @@
   cursor: not-allowed;
 }
 
+/* Reply bar inside the input shell — shows which agent message the next
+   send will quote. */
+.replyBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.replyText {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replyCancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.replyCancel:hover {
+  color: var(--color-error);
+}
+
 /* Playbook suggestion chips under the input shell — ONE row, never
    wrapping. Chip labels truncate with an ellipsis when space runs out;
    the "All playbooks" entry point never shrinks. */

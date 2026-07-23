@@ -60,11 +60,7 @@ Output ONLY the NEW_HEAD_SUMMARY as plain text in paragraph (no JSON, no preface
 """
 
 # Action selection prompts
-from agent_core.core.prompts.action import (
-    SELECT_ACTION_PROMPT,
-    SELECT_ACTION_IN_GUI_PROMPT,
-    GUI_ACTION_SPACE_PROMPT,
-)
+from agent_core.core.prompts.action import SELECT_ACTION_PROMPT
 
 # Context prompts
 from agent_core.core.prompts.context import (
@@ -82,14 +78,6 @@ from agent_core.core.prompts.context import (
 # Reasoning prompts
 from agent_core.core.prompts.reasoning import PROMPT_ENHANCE_REASONING_PROMPT
 
-# GUI prompts
-from agent_core.core.prompts.gui import (
-    GUI_REASONING_PROMPT,
-    GUI_REASONING_PROMPT_OMNIPARSER,
-    GUI_QUERY_FOCUSED_PROMPT,
-    GUI_PIXEL_POSITION_PROMPT,
-)
-
 # Sub-agent prompts now live alongside the sub-agent runtime, in
 # ``app.subagent.definitions`` (per-type system prompts) and
 # ``app.subagent.context_engine`` (shared output-format contract).
@@ -104,8 +92,6 @@ __all__ = [
     "EVENT_STREAM_SUMMARIZATION_PROMPT",
     # Action prompts
     "SELECT_ACTION_PROMPT",
-    "SELECT_ACTION_IN_GUI_PROMPT",
-    "GUI_ACTION_SPACE_PROMPT",
     # Context prompts
     "AGENT_ROLE_PROMPT",
     "AGENT_INFO_PROMPT",
@@ -118,9 +104,4 @@ __all__ = [
     "LANGUAGE_INSTRUCTION",
     # Reasoning prompts
     "PROMPT_ENHANCE_REASONING_PROMPT",
-    # GUI prompts
-    "GUI_REASONING_PROMPT",
-    "GUI_REASONING_PROMPT_OMNIPARSER",
-    "GUI_QUERY_FOCUSED_PROMPT",
-    "GUI_PIXEL_POSITION_PROMPT",
 ]

@@ -97,8 +97,6 @@ from app.triggers import (
 from agent_core.core.event_stream.event import EventType
 from app.session.session_manager import SessionManager
 from app.event_stream import EventStreamManager
-from app.gui.gui_module import GUIModule
-from app.gui.handler import GUIHandler
 from app.scheduler import SchedulerManager
 from app.proactive import initialize_proactive_manager
 from app.ui_layer.settings.memory_settings import (
@@ -389,28 +387,6 @@ class AgentBase:
             event_stream_manager=self.event_stream_manager,
         )
 
-        # Initialize footage callback (will be set by CraftBot interface later)
-        self._tui_footage_callback = None
-
-        # Only initialize GUIModule if GUI mode is globally enabled
-        gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
-        if gui_globally_enabled:
-            GUIHandler.gui_module: GUIModule = GUIModule(
-                provider=llm_provider,
-                action_library=self.action_library,
-                action_router=self.action_router,
-                context_engine=self.context_engine,
-                action_manager=self.action_manager,
-                event_stream_manager=self.event_stream_manager,
-                tui_footage_callback=self._tui_footage_callback,
-            )
-            # Set gui_module reference in InternalActionInterface for GUI event stream integration
-            InternalActionInterface.gui_module = GUIHandler.gui_module
-        else:
-            GUIHandler.gui_module = None
-            InternalActionInterface.gui_module = None
-            logger.info("[AGENT] GUI mode disabled - skipping GUIModule initialization")
-
         # ── misc ──
         self.is_running: bool = True
         self.ui_controller = None  # Set by interface after UIController is created
@@ -569,11 +545,6 @@ class AgentBase:
 
             # Refresh per-turn state for this session
             await self.state_manager.start_turn(session_id)
-
-            # ----- GUI mode -----
-            if session.gui_mode and GUIHandler.gui_module is not None:
-                await self._handle_gui_turn(trigger_data, session)
-                return
 
             # ----- The one turn pipeline -----
             action_decisions, reasoning = await self._select_action(trigger_data)
@@ -802,35 +773,6 @@ class AgentBase:
             channel_id=payload.get("channel_id", ""),
             payload=payload,
         )
-
-    # ----- GUI turn -----
-
-    async def _handle_gui_turn(
-        self, trigger_data: TriggerData, session: Session
-    ) -> None:
-        """GUI mode turn — visual interaction via mouse/keyboard."""
-        logger.debug("[GUI MODE] Entered GUI mode.")
-
-        gui_response = await GUIHandler.gui_module.perform_gui_task_step(
-            step=session.get_current_todo(),
-            session_id=session.id,
-            next_action_description=trigger_data.query,
-            parent_action_id=None,
-        )
-
-        if gui_response.get("status") != "ok":
-            raise ValueError(gui_response.get("message", "GUI task step failed"))
-
-        action_output = gui_response.get("action_output", {}) or {}
-        trigger = Trigger(
-            fire_at=time.time(),
-            priority=5,
-            next_action_description=trigger_data.query,
-            payload=dict(trigger_data.payload or {}),
-            session_id=session.id,
-            source=TriggerSource.RUN_CONTINUATION.value,
-        )
-        await self._finalize_turn(session, trigger, action_output)
 
     # ----- Action Selection -----
 
@@ -2175,22 +2117,6 @@ class AgentBase:
                     f"provider switch: {e}"
                 )
 
-            # Update GUI module provider if needed (only if GUI mode is enabled)
-            gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
-            if (
-                gui_globally_enabled
-                and hasattr(self, "action_library")
-                and hasattr(GUIHandler, "gui_module")
-            ):
-                GUIHandler.gui_module = GUIModule(
-                    provider=self.llm.provider,
-                    action_library=self.action_library,
-                    action_router=self.action_router,
-                    context_engine=self.context_engine,
-                    action_manager=self.action_manager,
-                    event_stream_manager=self.event_stream_manager,
-                    tui_footage_callback=self._tui_footage_callback,
-                )
         return llm_ok and vlm_ok
 
     def reinitialize_image_gen(self, provider: str | None = None) -> bool:

@@ -1137,6 +1137,20 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = data.get("sessionId") or "main"
             client_id = data.get("clientId")
 
+            # Reply-to-bubble: append the quoted agent message so both the
+            # stored user message and the agent's event stream record which
+            # message was replied to. No routing — the session is explicit.
+            reply_context = data.get("replyContext") or {}
+            original = (
+                (reply_context.get("originalMessage") or "").strip()
+                if isinstance(reply_context, dict)
+                else ""
+            )
+            if original and content:
+                content = (
+                    f"{content}\n\n[REPLYING TO PREVIOUS AGENT MESSAGE]:\n{original}"
+                )
+
             # Draft chat: the sidebar's "New Chat" only opens an empty view —
             # the session is created lazily here, on the FIRST message.
             # session_created is broadcast (with the sender's clientId) before

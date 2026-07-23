@@ -19,7 +19,6 @@ from datetime import datetime
 from app.logger import logger
 from pathlib import Path
 from app.config import AGENT_WORKSPACE_ROOT
-from app.gui.gui_module import GUI_MODE_ACTIONS
 from agent_core.core.event_stream.event import EventType
 from app.memory import MemoryManager
 import mss
@@ -28,7 +27,6 @@ import os
 
 if TYPE_CHECKING:
     from app.context_engine import ContextEngine
-    from app.gui.gui_module import GUIModule
     from app.scheduler import SchedulerManager
     from app.proactive import ProactiveManager
     from app.subagent.manager import SubAgentManager
@@ -52,7 +50,6 @@ class InternalActionInterface:
     image_gen_interface: Optional[ImageGenInterface] = None
     video_gen_interface: Optional[VideoGenInterface] = None
     context_engine: Optional["ContextEngine"] = None
-    gui_module: Optional["GUIModule"] = None
     memory_manager: Optional[MemoryManager] = None
     scheduler: Optional["SchedulerManager"] = None
     proactive_manager: Optional["ProactiveManager"] = None
@@ -74,7 +71,6 @@ class InternalActionInterface:
         image_gen_interface: Optional[ImageGenInterface] = None,
         video_gen_interface: Optional[VideoGenInterface] = None,
         context_engine: Optional["ContextEngine"] = None,
-        gui_module: Optional["GUIModule"] = None,
         memory_manager: MemoryManager | None = None,
         scheduler: Optional["SchedulerManager"] = None,
         ui_adapter: Optional[Any] = None,
@@ -97,7 +93,6 @@ class InternalActionInterface:
         cls.image_gen_interface = image_gen_interface
         cls.video_gen_interface = video_gen_interface
         cls.context_engine = context_engine
-        cls.gui_module = gui_module
         cls.memory_manager = memory_manager
         cls.scheduler = scheduler
         cls.ui_adapter = ui_adapter
@@ -456,57 +451,6 @@ class InternalActionInterface:
     def do_end_turn():
         """Note that the agent chose to end the run without responding."""
         logger.debug("[Agent Action] Ending turn without a response.")
-
-    # ───────────────── CLI and GUI mode ─────────────────
-
-    @classmethod
-    def switch_to_CLI_mode(cls, session_id: Optional[str] = None):
-        """Switch a session back to CLI mode and restore saved CLI actions."""
-        STATE.update_gui_mode(False)
-
-        session = cls._get_session(session_id)
-        if session:
-            session.gui_mode = False
-            if session._saved_cli_actions:
-                session.compiled_actions = session._saved_cli_actions.copy()
-                session._saved_cli_actions = []  # Clear backup after restoration
-                logger.info(
-                    f"[CLI MODE] Restored {len(session.compiled_actions)} CLI actions"
-                )
-            else:
-                logger.debug("[CLI MODE] No saved CLI actions to restore")
-            if cls.session_manager:
-                cls.session_manager.persist(session.id)
-
-    @classmethod
-    def switch_to_GUI_mode(cls, session_id: Optional[str] = None):
-        """Switch a session to GUI mode with hardcoded action list."""
-        # Check if GUI mode is globally enabled
-        gui_globally_enabled = os.getenv("GUI_MODE_ENABLED", "True") == "True"
-        if not gui_globally_enabled:
-            logger.warning("[GUI MODE] Cannot switch - GUI mode is globally disabled")
-            raise RuntimeError(
-                "GUI mode is disabled. Restart with --enable-gui to enable."
-            )
-
-        STATE.update_gui_mode(True)
-
-        session = cls._get_session(session_id)
-        if session:
-            session.gui_mode = True
-            # Save current CLI actions before switching (only if not already saved)
-            if not session._saved_cli_actions:
-                session._saved_cli_actions = session.compiled_actions.copy()
-                logger.info(
-                    f"[GUI MODE] Saved {len(session._saved_cli_actions)} CLI actions for restoration"
-                )
-
-            session.compiled_actions = GUI_MODE_ACTIONS.copy()
-            logger.info(
-                f"[GUI MODE] Set compiled_actions to {len(GUI_MODE_ACTIONS)} hardcoded GUI actions"
-            )
-            if cls.session_manager:
-                cls.session_manager.persist(session.id)
 
     @classmethod
     def _get_session(cls, session_id: Optional[str] = None):

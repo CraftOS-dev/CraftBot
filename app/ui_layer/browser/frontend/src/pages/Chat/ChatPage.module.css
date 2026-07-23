@@ -656,6 +656,28 @@
   opacity: 1;
 }
 
+/* Reply context callout - the quoted agent message shown above the
+   user's text inside a replying user bubble. */
+.replyContextCallout {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(0, 0, 0, 0.05);
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: inherit;
+  opacity: 0.85;
+}
+
+.replyContextCallout p {
+  margin: 0;
+}
+
+.replyContextCallout ul,
+.replyContextCallout ol {
+  margin: var(--space-1) 0;
+}
+
 /* Floating mascot dock — top-right overlay now that the task panel is gone. */
 .mascotDock {
   position: absolute;

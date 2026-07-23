@@ -150,7 +150,6 @@ from agent_core.core.impl.action import (
     ActionLibrary,
     ActionRouter,
     ActionManager,
-    set_gui_execute_hook,
 )
 from agent_core.core.impl.memory import (
     MemoryManager,
@@ -176,8 +175,6 @@ from agent_core.core.prompts import (
     EVENT_STREAM_SUMMARIZATION_PROMPT,
     # Action prompts
     SELECT_ACTION_PROMPT,
-    SELECT_ACTION_IN_GUI_PROMPT,
-    GUI_ACTION_SPACE_PROMPT,
     # Context prompts
     AGENT_ROLE_PROMPT,
     AGENT_INFO_PROMPT,
@@ -185,11 +182,6 @@ from agent_core.core.prompts import (
     USER_PROFILE_PROMPT,
     ENVIRONMENTAL_CONTEXT_PROMPT,
     AGENT_FILE_SYSTEM_CONTEXT_PROMPT,
-    # GUI prompts
-    GUI_REASONING_PROMPT,
-    GUI_REASONING_PROMPT_OMNIPARSER,
-    GUI_QUERY_FOCUSED_PROMPT,
-    GUI_PIXEL_POSITION_PROMPT,
 )
 
 # MCP
@@ -357,7 +349,6 @@ __all__ = [
     "ActionLibrary",
     "ActionRouter",
     "ActionManager",
-    "set_gui_execute_hook",
     "MemoryManager",
     "MemoryFileWatcher",
     "MemoryPointer",
@@ -376,8 +367,6 @@ __all__ = [
     "EVENT_STREAM_SUMMARIZATION_PROMPT",
     # Prompts - Action
     "SELECT_ACTION_PROMPT",
-    "SELECT_ACTION_IN_GUI_PROMPT",
-    "GUI_ACTION_SPACE_PROMPT",
     # Prompts - Context
     "AGENT_ROLE_PROMPT",
     "AGENT_INFO_PROMPT",
@@ -385,11 +374,6 @@ __all__ = [
     "USER_PROFILE_PROMPT",
     "ENVIRONMENTAL_CONTEXT_PROMPT",
     "AGENT_FILE_SYSTEM_CONTEXT_PROMPT",
-    # Prompts - GUI
-    "GUI_REASONING_PROMPT",
-    "GUI_REASONING_PROMPT_OMNIPARSER",
-    "GUI_QUERY_FOCUSED_PROMPT",
-    "GUI_PIXEL_POSITION_PROMPT",
     # Hooks
     "OnActionStartHook",
     "OnActionEndHook",
