@@ -237,6 +237,11 @@ class InterfaceAdapter(ABC):
             bus.subscribe(UIEventType.AGENT_STATE_CHANGED, self._handle_state_change)
         )
         self._unsubscribers.append(
+            bus.subscribe(
+                UIEventType.RUN_STATE_CHANGED, self._handle_run_state_change
+            )
+        )
+        self._unsubscribers.append(
             bus.subscribe(UIEventType.GUI_MODE_CHANGED, self._handle_gui_mode_change)
         )
 
@@ -403,6 +408,12 @@ class InterfaceAdapter(ABC):
             asyncio.create_task(
                 self.status_bar.set_status(event.data.get("status_message", ""))
             )
+
+    def _handle_run_state_change(self, event: UIEvent) -> None:
+        """Handle a session's run-in-flight state transition. Override in
+        the browser adapter to broadcast the per-session busy flag that
+        drives the chat's typing indicator."""
+        pass
 
     def _handle_gui_mode_change(self, event: UIEvent) -> None:
         """Handle GUI mode change event."""

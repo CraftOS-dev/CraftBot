@@ -15,6 +15,7 @@ import {
   addOptimistic as messagesAddOptimistic,
   setLoadingOlder as messagesSetLoadingOlder,
   markOptionSelected as messagesMarkOptionSelected,
+  transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
 import {
   selectAllMessages,
@@ -65,7 +66,7 @@ import {
   selectFootageUrl,
   selectSkillMeta,
 } from '../store/selectors/agent'
-import { setStatus } from '../store/slices/agentSlice'
+import { setStatus, setSessionBusy } from '../store/slices/agentSlice'
 
 // Module-level reference to the shared SocketClient. The transport (connect,
 // reconnect, outbox, message dispatch) lives there; this context now only
@@ -163,8 +164,8 @@ interface WebSocketContextType extends WebSocketState {
 
   sendMessage: (content: string, attachments: PendingAttachment[] | undefined, sessionId: string) => void
   sendCommand: (command: string) => void
-  // Session management
-  createSession: (title?: string) => void
+  // Session management (sessions are created lazily by the backend on the
+  // first message sent with sessionId "new" — there is no create sender)
   deleteSession: (sessionId: string) => void
   renameSession: (sessionId: string, title: string) => void
   clearSession: (sessionId: string) => void
@@ -252,6 +253,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const lastMessageIdBySessionRef = useRef(lastMessageIdBySession)
   lastMessageIdBySessionRef.current = lastMessageIdBySession
 
+  // clientIds of messages sent from the draft view (sessionId "new") that
+  // are still waiting for the backend to create their session. When a
+  // session_created arrives carrying one of these clientIds, this client is
+  // the sender and navigates from /session/new to the real session route.
+  const pendingDraftClientIdsRef = useRef<Set<string>>(new Set())
+
   // Send-or-queue: delegate to the shared SocketClient which owns the
   // outbox and reconnect lifecycle.
   const sendOrQueue = useCallback((payloadStr: string) => {
@@ -283,13 +290,40 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
+      case 'session_created': {
+        // sessionsSlice already upserted the session via the registry; here
+        // we only handle the draft-view handoff. If this session was created
+        // by a message THIS client sent from /session/new, drop the draft
+        // bucket (the server echoes the user message into the real session)
+        // and replace the route with the real session's.
+        const { session, clientId } = (msg.data || {}) as {
+          session?: SessionInfo
+          clientId?: string | null
+        }
+        if (session && clientId && pendingDraftClientIdsRef.current.has(clientId)) {
+          pendingDraftClientIdsRef.current.delete(clientId)
+          // Move the draft bucket (the optimistic user bubble) into the
+          // real session so the message is on screen from the first frame
+          // after navigation — the server echo reconciles it by clientId
+          // later. Dropping it here instead caused the "Working…" row to
+          // appear before/without the user's message.
+          dispatch(messagesTransferSession({ from: 'new', to: session.id }))
+          // Transfer the optimistic busy flag from the draft to the real
+          // session so the typing indicator survives the handoff.
+          dispatch(setSessionBusy({ sessionId: 'new', busy: false }))
+          dispatch(setSessionBusy({ sessionId: session.id, busy: true }))
+          navigateRef.current(`/session/${session.id}`, { replace: true })
+        }
+        break
+      }
+
       case 'prompt_enhanced': {
         const { content } = msg as unknown as { type: string; content: string }
         setState(prev => ({ ...prev, enhancedPrompt: content }))
         break
       }
     }
-  }, [])
+  }, [dispatch])
 
   useEffect(() => {
     const unsubOpen = client.onOpen(() => {
@@ -330,12 +364,23 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   ) => {
     const clientId = newClientId()
 
+    // Draft view send: remember the clientId so the session_created
+    // broadcast (which precedes the chat_message echo) can be recognized as
+    // ours and trigger the /session/new -> /session/{id} navigation.
+    if (sessionId === 'new') {
+      pendingDraftClientIdsRef.current.add(clientId)
+    }
+
     // Slash commands are handled by the controller's command executor and
     // never produce a user chat bubble — skip the optimistic insert so a
     // "pending" bubble doesn't linger when the server has nothing to echo.
     const isSlashCommand = content.trimStart().startsWith('/')
 
     if (!isSlashCommand) {
+      // Optimistic busy: show the typing indicator instantly; the server's
+      // session_busy events take over from the run's first trigger.
+      dispatch(setSessionBusy({ sessionId, busy: true }))
+
       // Optimistic insert: show the user's bubble immediately at reduced
       // opacity. The server echo (chat_message) replaces this entry in place
       // by matching on clientId, flipping `pending` -> false.
@@ -369,10 +414,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [sendOrQueue])
 
   // ── Session management ────────────────────────────────────────────
-
-  const createSession = useCallback((title?: string) => {
-    sendOrQueue(JSON.stringify({ type: 'session_create', title }))
-  }, [sendOrQueue])
 
   const deleteSession = useCallback((sessionId: string) => {
     sendOrQueue(JSON.stringify({ type: 'session_delete', sessionId }))
@@ -640,7 +681,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         skillMeta,
         sendMessage,
         sendCommand,
-        createSession,
         deleteSession,
         renameSession,
         clearSession,

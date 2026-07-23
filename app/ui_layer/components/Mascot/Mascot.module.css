@@ -619,3 +619,20 @@
   from { opacity: 0; transform: scale(0.7); }
   to   { opacity: 1; transform: scale(1); }
 }
+
+/* ── DraftMascot (New Chat hero) ─────────────────────────────────────
+   Minimal stage: a full-width strip the body wanders across via WAAPI
+   transforms. transform-origin at the feet so hop squash-and-stretch
+   reads as grounded. */
+.draftStage {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  overflow: visible;
+}
+
+.draftBody {
+  cursor: pointer;
+  will-change: transform;
+  transform-origin: 50% 95%;
+}

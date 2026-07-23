@@ -9,3 +9,5 @@ export const selectAgentStatus = (state: RootState) => state.agent.status
 export const selectGuiMode = (state: RootState) => state.agent.guiMode
 export const selectFootageUrl = (state: RootState) => state.agent.footageUrl
 export const selectSkillMeta = (state: RootState) => state.agent.skillMeta
+export const selectSessionBusy = (state: RootState, sessionId: string) =>
+  !!state.agent.busyBySession[sessionId]

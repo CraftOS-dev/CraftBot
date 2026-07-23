@@ -1,4 +1,4 @@
-// Parsing helpers shared by all action renderers.
+// Parsing helpers shared by the action display surfaces (timeline rows + mascot formatters).
 //
 // Action input/output strings arrive as either JSON or Python dict repr
 // (e.g. `{'file_path': 'C:\\...', 'count': 42, 'flag': True, 'val': None}`).
@@ -141,22 +141,10 @@ export function parseArray(raw: unknown): unknown[] | null {
   return null
 }
 
-// Typed accessors — keep renderers readable.
+// Typed accessors — keep consumers readable.
 export function strField(obj: Record<string, unknown> | null, key: string): string | undefined {
   const v = obj?.[key]
   return typeof v === 'string' ? v : undefined
-}
-
-export function boolField(obj: Record<string, unknown> | null, key: string): boolean | undefined {
-  const v = obj?.[key]
-  if (typeof v === 'boolean') return v
-  // Python `True`/`False` may come through as raw word tokens when parseDict
-  // bailed out — treat them defensively.
-  if (typeof v === 'string') {
-    if (v === 'True' || v === 'true') return true
-    if (v === 'False' || v === 'false') return false
-  }
-  return undefined
 }
 
 export function arrField(obj: Record<string, unknown> | null, key: string): unknown[] | null {
@@ -178,17 +166,4 @@ export function dictField(obj: Record<string, unknown> | null, key: string): Rec
 export function basename(path: string): string {
   const m = path.match(/[/\\]([^/\\]+)$/)
   return m ? m[1] : path
-}
-
-// Detect a programming language from a file extension. Used to label code
-// blocks; not a real syntax highlighter (yet).
-export function langFromPath(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? ''
-  return ({
-    py: 'python', js: 'javascript', ts: 'typescript', tsx: 'tsx', jsx: 'jsx',
-    md: 'markdown', html: 'html', css: 'css', json: 'json', yaml: 'yaml', yml: 'yaml',
-    sh: 'bash', bash: 'bash', ps1: 'powershell', sql: 'sql', go: 'go',
-    rs: 'rust', rb: 'ruby', java: 'java', c: 'c', cpp: 'cpp', h: 'c',
-    txt: 'text', csv: 'csv', toml: 'toml', xml: 'xml',
-  } as Record<string, string>)[ext] ?? ext ?? 'text'
 }

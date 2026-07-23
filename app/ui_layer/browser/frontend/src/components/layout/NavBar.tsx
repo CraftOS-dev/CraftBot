@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   MessageSquare,
@@ -14,6 +15,7 @@ import {
   Plus,
   MoreHorizontal,
   Pencil,
+  SquarePen,
   Eraser,
   Trash2,
   Sparkles,
@@ -54,13 +56,46 @@ interface SessionMenuState {
   sessionId: string
 }
 
+// Collapsed/expanded state of the sidebar groups, persisted so collapsing
+// a group survives reloads. Only the COLLAPSED state is stored ("1");
+// absence of the key means expanded (the default).
+const GROUP_COLLAPSED_KEY_PREFIX = 'sidebarGroupCollapsed.'
+
+// How many Living UI items show before the "Show more" row takes over.
+const GROUP_PREVIEW_COUNT = 5
+
+// Chats never truncate behind a "Show more" — the full list is always
+// reachable. Rows mount in pages of this size as the sidebar scrolls.
+const CHAT_PAGE_SIZE = 30
+
+type SidebarGroup = 'livingui' | 'chats'
+
+const loadGroupExpanded = (group: SidebarGroup): boolean => {
+  try {
+    return localStorage.getItem(GROUP_COLLAPSED_KEY_PREFIX + group) !== '1'
+  } catch {
+    return true
+  }
+}
+
+const persistGroupExpanded = (group: SidebarGroup, expanded: boolean) => {
+  try {
+    if (expanded) {
+      localStorage.removeItem(GROUP_COLLAPSED_KEY_PREFIX + group)
+    } else {
+      localStorage.setItem(GROUP_COLLAPSED_KEY_PREFIX + group, '1')
+    }
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
 export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const {
     livingUIProjects,
     createLivingUI,
-    createSession,
     deleteSession,
     renameSession,
     clearSession,
@@ -74,8 +109,69 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const chatSessions = useAppSelector(selectChatSessions)
   const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
 
-  const [chatsExpanded, setChatsExpanded] = useState(true)
-  const [livingUIExpanded, setLivingUIExpanded] = useState(true)
+  const [chatsExpanded, setChatsExpanded] = useState(() => loadGroupExpanded('chats'))
+  const [livingUIExpanded, setLivingUIExpanded] = useState(() => loadGroupExpanded('livingui'))
+  // Living UI "Show more" state: only the first GROUP_PREVIEW_COUNT items
+  // render until expanded. Not persisted — collapses back to 5 on reload.
+  const [showAllLivingUI, setShowAllLivingUI] = useState(false)
+  // Chats scroll pagination: how many chat rows are currently mounted.
+  // Grows by CHAT_PAGE_SIZE whenever the sidebar scrolls near its bottom.
+  const [chatVisibleCount, setChatVisibleCount] = useState(CHAT_PAGE_SIZE)
+  // Ref mirror so the scroll handler (bound once via ResizeObserver) sees
+  // the current total without re-subscribing.
+  const chatTotalRef = useRef(0)
+  chatTotalRef.current = chatSessions.length
+
+  // Collapsed-sidebar flyout (ChatGPT-style): each group collapses to one
+  // icon button whose click opens a popover listing the group's items.
+  const [flyout, setFlyout] = useState<
+    { kind: 'livingui' | 'chats'; top: number; left: number } | null
+  >(null)
+
+  const FLYOUT_MAX_HEIGHT = 420
+
+  const openFlyout = (
+    kind: 'livingui' | 'chats',
+    e: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    if (flyout?.kind === kind) {
+      setFlyout(null)
+      return
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setFlyout({
+      kind,
+      top: Math.max(8, Math.min(rect.top, window.innerHeight - 8 - FLYOUT_MAX_HEIGHT)),
+      left: rect.right + 8,
+    })
+  }
+
+  // Close the flyout on outside click, Escape, or when the sidebar expands.
+  useEffect(() => {
+    if (!flyout) return
+    const close = () => setFlyout(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFlyout(null)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [flyout])
+
+  useEffect(() => {
+    if (!collapsed) setFlyout(null)
+  }, [collapsed])
+
+  useEffect(() => {
+    persistGroupExpanded('chats', chatsExpanded)
+  }, [chatsExpanded])
+
+  useEffect(() => {
+    persistGroupExpanded('livingui', livingUIExpanded)
+  }, [livingUIExpanded])
   const [menu, setMenu] = useState<SessionMenuState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -120,6 +216,14 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const handleCreateSubmit = (data: LivingUICreateRequest) => {
     createLivingUI(data)
     setShowCreateModal(false)
+  }
+
+  // Lazy session creation: "New Chat" only opens the draft view at
+  // /session/new. The real session is created by the backend on the first
+  // message sent from that view (session_created then navigates us there).
+  const startNewChat = () => {
+    setChatsExpanded(true)
+    navigate('/session/new')
   }
 
   // Close any open context menu when clicking anywhere else.
@@ -179,11 +283,16 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     const maxScroll = el.scrollHeight - el.clientHeight
     setCanScrollUp(el.scrollTop > 1)
     setCanScrollDown(el.scrollTop < maxScroll - 1)
+    // Chats scroll pagination: nearing the bottom mounts the next page.
+    // Functional update no-ops once every chat row is mounted.
+    if (maxScroll - el.scrollTop < 80) {
+      setChatVisibleCount(c => (c < chatTotalRef.current ? c + CHAT_PAGE_SIZE : c))
+    }
   }
 
   useLayoutEffect(() => {
     updateOverflow()
-  }, [livingUIProjects.length, chatSessions.length, chatsExpanded, livingUIExpanded])
+  }, [livingUIProjects.length, chatSessions.length, chatsExpanded, livingUIExpanded, chatVisibleCount])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -226,7 +335,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     )
   }
 
-  const renderSessionRow = (session: SessionInfo, opts: { isMain: boolean; indent: boolean }) => {
+  const renderSessionRow = (session: SessionInfo, opts: { isMain: boolean }) => {
     const path = sessionPath(session.id)
     const active = isActive(path)
     const renaming = renamingId === session.id
@@ -234,7 +343,8 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return (
       <div
         key={session.id}
-        className={`${styles.sessionRow} ${opts.indent ? styles.sessionRowIndent : ''} ${active ? styles.sessionRowActive : ''}`}
+        className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ''} ${opts.isMain ? styles.sessionRowMain : ''}`}
+        title={opts.isMain ? 'Main' : session.title}
       >
         {renaming ? (
           <input
@@ -253,7 +363,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             <button
               className={styles.sessionRowButton}
               onClick={() => navigate(path)}
-              title={session.title}
+              title={opts.isMain ? 'Main' : session.title}
             >
               <span className={styles.icon}>
                 {opts.isMain ? <MessageSquare size={16} /> : <MessageCircle size={14} />}
@@ -326,42 +436,60 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
             className={styles.scrollContent}
             onScroll={updateOverflow}
           >
-            {/* Main — pinned first, always present */}
-            {renderSessionRow(mainSessionInfo, { isMain: true, indent: false })}
+            {/* New Chat — action item pinned at the very top */}
+            <button
+              className={`${styles.navItem} ${location.pathname === '/session/new' ? styles.active : ''}`}
+              onClick={startNewChat}
+              title="New Chat"
+            >
+              <span className={styles.icon}><SquarePen size={16} /></span>
+              <span className={styles.label}>New Chat</span>
+            </button>
 
-            {/* Chats group */}
-            <div className={styles.groupRow}>
+            {/* Utility items */}
+            {utilityNavItems.map(item => (
               <button
-                className={styles.groupToggle}
-                onClick={() => setChatsExpanded(v => !v)}
-                aria-expanded={chatsExpanded}
+                key={item.id}
+                className={`${styles.navItem} ${isActive(item.path) ? styles.active : ''}`}
+                onClick={() => navigate(item.path)}
+                title={item.label}
               >
-                <ChevronRight
-                  size={14}
-                  className={`${styles.groupChevron} ${chatsExpanded ? styles.groupChevronOpen : ''}`}
-                />
-                <span className={styles.icon}><MessageCircle size={16} /></span>
-                <span className={styles.label}>Chats</span>
+                <span className={styles.icon}>{item.icon}</span>
+                <span className={styles.label}>{item.label}</span>
               </button>
-              <button
-                className={styles.groupAddButton}
-                onClick={() => {
-                  setChatsExpanded(true)
-                  createSession()
-                }}
-                aria-label="New chat"
-                title="New chat"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-            {chatsExpanded && chatSessions.map(session =>
-              renderSessionRow(session, { isMain: false, indent: true })
-            )}
-            {chatsExpanded && chatSessions.length === 0 && (
-              <div className={styles.groupEmpty}>No chats yet</div>
-            )}
+            ))}
 
+            <div className={styles.innerDivider} aria-hidden="true" />
+
+            {collapsed ? (
+              <>
+                {/* Collapsed: each group is one icon button opening a flyout */}
+                <button
+                  className={`${styles.navItem} ${flyout?.kind === 'livingui' ? styles.active : ''}`}
+                  onClick={e => openFlyout('livingui', e)}
+                  onMouseDown={e => e.stopPropagation()}
+                  title="Living UI"
+                  aria-haspopup="menu"
+                  aria-expanded={flyout?.kind === 'livingui'}
+                >
+                  <span className={styles.icon}><Box size={16} /></span>
+                </button>
+                <button
+                  className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
+                  onClick={e => openFlyout('chats', e)}
+                  onMouseDown={e => e.stopPropagation()}
+                  title="Chats"
+                  aria-haspopup="menu"
+                  aria-expanded={flyout?.kind === 'chats'}
+                >
+                  <span className={styles.icon}><MessageCircle size={16} /></span>
+                  {(hasUnread('main') || chatSessions.some(s => hasUnread(s.id))) && (
+                    <span className={styles.collapsedUnreadDot} aria-label="Unread messages" />
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
             {/* Living UI group */}
             <div className={styles.groupRow}>
               <button
@@ -385,43 +513,81 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                 <Plus size={14} />
               </button>
             </div>
-            {livingUIExpanded && livingUIProjects.map(project => {
-              const path = `/living-ui/${project.id}`
-              const active = isActive(path)
-              return (
-                <button
-                  key={project.id}
-                  className={`${styles.livingUITab} ${styles.sessionRowIndent} ${active ? styles.livingUITabActive : ''}`}
-                  onClick={() => navigate(path)}
-                  title={project.name}
-                >
-                  <span className={styles.livingUITabIcon}>
-                    {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
-                      ? <Loader2 size={13} className={styles.spinner} />
-                      : <Box size={13} />}
-                  </span>
-                  <span className={styles.livingUITabLabel}>{project.name}</span>
-                </button>
-              )
-            })}
-            {livingUIExpanded && livingUIProjects.length === 0 && (
-              <div className={styles.groupEmpty}>No Living UI apps</div>
+            {livingUIExpanded && (
+              <div className={styles.groupChildren}>
+                {(showAllLivingUI
+                  ? livingUIProjects
+                  : livingUIProjects.slice(0, GROUP_PREVIEW_COUNT)
+                ).map(project => {
+                  const path = `/living-ui/${project.id}`
+                  const active = isActive(path)
+                  return (
+                    <button
+                      key={project.id}
+                      className={`${styles.livingUITab} ${active ? styles.livingUITabActive : ''}`}
+                      onClick={() => navigate(path)}
+                      title={project.name}
+                    >
+                      <span className={styles.livingUITabIcon}>
+                        {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
+                          ? <Loader2 size={13} className={styles.spinner} />
+                          : <Box size={13} />}
+                      </span>
+                      <span className={styles.livingUITabLabel}>{project.name}</span>
+                    </button>
+                  )
+                })}
+                {livingUIProjects.length > GROUP_PREVIEW_COUNT && (
+                  <button
+                    className={styles.showMoreRow}
+                    onClick={() => setShowAllLivingUI(v => !v)}
+                  >
+                    {showAllLivingUI
+                      ? 'Show less'
+                      : `Show more (${livingUIProjects.length - GROUP_PREVIEW_COUNT})`}
+                  </button>
+                )}
+                {livingUIProjects.length === 0 && (
+                  <div className={styles.groupEmpty}>No Living UI apps</div>
+                )}
+              </div>
             )}
 
             <div className={styles.innerDivider} aria-hidden="true" />
 
-            {/* Utility items */}
-            {utilityNavItems.map(item => (
+            {/* Chats group — Main always pinned first inside it */}
+            <div className={styles.groupRow}>
               <button
-                key={item.id}
-                className={`${styles.navItem} ${isActive(item.path) ? styles.active : ''}`}
-                onClick={() => navigate(item.path)}
-                title={item.label}
+                className={styles.groupToggle}
+                onClick={() => setChatsExpanded(v => !v)}
+                aria-expanded={chatsExpanded}
               >
-                <span className={styles.icon}>{item.icon}</span>
-                <span className={styles.label}>{item.label}</span>
+                <ChevronRight
+                  size={14}
+                  className={`${styles.groupChevron} ${chatsExpanded ? styles.groupChevronOpen : ''}`}
+                />
+                <span className={styles.icon}><MessageCircle size={16} /></span>
+                <span className={styles.label}>Chats</span>
               </button>
-            ))}
+              <button
+                className={styles.groupAddButton}
+                onClick={startNewChat}
+                aria-label="New chat"
+                title="New chat"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            {chatsExpanded && (
+              <div className={styles.groupChildren}>
+                {renderSessionRow(mainSessionInfo, { isMain: true })}
+                {chatSessions.slice(0, chatVisibleCount).map(session =>
+                  renderSessionRow(session, { isMain: false })
+                )}
+              </div>
+            )}
+              </>
+            )}
           </div>
 
           <div
@@ -449,6 +615,78 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
           </button>
         </div>
       </nav>
+
+      {/* Collapsed-sidebar flyout menu (rendered in a portal so it can sit
+          beside the narrow nav). */}
+      {flyout && createPortal(
+        <div
+          className={styles.flyout}
+          style={{ top: flyout.top, left: flyout.left }}
+          onMouseDown={e => e.stopPropagation()}
+          role="menu"
+        >
+          <div className={styles.flyoutHeader}>
+            {flyout.kind === 'livingui' ? 'Living UI' : 'Chats'}
+          </div>
+          <div className={styles.flyoutList}>
+            {flyout.kind === 'livingui' ? (
+              <>
+                {livingUIProjects.map(project => {
+                  const path = `/living-ui/${project.id}`
+                  return (
+                    <button
+                      key={project.id}
+                      className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''}`}
+                      onClick={() => {
+                        setFlyout(null)
+                        navigate(path)
+                      }}
+                      title={project.name}
+                    >
+                      <span className={styles.flyoutItemIcon}>
+                        {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
+                          ? <Loader2 size={13} className={styles.spinner} />
+                          : <Box size={13} />}
+                      </span>
+                      <span className={styles.flyoutItemLabel}>{project.name}</span>
+                    </button>
+                  )
+                })}
+                {livingUIProjects.length === 0 && (
+                  <div className={styles.flyoutEmpty}>No Living UI apps</div>
+                )}
+              </>
+            ) : (
+              [mainSessionInfo, ...chatSessions].map(session => {
+                const isMain = session.id === 'main'
+                const path = sessionPath(session.id)
+                return (
+                  <button
+                    key={session.id}
+                    className={`${styles.flyoutItem} ${isActive(path) ? styles.flyoutItemActive : ''} ${isMain ? styles.flyoutItemMain : ''}`}
+                    onClick={() => {
+                      setFlyout(null)
+                      navigate(path)
+                    }}
+                    title={isMain ? 'Main' : session.title}
+                  >
+                    <span className={styles.flyoutItemIcon}>
+                      {isMain ? <MessageSquare size={13} /> : <MessageCircle size={13} />}
+                    </span>
+                    <span className={styles.flyoutItemLabel}>
+                      {isMain ? 'Main' : session.title}
+                    </span>
+                    {hasUnread(session.id) && (
+                      <span className={styles.unreadDot} aria-label="Unread messages" />
+                    )}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
 
       <CreateLivingUIModal
         isOpen={showCreateModal}

@@ -15,6 +15,9 @@ interface AgentSliceState {
   guiMode: boolean
   footageUrl: string | null
   skillMeta: SkillMeta
+  /** Per-session run-in-flight flags (server-driven; optimistic on send).
+   *  Drives the chat's typing indicator without flickering between turns. */
+  busyBySession: Record<string, boolean>
 }
 
 const initialState: AgentSliceState = {
@@ -29,6 +32,7 @@ const initialState: AgentSliceState = {
     internalSkillNames: [],
     reservedSkillNames: [],
   },
+  busyBySession: {},
 }
 
 const agentSlice = createSlice({
@@ -58,6 +62,17 @@ const agentSlice = createSlice({
       state.profilePictureUrl = action.payload.url
       state.profilePictureHasCustom = action.payload.hasCustom
     },
+    setSessionBusy(state, action: PayloadAction<{ sessionId: string; busy: boolean }>) {
+      const { sessionId, busy } = action.payload
+      if (busy) {
+        state.busyBySession[sessionId] = true
+      } else {
+        delete state.busyBySession[sessionId]
+      }
+    },
+    seedBusySessions(state, action: PayloadAction<string[]>) {
+      state.busyBySession = Object.fromEntries(action.payload.map(id => [id, true]))
+    },
   },
 })
 
@@ -69,6 +84,8 @@ export const {
   setSkillMeta,
   setName,
   setProfilePicture,
+  setSessionBusy,
+  seedBusySessions,
 } = agentSlice.actions
 
 export default agentSlice.reducer
@@ -88,6 +105,14 @@ register('init', (data, dispatch) => {
   dispatch(setStatus({ message: d.status || 'Ready', loading: false }))
   dispatch(setStatusState(d.agentState || 'idle'))
   dispatch(setGuiMode(d.guiMode || false))
+  dispatch(seedBusySessions((d as { busySessions?: string[] }).busySessions || []))
+})
+
+register('session_busy', (data, dispatch) => {
+  const d = data as { sessionId?: string; busy?: boolean }
+  if (d.sessionId) {
+    dispatch(setSessionBusy({ sessionId: d.sessionId, busy: !!d.busy }))
+  }
 })
 
 register('agent_state', (data, dispatch) => {

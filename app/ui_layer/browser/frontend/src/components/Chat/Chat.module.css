@@ -49,6 +49,44 @@
   gap: var(--space-3);
 }
 
+/* Conversation column: the virtualized timeline canvas is width-capped
+   and centered so long panels read like a document, matching the input
+   shell's column below. (The scroll container itself stays full width so
+   the scrollbar hugs the panel edge.) */
+.timelineColumn {
+  position: relative;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+/* Draft-hero mascot dock: pinned to the bottom of the messages area so
+   the mascot hops around directly above the centered input. Same width
+   cap as the input column so its wander range matches. The negative
+   bottom margin swallows the input area's top padding plus the SVG's
+   internal bottom whitespace so the feet sit ON the shell's border. */
+.draftMascotDock {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto -12px;
+  padding: 0 var(--space-3);
+}
+
+/* Animated draft spacer — sits AFTER the input area in the flex column.
+   In a fresh draft it flex-grows to push the input up to the vertical
+   center (hero layout); on first send it collapses, easing the input
+   down to its docked position. flex-grow is animatable. */
+.bottomSpacer {
+  flex: 0 1 0%;
+  min-height: 0;
+  transition: flex-grow 480ms cubic-bezier(0.3, 0.85, 0.3, 1);
+}
+
+.bottomSpacerOpen {
+  flex-grow: 1;
+}
+
 /* Slack-style date divider: a thin rule with a centered pill label */
 .dateDivider {
   display: flex;
@@ -115,58 +153,197 @@
   to   { opacity: 0.85; transform: translateY(0); }
 }
 
-.emptyState {
-  flex: 1;
+/* Input Area — transparent wrapper that width-caps and centers the input
+   shell to match the conversation column. No border-top/background: the
+   shell is the visual input, so it can float mid-screen in a draft. */
+.inputArea {
+  width: 100%;
+  max-width: calc(780px + 2 * var(--space-3));
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  flex-shrink: 0;
+}
+
+/* The input shell: ONE bordered container holding the textarea on top and
+   the controls row inside it ("+" on the left, mic/lang + send on the
+   right). Also the drag-and-drop target. */
+.inputShell {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
+  position: relative;
+  padding: var(--space-2);
+  border: 1px solid var(--border-primary);
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  transition: border-color var(--transition-fast), outline var(--transition-fast), background var(--transition-fast);
+}
+
+.inputShell:focus-within {
+  border-color: var(--border-hover);
+}
+
+.inputShellDragOver {
+  outline: 2px dashed var(--text-primary);
+  background: var(--color-primary-subtle);
+}
+
+/* Controls row inside the shell */
+.inputControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.controlsRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* "+" button + its upward menu (attach / enhance) */
+.plusWrap {
+  position: relative;
+}
+
+.plusBtn {
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border-primary);
   color: var(--text-secondary);
-  text-align: center;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.emptyState h3 {
+.plusBtn:hover {
+  background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: var(--text-lg);
 }
 
-.emptyState p {
-  font-size: var(--text-sm);
+.plusMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 170px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 999;
 }
 
-.emptyIcon {
-  margin-bottom: var(--space-2);
-}
-
-/* Status Bar */
-.statusBar {
+.plusMenuItem {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-primary);
-  font-size: var(--text-xs);
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
 }
 
-/* Input Area */
-.inputArea {
+.plusMenuItem:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.plusMenuItem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Round primary send button */
+.sendBtn {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-primary, #f04a00);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.sendBtn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.sendBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.sendBtn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Playbook suggestion chips under the input shell — ONE row, never
+   wrapping. Chip labels truncate with an ellipsis when space runs out;
+   the "All playbooks" entry point never shrinks. */
+.suggestionsRow {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border-top: 1px solid var(--border-primary);
-  background: var(--bg-secondary);
+  padding-top: var(--space-4);
+  overflow: hidden;
 }
 
-/* Send button (last direct child) — match textarea min-height so the bottom
-   row stays visually aligned with the input. */
-.inputArea > button:last-child {
-  height: 36px;
+.suggestionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
+.suggestionChip:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.suggestionChipName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestionMore {
+  flex-shrink: 0;
+  border-style: dashed;
+}
+
+/* Borderless textarea — the shell carries the border/background. */
 .input {
   display: block;
   width: 100%;
@@ -175,10 +352,9 @@
   min-height: 36px;
   max-height: 116px;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-primary);
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  border: none;
+  background: transparent;
   color: var(--text-primary);
   font-size: var(--text-sm);
   font-family: inherit;
@@ -187,7 +363,6 @@
 
 .input:focus {
   outline: none;
-  border-color: var(--border-hover);
 }
 
 .input::placeholder {
@@ -197,23 +372,6 @@
 /* Hidden file input */
 .hiddenFileInput {
   display: none;
-}
-
-/* Input wrapper for textarea and pending attachments */
-.inputWrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  border-radius: var(--radius-md);
-  transition: outline var(--transition-fast), background var(--transition-fast);
-  position: relative;
-}
-
-.inputWrapperDragOver {
-  outline: 2px dashed var(--text-primary);
-  background: var(--color-primary-subtle);
 }
 
 /* Pending attachments container */
@@ -338,11 +496,6 @@
 
 .dismissError:hover {
   opacity: 1;
-}
-
-.inputListening {
-  border-color: var(--border-hover);
-  box-shadow: 0 0 0 2px var(--bg-selected);
 }
 
 /* Mic + language selector */
@@ -494,10 +647,6 @@
 
   .inputArea {
     padding: var(--space-2);
-  }
-
-  .statusBar {
-    padding: var(--space-2) var(--space-3);
   }
 }
 

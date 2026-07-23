@@ -439,7 +439,6 @@ export function LivingUIPage() {
             <Chat
               sessionId={project.sessionId}
               placeholder="Ask about this Living UI..."
-              emptyMessage="Chat with the agent"
             />
           </div>
         )}

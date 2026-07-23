@@ -414,6 +414,10 @@ class AgentBase:
         # ── misc ──
         self.is_running: bool = True
         self.ui_controller = None  # Set by interface after UIController is created
+        # Sessions with a run in flight (trigger accepted, run not yet ended).
+        # Mirrors the RUN_STATE_CHANGED events so the UI can seed its
+        # per-session busy state on connect.
+        self.busy_sessions: set[str] = set()
         self._extra_system_prompt: str = self._load_extra_system_prompt()
 
         # Scheduler for periodic tasks (memory processing, proactive checks, etc.)
@@ -560,6 +564,7 @@ class AgentBase:
             # ----- Run-start bookkeeping -----
             if trigger.source in RUN_START_SOURCES:
                 self.session_manager.start_run(session_id)
+                self._emit_run_state(session_id, True)
                 await self._apply_workflow_capabilities(session, trigger.payload)
 
             # Refresh per-turn state for this session
@@ -733,6 +738,30 @@ class AgentBase:
             self.session_manager.remove_skill(session.id, skill_name)
         if skills:
             self._invalidate_session_caches(session.id)
+
+    def _emit_run_state(self, session_id: str, busy: bool) -> None:
+        """Track and broadcast a session's run-in-flight state.
+
+        The UI's typing indicator is driven ONLY by these transitions, so it
+        stays steady across turn boundaries instead of flickering whenever
+        no action happens to be executing.
+        """
+        if busy:
+            self.busy_sessions.add(session_id)
+        else:
+            self.busy_sessions.discard(session_id)
+        if self.ui_controller:
+            try:
+                from app.ui_layer.events import UIEvent, UIEventType
+
+                self.ui_controller.event_bus.emit(
+                    UIEvent(
+                        type=UIEventType.RUN_STATE_CHANGED,
+                        data={"session_id": session_id, "busy": busy},
+                    )
+                )
+            except Exception:
+                pass
 
     def _invalidate_session_caches(self, session_id: str) -> None:
         """Rebuild a session's LLM caches after a capability change."""
@@ -959,6 +988,8 @@ class AgentBase:
         self.session_manager.touch_session(session.id)
 
         if not await self._check_agent_limits(session.id):
+            # Run is paused on the Continue/Stop prompt — not busy anymore.
+            self._emit_run_state(session.id, False)
             return
 
         run_ends = bool(action_output.get("run_ends", False))
@@ -1006,6 +1037,8 @@ class AgentBase:
     async def _on_run_end(self, session: Session, run_payload: dict) -> None:
         """A run finished (no continuation): workflow cleanup + housekeeping."""
         run_source = run_payload.get("run_source", "")
+
+        self._emit_run_state(session.id, False)
 
         # Unload temporary workflow skills loaded at run start.
         self._remove_workflow_capabilities(session, run_payload)
@@ -1099,18 +1132,57 @@ class AgentBase:
             response = await self.llm.generate_response_async(
                 system_prompt=(
                     "Generate a concise 2-5 word title for this conversation. "
-                    "Reply with ONLY the title, no quotes, no punctuation at "
-                    "the end, same language as the conversation."
+                    "Reply with ONLY the title as plain text — no quotes, no "
+                    "JSON, no punctuation at the end, same language as the "
+                    "conversation."
                 ),
                 user_prompt=snapshot[:4000],
             )
-            title = (response or "").strip().strip('"').strip()
-            if title and len(title) <= 60:
+            title = self._sanitize_session_title(response)
+            if title:
                 self.session_manager.rename_session(session_id, title)
                 if self.ui_controller:
                     await self.ui_controller.notify_session_updated(session_id)
         except Exception as e:
             logger.debug(f"[SESSION] Auto-title failed for {session_id}: {e}")
+
+    @staticmethod
+    def _sanitize_session_title(response: Optional[str]) -> str:
+        """Normalize an LLM title reply to a plain sidebar title.
+
+        Providers ignore "plain text only" often enough that this must cope
+        with code fences, JSON objects like {"title": "..."}, and stray
+        quotes. Returns "" when nothing usable survives.
+        """
+        text = (response or "").strip()
+        if not text:
+            return ""
+
+        # Strip markdown code fences
+        if text.startswith("```"):
+            lines = [ln for ln in text.splitlines() if not ln.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+
+        # Unwrap JSON replies: {"title": "..."} or a bare JSON string
+        if text.startswith("{") or text.startswith('"'):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    text = str(
+                        parsed.get("title")
+                        or next(iter(parsed.values()), "")
+                    )
+                elif isinstance(parsed, str):
+                    text = parsed
+            except (ValueError, TypeError):
+                pass
+
+        # Single line, no wrapping quotes, no trailing punctuation
+        text = text.splitlines()[0].strip().strip("\"'").strip()
+        text = text.rstrip(".!,;:").strip()
+        if len(text) > 60:
+            text = text[:57].rstrip() + "..."
+        return text
 
     # ----- Error Handling -----
 
@@ -1177,6 +1249,7 @@ class AgentBase:
                     f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
                     f"session {session_id}."
                 )
+                self._emit_run_state(session_id, False)
                 self._llm_retry_instructions[session_id] = (
                     "Continue where you left off — the previous attempt was "
                     "aborted by an AI-provider failure."
@@ -1363,6 +1436,7 @@ class AgentBase:
                 )
             )
 
+        self._emit_run_state(session_id, True)
         await self.trigger_service.emit(
             TriggerSpec(
                 source=TriggerSource.RUN_CONTINUATION,
@@ -1396,6 +1470,7 @@ class AgentBase:
         except Exception as e:
             logger.debug(f"[LLM_RETRY] Could not reset failure counter: {e}")
 
+        self._emit_run_state(session_id or MAIN_SESSION_ID, True)
         await self.trigger_service.emit(
             TriggerSpec(
                 source=TriggerSource.RUN_CONTINUATION,

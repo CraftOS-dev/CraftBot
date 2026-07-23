@@ -99,8 +99,8 @@ export type WSMessageType =
   | 'action_add'
   | 'action_update'
   | 'action_remove'
-  // Sessions
-  | 'session_create'
+  // Sessions (creation is lazy: a "message" with sessionId "new" makes the
+  // backend create the session and broadcast session_created)
   | 'session_delete'
   | 'session_rename'
   | 'session_clear'
@@ -109,6 +109,7 @@ export type WSMessageType =
   | 'session_updated'
   | 'session_deleted'
   | 'session_cleared'
+  | 'session_busy'
   | 'agent_state'
   | 'status_update'
   | 'navigate'
@@ -193,6 +194,8 @@ export interface InitialState {
   messages: ChatMessage[]
   actions: ActionItem[]
   sessions: SessionInfo[]
+  /** Sessions with a run in flight — seeds the typing indicator on connect. */
+  busySessions?: string[]
   status: string
   dashboardMetrics?: DashboardMetrics
   needsHardOnboarding?: boolean

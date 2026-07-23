@@ -1,16 +1,19 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
-import { Send, Paperclip, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles } from 'lucide-react'
+import { Send, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { useToast } from '../../contexts/ToastContext'
-import { Button, IconButton, SlashCommandAutocomplete, StatusIndicator, AttachmentPreviewModal } from '../ui'
+import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from '../ui'
 import type { SlashCommandAutocompleteHandle } from '../ui'
-import { useDerivedAgentStatus } from '../../hooks'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
+import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock } from '../activity/ActivityBlocks'
+import { normalizeActionName } from '../activity/actionNames'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectPendingPrefill } from '../../store/selectors/chatInput'
-import { clearPendingPrefill } from '../../store/slices/chatInputSlice'
+import { clearPendingPrefill, setPendingPrefill } from '../../store/slices/chatInputSlice'
+import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
+import { DraftMascot, DRAFT_MASCOT_EXIT_MS } from '@mascot'
 import {
   selectSessionMessages,
   selectSessionHasMoreMessages,
@@ -18,6 +21,7 @@ import {
   selectSessionOldestMessageTimestamp,
 } from '../../store/selectors/messages'
 import { selectSessionActivity } from '../../store/selectors/activity'
+import { selectSessionBusy } from '../../store/selectors/agent'
 import type { ActionItem, ChatMessage } from '../../types'
 import styles from './Chat.module.css'
 
@@ -37,8 +41,6 @@ interface ChatProps {
   sessionId: string
   /** Optional placeholder text for the input */
   placeholder?: string
-  /** Optional empty state message */
-  emptyMessage?: string
 }
 
 // One row of the linear session timeline: a chat message or an inline
@@ -46,6 +48,17 @@ interface ChatProps {
 type TimelineEntry =
   | { kind: 'message'; ts: number; message: ChatMessage }
   | { kind: 'activity'; ts: number; item: ActionItem }
+
+// Slim view of a playbook for the suggestion chips under the input.
+interface SuggestedPlaybook {
+  id: string
+  name: string
+  emoji?: string
+  description?: string
+  prompt: string
+}
+
+const SUGGESTED_PLAYBOOK_COUNT = 3
 
 const MIC_LANGUAGES = [
   { code: 'en-US', label: 'EN', full: 'English' },
@@ -103,7 +116,7 @@ const formatDateDivider = (tsMs: number): string => {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
+export function Chat({ sessionId, placeholder }: ChatProps) {
   const {
     connected,
     sendMessage,
@@ -119,29 +132,66 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
     clearEnhancedPrompt,
   } = useWebSocket()
 
+  // Draft view (/session/new): renders an empty timeline with the normal
+  // input. No history requests and no seen/unread bookkeeping — the real
+  // session only exists after the backend answers the first send with
+  // session_created (the context then navigates to /session/{id}).
+  const isDraft = sessionId === 'new'
+
   const messages = useAppSelector(state => selectSessionMessages(state, sessionId))
   const activity = useAppSelector(state => selectSessionActivity(state, sessionId))
   const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
   const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
   const oldestMessageTimestamp = useAppSelector(state => selectSessionOldestMessageTimestamp(state, sessionId))
 
-  const status = useDerivedAgentStatus({ actions: activity, messages, connected })
+  // Live status row: while a run is in flight, the timeline ends with ONE
+  // persistent row that is EITHER the currently-running action OR the
+  // "Working…" indicator — never both, never neither. The row itself never
+  // unmounts between actions (only its content swaps), so the chat never
+  // jumps up and down in the split moment between an action finishing and
+  // the next one starting.
+  //
+  // busy is run-scoped and server-driven (session_busy events, optimistic
+  // on send). The running action is taken from the newest activity item so
+  // a stale 'running' item stuck mid-history can't hijack the row.
+  // send_message is excluded: it isn't rendered as an action row (the chat
+  // bubble is its visible form), so "Working…" stays up while it runs.
+  const busy = useAppSelector(state => selectSessionBusy(state, sessionId))
+  const showLiveRow = busy && connected && (!isDraft || messages.length > 0)
+  const liveAction = useMemo<ActionItem | null>(() => {
+    if (!showLiveRow) return null
+    for (let i = activity.length - 1; i >= 0; i--) {
+      const a = activity[i]
+      if (
+        a.itemType === 'action' &&
+        a.status === 'running' &&
+        normalizeActionName(a.name) !== 'send_message'
+      ) return a
+    }
+    return null
+  }, [activity, showLiveRow])
   const { showToast } = useToast()
 
   // ONE linear timeline: chat messages + inline activity (reasoning blocks,
   // action blocks) merged by timestamp. Message timestamps are epoch
   // seconds; activity createdAt is epoch ms — normalize to ms.
+  // send_message actions are NOT rendered — the chat bubble already shows
+  // the message; their preceding reasoning items still render.
+  // The running action shown in the live status row is excluded here (it
+  // joins the timeline once it completes and the live row hands over).
   const timeline = useMemo<TimelineEntry[]>(() => {
     const entries: TimelineEntry[] = []
     for (const message of messages) {
       entries.push({ kind: 'message', ts: message.timestamp * 1000, message })
     }
     for (const item of activity) {
+      if (item.itemType === 'action' && normalizeActionName(item.name) === 'send_message') continue
+      if (liveAction && item.id === liveAction.id) continue
       entries.push({ kind: 'activity', ts: item.createdAt ?? 0, item })
     }
     entries.sort((a, b) => a.ts - b.ts)
     return entries
-  }, [messages, activity])
+  }, [messages, activity, liveAction])
 
   const [input, setInput] = useState('')
   const [enhancing, setEnhancing] = useState(false)
@@ -151,8 +201,6 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [previewAttachment, setPreviewAttachment] = useState<PendingAttachment | null>(null)
-  // Action blocks with their "More detail" section expanded.
-  const [expandedDetailIds, setExpandedDetailIds] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const autocompleteRef = useRef<SlashCommandAutocompleteHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -168,14 +216,34 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
   const [langOpen, setLangOpen] = useState(false)
   const langDropdownRef = useRef<HTMLDivElement>(null)
 
+  // "+" menu inside the input shell (attach file / AI enhance)
+  const [plusOpen, setPlusOpen] = useState(false)
+  const plusMenuRef = useRef<HTMLDivElement>(null)
+
+  // Playbook suggestion chips under the input + the full playbook browser.
+  // The full list is cached; the displayed chips are a RANDOM sample,
+  // re-rolled every time the draft hero is entered.
+  const { send: sendSettings, onMessage: onSettingsMessage, isConnected: settingsConnected } = useSettingsWebSocket()
+  const [allPlaybooks, setAllPlaybooks] = useState<SuggestedPlaybook[]>([])
+  const [suggestedPlaybooks, setSuggestedPlaybooks] = useState<SuggestedPlaybook[]>([])
+  const [playbookOpen, setPlaybookOpen] = useState(false)
+
   // Input history (terminal-style up/down arrow navigation)
   const inputHistoryRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1)
   const parentRef = useRef<HTMLDivElement>(null)
-  const wasNearBottomRef = useRef(true)
+  // Stick-to-bottom INTENT: true means "keep me pinned to the newest
+  // content". Released ONLY by real user input (wheel up, touch drag,
+  // scrollbar drag) — never by scroll events themselves. scrollTop moves
+  // for non-user reasons all the time (the virtualizer shifts it when a
+  // row above the offset is re-measured, the browser clamps it when the
+  // canvas shrinks), so any heuristic that reads scroll position/direction
+  // to infer intent misfires and silently kills auto-follow mid-run.
+  // Re-engaged when the user returns to the bottom, clicks the jump
+  // button, or sends a message.
+  const stickToBottomRef = useRef(true)
   const prevRowCountRef = useRef(0)
   const hasInitialScrolled = useRef(false)
-  const prevScrollTopRef = useRef(0)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   // Ticker so live durations on running action blocks keep updating.
@@ -199,10 +267,48 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
     return { valid: true, error: null }
   }, [pendingAttachments])
 
+  // The live status row renders as one extra virtual row appended after
+  // the timeline, so stick-to-bottom scrolling treats it as content.
+  const rowCount = timeline.length + (showLiveRow ? 1 : 0)
+
+  // Fresh draft: the input floats at the vertical center of the panel
+  // (hero layout). The first send adds the optimistic message row, which
+  // flips this off and the animated bottom spacer eases the input down to
+  // its docked position.
+  const centered = isDraft && rowCount === 0
+
+  // Draft mascot lifecycle: shown while centered; on the first send it
+  // plays its exit dive (into the input box) and unmounts after the
+  // animation instead of popping out of existence.
+  const [mascotPhase, setMascotPhase] = useState<'shown' | 'leaving' | 'hidden'>(
+    () => (centered ? 'shown' : 'hidden'),
+  )
+  useEffect(() => {
+    if (centered) {
+      setMascotPhase('shown')
+      return
+    }
+    setMascotPhase(prev => (prev === 'shown' ? 'leaving' : prev))
+  }, [centered])
+  useEffect(() => {
+    if (mascotPhase !== 'leaving') return
+    const t = window.setTimeout(() => setMascotPhase('hidden'), DRAFT_MASCOT_EXIT_MS)
+    return () => window.clearTimeout(t)
+  }, [mascotPhase])
+
   const virtualizer = useVirtualizer({
-    count: timeline.length,
+    count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 100,
+    // Honest per-kind estimates. When an estimate is far off (the old flat
+    // 100 vs ~32px real activity rows), every measurement makes the
+    // virtualizer shift scrollTop by the difference to keep content
+    // stable — constant multi-pixel corrections that fought stick-to-
+    // bottom and left phantom gaps. Close estimates make those
+    // corrections negligible.
+    estimateSize: (index) => {
+      if (index >= timeline.length) return 54 // live status row + bottom padding
+      return timeline[index].kind === 'message' ? 96 : 36
+    },
     overscan: 5,
   })
 
@@ -210,6 +316,43 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
   // down the timeline as new messages arrive while they read.
   const lastSeenMessageId = lastSeenBySession[sessionId] ?? null
   const firstUnreadMessageIdRef = useRef<string | null | undefined>(undefined)
+
+  // The component persists across /session/* routes (no key-remount — a
+  // remount recreated the draft spacer in its final state and killed the
+  // dock animation). So per-session UI state resets IN PLACE on a session
+  // switch — except the draft→real handoff, which is the same conversation
+  // continuing and must keep scroll/animation continuity.
+  const prevSessionIdRef = useRef(sessionId)
+  const sessionResetPendingRef = useRef(false)
+  if (prevSessionIdRef.current !== sessionId) {
+    const isDraftHandoff = prevSessionIdRef.current === 'new' && sessionId !== 'new'
+    prevSessionIdRef.current = sessionId
+    if (!isDraftHandoff) {
+      firstUnreadMessageIdRef.current = undefined
+      hasInitialScrolled.current = false
+      prevRowCountRef.current = 0
+      stickToBottomRef.current = true
+      sessionResetPendingRef.current = true
+    }
+  }
+
+  useEffect(() => {
+    if (!sessionResetPendingRef.current) return
+    sessionResetPendingRef.current = false
+    setInput('')
+    setPendingAttachments([])
+    setAttachmentError(null)
+    setIsDragOver(false)
+    setPreviewAttachment(null)
+    setPlusOpen(false)
+    setLangOpen(false)
+    setShowScrollToBottom(false)
+    if (isListening) {
+      try { recognitionRef.current?.stop() } catch { /* already stopped */ }
+      setIsListening(false)
+    }
+  })
+
   if (firstUnreadMessageIdRef.current === undefined && messages.length > 0) {
     if (!lastSeenMessageId) {
       firstUnreadMessageIdRef.current = null
@@ -242,69 +385,177 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
     return () => document.removeEventListener('mousedown', handler)
   }, [langOpen])
 
-  // Track scroll position + direction, and load older messages on scroll-to-top.
-  // The scroll-to-bottom button surfaces when the user is scrolling *toward*
-  // the bottom but hasn't arrived yet — scrolling up to read history hides it.
+  // Close the "+" menu when clicking outside
+  useEffect(() => {
+    if (!plusOpen) return
+    const handler = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setPlusOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [plusOpen])
+
+  // Load the playbook catalog for the suggestion chips (same playbook_list
+  // channel the modal uses; extra broadcasts are harmless).
+  useEffect(() => {
+    return onSettingsMessage('playbook_list', (data: unknown) => {
+      const d = data as { success?: boolean; playbooks?: SuggestedPlaybook[] }
+      if (d?.success && Array.isArray(d.playbooks)) {
+        setAllPlaybooks(d.playbooks)
+      }
+    })
+  }, [onSettingsMessage])
+
+  useEffect(() => {
+    if (!settingsConnected || allPlaybooks.length > 0) return
+    sendSettings('playbook_list')
+  }, [settingsConnected, allPlaybooks.length, sendSettings])
+
+  // Re-roll the displayed chips (Fisher–Yates sample) each time the user
+  // lands on the draft hero, so New Chat surfaces different playbooks
+  // every visit instead of always the first N of the catalog.
+  useEffect(() => {
+    if (!isDraft || allPlaybooks.length === 0) return
+    const pool = [...allPlaybooks]
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    }
+    setSuggestedPlaybooks(pool.slice(0, SUGGESTED_PLAYBOOK_COUNT))
+  }, [isDraft, allPlaybooks])
+
+  // Scroll bookkeeping. Scroll events only RE-ENGAGE the pin (reaching the
+  // bottom) and drive the jump button + history loading — they never
+  // release the pin, because scrollTop also moves programmatically (see
+  // stickToBottomRef above). Releasing is handled by the input listeners
+  // below, which fire only on real user gestures:
+  //  - wheel up
+  //  - touch drag downward (finger pulls content down = scrolling up)
+  //  - scrollbar drag (pointer held down while the view leaves the bottom)
   useEffect(() => {
     const container = parentRef.current
     if (!container) return
-    prevScrollTopRef.current = container.scrollTop
+
+    let pointerHeld = false
+
     const handleScroll = () => {
       const scrollTop = container.scrollTop
       const distFromBottom = container.scrollHeight - scrollTop - container.clientHeight
       const nearBottom = distFromBottom < 100
-      wasNearBottomRef.current = nearBottom
-
-      const delta = scrollTop - prevScrollTopRef.current
-      prevScrollTopRef.current = scrollTop
 
       if (nearBottom) {
-        setShowScrollToBottom(false)
-      } else if (delta > 0) {
-        // Scrolling down (toward latest) — offer a quick jump.
-        setShowScrollToBottom(true)
-      } else if (delta < 0) {
-        // Scrolling up (reading history) — get out of the way.
-        setShowScrollToBottom(false)
+        stickToBottomRef.current = true
+      } else if (pointerHeld) {
+        // The only scroll-driven release: the user is actively dragging
+        // the scrollbar away from the bottom.
+        stickToBottomRef.current = false
       }
+      setShowScrollToBottom(!nearBottom && !stickToBottomRef.current)
 
-      if (scrollTop < 100 && hasMoreMessages && !loadingOlderMessages && oldestMessageTimestamp !== undefined) {
+      if (!isDraft && scrollTop < 100 && hasMoreMessages && !loadingOlderMessages && oldestMessageTimestamp !== undefined) {
         requestChatHistory(sessionId, oldestMessageTimestamp, 50)
       }
     }
+
+    const handleWheel = (e: WheelEvent) => {
+      // Guard on scrollTop > 0 so a wheel-up with nowhere to go doesn't
+      // strand the pin released while everything still fits on screen.
+      if (e.deltaY < 0 && container.scrollTop > 0) {
+        stickToBottomRef.current = false
+      }
+    }
+
+    let lastTouchY: number | null = null
+    const handleTouchStart = (e: TouchEvent) => {
+      lastTouchY = e.touches[0]?.clientY ?? null
+    }
+    const handleTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY
+      if (y == null || lastTouchY == null) return
+      if (y > lastTouchY && container.scrollTop > 0) {
+        stickToBottomRef.current = false
+      }
+      lastTouchY = y
+    }
+
+    const handlePointerDown = () => { pointerHeld = true }
+    const handlePointerUp = () => { pointerHeld = false }
+
     container.addEventListener('scroll', handleScroll)
-    return () => container.removeEventListener('scroll', handleScroll)
-  }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, requestChatHistory, sessionId])
+    container.addEventListener('wheel', handleWheel, { passive: true })
+    container.addEventListener('touchstart', handleTouchStart, { passive: true })
+    container.addEventListener('touchmove', handleTouchMove, { passive: true })
+    container.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('pointerup', handlePointerUp)
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      container.removeEventListener('wheel', handleWheel)
+      container.removeEventListener('touchstart', handleTouchStart)
+      container.removeEventListener('touchmove', handleTouchMove)
+      container.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, requestChatHistory, sessionId, isDraft])
+
+  // Instant jump to the true bottom (now + next frame, so post-commit
+  // re-measures by the virtualizer are covered too). No smooth animation:
+  // an animated scroll chasing a moving bottom lands short, which is what
+  // caused the pin to give up mid-run.
+  const pinToBottom = useCallback(() => {
+    const container = parentRef.current
+    if (!container) return
+    container.scrollTop = container.scrollHeight
+    requestAnimationFrame(() => {
+      const c = parentRef.current
+      if (c && stickToBottomRef.current) c.scrollTop = c.scrollHeight
+    })
+  }, [])
 
   const scrollToBottom = useCallback(() => {
-    if (timeline.length === 0) return
-    virtualizer.scrollToIndex(timeline.length - 1, { align: 'end', behavior: 'smooth' })
+    if (rowCount === 0) return
+    stickToBottomRef.current = true
+    pinToBottom()
     setShowScrollToBottom(false)
-  }, [virtualizer, timeline.length])
+  }, [rowCount, pinToBottom])
 
-  // Scroll to unread on mount, auto-scroll on new rows if near bottom
+  // Scroll to unread on mount; while stick-to-bottom is engaged, follow
+  // new rows. rowCount includes the live status row.
   useEffect(() => {
-    if (timeline.length === 0) return
+    if (rowCount === 0) return
 
-    const isNewRow = timeline.length > prevRowCountRef.current
-    prevRowCountRef.current = timeline.length
+    const isNewRow = rowCount > prevRowCountRef.current
+    prevRowCountRef.current = rowCount
 
     if (!hasInitialScrolled.current) {
       hasInitialScrolled.current = true
       const firstUnreadIdx = getFirstUnreadIndex()
       setTimeout(() => {
         if (firstUnreadIdx !== -1) {
+          stickToBottomRef.current = false
           virtualizer.scrollToIndex(firstUnreadIdx, { align: 'start', behavior: 'auto' })
         } else {
-          virtualizer.scrollToIndex(timeline.length - 1, { align: 'end', behavior: 'auto' })
+          stickToBottomRef.current = true
+          pinToBottom()
         }
-        markSessionSeen(sessionId)
+        if (!isDraft) markSessionSeen(sessionId)
       }, 50)
-    } else if (isNewRow && wasNearBottomRef.current) {
-      virtualizer.scrollToIndex(timeline.length - 1, { align: 'end', behavior: 'smooth' })
-      markSessionSeen(sessionId)
+    } else if (isNewRow && stickToBottomRef.current) {
+      pinToBottom()
+      if (!isDraft) markSessionSeen(sessionId)
     }
-  }, [timeline.length, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId])
+  }, [rowCount, virtualizer, getFirstUnreadIndex, markSessionSeen, sessionId, isDraft, pinToBottom])
+
+  // Follow content that grows IN PLACE — streaming reasoning text makes an
+  // existing row taller and pushes the live status row below the fold
+  // without changing rowCount, so the effect above never fires. Every
+  // re-measure changes getTotalSize(); while the pin is engaged, follow it.
+  const totalContentSize = virtualizer.getTotalSize()
+  useEffect(() => {
+    if (!hasInitialScrolled.current || !stickToBottomRef.current) return
+    pinToBottom()
+  }, [totalContentSize, pinToBottom])
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = inputRef.current
@@ -362,15 +613,6 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
     setEnhancing(true)
     enhancePrompt(input.trim())
   }, [input, enhancing, enhancePrompt])
-
-  const toggleDetailExpansion = useCallback((id: string) => {
-    setExpandedDetailIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
 
   const handleOptionClick = useCallback((value: string, messageId: string) => {
     sendOptionClick(value, messageId, sessionId)
@@ -469,6 +711,8 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
       if (!connected) {
         showToast('info', 'Reconnecting — your message will send when the connection is restored.')
       }
+      // Sending always snaps the view back to the newest content.
+      stickToBottomRef.current = true
       setInput('')
       setPendingAttachments([])
       setAttachmentError(null)
@@ -695,24 +939,10 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
     <div className={styles.chat}>
       <div className={styles.messagesArea}>
         <div className={styles.messagesContainer} ref={parentRef}>
-          {timeline.length === 0 ? (
-            <div className={styles.emptyState}>
-              <div className={styles.emptyIcon}>
-                <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-                  <rect width="32" height="32" rx="6" fill="var(--bg-selected)"/>
-                  <path d="M8 12h16M8 16h12M8 20h8" stroke="var(--text-primary)" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </div>
-              <h3>{emptyMessage || 'Start a conversation'}</h3>
-              <p>Send a message to begin interacting with CraftBot</p>
-            </div>
-          ) : (
+          {rowCount === 0 ? null : (
             <div
-              style={{
-                height: `${virtualizer.getTotalSize()}px`,
-                width: '100%',
-                position: 'relative',
-              }}
+              className={styles.timelineColumn}
+              style={{ height: `${virtualizer.getTotalSize()}px` }}
             >
               {loadingOlderMessages && (
                 <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
@@ -720,6 +950,33 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
                 </div>
               )}
               {virtualizer.getVirtualItems().map((virtualItem) => {
+                // The row after the last timeline entry is the live status
+                // row (only present while a run is in flight). Its key is
+                // constant so React keeps the same DOM node when the content
+                // swaps between "Working…" and a running action — no
+                // unmount/remount, no height bounce. Bottom padding keeps it
+                // clear of the input bar.
+                if (virtualItem.index >= timeline.length) {
+                  return (
+                    <div
+                      key="live-status-row"
+                      data-index={virtualItem.index}
+                      ref={virtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                        paddingBottom: 24,
+                      }}
+                    >
+                      {liveAction
+                        ? <ActionBlock item={liveAction} />
+                        : <TypingIndicatorRow />}
+                    </div>
+                  )
+                }
                 const entry = timeline[virtualItem.index]
                 const prev = virtualItem.index > 0 ? timeline[virtualItem.index - 1] : null
                 const showDateDivider = !prev || getDateKey(prev.ts) !== getDateKey(entry.ts)
@@ -729,12 +986,32 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
                   entry.message.messageId === firstUnreadMessageId
                 // Prefer clientId as the React key so that when a pending optimistic
                 // message is reconciled with the server echo (messageId changes from
-                // `pending:<cid>` to the real id), React reuses the same DOM node —
-                // letting the CSS transform transition animate the slide into
-                // its server-canonical sorted position.
+                // `pending:<cid>` to the real id), React reuses the same DOM node
+                // instead of remounting the bubble.
+                //
+                // NOTE: rows must NOT get a CSS transition on transform. Rows
+                // slide to new offsets whenever one above is re-measured, and
+                // an animated translateY keeps expanding the container's
+                // scrollHeight for 250ms AFTER React finished rendering — the
+                // true bottom drifts away from any scroll position set at
+                // render time, which broke stick-to-bottom (verified with a
+                // live scroll trace: every pin landed at dist=0, then the
+                // animation grew the page ~35px with no further events).
                 const rowKey = entry.kind === 'message'
                   ? (entry.message.clientId || entry.message.messageId || virtualItem.index)
                   : entry.item.id
+                // Vertical rhythm (as bottom padding so the virtualizer
+                // measures it): consecutive activity items sit 10px apart
+                // so reasoning + action rows read as one work block; a
+                // work block followed by a chat bubble (or the end of the
+                // timeline) gets a larger 18px break. Message rows own
+                // their spacing via .messageWrapper's padding.
+                const next = virtualItem.index < timeline.length - 1
+                  ? timeline[virtualItem.index + 1]
+                  : null
+                const rowGap = entry.kind === 'activity'
+                  ? (next?.kind === 'activity' ? 10 : 18)
+                  : 0
                 return (
                   <div
                     key={rowKey}
@@ -746,7 +1023,7 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
                       left: 0,
                       width: '100%',
                       transform: `translateY(${virtualItem.start}px)`,
-                      transition: 'transform 250ms ease',
+                      paddingBottom: rowGap,
                     }}
                   >
                     {showDateDivider && (
@@ -773,11 +1050,7 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
                     ) : entry.item.itemType === 'reasoning' ? (
                       <ReasoningBlock item={entry.item} />
                     ) : (
-                      <ActionBlock
-                        item={entry.item}
-                        expanded={expandedDetailIds.has(entry.item.id)}
-                        onToggleDetail={() => toggleDetailExpansion(entry.item.id)}
-                      />
+                      <ActionBlock item={entry.item} />
                     )}
                   </div>
                 )
@@ -785,7 +1058,15 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
             </div>
           )}
         </div>
-        {showScrollToBottom && timeline.length > 0 && (
+        {/* Draft hero: the lightweight mascot wanders just above the
+            centered input. On the first send it dives into the input box
+            (exit animation) and then unmounts. */}
+        {mascotPhase !== 'hidden' && (
+          <div className={styles.draftMascotDock}>
+            <DraftMascot size={60} leaving={mascotPhase === 'leaving'} />
+          </div>
+        )}
+        {showScrollToBottom && rowCount > 0 && (
           <button
             type="button"
             className={styles.scrollToBottomBtn}
@@ -798,62 +1079,13 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
         )}
       </div>
 
-      {/* Status bar */}
-      <div className={styles.statusBar}>
-        <StatusIndicator status={status.state} size="sm" variant="dot" />
-        <span>{status.message}</span>
-      </div>
-
-      {/* Input area */}
+      {/* Input area: one self-contained shell — textarea on top, controls
+          row inside it ("+" menu on the left, mic/lang + send on the
+          right). The area is width-capped and centered like the timeline. */}
       <div className={styles.inputArea}>
         <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={handleFileSelect} />
-        <IconButton icon={<Paperclip size={18} />} variant="ghost" tooltip="Attach file" onClick={handleAttachClick} />
-        <IconButton
-          icon={enhancing ? <Loader2 size={18} className={styles.uploadingSpinner} /> : <Sparkles size={18} />}
-          variant="ghost"
-          tooltip={enhancing ? 'Enhancing...' : 'AI Enhance'}
-          onClick={handleEnhancePrompt}
-          disabled={!input.trim() || enhancing}
-        />
-
-        <div className={styles.micGroup} ref={langDropdownRef}>
-          <button
-            type="button"
-            className={`${styles.micCombo}${isListening ? ` ${styles.micComboActive}` : ''}`}
-            title={isListening ? 'Stop listening' : 'Voice input'}
-            onClick={toggleListening}
-          >
-            <span className={styles.micIconWrap}>
-              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-              {isListening && <span className={styles.micPulseRing} />}
-            </span>
-          </button>
-          <button
-            className={`${styles.langBtn}${isListening ? ` ${styles.langBtnActive}` : ''}`}
-            onClick={() => !isListening && setLangOpen(o => !o)}
-            title="Speech language"
-            disabled={isListening}
-          >
-            {MIC_LANGUAGES.find(l => l.code === micLang)?.label ?? 'EN'}
-          </button>
-          {langOpen && (
-            <div className={styles.langDropdown}>
-              {MIC_LANGUAGES.map(lang => (
-                <button
-                  key={lang.code}
-                  className={`${styles.langOption}${micLang === lang.code ? ` ${styles.langOptionActive}` : ''}`}
-                  onClick={() => { setMicLang(lang.code); setLangOpen(false) }}
-                >
-                  <span className={styles.langCode}>{lang.label}</span>
-                  <span className={styles.langFull}>{lang.full}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div
-          className={`${styles.inputWrapper}${isDragOver ? ` ${styles.inputWrapperDragOver}` : ''}`}
+          className={`${styles.inputShell}${isDragOver ? ` ${styles.inputShellDragOver}` : ''}`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -909,8 +1141,8 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
           />
           <textarea
             ref={inputRef}
-            className={`${styles.input}${isListening ? ` ${styles.inputListening}` : ''}`}
-            placeholder={isListening ? 'Listening... speak now' : (placeholder || 'Type a message...')}
+            className={styles.input}
+            placeholder={isListening ? 'Listening... speak now' : (placeholder || 'What can I do for you?')}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -919,19 +1151,133 @@ export function Chat({ sessionId, placeholder, emptyMessage }: ChatProps) {
             lang={micLang}
             inputMode="text"
           />
+
+          <div className={styles.inputControls}>
+            <div className={styles.plusWrap} ref={plusMenuRef}>
+              <button
+                type="button"
+                className={styles.plusBtn}
+                onClick={() => setPlusOpen(o => !o)}
+                title="Attach and tools"
+                aria-label="Attach and tools"
+                aria-expanded={plusOpen}
+              >
+                <Plus size={18} />
+              </button>
+              {plusOpen && (
+                <div className={styles.plusMenu}>
+                  <button
+                    className={styles.plusMenuItem}
+                    onClick={() => { setPlusOpen(false); handleAttachClick() }}
+                  >
+                    <Paperclip size={15} />
+                    <span>Attach files</span>
+                  </button>
+                  <button
+                    className={styles.plusMenuItem}
+                    onClick={() => { setPlusOpen(false); handleEnhancePrompt() }}
+                    disabled={!input.trim() || enhancing}
+                  >
+                    {enhancing
+                      ? <Loader2 size={15} className={styles.uploadingSpinner} />
+                      : <Sparkles size={15} />}
+                    <span>{enhancing ? 'Enhancing…' : 'AI Enhance'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.controlsRight}>
+              <div className={styles.micGroup} ref={langDropdownRef}>
+                <button
+                  type="button"
+                  className={`${styles.micCombo}${isListening ? ` ${styles.micComboActive}` : ''}`}
+                  title={isListening ? 'Stop listening' : 'Voice input'}
+                  onClick={toggleListening}
+                >
+                  <span className={styles.micIconWrap}>
+                    {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                    {isListening && <span className={styles.micPulseRing} />}
+                  </span>
+                </button>
+                <button
+                  className={`${styles.langBtn}${isListening ? ` ${styles.langBtnActive}` : ''}`}
+                  onClick={() => !isListening && setLangOpen(o => !o)}
+                  title="Speech language"
+                  disabled={isListening}
+                >
+                  {MIC_LANGUAGES.find(l => l.code === micLang)?.label ?? 'EN'}
+                </button>
+                {langOpen && (
+                  <div className={styles.langDropdown}>
+                    {MIC_LANGUAGES.map(lang => (
+                      <button
+                        key={lang.code}
+                        className={`${styles.langOption}${micLang === lang.code ? ` ${styles.langOptionActive}` : ''}`}
+                        onClick={() => { setMicLang(lang.code); setLangOpen(false) }}
+                      >
+                        <span className={styles.langCode}>{lang.label}</span>
+                        <span className={styles.langFull}>{lang.full}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className={styles.sendBtn}
+                onClick={handleSend}
+                disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid}
+                title="Send"
+                aria-label="Send message"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          </div>
         </div>
-        <Button
-          icon={<Send size={16} />}
-          onClick={handleSend}
-          disabled={(!input.trim() && pendingAttachments.length === 0) || !attachmentValidation.valid}
-        />
+
+        {/* Playbook suggestions: a few quick-start chips, ending with the
+            entry point into the full playbook browser. Draft-only — they
+            disappear once the first request is sent. */}
+        {centered && (
+        <div className={styles.suggestionsRow}>
+          {suggestedPlaybooks.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              className={styles.suggestionChip}
+              title={p.description || p.name}
+              onClick={() => dispatch(setPendingPrefill(p.prompt))}
+            >
+              <span aria-hidden="true">{p.emoji || '📖'}</span>
+              <span className={styles.suggestionChipName}>{p.name}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={`${styles.suggestionChip} ${styles.suggestionMore}`}
+            onClick={() => setPlaybookOpen(true)}
+          >
+            <BookOpen size={13} />
+            <span>All playbooks</span>
+          </button>
+        </div>
+        )}
       </div>
+
+      {/* Animated spacer: flex-grows below the input in a fresh draft so
+          the input sits at the vertical center; collapses (with a
+          transition) on the first send, easing the input down to the
+          bottom where it stays docked. */}
+      <div className={`${styles.bottomSpacer}${centered ? ` ${styles.bottomSpacerOpen}` : ''}`} aria-hidden="true" />
 
       <AttachmentPreviewModal
         isOpen={previewAttachment !== null}
         attachment={previewAttachment}
         onClose={() => setPreviewAttachment(null)}
       />
+      <PlaybookModal isOpen={playbookOpen} onClose={() => setPlaybookOpen(false)} />
     </div>
   )
 }

@@ -78,6 +78,20 @@ const messagesSlice = createSlice({
       if (!action.payload.sessionId) return
       upsertMessage(bucketFor(state, action.payload.sessionId), action.payload)
     },
+    // Draft handoff: move the 'new' bucket's messages (the optimistic user
+    // bubble) into the real session's bucket the moment session_created
+    // arrives, so the message never disappears while waiting for the
+    // server echo (which later reconciles by clientId as usual).
+    transferSession(state, action: PayloadAction<{ from: string; to: string }>) {
+      const { from, to } = action.payload
+      const src = state.bySession[from]
+      if (!src || from === to) return
+      delete state.bySession[from]
+      const dst = bucketFor(state, to)
+      for (const msg of src.items) {
+        upsertMessage(dst, { ...msg, sessionId: to })
+      }
+    },
     prependMany(state, action: PayloadAction<{
       sessionId: string
       messages: ChatMessage[]
@@ -122,6 +136,7 @@ export const {
   setInitial,
   addOrReconcile,
   addOptimistic,
+  transferSession,
   prependMany,
   clearSession,
   dropSession,

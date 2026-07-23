@@ -810,6 +810,19 @@ class BrowserAdapter(InterfaceAdapter):
             )
         )
 
+    def _handle_run_state_change(self, event: UIEvent) -> None:
+        """Broadcast a session's run-in-flight flag (typing indicator)."""
+        session_id = event.data.get("session_id") or "main"
+        busy = bool(event.data.get("busy", False))
+        asyncio.create_task(
+            self._broadcast(
+                {
+                    "type": "session_busy",
+                    "data": {"sessionId": session_id, "busy": busy},
+                }
+            )
+        )
+
     async def _on_start(self) -> None:
         """Start the browser interface."""
         from aiohttp import web
@@ -1124,6 +1137,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = data.get("sessionId") or "main"
             client_id = data.get("clientId")
 
+            # Draft chat: the sidebar's "New Chat" only opens an empty view —
+            # the session is created lazily here, on the FIRST message.
+            # session_created is broadcast (with the sender's clientId) before
+            # the message so the draft view can navigate to the real session.
+            if session_id == "new":
+                session = self._controller.agent.create_chat_session()
+                session_id = session.id
+                await self._broadcast(
+                    {
+                        "type": "session_created",
+                        "data": {
+                            "session": self._session_info(session),
+                            "clientId": client_id,
+                        },
+                    }
+                )
+
             # Dispatch chat submission as a background task so the WS message loop
             # can immediately read the next frame. Otherwise rapid-fire sends are
             # serialised behind each message's per-session processing, which
@@ -1163,10 +1193,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             limit = data.get("limit", 50)
             await self._handle_chat_history(session_id, before_timestamp, limit, ws)
 
-        # Session management
-        elif msg_type == "session_create":
-            await self._handle_session_create(data)
-
+        # Session management (creation is lazy — see the "message" branch)
         elif msg_type == "session_delete":
             await self._handle_session_delete(data)
 
@@ -3261,20 +3288,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             "lastActiveAt": session.last_active_at,
             "livingUiProjectId": session.living_ui_project_id,
         }
-
-    async def _handle_session_create(self, data: Dict[str, Any]) -> None:
-        """Create a fresh chat session (the "+ New Chat" button)."""
-        try:
-            title = (data.get("title") or "").strip() or "New chat"
-            session = self._controller.agent.create_chat_session(title=title)
-            await self._broadcast(
-                {
-                    "type": "session_created",
-                    "data": {"session": self._session_info(session)},
-                }
-            )
-        except Exception as e:
-            logger.error(f"[SESSION] Create failed: {e}", exc_info=True)
 
     async def _handle_session_delete(self, data: Dict[str, Any]) -> None:
         """Delete a session and its chat history. The main session is permanent."""
@@ -7771,6 +7784,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 self._session_info(s)
                 for s in self._controller.agent.session_manager.list_sessions()
             ],
+            # Sessions with a run currently in flight — seeds the per-session
+            # typing indicator on connect/reload.
+            "busySessions": sorted(self._controller.agent.busy_sessions),
             # ChatMessage.to_dict() always carries sessionId.
             "messages": [m.to_dict() for m in self._chat.get_messages()],
             # Recent activity items (per-session inline feed); each carries sessionId.

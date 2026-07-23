@@ -55,7 +55,9 @@
   width: fit-content;
   max-width: 80%;
   gap: var(--space-2);
-  padding-bottom: var(--space-3);
+  /* Matches the 18px work-block → bubble break in the chat timeline so
+     turns keep one consistent rhythm. */
+  padding-bottom: 18px;
 }
 
 .messageWrapper.userWrapper {
@@ -252,18 +254,6 @@
   width: 100%;
 }
 
-/* Status Bar */
-.statusBar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-primary);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
 /* Input Area */
 .inputArea {
   display: flex;
@@ -330,10 +320,6 @@
 
   .inputArea {
     padding: var(--space-2);
-  }
-
-  .statusBar {
-    padding: var(--space-2) var(--space-3);
   }
 }
 

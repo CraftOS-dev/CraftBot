@@ -1,17 +1,12 @@
 // One-line speech-bubble formatters for the mascot's action display.
-// Parallel to the JSX renderers in renderers.tsx — same action set, same
-// input/output field extraction, but each formatter produces a small POJO
-// (label + body + status) instead of card-sized JSX.
+// Each formatter produces a small POJO (label + body + status).
 //
-// COLOCATED WITH THE RENDERERS ON PURPOSE: SupportedActionName is the
-// shared type between the two registries. If you add a new action's
-// renderer to REGISTRY in renderers.tsx, you must add it to
-// SUPPORTED_ACTION_NAMES — and then TypeScript will force you to add the
-// matching formatter to FORMATTER_REGISTRY here too (and vice versa).
-// That prevents the two display paths from drifting out of sync.
+// SupportedActionName (from actionNames.ts) is the shared contract: if
+// you add a new action name to SUPPORTED_ACTION_NAMES, TypeScript will
+// force you to add the matching formatter to FORMATTER_REGISTRY here.
 
 import { basename, strField, arrField, dictField } from './parse'
-import { extractTodos, isSupportedActionName, normalizeActionName, type SupportedActionName } from './renderers'
+import { extractTodos, isSupportedActionName, normalizeActionName, type SupportedActionName } from './actionNames'
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -59,7 +54,7 @@ export interface MascotActionFormatter {
 // ─────────────────────────────────────────────────────────────────────
 // String helpers
 // ─────────────────────────────────────────────────────────────────────
-// `basename` is imported from parse.ts — same util the renderers use.
+// `basename` is imported from parse.ts — same util the timeline rows use.
 
 /** Truncate `s` to `max` characters, appending an ellipsis on overflow. */
 function trim(s: string, max: number): string {
@@ -101,7 +96,7 @@ function firstSnippet(text: string, max = 60): string {
 // ─────────────────────────────────────────────────────────────────────
 //
 // Each formatter pulls the same input/output fields the renderer uses
-// (see renderers.tsx), so the source-of-truth for "which fields matter"
+// (see actionNames.ts), so the source-of-truth for "which fields matter"
 // stays in one place per action.
 
 // FILE OPS ───────────────────────────────────────────────────────────
@@ -457,7 +452,7 @@ const update_todos: MascotActionFormatter = {
 
 /** Exhaustive map from every SupportedActionName to its formatter.
  *  Typed as Record<SupportedActionName, …> so any new entry in
- *  SUPPORTED_ACTION_NAMES (in renderers.tsx) becomes a compile error
+ *  SUPPORTED_ACTION_NAMES (in actionNames.ts) becomes a compile error
  *  here until you add the matching formatter. */
 const FORMATTER_REGISTRY: Record<SupportedActionName, MascotActionFormatter> = {
   // file ops
@@ -528,7 +523,7 @@ const GENERIC_FORMATTER: MascotActionFormatter = makeGenericFormatter('action')
 /** Look up the formatter for an action name. Falls back to a
  *  name-aware generic formatter for any name not in the supported
  *  set — that's intentional: actions without a custom renderer in
- *  renderers.tsx should ALSO not have custom-extraction bubble
+ *  the timeline row should ALSO not have custom-extraction bubble
  *  content (the user said: "ONLY handle actions that is also handled
  *  in the action renderer"). But the generic version still SHOWS the
  *  action name so the user knows what's happening. */

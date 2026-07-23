@@ -30,6 +30,11 @@ class UIEventType(Enum):
 
     # State events
     AGENT_STATE_CHANGED = auto()
+    # Per-session run lifecycle: data = {"session_id": str, "busy": bool}.
+    # True from the trigger that starts a run until the run ends (final
+    # message, limit pause, or fatal LLM error) — drives the chat's
+    # typing indicator without flickering between turns.
+    RUN_STATE_CHANGED = auto()
     GUI_MODE_CHANGED = auto()
 
     # Footage events (for GUI mode screenshots)
