@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react'
 import { StatusIndicator } from '../ui'
 import type { ActionItem } from '../../types'
 import { normalizeActionName, extractTodos } from './actionNames'
@@ -30,6 +31,74 @@ function getRunningElapsedMs(item: ActionItem): number | undefined {
 // ─────────────────────────────────────────────────────────────────────
 // Timeline blocks
 // ─────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────
+// Chunk header: one clickable row standing in for a whole
+// reasoning+actions block between two chat bubbles. The chevron sits
+// AFTER the label (always visible, rotates when open) so the row reads
+// as expandable in every state.
+//   - run in flight:  [spinner] Working… ›        12.3s
+//   - settled:        [       ] N Actions executed ›
+// Shares the action-row geometry (32px icon slot + 8px gap) so the text
+// edge lines up with every other timeline row.
+// ─────────────────────────────────────────────────────────────────────
+
+export function ChunkHeaderRow({
+  count,
+  expanded,
+  working,
+  elapsedMs,
+  onToggle,
+}: {
+  count: number
+  expanded: boolean
+  working: boolean
+  elapsedMs?: number
+  onToggle: () => void
+}) {
+  const chevron = (
+    <ChevronRight
+      size={13}
+      className={`${styles.chunkChevron}${expanded ? ` ${styles.chunkChevronOpen}` : ''}`}
+    />
+  )
+  return (
+    <button
+      type="button"
+      className={styles.chunkHeader}
+      onClick={onToggle}
+      aria-expanded={expanded}
+      title={expanded ? 'Hide steps' : 'Show steps'}
+    >
+      <span className={styles.actionRowStatus}>
+        {working
+          ? <StatusIndicator status="running" size="sm" />
+          : <StatusIndicator status="completed" size="sm" />}
+      </span>
+      {working ? (
+        <>
+          <span className={styles.workingLabel}>
+            Working
+            <span className={styles.workingDot}>.</span>
+            <span className={styles.workingDot}>.</span>
+            <span className={styles.workingDot}>.</span>
+          </span>
+          {chevron}
+          {elapsedMs != null && (
+            <span className={styles.actionRowDuration}>{formatDuration(elapsedMs)}</span>
+          )}
+        </>
+      ) : (
+        <>
+          <span className={styles.chunkLabel}>
+            {count} Action{count === 1 ? '' : 's'} executed
+          </span>
+          {chevron}
+        </>
+      )}
+    </button>
+  )
+}
 
 export function ReasoningBlock({ item }: { item: ActionItem }) {
   return (

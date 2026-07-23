@@ -165,3 +165,41 @@
     opacity: 1;
   }
 }
+
+/* ── Chunk header row ─────────────────────────────────────────────────
+   Clickable stand-in for a collapsed reasoning+actions block. Same
+   geometry as .actionRow (32px icon slot + 8px gap) so its text shares
+   the 40px left edge. */
+.chunkHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-1) 3px 0;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chunkChevron {
+  color: var(--text-muted);
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.chunkChevronOpen {
+  transform: rotate(90deg);
+}
+
+.chunkLabel {
+  font-weight: var(--font-medium);
+  transition: color var(--transition-fast);
+}
+
+.chunkHeader:hover .chunkLabel,
+.chunkHeader:hover .chunkChevron {
+  color: var(--text-primary);
+}

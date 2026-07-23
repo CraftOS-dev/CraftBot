@@ -7,7 +7,7 @@ import { SlashCommandAutocomplete, AttachmentPreviewModal, PlaybookModal } from 
 import type { SlashCommandAutocompleteHandle } from '../ui'
 import { ChatMessageItem } from '../../pages/Chat/ChatMessage'
 import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
-import { ReasoningBlock, ActionBlock } from '../activity/ActivityBlocks'
+import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
 import { normalizeActionName } from '../activity/actionNames'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectPendingPrefill } from '../../store/selectors/chatInput'
@@ -49,6 +49,24 @@ type TimelineEntry =
   | { kind: 'message'; ts: number; message: ChatMessage }
   | { kind: 'activity'; ts: number; item: ActionItem }
 
+// One RENDERED row. Activity entries are grouped into chunks (consecutive
+// items between chat bubbles); each chunk renders a clickable header row
+// and, only when expanded, its item rows.
+type DisplayRow =
+  | { kind: 'message'; ts: number; message: ChatMessage }
+  | {
+      kind: 'chunkHeader'
+      ts: number
+      chunkId: string
+      count: number
+      expanded: boolean
+      /** Chunk sits at the very end of the timeline (no bubble after it) —
+       *  the one a busy run is currently appending to. */
+      tail: boolean
+      startTs: number
+    }
+  | { kind: 'activity'; ts: number; item: ActionItem }
+
 // Slim view of a playbook for the suggestion chips under the input.
 interface SuggestedPlaybook {
   id: string
@@ -59,6 +77,15 @@ interface SuggestedPlaybook {
 }
 
 const SUGGESTED_PLAYBOOK_COUNT = 3
+
+// Chat-delivery actions — the ones whose visible form IS a chat bubble in
+// this interface. A chunk whose only actions are these renders nothing at
+// all (no header, no reasoning): the bubble speaks for itself. Platform
+// sends (whatsapp/gmail/discord/... actions) are different action names
+// and keep their chunk. Closed set of controlled action names.
+const CHAT_SEND_ACTIONS = new Set(['send_message', 'send_message_with_attachment'])
+const isChatSend = (item: ActionItem): boolean =>
+  item.itemType === 'action' && CHAT_SEND_ACTIONS.has(normalizeActionName(item.name))
 
 const MIC_LANGUAGES = [
   { code: 'en-US', label: 'EN', full: 'English' },
@@ -157,41 +184,116 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // send_message is excluded: it isn't rendered as an action row (the chat
   // bubble is its visible form), so "Working…" stays up while it runs.
   const busy = useAppSelector(state => selectSessionBusy(state, sessionId))
-  const showLiveRow = busy && connected && (!isDraft || messages.length > 0)
-  const liveAction = useMemo<ActionItem | null>(() => {
-    if (!showLiveRow) return null
-    for (let i = activity.length - 1; i >= 0; i--) {
-      const a = activity[i]
-      if (
-        a.itemType === 'action' &&
-        a.status === 'running' &&
-        normalizeActionName(a.name) !== 'send_message'
-      ) return a
-    }
-    return null
-  }, [activity, showLiveRow])
+  // The bubble itself retires the "Working…" row: once the newest thing
+  // in the whole timeline is an agent reply bubble, the row is suppressed
+  // in the SAME render that inserts the bubble — one layout change
+  // instead of two (bubble-in, then busy=false unmounting the row a few
+  // frames later), which was the run-end flicker. The later busy=false is
+  // then a visual no-op. Mid-run progress bubbles don't stick: any newer
+  // activity item brings the row back.
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
+  const lastActivityTs =
+    activity.length > 0 ? (activity[activity.length - 1].createdAt ?? 0) : 0
+  const agentBubbleIsNewest =
+    !!lastMsg && lastMsg.style === 'agent' && lastMsg.timestamp * 1000 >= lastActivityTs
+  const showLiveRow =
+    busy && connected && !agentBubbleIsNewest && (!isDraft || messages.length > 0)
   const { showToast } = useToast()
 
   // ONE linear timeline: chat messages + inline activity (reasoning blocks,
   // action blocks) merged by timestamp. Message timestamps are epoch
   // seconds; activity createdAt is epoch ms — normalize to ms.
-  // send_message actions are NOT rendered — the chat bubble already shows
-  // the message; their preceding reasoning items still render.
-  // The running action shown in the live status row is excluded here (it
-  // joins the timeline once it completes and the live row hands over).
+  // Chat-send items stay in the timeline HERE so chunking can tell a
+  // "reply-only" chunk apart from real work — they are dropped from the
+  // rendered rows in the chunking pass below.
   const timeline = useMemo<TimelineEntry[]>(() => {
     const entries: TimelineEntry[] = []
     for (const message of messages) {
       entries.push({ kind: 'message', ts: message.timestamp * 1000, message })
     }
     for (const item of activity) {
-      if (item.itemType === 'action' && normalizeActionName(item.name) === 'send_message') continue
-      if (liveAction && item.id === liveAction.id) continue
       entries.push({ kind: 'activity', ts: item.createdAt ?? 0, item })
     }
     entries.sort((a, b) => a.ts - b.ts)
     return entries
-  }, [messages, activity, liveAction])
+  }, [messages, activity])
+
+  // Chunk collapse state, keyed by the chunk's first item id. Chunks are
+  // COLLAPSED by default: a slim header row stands in for the whole
+  // reasoning+actions block. While the run is appending to the tail chunk
+  // the collapsed header shows the working animation + elapsed time; once
+  // settled it reads "Action steps · N" with no time. Clicking toggles.
+  const [expandedChunks, setExpandedChunks] = useState<Record<string, boolean>>({})
+  const toggleChunk = useCallback((chunkId: string) => {
+    setExpandedChunks(prev => {
+      const opening = !prev[chunkId]
+      if (opening) {
+        // Expanding inserts rows below the header. Release the bottom pin
+        // so BOTH auto-scroll paths (new-row and content-growth) stay
+        // quiet and the view remains anchored where the user clicked —
+        // no jump to the bottom. Collapsing keeps the pin (content only
+        // shrinks; the scroll position clamps naturally).
+        stickToBottomRef.current = false
+      }
+      return { ...prev, [chunkId]: opening }
+    })
+  }, [])
+
+  const { displayRows, tailChunk } = useMemo(() => {
+    type TailChunkInfo = { chunkId: string; expanded: boolean; startTs: number }
+    const rows: DisplayRow[] = []
+    let chunk: ActionItem[] = []
+    // Assigned inside flush(); the cast at the return defeats TS's bogus
+    // "still null" narrowing (closure writes aren't flow-tracked).
+    let tail: TailChunkInfo | null = null
+    const flush = (isTail: boolean) => {
+      if (chunk.length === 0) return
+      const items = chunk
+      chunk = []
+
+      // Chat-send rows never render (the bubble is their visible form).
+      const visible = items.filter(i => !isChatSend(i))
+      const actionCount = visible.filter(i => i.itemType === 'action').length
+
+      // A chunk renders ONLY when it contains at least one real action.
+      // Action-less chunks (quick replies where the bubble speaks for
+      // itself, or silent runs) render NOTHING — ever. This also keeps
+      // quick-reply runs on ONE continuous "Working…" live row from start
+      // to bubble: no header appears mid-run just to vanish at the end.
+      if (actionCount === 0) return
+
+      const chunkId = visible[0].id
+      const expanded = !!expandedChunks[chunkId]
+      const startTs = visible[0].createdAt ?? 0
+      rows.push({
+        kind: 'chunkHeader',
+        ts: startTs,
+        chunkId,
+        // Header counts ACTIONS only — reasoning rows are commentary, not
+        // executed work.
+        count: actionCount,
+        expanded,
+        tail: isTail,
+        startTs,
+      })
+      if (expanded) {
+        for (const item of visible) {
+          rows.push({ kind: 'activity', ts: item.createdAt ?? 0, item })
+        }
+      }
+      if (isTail) tail = { chunkId, expanded, startTs }
+    }
+    for (const entry of timeline) {
+      if (entry.kind === 'message') {
+        flush(false)
+        rows.push(entry)
+      } else {
+        chunk.push(entry.item)
+      }
+    }
+    flush(true)
+    return { displayRows: rows, tailChunk: tail as TailChunkInfo | null }
+  }, [timeline, expandedChunks])
 
   const [input, setInput] = useState('')
   const [enhancing, setEnhancing] = useState(false)
@@ -253,14 +355,16 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const hasInitialScrolled = useRef(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
-  // Ticker so live durations on running action blocks keep updating.
+  // Ticker so live durations keep updating — running action rows AND the
+  // collapsed tail chunk's "Working… <elapsed>" header (which ticks for
+  // the whole run, even while only reasoning is streaming).
   const [, forceTick] = useState(0)
   useEffect(() => {
     const hasRunning = activity.some(a => a.status === 'running' || a.status === 'waiting')
-    if (!hasRunning) return
+    if (!hasRunning && !busy) return
     const interval = setInterval(() => forceTick(t => t + 1), 100)
     return () => clearInterval(interval)
-  }, [activity])
+  }, [activity, busy])
 
   const attachmentValidation = useMemo(() => {
     const totalSize = pendingAttachments.reduce((sum, att) => sum + att.size, 0)
@@ -275,8 +379,11 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   }, [pendingAttachments])
 
   // The live status row renders as one extra virtual row appended after
-  // the timeline, so stick-to-bottom scrolling treats it as content.
-  const rowCount = timeline.length + (showLiveRow ? 1 : 0)
+  // the timeline — but ONLY while the tail chunk is expanded (or no tail
+  // chunk exists yet this run). A collapsed tail chunk's header already
+  // carries the working state, so the live row would be redundant.
+  const showLiveRowEffective = showLiveRow && (!tailChunk || tailChunk.expanded)
+  const rowCount = displayRows.length + (showLiveRowEffective ? 1 : 0)
 
   // Fresh draft: the input floats at the vertical center of the panel
   // (hero layout). The first send adds the optimistic message row, which
@@ -313,8 +420,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     // bottom and left phantom gaps. Close estimates make those
     // corrections negligible.
     estimateSize: (index) => {
-      if (index >= timeline.length) return 54 // live status row + bottom padding
-      return timeline[index].kind === 'message' ? 96 : 36
+      if (index >= displayRows.length) return 54 // live status row + bottom padding
+      return displayRows[index].kind === 'message' ? 96 : 36
     },
     overscan: 5,
   })
@@ -348,6 +455,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     sessionResetPendingRef.current = false
     setInput('')
     setReplyTarget(null)
+    setExpandedChunks({})
     setPendingAttachments([])
     setAttachmentError(null)
     setIsDragOver(false)
@@ -376,10 +484,10 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
   const getFirstUnreadIndex = useCallback(() => {
     if (!firstUnreadMessageId) return -1
-    return timeline.findIndex(
+    return displayRows.findIndex(
       e => e.kind === 'message' && e.message.messageId === firstUnreadMessageId,
     )
-  }, [timeline, firstUnreadMessageId])
+  }, [displayRows, firstUnreadMessageId])
 
   // Close language dropdown when clicking outside
   useEffect(() => {
@@ -718,7 +826,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       // edge case.
       const isSlashCommand = trimmed.startsWith('/') && pendingAttachments.length === 0
       if (isSlashCommand) {
-        sendCommand(trimmed)
+        sendCommand(trimmed, sessionId)
       } else {
         sendMessage(
           trimmed,
@@ -976,7 +1084,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 // swaps between "Working…" and a running action — no
                 // unmount/remount, no height bounce. Bottom padding keeps it
                 // clear of the input bar.
-                if (virtualItem.index >= timeline.length) {
+                if (virtualItem.index >= displayRows.length) {
                   return (
                     <div
                       key="live-status-row"
@@ -991,14 +1099,13 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                         paddingBottom: 24,
                       }}
                     >
-                      {liveAction
-                        ? <ActionBlock item={liveAction} />
-                        : <TypingIndicatorRow />}
+                      {/* ALWAYS "Working…" — never the action name. */}
+                      <TypingIndicatorRow />
                     </div>
                   )
                 }
-                const entry = timeline[virtualItem.index]
-                const prev = virtualItem.index > 0 ? timeline[virtualItem.index - 1] : null
+                const entry = displayRows[virtualItem.index]
+                const prev = virtualItem.index > 0 ? displayRows[virtualItem.index - 1] : null
                 const showDateDivider = !prev || getDateKey(prev.ts) !== getDateKey(entry.ts)
                 const showUnreadDivider =
                   entry.kind === 'message' &&
@@ -1019,19 +1126,24 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 // animation grew the page ~35px with no further events).
                 const rowKey = entry.kind === 'message'
                   ? (entry.message.clientId || entry.message.messageId || virtualItem.index)
-                  : entry.item.id
+                  : entry.kind === 'chunkHeader'
+                    ? `chunk:${entry.chunkId}`
+                    : entry.item.id
                 // Vertical rhythm (as bottom padding so the virtualizer
-                // measures it): consecutive activity items sit 10px apart
-                // so reasoning + action rows read as one work block; a
-                // work block followed by a chat bubble (or the end of the
-                // timeline) gets a larger 18px break. Message rows own
-                // their spacing via .messageWrapper's padding.
-                const next = virtualItem.index < timeline.length - 1
-                  ? timeline[virtualItem.index + 1]
+                // measures it): consecutive activity rows sit 10px apart so
+                // a chunk reads as one work block; the block's last row
+                // (before a bubble or the timeline end) gets an 18px break.
+                // A collapsed chunk header IS the whole block, so it takes
+                // the 18px break itself. Message rows own their spacing via
+                // .messageWrapper's padding.
+                const next = virtualItem.index < displayRows.length - 1
+                  ? displayRows[virtualItem.index + 1]
                   : null
                 const rowGap = entry.kind === 'activity'
                   ? (next?.kind === 'activity' ? 10 : 18)
-                  : 0
+                  : entry.kind === 'chunkHeader'
+                    ? (entry.expanded ? 10 : 18)
+                    : 0
                 return (
                   <div
                     key={rowKey}
@@ -1067,6 +1179,18 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                         onOpenFolder={openFolder}
                         onOptionClick={handleOptionClick}
                         onReply={handleChatReply}
+                      />
+                    ) : entry.kind === 'chunkHeader' ? (
+                      <ChunkHeaderRow
+                        count={entry.count}
+                        expanded={entry.expanded}
+                        working={entry.tail && showLiveRow}
+                        elapsedMs={
+                          entry.tail && showLiveRow
+                            ? Math.max(0, Date.now() - entry.startTs)
+                            : undefined
+                        }
+                        onToggle={() => toggleChunk(entry.chunkId)}
                       />
                     ) : entry.item.itemType === 'reasoning' ? (
                       <ReasoningBlock item={entry.item} />

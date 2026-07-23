@@ -168,7 +168,7 @@ interface WebSocketContextType extends WebSocketState {
     sessionId: string,
     replyContext?: { originalMessage: string },
   ) => void
-  sendCommand: (command: string) => void
+  sendCommand: (command: string, sessionId: string) => void
   // Session management (sessions are created lazily by the backend on the
   // first message sent with sessionId "new" — there is no create sender)
   deleteSession: (sessionId: string) => void
@@ -416,8 +416,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     }))
   }, [sendOrQueue, dispatch])
 
-  const sendCommand = useCallback((command: string) => {
-    sendOrQueue(JSON.stringify({ type: 'command', command }))
+  const sendCommand = useCallback((command: string, sessionId: string) => {
+    sendOrQueue(JSON.stringify({ type: 'command', command, sessionId }))
   }, [sendOrQueue])
 
   // ── Session management ────────────────────────────────────────────

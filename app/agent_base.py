@@ -1106,9 +1106,10 @@ class AgentBase:
         session = self.session_manager.get(session_id)
         if not session:
             return
-        try:
-            basis = (first_request or "").strip()
-            if not basis:
+
+        basis = (first_request or "").strip()
+        if not basis:
+            try:
                 stream = self.event_stream_manager.get_stream_by_id(session_id)
                 if stream is None:
                     return
@@ -1116,6 +1117,11 @@ class AgentBase:
                 if not snapshot or snapshot == "(no events)":
                     return
                 basis = snapshot[:4000]
+            except Exception:
+                return
+
+        title = ""
+        try:
             response = await self.llm.generate_response_async(
                 system_prompt=(
                     "Generate a concise 2-5 word title for a conversation "
@@ -1126,12 +1132,38 @@ class AgentBase:
                 user_prompt=basis[:2000],
             )
             title = self._sanitize_session_title(response)
-            if title:
-                self.session_manager.rename_session(session_id, title)
-                if self.ui_controller:
-                    await self.ui_controller.notify_session_updated(session_id)
         except Exception as e:
-            logger.debug(f"[SESSION] Auto-title failed for {session_id}: {e}")
+            logger.debug(f"[SESSION] Auto-title LLM call failed for {session_id}: {e}")
+
+        # Deterministic fallback: when the LLM call failed (or yielded
+        # nothing after sanitizing), the user's own first request becomes
+        # the title — no judgment involved, always meaningful.
+        if not title:
+            title = self._fallback_session_title(first_request or "")
+        if not title:
+            return
+
+        try:
+            self.session_manager.rename_session(session_id, title)
+            if self.ui_controller:
+                await self.ui_controller.notify_session_updated(session_id)
+        except Exception as e:
+            logger.debug(f"[SESSION] Auto-title rename failed for {session_id}: {e}")
+
+    @staticmethod
+    def _fallback_session_title(first_request: str) -> str:
+        """Deterministic session title derived from the user's first
+        request: whitespace-collapsed single line, truncated at a word
+        boundary. Returns "" when there is no request text to use."""
+        text = " ".join((first_request or "").split())
+        if not text:
+            return ""
+        if len(text) > 48:
+            cut = text[:48]
+            if " " in cut:
+                cut = cut.rsplit(" ", 1)[0]
+            text = cut.rstrip() + "..."
+        return text
 
     @staticmethod
     def _sanitize_session_title(response: Optional[str]) -> str:

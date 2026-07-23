@@ -678,6 +678,10 @@ class BrowserAdapter(InterfaceAdapter):
         self._theme_adapter = BrowserThemeAdapter(BaseTheme())
         self._chat = BrowserChatComponent(self)
         self._action_panel = BrowserActionPanelComponent(self)
+        # One-shot flag: the activity feed is rebuilt from persisted event
+        # streams on the first init request after boot (see
+        # _restore_activity_items).
+        self._activity_restored = False
         self._status_bar = BrowserStatusBarComponent(self)
         self._footage = BrowserFootageComponent(self)
         self._app: Optional["web.Application"] = None
@@ -7772,12 +7776,108 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             await self._chat.append_message(error_message)
             return {"success": False, "files_sent": 0, "errors": [str(e)]}
 
+    def _restore_activity_items(self) -> None:
+        """Rebuild the in-memory activity feed from persisted event streams.
+
+        The action panel is a process-lifetime cache; the durable record of
+        actions + reasoning is each session's event stream. Replaying the
+        restored streams through the same EventTransformer used for live
+        events reconstructs the inline activity feed after a backend
+        restart. Runs once, lazily, on the first init request (streams are
+        guaranteed loaded by then).
+        """
+        if self._activity_restored:
+            return
+        self._activity_restored = True
+
+        from app.ui_layer.events.transformer import EventTransformer
+        from app.ui_layer.events import UIEventType
+
+        # Bound the restore so ancient sessions don't bloat the init payload.
+        PER_SESSION_ITEM_CAP = 100
+
+        try:
+            streams = (
+                self._controller.agent.event_stream_manager.get_all_streams_with_ids()
+            )
+        except Exception as e:
+            logger.warning(f"[ACTIVITY] Restore skipped — streams unavailable: {e}")
+            return
+
+        restored: List[ActionItem] = []
+        for session_id, stream in streams:
+            session_items: List[ActionItem] = []
+            by_action_id: Dict[str, ActionItem] = {}
+            for event in stream.as_list():
+                try:
+                    ui = EventTransformer.transform(event, session_id)
+                except Exception:
+                    continue
+                if ui is None:
+                    continue
+                ts = ui.timestamp.timestamp() if ui.timestamp else time.time()
+
+                if ui.type == UIEventType.REASONING:
+                    session_items.append(
+                        ActionItem(
+                            id=ui.data.get("reasoning_id", ""),
+                            name="Reasoning",
+                            status="completed",
+                            item_type="reasoning",
+                            session_id=session_id,
+                            created_at=ts,
+                            completed_at=ts,
+                            output_data=ui.data.get("content"),
+                        )
+                    )
+                elif ui.type == UIEventType.ACTION_START:
+                    item = ActionItem(
+                        id=ui.data.get("action_id", ""),
+                        name=ui.data.get("action_name", "Action"),
+                        status="running",
+                        item_type="action",
+                        session_id=session_id,
+                        created_at=ts,
+                        input_data=ui.data.get("input"),
+                    )
+                    session_items.append(item)
+                    by_action_id[item.id] = item
+                elif ui.type == UIEventType.ACTION_END:
+                    item = by_action_id.get(ui.data.get("action_id", ""))
+                    if item is None:
+                        continue  # start fell out of the stream head
+                    item.status = ui.data.get("status", "completed")
+                    item.completed_at = ts
+                    item.output_data = ui.data.get("output")
+                    item.error_message = ui.data.get("error_message")
+
+            # Anything still "running" died with the previous process.
+            for item in session_items:
+                if item.item_type == "action" and item.status == "running":
+                    item.status = "error"
+                    item.error_message = "Interrupted by restart"
+                    item.completed_at = item.created_at
+
+            restored.extend(session_items[-PER_SESSION_ITEM_CAP:])
+
+        if restored:
+            restored.sort(key=lambda i: i.created_at)
+            self._action_panel._items = restored + self._action_panel._items
+            logger.info(
+                f"[ACTIVITY] Restored {len(restored)} activity item(s) from "
+                f"{len(streams)} session stream(s)"
+            )
+
     def _get_initial_state(self) -> Dict[str, Any]:
         """Get initial state for new connections."""
         from app.onboarding import onboarding_manager
         from app.ui_layer.settings.general_settings import (
             get_agent_profile_picture_info,
         )
+
+        # Rebuild the activity feed from persisted streams on first use so
+        # actions + reasoning survive backend restarts.
+        self._restore_activity_items()
 
         state = self._controller.state
         metrics = self._metrics_collector.get_metrics()
