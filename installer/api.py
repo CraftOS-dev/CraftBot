@@ -106,6 +106,32 @@ class WizardAPI:
 
         webbrowser.open(craftbot.BROWSER_URL)
 
+    def get_autostart_enabled(self) -> bool:
+        """Whether launch-on-startup is currently registered. Queried by JS on
+        load and after install/uninstall — NOT in the 1s poll, since it shells
+        out to schtasks."""
+        try:
+            return bool(craftbot._autostart_enabled())
+        except Exception:
+            return False
+
+    def set_autostart(self, enabled: bool) -> dict:
+        """Enable/disable launch-on-startup from the wizard's toggle. Runs on
+        the bridge thread (fast — one schtasks call); returns the resulting
+        state so JS can re-sync the checkbox even if the change failed."""
+        try:
+            if enabled:
+                craftbot._enable_autostart()
+            else:
+                craftbot._disable_autostart()
+            return {"enabled": bool(craftbot._autostart_enabled()), "ok": True}
+        except Exception as exc:
+            return {
+                "enabled": bool(craftbot._autostart_enabled()),
+                "ok": False,
+                "error": repr(exc),
+            }
+
     def view_log(self) -> str:
         """Return the most recent session from craftbot.log as a string.
         cmd_start writes a `CraftBot service started at ...` separator on

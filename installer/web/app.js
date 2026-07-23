@@ -34,6 +34,7 @@
     btnUninstall: $("btn-uninstall"),
     btnViewLog: $("btn-view-log"),
     btnOpenBrowser: $("btn-open-browser"),
+    chkAutostart: $("chk-autostart"),
   };
 
   // ── Output panel: append helper ─────────────────────────────────────────
@@ -79,6 +80,7 @@
 
   let lastState = null;
   let workerBusy = false;
+  let autostartBusy = false;
 
   async function pollState() {
     try {
@@ -134,6 +136,53 @@
     setEnabled(els.btnStop, flags.stop && !workerBusy);
     setEnabled(els.btnRepair, flags.repair && !workerBusy);
     setEnabled(els.btnUninstall, flags.uninstall && !workerBusy);
+
+    // Launch-on-startup only applies once CraftBot is installed.
+    const installed =
+      s.state === "installed_running" || s.state === "installed_stopped";
+    els.chkAutostart.disabled = !installed || workerBusy || autostartBusy;
+  }
+
+  // ── Launch-on-startup toggle ────────────────────────────────────────────
+
+  async function refreshAutostart() {
+    try {
+      const on = await window.pywebview.api.get_autostart_enabled();
+      els.chkAutostart.checked = !!on;
+    } catch (e) {
+      // Bridge gone — leave the checkbox as-is.
+    }
+  }
+
+  async function onAutostartToggle() {
+    const wanted = els.chkAutostart.checked;
+    autostartBusy = true;
+    els.chkAutostart.disabled = true;
+    window.appendLog(
+      `\nLaunch on startup: ${wanted ? "enabling" : "disabling"}…\n`
+    );
+    try {
+      const res = await window.pywebview.api.set_autostart(wanted);
+      // Re-sync to the actual OS state — the change may have failed.
+      els.chkAutostart.checked = !!(res && res.enabled);
+      if (res && res.ok) {
+        window.appendLog(
+          `Launch on startup is now ${res.enabled ? "ON" : "OFF"}.\n`
+        );
+      } else {
+        window.appendLog(
+          `Could not change launch-on-startup${
+            res && res.error ? ": " + res.error : ""
+          }.\n`
+        );
+      }
+    } catch (e) {
+      window.appendLog(`\n[autostart] bridge error: ${e}\n`);
+      await refreshAutostart();
+    } finally {
+      autostartBusy = false;
+      pollState();
+    }
   }
 
   function setEnabled(btn, on) {
@@ -167,6 +216,8 @@
     window.pywebview.api.open_in_browser();
   });
 
+  els.chkAutostart.addEventListener("change", onAutostartToggle);
+
   async function callApi(name) {
     const btn = document.querySelector(`[data-action="${name}"]`);
     if (btn && btn.disabled) return;
@@ -192,6 +243,9 @@
 
   window.addEventListener("py:workerDone", () => {
     pollState();
+    // Install/uninstall change the auto-start registration — re-sync the
+    // toggle to match.
+    refreshAutostart();
     // Hide progress bar once the worker finishes — extraction can complete
     // before the download "100%" tick lands.
     setTimeout(hideProgress, 600);
@@ -223,6 +277,7 @@
 
   whenBridgeReady(() => {
     pollState();
+    refreshAutostart();
     setInterval(pollState, 1000);
   });
 })();

@@ -148,6 +148,76 @@ html, body {
   gap: 6px;
 }
 
+/* ── Launch-on-startup toggle ──────────────────────────────────────────── */
+.startup {
+  display: flex;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Hide the native checkbox but keep it focusable/accessible. */
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated-hover);
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  box-shadow: var(--shadow-1);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.toggle input:checked + .toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.toggle input:focus-visible + .toggle-track {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+.toggle input:checked ~ .toggle-label {
+  color: var(--text);
+}
+
 .btn {
   /* Reset native button styles */
   appearance: none;

@@ -13,6 +13,8 @@ Commands:
     python craftbot.py logs [-n N]        Show last N log lines (default: 50)
     python craftbot.py install [options]  Register for auto-start on boot/login
     python craftbot.py uninstall          Remove auto-start registration
+    python craftbot.py autostart [on|off|status]
+                                          Toggle/query launch-on-startup
     python craftbot.py repair [options]   Re-copy current EXE over the installed
                                           copy and restart (frozen EXE only)
     python craftbot.py wizard             Open the GUI wizard
@@ -184,6 +186,11 @@ SYSTEMD_SERVICE = "craftbot"  # Linux systemd service name
 LAUNCHD_LABEL = "com.craftbot.agent"  # macOS launchd label
 BROWSER_URL = "http://localhost:7925"
 SHORTCUT_NAME = "CraftBot.lnk"
+# Start Menu entry: a CraftBot\CraftBot.lnk folder+shortcut under the user's
+# Programs folder so the app shows up in the Start Menu and its search box.
+# Linux uses a freedesktop .desktop launcher in ~/.local/share/applications.
+START_MENU_FOLDER = "CraftBot"
+LINUX_APP_ENTRY = os.path.expanduser("~/.local/share/applications/CraftBot.desktop")
 # Bundled icons live in sys._MEIPASS in frozen mode (PyInstaller's runtime
 # extract dir) and alongside craftbot.py in source mode. _ensure_ico() copies
 # the bundled icon to the persistent user data dir during install so the
@@ -700,6 +707,61 @@ def _ensure_ico() -> Optional[str]:
         return None
 
 
+def _write_browser_lnk(shortcut_path: str) -> bool:
+    """Write a Windows .lnk at ``shortcut_path`` that opens CraftBot in the
+    browser, with the CraftBot icon. Creates the parent folder if needed.
+    Returns True if the .lnk exists on disk afterwards.
+
+    Shared by both the Desktop shortcut and the Start Menu entry so their
+    target/icon/behaviour never drift apart.
+    """
+    ico_path = _ensure_ico()
+    parent = os.path.dirname(shortcut_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    # Write the PS script to a temp file with UTF-8-BOM so PowerShell handles
+    # non-ASCII paths (e.g. Japanese Start Menu folder) correctly.
+    import tempfile
+
+    ps_lines = [
+        "$ws = New-Object -ComObject WScript.Shell",
+        f'$s = $ws.CreateShortcut("{shortcut_path}")',
+        '$s.TargetPath = "cmd.exe"',
+        f'$s.Arguments = "/c start {BROWSER_URL}"',
+        "$s.WindowStyle = 7",  # minimized (hides the cmd flash)
+    ]
+    if ico_path:
+        ps_lines.append(f'$s.IconLocation = "{ico_path},0"')
+    ps_lines += [
+        '$s.Description = "Open CraftBot in your browser"',
+        "$s.Save()",
+    ]
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig"
+    ) as tf:
+        tf.write("\n".join(ps_lines))
+        tmp_ps1 = tf.name
+    try:
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                tmp_ps1,
+            ],
+            capture_output=True,
+            timeout=15,
+        )
+    finally:
+        try:
+            os.remove(tmp_ps1)
+        except Exception:
+            pass
+    return os.path.exists(shortcut_path)
+
+
 def _create_desktop_shortcut_windows() -> None:
     """Create a .lnk shortcut on the Windows Desktop with the CraftBot icon."""
     desktop = _find_desktop()
@@ -708,55 +770,172 @@ def _create_desktop_shortcut_windows() -> None:
     shortcut_path = os.path.join(desktop, SHORTCUT_NAME)
     if os.path.exists(shortcut_path):
         return  # already exists, don't recreate
-    ico_path = _ensure_ico()
     try:
-        # Write the PS script to a temp file with UTF-8-BOM so PowerShell
-        # handles non-ASCII paths (e.g. Japanese Desktop folder) correctly.
-        import tempfile
-
-        ps_lines = [
-            "$ws = New-Object -ComObject WScript.Shell",
-            f'$s = $ws.CreateShortcut("{shortcut_path}")',
-            '$s.TargetPath = "cmd.exe"',
-            f'$s.Arguments = "/c start {BROWSER_URL}"',
-            "$s.WindowStyle = 7",  # minimized (hides the cmd flash)
-        ]
-        if ico_path:
-            ps_lines.append(f'$s.IconLocation = "{ico_path},0"')
-        ps_lines += [
-            '$s.Description = "Open CraftBot in your browser"',
-            "$s.Save()",
-        ]
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig"
-        ) as tf:
-            tf.write("\n".join(ps_lines))
-            tmp_ps1 = tf.name
-        try:
-            subprocess.run(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    tmp_ps1,
-                ],
-                capture_output=True,
-                timeout=15,
-            )
-        finally:
-            try:
-                os.remove(tmp_ps1)
-            except Exception:
-                pass
-        if os.path.exists(shortcut_path):
+        if _write_browser_lnk(shortcut_path):
             print(f"  Desktop shortcut created: {shortcut_path}")
             print("  Double-click it anytime to open CraftBot in your browser.")
         else:
             print(f"  (Shortcut creation may have failed — check {desktop})")
     except Exception as e:
         print(f"  (Could not create desktop shortcut: {e})")
+
+
+def _find_start_menu_programs() -> Optional[str]:
+    """Return the per-user Start Menu 'Programs' folder (Windows only).
+
+    Mirrors _find_desktop(): registry first (honours redirected/OneDrive
+    folders), then SHGetFolderPath (CSIDL_PROGRAMS = 0x0002), then the
+    conventional %APPDATA% path.
+    """
+    if _PLATFORM != "win32":
+        return None
+    try:
+        import winreg
+
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+            0,
+            winreg.KEY_READ,
+        )
+        raw, _ = winreg.QueryValueEx(key, "Programs")
+        winreg.CloseKey(key)
+        path = os.path.expandvars(raw)
+        if path and os.path.isdir(path):
+            return path
+    except Exception:
+        pass
+
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(260)
+        ctypes.windll.shell32.SHGetFolderPathW(None, 0x0002, None, 0, buf)
+        if buf.value and os.path.isdir(buf.value):
+            return buf.value
+    except Exception:
+        pass
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        candidate = os.path.join(
+            appdata, "Microsoft", "Windows", "Start Menu", "Programs"
+        )
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def _start_menu_shortcut_path() -> Optional[str]:
+    """Full path to the Start Menu .lnk (…/Programs/CraftBot/CraftBot.lnk)."""
+    programs = _find_start_menu_programs()
+    if not programs:
+        return None
+    return os.path.join(programs, START_MENU_FOLDER, SHORTCUT_NAME)
+
+
+def _create_start_menu_shortcut_windows() -> None:
+    """Create the Start Menu entry so CraftBot appears in the Start Menu and
+    its search box after installation."""
+    shortcut_path = _start_menu_shortcut_path()
+    if not shortcut_path:
+        print("  (Could not locate Start Menu folder — skipping Start Menu entry)")
+        return
+    if os.path.exists(shortcut_path):
+        return  # already present
+    try:
+        if _write_browser_lnk(shortcut_path):
+            print(f"  Start Menu entry created: {shortcut_path}")
+        else:
+            print("  (Start Menu entry creation may have failed)")
+    except Exception as e:
+        print(f"  (Could not create Start Menu entry: {e})")
+
+
+def _remove_start_menu_shortcut_windows() -> None:
+    """Remove the Start Menu .lnk and its (now-empty) CraftBot folder."""
+    shortcut_path = _start_menu_shortcut_path()
+    if not shortcut_path:
+        return
+    folder = os.path.dirname(shortcut_path)
+    try:
+        if os.path.isfile(shortcut_path):
+            os.remove(shortcut_path)
+            print(f"Start Menu entry removed: {shortcut_path}")
+        if os.path.isdir(folder) and not os.listdir(folder):
+            os.rmdir(folder)
+    except Exception as e:
+        print(f"Warning: Could not remove Start Menu entry — {e}")
+
+
+def _create_start_menu_entry_linux() -> None:
+    """Create a freedesktop application launcher so CraftBot shows in the
+    Linux applications menu / search."""
+    open_cmd = (
+        "xdg-open"
+        if os.path.isfile("/usr/bin/xdg-open")
+        or os.path.isfile("/usr/local/bin/xdg-open")
+        else "sensible-browser"
+    )
+    content = (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=CraftBot\n"
+        "Comment=Open CraftBot in your browser\n"
+        f"Exec={open_cmd} {BROWSER_URL}\n"
+        "Icon=web-browser\n"
+        "Terminal=false\n"
+        "Categories=Utility;Development;\n"
+    )
+    try:
+        os.makedirs(os.path.dirname(LINUX_APP_ENTRY), exist_ok=True)
+        with open(LINUX_APP_ENTRY, "w") as f:
+            f.write(content)
+        os.chmod(LINUX_APP_ENTRY, 0o755)
+        print(f"  Applications menu entry created: {LINUX_APP_ENTRY}")
+    except Exception as e:
+        print(f"  (Could not create applications menu entry: {e})")
+
+
+def _remove_start_menu_entry_linux() -> None:
+    try:
+        if os.path.isfile(LINUX_APP_ENTRY):
+            os.remove(LINUX_APP_ENTRY)
+            print(f"Applications menu entry removed: {LINUX_APP_ENTRY}")
+    except Exception as e:
+        print(f"Warning: Could not remove applications menu entry — {e}")
+
+
+def _create_start_menu_entry() -> None:
+    """Create the OS 'app menu' entry (Start Menu on Windows, applications
+    menu on Linux). macOS has no equivalent — the Desktop .command suffices."""
+    if _PLATFORM == "win32":
+        _create_start_menu_shortcut_windows()
+    elif _PLATFORM != "darwin":
+        _create_start_menu_entry_linux()
+
+
+def _remove_start_menu_entry() -> None:
+    if _PLATFORM == "win32":
+        _remove_start_menu_shortcut_windows()
+    elif _PLATFORM != "darwin":
+        _remove_start_menu_entry_linux()
+
+
+def _create_launch_shortcuts() -> None:
+    """Create all user-facing launchers (Desktop + Start Menu / app menu).
+
+    Decoupled from auto-start registration: discoverability shortcuts are
+    created on every install regardless of whether launch-on-startup is on.
+    """
+    if _PLATFORM == "win32":
+        _create_desktop_shortcut_windows()
+        _create_start_menu_shortcut_windows()
+    elif _PLATFORM == "darwin":
+        _create_desktop_shortcut_unix()
+    else:
+        _create_desktop_shortcut_unix()
+        _create_start_menu_entry_linux()
 
 
 def _create_desktop_shortcut_unix() -> None:
@@ -1126,6 +1305,60 @@ def _is_installed() -> bool:
         return os.path.isfile(service_file)
 
 
+# ─── Auto-start toggle (user-configurable launch-on-startup) ──────────────────
+
+
+def _autostart_enabled() -> bool:
+    """Whether launch-on-startup is currently registered. Source of truth is
+    the OS registration itself (Task Scheduler / registry / systemd / launchd),
+    so it stays correct even if it was toggled outside CraftBot."""
+    return _is_installed()
+
+
+def _enable_autostart() -> bool:
+    """Register launch-on-startup using the installed agent and the run mode
+    the user picked at install time. Returns True if enabled afterwards."""
+    meta = read_install_metadata() or {}
+    extra_args = ["--cli"] if meta.get("mode") == "cli" else []
+    run_args = _build_run_args(extra_args, service_mode=True)
+    _helpers.dispatch_per_platform(
+        win=_install_windows, mac=_install_macos, linux=_install_linux
+    )(run_args)
+    return _autostart_enabled()
+
+
+def _disable_autostart() -> bool:
+    """Remove launch-on-startup registration only (leaves the install and the
+    Start Menu / desktop shortcuts intact). Returns True if now disabled."""
+    _helpers.dispatch_per_platform(
+        win=_uninstall_windows, mac=_uninstall_macos, linux=_uninstall_linux
+    )()
+    return not _autostart_enabled()
+
+
+def cmd_autostart(rest: List[str]) -> None:
+    """`craftbot autostart [on|off|status]` — enable, disable, or query the
+    launch-on-startup registration."""
+    sub = (rest[0].lower() if rest else "status").strip()
+    if sub in ("on", "enable", "enabled", "true", "1"):
+        if _enable_autostart():
+            print("Launch on startup: ENABLED")
+        else:
+            print(
+                "Could not enable launch on startup "
+                "(is CraftBot installed? run 'craftbot install' first)."
+            )
+    elif sub in ("off", "disable", "disabled", "false", "0"):
+        _disable_autostart()
+        print("Launch on startup: DISABLED")
+    elif sub in ("status", "state", ""):
+        print(
+            f"Launch on startup: {'ENABLED' if _autostart_enabled() else 'DISABLED'}"
+        )
+    else:
+        print(f"Unknown autostart option: '{sub}'. Use: autostart [on|off|status]")
+
+
 def _full_install_frozen(
     target_dir: str,
     extra_args: List[str],
@@ -1204,6 +1437,11 @@ def _full_install_frozen(
         win=_install_windows, mac=_install_macos, linux=_install_linux
     )(run_args)
 
+    # 5b. Create the Start Menu + desktop launchers. Done unconditionally
+    #     (independent of the auto-start registration above) so CraftBot is
+    #     always discoverable in the Start Menu after installing.
+    _create_launch_shortcuts()
+
     # 6. Start the service via the extracted agent EXE
     cmd_start(extra_args)
 
@@ -1267,10 +1505,6 @@ def cmd_install(extra_args: List[str]) -> None:
         print(
             f"\n  {DIM}▸ STEP 2/3  ░░  AUTO-START ALREADY REGISTERED — SKIPPING{RESET}"
         )
-        if _PLATFORM == "win32":
-            _create_desktop_shortcut_windows()
-        elif _PLATFORM != "darwin":
-            _create_desktop_shortcut_unix()
     else:
         _retro_step(2, 3, "Registering auto-start")
         run_args = _build_run_args(extra_args, service_mode=True)
@@ -1278,6 +1512,10 @@ def cmd_install(extra_args: List[str]) -> None:
             win=_install_windows, mac=_install_macos, linux=_install_linux
         )(run_args)
         print()
+
+    # Create the Start Menu + desktop launchers regardless of whether
+    # auto-start was already registered, so CraftBot is discoverable.
+    _create_launch_shortcuts()
 
     # ── Step 3: Start the service now ──────────────────────────────────────
     _retro_step(3, 3, "Starting CraftBot")
@@ -1322,8 +1560,9 @@ def cmd_uninstall() -> None:
         win=_uninstall_windows, mac=_uninstall_macos, linux=_uninstall_linux
     )()
 
-    # Remove desktop shortcut
+    # Remove desktop shortcut + Start Menu entry
     _remove_desktop_shortcut()
+    _remove_start_menu_entry()
 
     if IS_FROZEN:
         # Frozen mode: remove the install dir and everything in the user data
@@ -1567,6 +1806,9 @@ def main() -> None:
 
     elif command == "uninstall":
         cmd_uninstall()
+
+    elif command == "autostart":
+        cmd_autostart(rest)
 
     elif command == "repair":
         cmd_repair(rest)
