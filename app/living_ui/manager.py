@@ -147,6 +147,18 @@ class LivingUIManager:
         self._trigger_service = trigger_service
         logger.info("[LIVING_UI] Session manager and trigger service bound")
 
+        # Backfill: every project gets its dedicated chat session. Projects
+        # created before the session-native redesign (or whose session was
+        # lost) would otherwise have no sessionId, which hides their chat
+        # panel in the UI.
+        for project in list(self.projects.values()):
+            try:
+                self.ensure_project_session(project)
+            except Exception as e:
+                logger.warning(
+                    f"[LIVING_UI] Could not ensure session for project {project.id}: {e}"
+                )
+
     def ensure_project_session(self, project: "LivingUIProject"):
         """Ensure the project's dedicated session exists and return it.
 

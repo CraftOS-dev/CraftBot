@@ -1430,6 +1430,31 @@ class AgentBase:
     # Message intake
     # =====================================
 
+    @staticmethod
+    def _build_living_ui_note(living_ui_project_id: str) -> str:
+        """Interaction-context note appended (stream-only) to user messages
+        sent in a Living UI project's dedicated session, so the agent knows
+        the request concerns that app. Falls back to a minimal tag when the
+        Living UI manager / project lookup is unavailable."""
+        try:
+            from app.living_ui import get_living_ui_manager
+
+            mgr = get_living_ui_manager()
+            if mgr:
+                proj = mgr.get_project(living_ui_project_id)
+                if proj:
+                    return (
+                        f"[INTERACTING WITH LIVING UI: {proj.name} ({living_ui_project_id})]\n"
+                        f"Project path: {proj.path}\n"
+                        f"Read {proj.path}/LIVING_UI.md for app context.\n"
+                        f"If debugging issues, FIRST read these logs:\n"
+                        f"  - {proj.path}/backend/logs/subprocess_output.log (crashes, stack traces)\n"
+                        f"  - {proj.path}/backend/logs/frontend_console.log (frontend errors, network failures)"
+                    )
+        except Exception:
+            pass
+        return f"[INTERACTING WITH LIVING UI: {living_ui_project_id}]"
+
     async def _handle_chat_message(self, payload: Dict):
         """Deliver an incoming chat message to its session.
 
@@ -1469,6 +1494,17 @@ class AgentBase:
                 "is_self_message", False
             )
 
+            # Living UI session: append the interaction context (project
+            # name, path, docs and log locations) to the STREAM copy of the
+            # message so the agent knows the request concerns this Living
+            # UI. Mirrors the pre-redesign living_ui prefix; display_message
+            # stays the raw text so the chat bubble is clean.
+            stream_content = chat_content
+            if session is not None and getattr(session, "living_ui_project_id", None):
+                note = self._build_living_ui_note(session.living_ui_project_id)
+                if note:
+                    stream_content = f"{chat_content}\n\n{note}"
+
             # Record the user message on the session's own stream so the UI
             # shows it immediately and the LLM sees it as part of the stream.
             event_label = (
@@ -1478,7 +1514,7 @@ class AgentBase:
             )
             self.event_stream_manager.log(
                 event_label,
-                chat_content,
+                stream_content,
                 event_type=EventType.USER_MESSAGE,
                 display_message=chat_content,
                 platform=platform or None,
@@ -1494,7 +1530,7 @@ class AgentBase:
 
             trigger_payload = {
                 "platform": platform,
-                "user_message": chat_content,
+                "user_message": stream_content,
             }
             if payload.get("external_event"):
                 trigger_payload["is_self_message"] = payload.get(

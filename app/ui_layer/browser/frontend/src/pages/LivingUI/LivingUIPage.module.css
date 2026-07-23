@@ -325,11 +325,12 @@
   background: transparent;
 }
 
-/* Chat Panel */
+/* Chat Panel — same background as the chat session page (--bg-primary)
+   so the input shell and agent bubbles keep their contrast. */
 .chatPanel {
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border-left: 1px solid var(--border-primary);
   flex-shrink: 0;
 }
