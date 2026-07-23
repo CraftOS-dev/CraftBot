@@ -58,6 +58,12 @@ class EventType(str, Enum):
     RELEVANT_MEMORIES = "relevant_memories"
     TODOS = "todos"
     INTERNAL = "internal"
+    # A non-user trigger's instruction, written into the stream when its
+    # turn claims it. EVERY turn cause enters the stream at claim time
+    # (user messages as USER_MESSAGE, everything else as TRIGGER) — the
+    # stream is the session's single chronological record, and warm
+    # session-cache LLM calls receive ONLY new stream events.
+    TRIGGER = "trigger"
 
 
 # Legacy `kind` → `event_type` mapping. NEW code MUST NOT call this.

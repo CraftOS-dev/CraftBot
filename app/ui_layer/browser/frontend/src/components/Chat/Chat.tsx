@@ -184,20 +184,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // send_message is excluded: it isn't rendered as an action row (the chat
   // bubble is its visible form), so "Working…" stays up while it runs.
   const busy = useAppSelector(state => selectSessionBusy(state, sessionId))
-  // The bubble itself retires the "Working…" row: once the newest thing
-  // in the whole timeline is an agent reply bubble, the row is suppressed
-  // in the SAME render that inserts the bubble — one layout change
-  // instead of two (bubble-in, then busy=false unmounting the row a few
-  // frames later), which was the run-end flicker. The later busy=false is
-  // then a visual no-op. Mid-run progress bubbles don't stick: any newer
-  // activity item brings the row back.
-  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
-  const lastActivityTs =
-    activity.length > 0 ? (activity[activity.length - 1].createdAt ?? 0) : 0
-  const agentBubbleIsNewest =
-    !!lastMsg && lastMsg.style === 'agent' && lastMsg.timestamp * 1000 >= lastActivityTs
-  const showLiveRow =
-    busy && connected && !agentBubbleIsNewest && (!isDraft || messages.length > 0)
+  const showLiveRow = busy && connected && (!isDraft || messages.length > 0)
   const { showToast } = useToast()
 
   // ONE linear timeline: chat messages + inline activity (reasoning blocks,
@@ -382,7 +369,34 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // the timeline — but ONLY while the tail chunk is expanded (or no tail
   // chunk exists yet this run). A collapsed tail chunk's header already
   // carries the working state, so the live row would be redundant.
-  const showLiveRowEffective = showLiveRow && (!tailChunk || tailChunk.expanded)
+  //
+  // Run-end anti-flicker. The live row and the reply bubble must swap in
+  // ONE commit, else the scroll settles twice (row unmounts → scroll,
+  // bubble mounts → scroll = the double jump). Two facts force the design:
+  //   1. `busy` (session_busy=false) and the reply bubble arrive in
+  //      SEPARATE ws frames → separate React commits, and busy=false can
+  //      land FIRST. So hiding on `busy` drops the row before the bubble
+  //      exists → gap → double jump.
+  //   2. The bubble insertion alone is flicker-free (verified: with the
+  //      live row off entirely there is no jump).
+  // So: hide the row off the BUBBLE'S PRESENCE, and keep it up across the
+  // busy→false gap by also showing it while the tail is the user's own
+  // just-sent message (a reply is still owed). The moment the agent bubble
+  // replaces the tail, the row hides in the SAME commit that inserts the
+  // bubble — one row swaps for another, one settle. Runs WITH actions never
+  // took the live row (their collapsed chunk header carries the state).
+  const lastDisplayRow =
+    displayRows.length > 0 ? displayRows[displayRows.length - 1] : null
+  const tailIsAgentBubble =
+    lastDisplayRow?.kind === 'message' && lastDisplayRow.message.style === 'agent'
+  const tailIsUserMessage =
+    lastDisplayRow?.kind === 'message' && lastDisplayRow.message.style === 'user'
+  const showLiveRowEffective =
+    connected &&
+    (!isDraft || messages.length > 0) &&
+    (busy || tailIsUserMessage) &&
+    !tailIsAgentBubble &&
+    (!tailChunk || tailChunk.expanded)
   const rowCount = displayRows.length + (showLiveRowEffective ? 1 : 0)
 
   // Fresh draft: the input floats at the vertical center of the panel
@@ -427,9 +441,13 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   })
 
   // "First unread" divider: frozen on mount so it doesn't chase the user
-  // down the timeline as new messages arrive while they read.
+  // down the timeline as new messages arrive while they read. Dismissed
+  // (hidden) as soon as the user engages the input — they've reached the
+  // conversation, so the "New" marker has served its purpose. Reset on
+  // session switch below.
   const lastSeenMessageId = lastSeenBySession[sessionId] ?? null
   const firstUnreadMessageIdRef = useRef<string | null | undefined>(undefined)
+  const [unreadDismissed, setUnreadDismissed] = useState(false)
 
   // The component persists across /session/* routes (no key-remount — a
   // remount recreated the draft spacer in its final state and killed the
@@ -463,6 +481,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     setPlusOpen(false)
     setLangOpen(false)
     setShowScrollToBottom(false)
+    setUnreadDismissed(false)
     if (isListening) {
       try { recognitionRef.current?.stop() } catch { /* already stopped */ }
       setIsListening(false)
@@ -480,7 +499,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
           : messages[lastSeenIdx + 1].messageId
     }
   }
-  const firstUnreadMessageId = firstUnreadMessageIdRef.current ?? null
+  const firstUnreadMessageId = unreadDismissed ? null : (firstUnreadMessageIdRef.current ?? null)
 
   const getFirstUnreadIndex = useCallback(() => {
     if (!firstUnreadMessageId) return -1
@@ -1300,6 +1319,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
             placeholder={isListening ? 'Listening... speak now' : (placeholder || 'What can I do for you?')}
             value={input}
             onChange={e => setInput(e.target.value)}
+            onFocus={() => setUnreadDismissed(true)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}

@@ -169,6 +169,23 @@ RUN_CARRY_KEYS = (
     "skill_workflow",
 )
 
+# Trigger sources announced in the session's chat as a system message at
+# turn start: source value → (emoji, label). Without this, non-chat runs
+# (scheduler fires, background workflows) just start streaming actions
+# with no visible cause. Sources absent here stay silent — user messages
+# have their own chat bubble; continuations, restart notices and living-ui
+# plumbing are internal. Closed set keyed on the typed source enum.
+TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
+    TriggerSource.SCHEDULED.value: ("⏰", "Scheduled task"),
+    TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
+    TriggerSource.SCHEDULED_IMMEDIATE.value: ("⏰", "Scheduled task"),
+    TriggerSource.MEMORY.value: ("⚙️", "Memory processing workflow"),
+    TriggerSource.PROACTIVE_HEARTBEAT.value: ("⚙️", "Proactive check"),
+    TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
+    TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
+    TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
+}
+
 
 class AgentBase:
     """
@@ -524,14 +541,20 @@ class AgentBase:
             # swallow a batch that also carries user messages — and a
             # prepared workflow appends to the batch checklist instead of
             # replacing it.
-            is_aggregated_batch = bool(
-                (trigger.payload or {}).get("queued_user_messages")
+            # A batch is "aggregated" when it carries other work besides the
+            # base trigger: queued user messages, or more than one non-user
+            # cause folded in by _merge_triggers. A skipped workflow pre-check
+            # must not swallow such a batch.
+            _payload = trigger.payload or {}
+            is_aggregated_batch = bool(_payload.get("queued_user_messages")) or (
+                len(_payload.get("aggregated_triggers") or []) > 1
             )
             if trigger.source == TriggerSource.MEMORY.value:
                 prepared = self._prepare_memory_run()
                 if prepared is None:
                     if not is_aggregated_batch:
                         return
+                    self._drop_aggregated_source(trigger, trigger.source)
                 else:
                     desc, workflow = prepared
                     if is_aggregated_batch:
@@ -541,6 +564,7 @@ class AgentBase:
                     else:
                         trigger.next_action_description = desc
                     trigger.payload.update(workflow)
+                    self._update_aggregated_description(trigger, desc)
             elif trigger.source in (
                 TriggerSource.PROACTIVE_HEARTBEAT.value,
                 TriggerSource.PROACTIVE_PLANNER.value,
@@ -549,6 +573,7 @@ class AgentBase:
                 if prepared is None:
                     if not is_aggregated_batch:
                         return
+                    self._drop_aggregated_source(trigger, trigger.source)
                 else:
                     desc, workflow = prepared
                     if is_aggregated_batch:
@@ -558,6 +583,22 @@ class AgentBase:
                     else:
                         trigger.next_action_description = desc
                     trigger.payload.update(workflow)
+                    self._update_aggregated_description(trigger, desc)
+
+            # ----- Turn-cause announcement -----
+            # Non-chat causes (scheduler fires, background workflows,
+            # integration messages) post a system chat message so the user
+            # sees WHY the session started working. After the pre-checks so
+            # a skipped no-op workflow stays silent.
+            self._announce_trigger(trigger, session_id)
+
+            # ----- Claim-time trigger stream write -----
+            # Non-user causes enter the event stream as typed TRIGGER
+            # events, exactly like user messages enter it below — the
+            # stream is the ONLY context a warm session-cache LLM call
+            # receives, so a cause that isn't in the stream does not exist
+            # for the model.
+            self._log_trigger_claim(trigger, session_id)
 
             # ----- Deferred user-message stream write -----
             # User messages enter the event stream HERE — at the start of
@@ -743,6 +784,92 @@ class AgentBase:
             self.session_manager.remove_skill(session.id, skill_name)
         if skills:
             self._invalidate_session_caches(session.id)
+
+    @staticmethod
+    def _drop_aggregated_source(trigger: Trigger, source: str) -> None:
+        """Remove a skipped workflow's entry from the merged batch's
+        structured cause list, so a pre-check that decided there is no
+        work isn't announced as started."""
+        aggregated = (trigger.payload or {}).get("aggregated_triggers")
+        if aggregated:
+            trigger.payload["aggregated_triggers"] = [
+                a for a in aggregated if a.get("source") != source
+            ]
+
+    @staticmethod
+    def _update_aggregated_description(trigger: Trigger, desc: str) -> None:
+        """Refresh the base trigger's entry in the merged batch's cause list
+        with the PREPARED workflow instruction, so the claim-time stream
+        write logs what the turn will actually do rather than the stale
+        emit-time description."""
+        for entry in (trigger.payload or {}).get("aggregated_triggers") or []:
+            if entry.get("source") == trigger.source:
+                entry["description"] = desc
+
+    def _announce_trigger(self, trigger: Trigger, session_id: str) -> None:
+        """Post system chat message(s) stating why this turn started.
+
+        Non-chat causes (scheduler fires, background workflows, integration
+        messages) have no user bubble, so without this the session just
+        starts streaming actions. UI-only: emitted on the UI event bus (the
+        adapter persists it to chat storage, so it survives reload) and
+        never written to the agent's event stream — the LLM already gets
+        the cause via the trigger description. All decisions come from
+        typed fields (trigger.source, payload keys) — no text matching.
+        """
+        if not self.ui_controller:
+            return
+        try:
+            payload = trigger.payload or {}
+            lines: list[str] = []
+
+            # Non-user causes. A merged batch carries the structured list
+            # built by _merge_triggers; an unmerged trigger describes itself.
+            causes = payload.get("aggregated_triggers")
+            if causes is None:
+                causes = [
+                    {
+                        "source": trigger.source,
+                        "name": payload.get("schedule_name")
+                        or (payload.get("skill_workflow") or {}).get("skill_name")
+                        or "",
+                    }
+                ]
+            for cause in causes:
+                fmt = TRIGGER_ANNOUNCEMENTS.get(cause.get("source") or "")
+                if fmt is None:
+                    continue
+                emoji, label = fmt
+                name = (cause.get("name") or "").strip()
+                lines.append(
+                    f"{emoji} {label}: {name}" if name else f"{emoji} {label}"
+                )
+
+            # Integration messages: user-message entries that arrived from
+            # an external platform (typed `platform` field set at ingest;
+            # UI-typed messages never carry it).
+            for entry in payload.get("queued_user_messages") or []:
+                plat = (entry.get("platform") or "").strip()
+                if not plat:
+                    continue
+                who = (entry.get("contact_name") or "").strip()
+                suffix = f" from {who}" if who else ""
+                lines.append(f"📩 Incoming {plat} message{suffix}")
+
+            if not lines:
+                return
+            from app.ui_layer.events import UIEvent, UIEventType
+
+            for line in lines:
+                self.ui_controller.event_bus.emit(
+                    UIEvent(
+                        type=UIEventType.SYSTEM_MESSAGE,
+                        data={"message": line},
+                        task_id=session_id,
+                    )
+                )
+        except Exception as e:
+            logger.debug(f"[REACT] Turn-cause announcement failed: {e}")
 
     def _emit_run_state(self, session_id: str, busy: bool) -> None:
         """Track and broadcast a session's run-in-flight state.
@@ -1507,6 +1634,53 @@ class AgentBase:
     # Message intake
     # =====================================
 
+    def _log_trigger_claim(self, trigger: Trigger, session_id: str) -> None:
+        """Write a claimed non-user trigger's instruction into the session's
+        event stream — the trigger-side twin of _log_deferred_user_messages.
+
+        ROOT RULE: every turn cause enters the stream at claim time. User
+        messages do so as USER_MESSAGE; every other run-starting source
+        does so here as a typed TRIGGER event. Without this, a trigger's
+        instruction exists only in the {query} prompt block, which warm
+        session-cache LLM calls never receive (they get only new stream
+        events) — a plain scheduled reminder fired, the model saw an empty
+        delta, and ended silently. Run continuations stay out: their turns
+        are driven by the action/reasoning events the run itself just
+        wrote. Called after the workflow pre-checks so skipped no-ops
+        write nothing.
+        """
+        payload = trigger.payload or {}
+        causes = payload.get("aggregated_triggers")
+        if causes is None:
+            causes = [
+                {
+                    "source": trigger.source,
+                    "description": trigger.next_action_description,
+                }
+            ]
+        logged = False
+        for cause in causes:
+            source = cause.get("source") or ""
+            # Closed set: only run-starting, non-user sources. USER_MESSAGE
+            # is owned by the deferred user-message write; continuations
+            # and other internal sources are not new causes.
+            if source not in RUN_START_SOURCES:
+                continue
+            if source == TriggerSource.USER_MESSAGE.value:
+                continue
+            description = (cause.get("description") or "").strip()
+            if not description:
+                continue
+            self.event_stream_manager.log(
+                f"trigger: {source}",
+                description,
+                event_type=EventType.TRIGGER,
+                task_id=session_id,
+            )
+            logged = True
+        if logged:
+            self.state_manager.bump_event_stream()
+
     def _log_deferred_user_messages(self, trigger, session_id: str) -> None:
         """Write a user-message trigger's message(s) into the session stream.
 
@@ -1644,16 +1818,22 @@ class AgentBase:
                 if platform and platform.lower() != "craftbot interface"
                 else "user message"
             )
+            queued_entry = {
+                "label": event_label,
+                "content": stream_content,
+                "display": chat_content,
+            }
+            if payload.get("external_event"):
+                # Typed announce fields: react()'s turn-cause announcer posts
+                # a "📩 Incoming …" system message from these. UI-typed
+                # messages never carry a per-entry platform, so they stay
+                # silent (their bubble is the announcement).
+                queued_entry["platform"] = platform
+                queued_entry["contact_name"] = payload.get("contact_name", "")
             trigger_payload = {
                 "platform": platform,
                 "user_message": stream_content,
-                "queued_user_messages": [
-                    {
-                        "label": event_label,
-                        "content": stream_content,
-                        "display": chat_content,
-                    }
-                ],
+                "queued_user_messages": [queued_entry],
             }
             if payload.get("external_event"):
                 trigger_payload["is_self_message"] = payload.get(

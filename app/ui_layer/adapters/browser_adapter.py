@@ -1544,7 +1544,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "skill_run":
             name = data.get("name", "")
             args_text = data.get("args", "")
-            await self._handle_skill_run(name, args_text)
+            session_id = data.get("sessionId") or "main"
+            await self._handle_skill_run(name, args_text, session_id)
 
         # Integration handlers
         elif msg_type == "integration_list":
@@ -5644,10 +5645,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-    async def _handle_skill_run(self, name: str, args_text: str = "") -> None:
+    async def _handle_skill_run(
+        self, name: str, args_text: str = "", session_id: str = "main"
+    ) -> None:
         """Run a skill by invoking it through the controller."""
         try:
-            await self._controller.invoke_skill(name, args_text, self._adapter_id)
+            await self._controller.invoke_skill(
+                name, args_text, self._adapter_id, session_id=session_id
+            )
             await self._broadcast(
                 {
                     "type": "skill_run",

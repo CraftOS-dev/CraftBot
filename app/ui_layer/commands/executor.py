@@ -76,7 +76,7 @@ class CommandExecutor:
         command = self._registry.get(command_name)
 
         if not command:
-            # Unknown command - emit error
+            # Unknown command - emit error into the session it was typed in
             self._controller.event_bus.emit(
                 UIEvent(
                     type=UIEventType.ERROR_MESSAGE,
@@ -84,6 +84,7 @@ class CommandExecutor:
                         "message": f"Unknown command: {command_name}. Use /help for available commands.",
                     },
                     source_adapter=adapter_id,
+                    task_id=session_id,
                 )
             )
             return True
@@ -116,10 +117,12 @@ class CommandExecutor:
                     },
                 },
                 source_adapter=adapter_id,
+                task_id=session_id,
             )
         )
 
-        # If there's a message, emit it as a system message
+        # If there's a message, emit it as a system message into the session
+        # the command was typed in (task_id carries the session id).
         if result.message:
             msg_type = (
                 UIEventType.SYSTEM_MESSAGE
@@ -131,6 +134,7 @@ class CommandExecutor:
                     type=msg_type,
                     data={"message": result.message},
                     source_adapter=adapter_id,
+                    task_id=session_id,
                 )
             )
 

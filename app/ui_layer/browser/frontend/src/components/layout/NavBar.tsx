@@ -150,6 +150,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const mainSession = useAppSelector(selectMainSession)
   const chatSessions = useAppSelector(selectChatSessions)
   const lastMessageIdBySession = useAppSelector(selectLastMessageIdBySession)
+  const busyBySession = useAppSelector(state => state.agent.busyBySession)
 
   const [chatsExpanded, setChatsExpanded] = useState(() => loadGroupExpanded('chats'))
   const [livingUIExpanded, setLivingUIExpanded] = useState(() => loadGroupExpanded('livingui'))
@@ -255,6 +256,41 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return lastSeenBySession[sessionId] !== lastId
   }
 
+  // Per-session status dot precedence: an in-flight run (orange, pulsing)
+  // outranks an unread message (green, steady). Living UI rows pass their
+  // backing chat session id; a row with neither state shows no dot.
+  type SessionDotKind = 'busy' | 'unread' | null
+  const sessionDotKind = (sessionId: string | null | undefined): SessionDotKind => {
+    if (!sessionId) return null
+    if (busyBySession[sessionId]) return 'busy'
+    if (hasUnread(sessionId)) return 'unread'
+    return null
+  }
+  const renderSessionDot = (sessionId: string | null | undefined): React.ReactNode => {
+    const kind = sessionDotKind(sessionId)
+    if (kind === 'busy') return <span className={styles.busyDot} aria-label="Agent working" />
+    if (kind === 'unread') return <span className={styles.unreadDot} aria-label="New messages" />
+    return null
+  }
+
+  // Collapsed group buttons show one aggregate corner dot: busy wins over
+  // unread across all the group's sessions.
+  const aggregateDotKind = (ids: (string | null | undefined)[]): SessionDotKind => {
+    let unread = false
+    for (const id of ids) {
+      const kind = sessionDotKind(id)
+      if (kind === 'busy') return 'busy'
+      if (kind === 'unread') unread = true
+    }
+    return unread ? 'unread' : null
+  }
+  const renderCollapsedDot = (ids: (string | null | undefined)[]): React.ReactNode => {
+    const kind = aggregateDotKind(ids)
+    if (kind === 'busy') return <span className={styles.collapsedBusyDot} aria-label="Agent working" />
+    if (kind === 'unread') return <span className={styles.collapsedUnreadDot} aria-label="New messages" />
+    return null
+  }
+
   const handleCreateSubmit = (data: LivingUICreateRequest) => {
     createLivingUI(data)
     setShowCreateModal(false)
@@ -348,12 +384,26 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     }
   }, [])
 
+  // Flip the "…" menu upward when opening downward would spill past the
+  // visible bottom of the sidebar scroll area — otherwise the menu just
+  // grows the scroll height and the user has to scroll to reach it.
+  const positionSessionMenu = (el: HTMLDivElement | null) => {
+    if (!el) return
+    const container = scrollRef.current
+    const limit = container
+      ? Math.min(container.getBoundingClientRect().bottom, window.innerHeight)
+      : window.innerHeight
+    if (el.getBoundingClientRect().bottom > limit - 4) {
+      el.classList.add(styles.sessionMenuUp)
+    }
+  }
+
   // "…" context menu attached to a session row. `isMain` limits the menu
   // to Clear conversation + Create skill for the pinned Main session.
   const renderSessionMenu = (session: SessionInfo, isMain: boolean) => {
     if (menu?.sessionId !== session.id) return null
     return (
-      <div className={styles.sessionMenu} onMouseDown={e => e.stopPropagation()}>
+      <div ref={positionSessionMenu} className={styles.sessionMenu} onMouseDown={e => e.stopPropagation()}>
         {!isMain && (
           <button className={styles.sessionMenuItem} onClick={() => startRename(session)}>
             <Pencil size={13} /> Rename
@@ -413,7 +463,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
               <span className={styles.label}>
                 {opts.isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
               </span>
-              {hasUnread(session.id) && <span className={styles.unreadDot} aria-label="Unread messages" />}
+              {renderSessionDot(session.id)}
             </button>
             <button
               className={styles.sessionMenuButton}
@@ -517,6 +567,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   aria-expanded={flyout?.kind === 'livingui'}
                 >
                   <span className={styles.icon}><Box size={16} /></span>
+                  {renderCollapsedDot(livingUIProjects.map(p => p.sessionId))}
                 </button>
                 <button
                   className={`${styles.navItem} ${flyout?.kind === 'chats' ? styles.active : ''}`}
@@ -527,9 +578,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                   aria-expanded={flyout?.kind === 'chats'}
                 >
                   <span className={styles.icon}><MessageCircle size={16} /></span>
-                  {(hasUnread('main') || chatSessions.some(s => hasUnread(s.id))) && (
-                    <span className={styles.collapsedUnreadDot} aria-label="Unread messages" />
-                  )}
+                  {renderCollapsedDot(['main', ...chatSessions.map(s => s.id)])}
                 </button>
               </>
             ) : (
@@ -578,6 +627,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                           : <Box size={13} />}
                       </span>
                       <span className={styles.livingUITabLabel}>{project.name}</span>
+                      {renderSessionDot(project.sessionId)}
                     </button>
                   )
                 })}
@@ -693,6 +743,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                           : <Box size={13} />}
                       </span>
                       <span className={styles.flyoutItemLabel}>{project.name}</span>
+                      {renderSessionDot(project.sessionId)}
                     </button>
                   )
                 })}
@@ -720,9 +771,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                     <span className={styles.flyoutItemLabel}>
                       {isMain ? 'Main' : <AnimatedSessionTitle title={session.title} />}
                     </span>
-                    {hasUnread(session.id) && (
-                      <span className={styles.unreadDot} aria-label="Unread messages" />
-                    )}
+                    {renderSessionDot(session.id)}
                   </button>
                 )
               })

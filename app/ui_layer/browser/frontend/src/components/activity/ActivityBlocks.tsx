@@ -91,7 +91,7 @@ export function ChunkHeaderRow({
       ) : (
         <>
           <span className={styles.chunkLabel}>
-            {count} Action{count === 1 ? '' : 's'} executed
+            {count} action{count === 1 ? '' : 's'} executed
           </span>
           {chevron}
         </>

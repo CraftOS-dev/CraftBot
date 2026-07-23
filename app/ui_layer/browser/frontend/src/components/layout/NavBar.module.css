@@ -396,6 +396,13 @@
   gap: 2px;
 }
 
+/* Applied by positionSessionMenu() when the dropdown would overflow the
+   bottom of the sidebar scroll area: anchor above the row instead. */
+.sessionMenuUp {
+  top: auto;
+  bottom: calc(100% - 2px);
+}
+
 .sessionMenuItem {
   display: flex;
   align-items: center;
@@ -434,13 +441,34 @@
   outline: none;
 }
 
-/* Unread dot */
+/* Session status dots. Green (steady) = unread new message; orange
+   (pulsing) = the agent is currently working in that session. */
 .unreadDot {
   flex-shrink: 0;
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--color-success, #22c55e);
+}
+
+.busyDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   background: var(--color-primary, #f04a00);
+  animation: sidebarDotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes sidebarDotPulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary, #f04a00) 55%, transparent);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #f04a00) 0%, transparent);
+  }
 }
 
 /* Group parent row: chevron toggle + inline "+" */
@@ -549,7 +577,8 @@
 
 /* ── Collapsed-sidebar flyout (ChatGPT-style) ─────────────────────────── */
 
-/* Unread dot pinned to the corner of the collapsed Chats icon button. */
+/* Status dot pinned to the corner of a collapsed group icon button.
+   Green (steady) = unread; orange (pulsing) = agent working. */
 .collapsedUnreadDot {
   position: absolute;
   top: 6px;
@@ -557,7 +586,18 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--color-success, #22c55e);
+}
+
+.collapsedBusyDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   background: var(--color-primary, #f04a00);
+  animation: sidebarDotPulse 1.4s ease-in-out infinite;
 }
 
 .flyout {

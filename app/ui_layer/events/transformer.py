@@ -276,6 +276,11 @@ def _install_dispatch() -> None:
         EventType.RELEVANT_MEMORIES: EventTransformer._build_hidden,
         EventType.TODOS: EventTransformer._build_hidden,
         EventType.INTERNAL: EventTransformer._build_hidden,
+        # Trigger claims are LLM-facing context (they ride the session-cache
+        # delta); the chat-side announcement is emitted separately on the UI
+        # bus by react()'s _announce_trigger, so the stream copy stays hidden
+        # (also keeps the restart-restore replay from double-posting it).
+        EventType.TRIGGER: EventTransformer._build_hidden,
     }
 
 

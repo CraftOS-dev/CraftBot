@@ -71,10 +71,10 @@
 }
 
 .messageWrapper.systemWrapper {
-  margin-right: auto;
-  align-items: flex-start;
-  /* Align with agent bubbles (which are offset by the avatar slot) */
-  margin-left: calc(32px + var(--space-2));
+  /* Block centered in the panel, but its text stays left-aligned. */
+  margin: 0 auto;
+  align-items: center;
+  text-align: left;
 }
 
 .messageWrapper.errorWrapper {

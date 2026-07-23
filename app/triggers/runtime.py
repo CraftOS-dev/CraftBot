@@ -76,6 +76,12 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
     items: list[str] = []
     all_entries: list[dict] = []
     user_texts: list[str] = []
+    # Structured record of every NON-user cause folded into this turn
+    # (including the base when it isn't a user message). The merge rewrites
+    # base.next_action_description into a checklist, which erases the
+    # extras' typed identity — react()'s turn-cause announcer needs it back
+    # as data, not prose.
+    aggregated_meta: list[dict] = []
     for t in group:
         p = t.payload or {}
         entries = p.get("queued_user_messages")
@@ -96,6 +102,18 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
             )
         else:
             items.append(f"[{t.source}] {t.next_action_description}")
+            aggregated_meta.append(
+                {
+                    "source": t.source,
+                    "name": p.get("schedule_name")
+                    or (p.get("skill_workflow") or {}).get("skill_name")
+                    or "",
+                    # Full instruction, for the claim-time stream write
+                    # (react()._log_trigger_claim) — the checklist prose
+                    # above is for the {query} block only.
+                    "description": t.next_action_description,
+                }
+            )
 
     total = len(items)
     numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(items, start=1))
@@ -126,6 +144,8 @@ def _merge_triggers(base: Trigger, extras: list[Trigger]) -> Trigger:
         base.payload["user_message"] = "\n\n".join(user_texts)
     if all_entries:
         base.payload["queued_user_messages"] = all_entries
+    if aggregated_meta:
+        base.payload["aggregated_triggers"] = aggregated_meta
     return base
 
 

@@ -545,6 +545,7 @@ class UIController:
                 type=UIEventType.SYSTEM_MESSAGE,
                 data={"message": sys_msg},
                 source_adapter=adapter_id,
+                task_id=session_id,
             )
         )
 
@@ -555,8 +556,10 @@ class UIController:
                 data={
                     "state": AgentStateType.WORKING.value,
                     "status_message": "Agent is working...",
+                    "session_id": session_id,
                 },
                 source_adapter=adapter_id,
+                task_id=session_id,
             )
         )
 
