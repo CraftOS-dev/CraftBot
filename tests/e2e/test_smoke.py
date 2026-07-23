@@ -58,7 +58,7 @@ def test_critical_routing_actions_exist():
     """Session routing in ActionRouter pulls these by name."""
     _ensure_actions_loaded()
     actions = registry_instance.list_all_actions()
-    for required in ("send_message", "update_todos", "ignore"):
+    for required in ("send_message", "update_todos", "end_turn"):
         assert required in actions, f"missing core routing action: {required}"
 
 

@@ -20,7 +20,7 @@ ACTION_DIR = REPO_ROOT / "app" / "data" / "action"
 DOMAINS = [
     ("Task control", [
         "task_start", "task_end", "task_update_todos", "set_requirement",
-        "send_message", "send_message_with_attachment", "ignore", "wait",
+        "send_message", "send_message_with_attachment", "end_turn", "wait",
         "spawn_subagent", "sub_task_end",
     ]),
     ("Files and search", [

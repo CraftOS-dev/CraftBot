@@ -453,9 +453,9 @@ class InternalActionInterface:
             return {"success": True, "files_sent": len(file_paths), "errors": None}
 
     @staticmethod
-    def do_ignore():
-        """Note that the agent chose to ignore the latest user input."""
-        logger.debug("[Agent Action] Ignoring user message.")
+    def do_end_turn():
+        """Note that the agent chose to end the run without responding."""
+        logger.debug("[Agent Action] Ending turn without a response.")
 
     # ───────────────── CLI and GUI mode ─────────────────
 

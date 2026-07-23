@@ -25,7 +25,7 @@ class CLIFormatter:
     # Actions to hide from output (internal actions that clutter the display)
     HIDDEN_ACTIONS = {
         "send message",
-        "ignore",
+        "end turn",
         "task start",
         "task end",
     }

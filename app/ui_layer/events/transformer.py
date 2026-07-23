@@ -64,7 +64,7 @@ def _display_name_for(action_name: str | None, display_name: str | None) -> str:
 # against `kind` or `message` substrings.
 HIDDEN_ACTION_NAMES: frozenset[str] = frozenset(
     {
-        "ignore",
+        "end_turn",
     }
 )
 
