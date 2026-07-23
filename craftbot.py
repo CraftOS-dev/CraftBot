@@ -719,19 +719,31 @@ def _write_browser_lnk(shortcut_path: str) -> bool:
     parent = os.path.dirname(shortcut_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    # Write the PS script to a temp file with UTF-8-BOM so PowerShell handles
-    # non-ASCII paths (e.g. Japanese Start Menu folder) correctly.
+
+    # WScript.Shell.Save() converts the shortcut path through the system ANSI
+    # codepage, so a non-ASCII folder (e.g. a Japanese "デスクトップ" Desktop or
+    # a OneDrive-redirected path) gets mangled to "?" and Save() throws
+    # FileNotFoundException. Build the .lnk at the 8.3 short path of its parent
+    # (pure ASCII) joined with the ASCII "CraftBot.lnk" name — the short path is
+    # an alias for the same folder, so the file still lands in the real location.
+    # Same trick guards the icon path. If 8.3 names are disabled on the volume,
+    # _to_short_path() returns the original path unchanged (no worse than before).
+    save_path = os.path.join(_to_short_path(parent), os.path.basename(shortcut_path))
+    ico_short = _to_short_path(ico_path) if ico_path else None
+
+    # Write the PS script to a temp file with UTF-8-BOM so PowerShell reads any
+    # residual non-ASCII characters correctly.
     import tempfile
 
     ps_lines = [
         "$ws = New-Object -ComObject WScript.Shell",
-        f'$s = $ws.CreateShortcut("{shortcut_path}")',
+        f'$s = $ws.CreateShortcut("{save_path}")',
         '$s.TargetPath = "cmd.exe"',
         f'$s.Arguments = "/c start {BROWSER_URL}"',
         "$s.WindowStyle = 7",  # minimized (hides the cmd flash)
     ]
-    if ico_path:
-        ps_lines.append(f'$s.IconLocation = "{ico_path},0"')
+    if ico_short:
+        ps_lines.append(f'$s.IconLocation = "{ico_short},0"')
     ps_lines += [
         '$s.Description = "Open CraftBot in your browser"',
         "$s.Save()",

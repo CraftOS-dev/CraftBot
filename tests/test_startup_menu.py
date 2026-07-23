@@ -35,6 +35,46 @@ def test_start_menu_shortcut_path_none_when_no_programs_folder(monkeypatch):
     assert craftbot._start_menu_shortcut_path() is None
 
 
+def test_write_browser_lnk_hands_ascii_path_to_wscript(monkeypatch, tmp_path):
+    """Regression: WScript.Shell.Save() mangles non-ASCII paths (e.g. a
+    Japanese "デスクトップ" Desktop) through the ANSI codepage and fails. The
+    path passed to CreateShortcut must be the ASCII 8.3 short form."""
+    non_ascii_dir = tmp_path / "デスクトップ"
+    non_ascii_dir.mkdir()
+    shortcut = str(non_ascii_dir / "CraftBot.lnk")
+
+    monkeypatch.setattr(craftbot, "_ensure_ico", lambda: None)
+    # Stand in for the OS 8.3 API: non-ASCII → ASCII alias, ASCII → unchanged.
+    monkeypatch.setattr(
+        craftbot,
+        "_to_short_path",
+        lambda p: r"C:\PARENT~1" if not p.isascii() else p,
+    )
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        ps1 = cmd[cmd.index("-File") + 1]
+        with open(ps1, encoding="utf-8-sig") as f:
+            captured["script"] = f.read()
+
+        class _R:
+            returncode = 0
+
+        return _R()
+
+    monkeypatch.setattr(craftbot.subprocess, "run", fake_run)
+
+    craftbot._write_browser_lnk(shortcut)
+
+    create_line = next(
+        ln for ln in captured["script"].splitlines() if "CreateShortcut" in ln
+    )
+    # The whole CreateShortcut(...) line must be ASCII — no mangling risk.
+    assert create_line.isascii(), create_line
+    assert "CraftBot.lnk" in create_line
+
+
 # ── Launch-on-startup CLI ────────────────────────────────────────────────────
 
 
