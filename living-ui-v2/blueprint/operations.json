@@ -1,0 +1,26 @@
+{
+  "opsVersion": 1,
+  "operations": [
+    {
+      "name": "health",
+      "description": "Liveness check (PocketBase built-in).",
+      "system": true,
+      "params": {},
+      "executor": { "type": "http", "method": "GET", "path": "/api/health" }
+    },
+    {
+      "name": "ops.list",
+      "description": "Return this operations manifest.",
+      "system": true,
+      "params": {},
+      "executor": { "type": "http", "method": "GET", "path": "/api/_ops" }
+    },
+    {
+      "name": "items.clear-done",
+      "description": "Delete all completed items and return how many were removed.",
+      "destructive": true,
+      "params": {},
+      "executor": { "type": "http", "method": "POST", "path": "/api/ops/items/clear-done" }
+    }
+  ]
+}

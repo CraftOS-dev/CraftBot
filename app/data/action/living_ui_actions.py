@@ -6,14 +6,16 @@ from agent_core import action
 @action(
     name="living_ui_scaffold",
     description=(
-        "Create and register a new Living UI project from the template. "
-        "Call this FIRST when building a Living UI from a chat request — i.e. "
-        "when your task instruction does NOT already contain a 'Project ID' and "
-        "'Project Path' (those come pre-scaffolded from the Create Living UI modal). "
-        "This copies the project template (backend/, frontend/, config/), allocates "
-        "ports, and registers the project so it appears in the user's Living UI list. "
-        "Returns the project_id and an absolute project_path — use project_path as the "
-        "base for ALL subsequent file operations so files land in the right folders."
+        "Create and register a new Living UI project from the template, then "
+        "dispatch the build to the project's dedicated session. Call this when "
+        "the user asks for a new Living UI in a regular chat — i.e. when your "
+        "task instruction does NOT already contain a 'Project ID' and 'Project "
+        "Path' (those come pre-scaffolded from the Create Living UI modal). "
+        "This copies the project template (backend/, frontend/, config/), "
+        "allocates ports, registers the project in the user's Living UI list, "
+        "and queues the build run in the project's own session. After it "
+        "returns, inform the user the build has started and end your turn — "
+        "do NOT write project files or call living_ui_notify_ready yourself."
     ),
     default=False,
     mode="CLI",
@@ -28,7 +30,11 @@ from agent_core import action
         "description": {
             "type": "string",
             "example": "A dashboard that forecasts stock performance.",
-            "description": "Short description of what the app does.",
+            "description": (
+                "Description of what the app does. Include EVERY requirement "
+                "the user has given so far — it becomes the build instruction "
+                "for the project's session."
+            ),
         },
         "features": {
             "type": "array",
@@ -41,6 +47,15 @@ from agent_core import action
             "example": "system",
             "description": "UI theme. Defaults to 'system'.",
         },
+        "auth_mode": {
+            "type": "string",
+            "enum": ["none", "multi-user"],
+            "example": "none",
+            "description": (
+                "Auth mode from the requirements: 'none' for a personal local "
+                "tool (default), 'multi-user' when the app needs accounts."
+            ),
+        },
     },
     output_schema={
         "status": {
@@ -51,12 +66,12 @@ from agent_core import action
         "project_id": {
             "type": "string",
             "example": "abc12345",
-            "description": "The created project ID. Pass this to living_ui_notify_ready.",
+            "description": "The created project ID.",
         },
         "project_path": {
             "type": "string",
             "example": "/workspace/living_ui/stock_forecaster_abc12345",
-            "description": "Absolute base path. Use this for ALL file operations.",
+            "description": "Absolute project path on disk.",
         },
         "frontend_port": {"type": "integer", "description": "Allocated frontend port."},
         "backend_port": {"type": "integer", "description": "Allocated backend port."},
@@ -77,9 +92,6 @@ async def living_ui_scaffold(input_data: dict) -> dict:
     description = input_data.get("description", "").strip()
     features = input_data.get("features") or []
     theme = input_data.get("theme", "system")
-    # _session_id is injected by the ActionManager; for a Living UI task it equals
-    # the task id, which the progress/todo broadcast hooks key off of.
-    session_id = input_data.get("_session_id")
     simulated_mode = input_data.get("simulated_mode", False)
 
     if not name or not description:
@@ -96,7 +108,11 @@ async def living_ui_scaffold(input_data: dict) -> dict:
         }
 
     try:
-        from app.living_ui import get_living_ui_manager, broadcast_living_ui_created
+        from app.living_ui import (
+            get_living_ui_manager,
+            broadcast_living_ui_created,
+            broadcast_living_ui_progress,
+        )
 
         manager = get_living_ui_manager()
         if not manager:
@@ -117,17 +133,43 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             description=description,
             features=features,
             theme=theme,
+            auth_mode=input_data.get("auth_mode", "none"),
         )
 
-        # Associate the project with the running task so the agent's todos and
-        # progress stream to the Living UI view, then mark it as in-progress.
-        if session_id:
-            manager.set_project_task(project.id, session_id)
-        manager.update_project_status(project.id, "creating")
-
-        # Register it in the browser's project list immediately (modal-parity).
+        # Register it in the browser's project list immediately and show the
+        # creation screen (modal-parity).
         await broadcast_living_ui_created(project.to_dict())
+        await broadcast_living_ui_progress(
+            project.id, "initializing", 10, "Project created, starting development..."
+        )
 
+        # Hand the build off to the project's dedicated session (parity with
+        # the browser "+" flow): start_development_run ensures the session
+        # exists, marks the project as creating, and fires a LIVING_UI_DEV
+        # trigger carrying the full build instruction, so todos/progress/
+        # questions stream to the Living UI view.
+        dev_session_id = await manager.start_development_run(project.id)
+        if dev_session_id:
+            return {
+                "status": "success",
+                "project_id": project.id,
+                "project_path": project.path,
+                "frontend_port": project.port,
+                "backend_port": project.backend_port,
+                "message": (
+                    f"Project '{project.name}' scaffolded at {project.path}. "
+                    f"The build has been dispatched to the project's dedicated "
+                    f"session — do NOT build it in this session, do NOT write "
+                    f"project files, and do NOT call living_ui_notify_ready "
+                    f"here. Tell the user the build has started and that "
+                    f"progress and any setup questions will appear in the "
+                    f"'{project.name}' Living UI tab, then end your turn."
+                ),
+            }
+
+        # Fallback — session runtime not bound (e.g. headless/test contexts):
+        # keep the legacy inline-build contract in the calling session.
+        manager.update_project_status(project.id, "creating")
         return {
             "status": "success",
             "project_id": project.id,
@@ -137,7 +179,7 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             "message": (
                 f"Project '{project.name}' scaffolded at {project.path}. "
                 f"Use this absolute path as the base for ALL file operations "
-                f"(e.g. {project.path}/backend/models.py, {project.path}/frontend/). "
+                f"(e.g. {project.path}/frontend/src/app/, {project.path}/pb/pb_migrations/). "
                 f"Do NOT write to bare relative paths. When the build is complete, "
                 f'call living_ui_notify_ready(project_id="{project.id}").'
             ),
@@ -215,23 +257,159 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         result = await manager.launch_and_verify(project_id)
 
         if result["status"] == "success":
-            # Notify browser that the UI is ready
             url = result.get("url", "")
             port = result.get("port", 0)
+            _proj_ok = manager.get_project(project_id)
+            if _proj_ok is not None:
+                _proj_ok._gate_fp = None
+                _proj_ok._gate_fp_count = 0
+
+            # HARD GATE: independent walk-verify of the running app. Success
+            # is reported only on an all-pass verdict set — the building
+            # agent cannot self-grade or skip this.
+            from app.living_ui.walk_verify import run_walk_verify
+
+            project = manager.get_project(project_id)
+            report = None
+            if project is not None:
+                try:
+                    from app.living_ui import broadcast_living_ui_progress
+
+                    await broadcast_living_ui_progress(
+                        project_id,
+                        "verifying",
+                        92,
+                        "Walk-verify: independently testing features against "
+                        "the requirements (this takes a minute)…",
+                    )
+                except Exception:
+                    pass
+                try:
+                    import asyncio as _asyncio
+
+                    # Belt-and-suspenders ceiling above the runner's own
+                    # 30-min wall cap: even if the verifier wedges, the
+                    # session turn must end. Timeout = tooling failure
+                    # (blocked), never an app defect.
+                    report = await _asyncio.wait_for(
+                        run_walk_verify(project), timeout=2100
+                    )
+                except _asyncio.TimeoutError:
+                    report = {"kind": "blocked", "passed": [], "defects": [],
+                              "raw": "walk_verify exceeded the 35-minute ceiling"}
+                except Exception as verify_err:
+                    report = {"kind": "blocked", "passed": [], "defects": [],
+                              "raw": f"walk_verify crashed: {verify_err}"}
+                try:
+                    kind = (report or {}).get("kind")
+                    passed_n = len((report or {}).get("passed") or [])
+                    if kind == "defects":
+                        outcome = (
+                            f"Walk-verify: {len(report['defects']) or 'some'} "
+                            "feature(s) FAILED — fixing before launch"
+                        )
+                    elif kind == "pass":
+                        outcome = f"Walk-verify PASSED: {passed_n} feature(s) work"
+                    elif kind == "incomplete":
+                        outcome = (
+                            f"Walk-verify: {passed_n} passed, coverage incomplete "
+                            "(some features NOT REACHED)"
+                        )
+                    else:
+                        outcome = "Walk-verify BLOCKED (tooling) — smoke checks only"
+                    await broadcast_living_ui_progress(project_id, "verifying", 96, outcome)
+                except Exception:
+                    pass
+
+            kind = (report or {}).get("kind")
+            if kind == "defects":
+                # Observed misbehavior — the only thing that blocks a launch.
+                await manager.stop_project(project_id)
+                defects = report.get("defects") or []
+                raw = (report.get("raw") or "")[:2500]
+                return {
+                    "status": "error",
+                    "message": (
+                        "Launch blocked by walk-verify: "
+                        f"{len(defects) or 'some'} feature(s) observed NOT working."
+                    ),
+                    "test_errors": defects[:10] or [raw],
+                    "details": (
+                        "The walk-verify report (a real browser drove the app):\n"
+                        + raw
+                        + "\n\nFix these features, then call living_ui_notify_ready "
+                        "again. Do NOT tell the user the app is ready."
+                    ),
+                }
+
+            # Notify browser that the UI is ready
             await broadcast_living_ui_ready(project_id, url, port)
+            if kind == "pass":
+                verified = (
+                    f" ({len(report.get('passed') or [])} feature(s) walk-verified "
+                    "in a real browser)"
+                )
+            elif kind == "incomplete":
+                verified = (
+                    f" (walk-verify: {len(report.get('passed') or [])} passed; "
+                    "coverage INCOMPLETE — some features NOT REACHED. Tell the "
+                    "user which features were not walked; do NOT claim they were "
+                    "tested.)"
+                )
+            elif kind == "blocked":
+                verified = (
+                    " (WARNING: walk-verify was BLOCKED — tooling/browser issue, "
+                    "not an app defect. Launch passed smoke checks only: "
+                    + str((report or {}).get("raw") or "")[:200]
+                    + ")"
+                )
+            else:
+                verified = " (walk-verify unavailable — smoke checks only)"
             return {
                 "status": "success",
-                "message": f"Living UI {project_id} is now ready at {url}",
+                "message": f"Living UI {project_id} is now ready at {url}{verified}",
             }
         else:
             # Return errors directly so the agent can fix them
             errors = result.get("errors", [])
             errors_str = "\n".join(errors[:10])
+
+            # CIRCUIT BREAKER: detect fix attempts that change nothing. The
+            # fingerprint lives on the in-memory project (this module does not
+            # persist between action calls).
+            breaker_note = ""
+            project = manager.get_project(project_id)
+            if project is not None:
+                fp = hash((result.get("step"), errors_str))
+                same = getattr(project, "_gate_fp", None) == fp
+                count = (getattr(project, "_gate_fp_count", 0) + 1) if same else 1
+                project._gate_fp = fp
+                project._gate_fp_count = count
+                if count >= 6:
+                    breaker_note = (
+                        f"\n\nSTOP: the EXACT same error has now occurred {count} times "
+                        "in a row. The build is stuck — do NOT try again. Report the "
+                        "failure honestly to the user with a final send_message "
+                        "(state what is blocking and what you tried) and end the run."
+                    )
+                elif count >= 3:
+                    breaker_note = (
+                        f"\n\nWARNING: this is the IDENTICAL error {count} times in a "
+                        "row — your edits are NOT changing the outcome. Do not repeat "
+                        "the same fix. Re-read the annotated error above: the caret "
+                        "marks the EXACT offending expression (there may be several "
+                        "similar ones on the line — fix the one under the caret). "
+                        "Verify your edit actually changed that expression before "
+                        "re-running."
+                    )
             return {
                 "status": "error",
                 "message": f"Launch failed at step: {result.get('step', 'unknown')}",
                 "test_errors": errors[:10],
-                "details": f"Fix these errors and call living_ui_notify_ready again:\n{errors_str}",
+                "details": (
+                    f"Fix these errors and call living_ui_notify_ready again:\n{errors_str}"
+                    + breaker_note
+                ),
             }
     except Exception as e:
         return {"status": "error", "message": f"Failed to launch: {str(e)}"}
@@ -420,179 +598,16 @@ async def living_ui_report_progress(input_data: dict) -> dict:
         }
 
 
-@action(
-    name="living_ui_import_external",
-    description=(
-        "Import an external app as a Living UI project. "
-        "Use this when the user wants to add an existing app (Go, Node.js, Python, Rust, static site) "
-        "to their Living UI dashboard. The agent should first analyze the app source code to determine "
-        "the runtime, build/install command, start command, and health check strategy, then call this action."
-    ),
-    action_sets=["living_ui"],
-    input_schema={
-        "name": {
-            "type": "string",
-            "description": "Display name for the project.",
-            "example": "Glance Dashboard",
-        },
-        "description": {
-            "type": "string",
-            "description": "Brief app description.",
-            "example": "Self-hosted dashboard",
-        },
-        "source_path": {
-            "type": "string",
-            "description": "Absolute path to the app source code.",
-            "example": "/path/to/app",
-        },
-        "app_runtime": {
-            "type": "string",
-            "description": "Runtime: node, python, go, rust, docker, static, or unknown.",
-            "example": "go",
-        },
-        "install_command": {
-            "type": "string",
-            "description": "Command to install/build the app (empty if none needed).",
-            "example": "go build -o app .",
-        },
-        "start_command": {
-            "type": "string",
-            "description": "Command to start the app. Use {{PORT}} placeholder for port.",
-            "example": "./app --port {{PORT}}",
-        },
-        "health_strategy": {
-            "type": "string",
-            "description": "Health check: http_get, tcp, or process_alive.",
-            "example": "http_get",
-        },
-        "health_url": {
-            "type": "string",
-            "description": "Health check URL (for http_get). Use {{PORT}} placeholder.",
-            "example": "http://localhost:{{PORT}}/health",
-        },
-        "port_env_var": {
-            "type": "string",
-            "description": "Env var name for port injection (e.g., PORT). Empty if app uses command-line flag.",
-            "example": "PORT",
-        },
-        "project_id": {
-            "type": "string",
-            "description": (
-                "If the task instruction provided a pre-created project_id "
-                "(a tab already shown to the user), pass it here so the import "
-                "populates that tab. Omit otherwise."
-            ),
-            "example": "a1b2c3d4",
-        },
-    },
-    output_schema={
-        "status": {"type": "string", "example": "success"},
-        "project": {"type": "object", "description": "Project info dict."},
-    },
-)
-async def living_ui_import_external(input_data: dict) -> dict:
-    """Import an external app as a Living UI project."""
-    try:
-        from app.living_ui import get_living_ui_manager
-
-        manager = get_living_ui_manager()
-        if not manager:
-            return {"status": "error", "message": "Living UI manager not available."}
-
-        result = await manager.import_external_app(
-            name=input_data.get("name", "External App"),
-            description=input_data.get("description", ""),
-            source_path=input_data["source_path"],
-            app_runtime=input_data.get("app_runtime", "unknown"),
-            install_command=input_data.get("install_command", ""),
-            start_command=input_data.get("start_command", ""),
-            health_strategy=input_data.get("health_strategy", "tcp"),
-            health_url=input_data.get("health_url", ""),
-            port_env_var=input_data.get("port_env_var", "PORT"),
-            project_id=input_data.get("project_id") or None,
-        )
-        return result
-    except Exception as e:
-        return {"status": "error", "message": f"Import failed: {str(e)}"}
-
-
-@action(
-    name="living_ui_import_zip",
-    description=(
-        "Import a Living UI project from a ZIP file. "
-        "The ZIP should contain a previously exported Living UI project. "
-        "A new project ID and ports are allocated automatically. "
-        "After importing, launch the project with living_ui_notify_ready."
-    ),
-    action_sets=["living_ui"],
-    input_schema={
-        "zip_path": {
-            "type": "string",
-            "description": "Absolute path to the ZIP file.",
-            "example": "/path/to/project.zip",
-        },
-        "name": {
-            "type": "string",
-            "description": "Display name for the imported project (optional, auto-detected from manifest).",
-            "example": "My App",
-        },
-        "project_id": {
-            "type": "string",
-            "description": (
-                "If the task instruction provided a pre-created project_id "
-                "(a tab already shown to the user), pass it here so the import "
-                "populates that tab. Omit otherwise."
-            ),
-            "example": "a1b2c3d4",
-        },
-    },
-    output_schema={
-        "status": {"type": "string", "example": "success"},
-        "project_id": {"type": "string", "example": "a1b2c3d4"},
-        "message": {"type": "string"},
-    },
-)
-async def living_ui_import_zip(input_data: dict) -> dict:
-    """Import a Living UI project from a ZIP file."""
-    try:
-        from app.living_ui import get_living_ui_manager
-
-        manager = get_living_ui_manager()
-        if not manager:
-            return {"status": "error", "message": "Living UI manager not available."}
-
-        zip_path = input_data.get("zip_path", "")
-        name = input_data.get("name", "")
-        project_id = input_data.get("project_id") or None
-
-        if not zip_path:
-            return {"status": "error", "message": "zip_path is required."}
-
-        project = await manager.import_project_zip(zip_path, name, project_id)
-
-        # Clean up the ZIP file after successful import
-        import os
-
-        try:
-            os.unlink(zip_path)
-        except Exception:
-            pass
-
-        return {
-            "status": "success",
-            "project_id": project.id,
-            "message": f"Imported '{project.name}' ({project.id}). Call living_ui_notify_ready to launch it.",
-            "project": project.to_dict(),
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"ZIP import failed: {str(e)}"}
 
 
 @action(
     name="living_ui_http",
     description=(
-        "Send an HTTP request to a running Living UI project's backend. "
-        "Use this to read or modify data in your Living UI (e.g., add a card to a kanban, fetch a list). "
+        "FALLBACK ONLY — prefer the lui CLI via run_shell "
+        "(node <craftbot-root>/living-ui-v2/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; the exact commands are in the [INTERACTING WITH LIVING UI] note) to "
+        "operate a Living UI. Use this action only when the shell is "
+        "unavailable. Sends an HTTP request to a running Living UI project's "
+        "backend to read or modify data (e.g., add a card to a kanban, fetch a list). "
         "Pass the project_id and the API path (e.g., '/api/boards/2/cards'); the URL is resolved from the "
         "project's registered backend. This bypasses the loopback SSRF restriction safely because the "
         "target is a known Living UI process."

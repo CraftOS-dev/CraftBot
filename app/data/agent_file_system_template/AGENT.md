@@ -1404,7 +1404,7 @@ clipboard                clipboard_read, clipboard_write
 
 comms                    send_message_with_attachment
 
-living_ui                living_ui_http, living_ui_import_external, living_ui_import_zip,
+- Importing external apps/ZIPs is temporarily unavailable (V1 import removed; V2 import workflow pending).
                          living_ui_notify_ready, living_ui_report_progress, living_ui_restart
 
 per-platform integrations  Discord, Slack, Telegram, Notion, LinkedIn, Jira, GitHub,

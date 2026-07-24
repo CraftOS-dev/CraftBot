@@ -742,6 +742,7 @@ export interface LivingUIProject {
   icon?: string
   features?: string[]
   error?: string
+  stylePack?: string
 }
 
 export interface LivingUICreateRequest {
@@ -750,6 +751,10 @@ export interface LivingUICreateRequest {
   features?: string[]  // Optional, defaults to empty array
   dataSource?: string
   theme?: 'light' | 'dark' | 'system'
+  authMode?: 'none' | 'multi-user'
+  layout?: string
+  stylePack?: string
+  referenceFiles?: string[]
 }
 
 export interface LivingUIStatusUpdate {

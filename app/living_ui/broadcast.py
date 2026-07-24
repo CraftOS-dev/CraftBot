@@ -104,7 +104,7 @@ async def broadcast_living_ui_created(project: Dict[str, Any]) -> bool:
     return False
 
 
-async def broadcast_living_ui_question(session_id: str, message: str) -> bool:
+async def broadcast_living_ui_question(session_id: str, message: str, options=None) -> bool:
     """Mirror an agent's final question onto the Living UI creation screen,
     so the user can answer even with the chat closed.
 
@@ -124,7 +124,7 @@ async def broadcast_living_ui_question(session_id: str, message: str) -> bool:
         project = None
     if not project or getattr(project, "status", None) != "creating":
         return False
-    await _broadcast_question_callback(project.id, session_id, message)
+    await _broadcast_question_callback(project.id, session_id, message, options)
     return True
 
 

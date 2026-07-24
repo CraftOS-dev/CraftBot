@@ -27,7 +27,7 @@ import { CreationQuestionForm } from './CreationQuestionForm'
 import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
 import { useAppSelector, useAppDispatch } from '../../store/hooks'
-import { selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
+import { selectLivingUiCreating, selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
 import { clearPendingQuestion } from '../../store/slices/livingUiSlice'
 import styles from './LivingUIPage.module.css'
 
@@ -74,6 +74,7 @@ export function LivingUIPage() {
   const { theme: appTheme } = useTheme()
   const dispatch = useAppDispatch()
   const pendingQuestions = useAppSelector(selectLivingUiPendingQuestions)
+  const creatingStatus = useAppSelector(selectLivingUiCreating)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
@@ -117,6 +118,17 @@ export function LivingUIPage() {
 
   // Find the current project
   const project = livingUIProjects.find(p => p.id === projectId)
+
+  // Wizard-chosen style pack: seed it when the user hasn't picked one yet
+  // (survives frontend rebuilds and cleared localStorage).
+  useEffect(() => {
+    if (!projectId || !project?.stylePack || project.stylePack === 'craftbot') return
+    try {
+      if (!localStorage.getItem(`livingui-theme-${projectId}`)) {
+        setLivingUITheme(project.stylePack as LivingUIThemeId)
+      }
+    } catch { /* cosmetic only */ }
+  }, [projectId, project?.stylePack])
 
   // A question the agent mirrored onto this screen (waiting on the user's reply).
   const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
@@ -377,12 +389,16 @@ export function LivingUIPage() {
                 key={pendingQuestion.message}
                 projectName={project.name}
                 message={pendingQuestion.message}
+                options={pendingQuestion.options}
                 onAnswer={handleAnswer}
               />
             ) : (
               <CreationProgress
                 projectName={project.name}
                 todos={livingUITodos[project.id]}
+                statusMessage={
+                  creatingStatus?.projectId === project.id ? creatingStatus.message : undefined
+                }
               />
             )
           ) : project.status === 'launching' ? (

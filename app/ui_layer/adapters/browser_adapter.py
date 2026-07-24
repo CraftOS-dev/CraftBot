@@ -702,12 +702,7 @@ class BrowserAdapter(InterfaceAdapter):
         self._staged_bundles: Dict[str, bytes] = {}
 
         # Living UI manager
-        template_path = (
-            Path(__file__).parent.parent.parent / "data" / "living_ui_template"
-        )
-        self._living_ui_manager = LivingUIManager(
-            workspace_root=AGENT_WORKSPACE_ROOT, template_path=template_path
-        )
+        self._living_ui_manager = LivingUIManager(workspace_root=AGENT_WORKSPACE_ROOT)
         # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
         self._living_ui_manager.bind_session_manager(
@@ -869,6 +864,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
         self._app.router.add_post(
             "/api/living-ui/import", self._living_ui_import_handler
+        )
+        self._app.router.add_post(
+            "/api/living-ui/stage", self._living_ui_stage_handler
         )
 
         # Workspace and chat HTTP upload routes
@@ -2461,13 +2459,46 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 return
 
             # Create the project (directory/template)
+            auth_mode = data.get("authMode", "none")
+            layout = data.get("layout", "")
+            style_pack = data.get("stylePack", "")
+            ref_files = data.get("referenceFiles") or []
+
+            # Fold wizard choices into the build description so they land in
+            # the task instruction and reference/requirements.md.
+            extras = []
+            if layout and layout != "free":
+                extras.append(f"Layout preference: {layout}")
+            if style_pack:
+                extras.append(f"Style pack (visual theme): {style_pack}")
+            if ref_files:
+                names = ", ".join(Path(f).name for f in ref_files[:10])
+                extras.append(
+                    f"Reference files (design sketches/docs) in reference/: {names} — "
+                    "study them before designing the UI."
+                )
+            if extras:
+                description = description + "\n\n" + "\n".join(extras)
+
             project = await self._living_ui_manager.create_project(
                 name=name,
                 description=description,
                 features=features,
                 data_source=data_source,
                 theme=theme,
+                auth_mode=auth_mode,
+                style_pack=style_pack,
             )
+
+            # Move staged reference files into the project.
+            if ref_files:
+                ref_dir = Path(project.path) / "reference"
+                ref_dir.mkdir(parents=True, exist_ok=True)
+                for f in ref_files[:10]:
+                    src = Path(f)
+                    staging_root = Path(self._living_ui_manager.living_ui_dir) / "_staging"
+                    if src.exists() and staging_root in src.parents:
+                        shutil.move(str(src), str(ref_dir / src.name))
 
             # Broadcast project created
             await self._broadcast(
@@ -2477,6 +2508,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "success": True,
                         "projectId": project.id,
                         "project": project.to_dict(),
+                        "stylePack": style_pack,
                     },
                 }
             )
@@ -2702,6 +2734,40 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return web.json_response({"error": str(e)}, status=404)
         except Exception as e:
             logger.error(f"[LIVING_UI] Export error: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _living_ui_stage_handler(self, request: "web.Request") -> "web.Response":
+        """Stage a reference file (sketch/screenshot/doc) for a NEW Living UI.
+
+        Saves under living_ui/_staging/refs/ and returns {"path": ...}. The
+        create flow moves staged files into the project's reference/ dir.
+        """
+        from aiohttp import web
+
+        try:
+            reader = await request.multipart()
+            saved = None
+            async for part in reader:
+                if part.name == "file":
+                    filename = Path(part.filename or "reference.bin").name
+                    staging = Path(self._living_ui_manager.living_ui_dir) / "_staging" / "refs"
+                    staging.mkdir(parents=True, exist_ok=True)
+                    target = staging / filename
+                    i = 1
+                    while target.exists():
+                        target = staging / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                        i += 1
+                    with open(target, "wb") as f:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    saved = str(target)
+            if saved is None:
+                return web.json_response({"error": "no file"}, status=400)
+            return web.json_response({"path": saved})
+        except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _living_ui_import_handler(self, request: "web.Request") -> "web.Response":
@@ -3195,11 +3261,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
     async def broadcast_living_ui_question(
-        self, project_id: str, session_id: str, message: str
+        self, project_id: str, session_id: str, message: str, options=None
     ) -> None:
         """Mirror an agent question onto the creation screen so the user can
         answer from the Living UI page even when the chat panel is closed. The
-        on-screen answer is sent back as a reply targeting `session_id`."""
+        on-screen answer is sent back as a reply targeting `session_id`.
+        `options` (list of strings) renders as tap-to-answer chips."""
         await self._broadcast(
             {
                 "type": "living_ui_question",
@@ -3207,6 +3274,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "projectId": project_id,
                     "sessionId": session_id,
                     "message": message,
+                    "options": options or [],
                 },
             }
         )
@@ -6380,128 +6448,39 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
 
     async def _handle_living_ui_import(self, source: str, name: str) -> None:
-        """Handle import of an external app or ZIP — queues an import run
-        (with the importer skill) in the placeholder project's session."""
+        """Import a Living UI. V2 supports exported ZIPs (round-trip with
+        export); GitHub/path/foreign-app adoption returns with the V2 import
+        workflow (WORKFLOWS §7)."""
         if not source:
             return
-
-        is_zip = source.lower().endswith(".zip")
-
-        # Spawn a placeholder tab immediately so the user sees the import is
-        # underway (mirrors the form-create flow). The importer skill adopts
-        # this project_id so the same tab transitions to the running app.
-        placeholder = self._living_ui_manager.create_placeholder_project(name)
-        project_id = placeholder.id
-        await self.broadcast_living_ui_created(placeholder.to_dict())
-        await self._broadcast(
-            {
-                "type": "living_ui_status",
-                "data": {
-                    "projectId": project_id,
-                    "phase": "initializing",
-                    "progress": 10,
-                    "message": "Importing project...",
-                },
-            }
-        )
-
-        adopt_note = (
-            f"A tab has already been created for this import with "
-            f'project_id="{project_id}". You MUST pass project_id="{project_id}" '
-            f"to the import action so it populates that existing tab instead of "
-            f"creating a duplicate.\n\n"
-        )
-
-        if is_zip:
-            import_instruction = (
-                f"Import this Living UI project from a ZIP file:\n"
-                f"ZIP path: {source}\n"
-                f"Name: {name}\n\n"
-                f"{adopt_note}"
-                f"Steps:\n"
-                f'1. Call living_ui_import_zip (project_id="{project_id}") to extract and register the project\n'
-                f"2. Review the project structure and manifest\n"
-                f"3. Install dependencies if needed\n"
-                f"4. Launch the app and verify it works\n"
-                f"5. Clean up the ZIP file after successful import"
-            )
-        else:
-            import_instruction = (
-                f"Import this external app as a Living UI:\n"
-                f"Source: {source}\n"
-                f"Name: {name}\n\n"
-                f"{adopt_note}"
-                f"Follow the living-ui-importer skill instructions:\n"
-                f"1. Clone/copy the source code\n"
-                f"2. Detect the app type (Go, Node, Python, etc.) — NEVER use Docker if native build is possible\n"
-                f"3. Determine build/install command, start command, port config, and health check\n"
-                f'4. Call living_ui_import_external with the detected configuration and project_id="{project_id}"\n'
-                f"5. Launch the app and verify it works\n"
-                f"6. Create LIVING_UI.md documenting the app"
-            )
-
-        # The project's dedicated session hosts the import run, so
-        # question-mirroring and todo broadcasts (keyed by session id)
-        # target this tab.
-        import_session = self._living_ui_manager.ensure_project_session(placeholder)
-
-        if import_session:
-            from app.triggers import TriggerSource, TriggerSpec
-
-            await self._controller.agent.trigger_service.emit(
-                TriggerSpec(
-                    source=TriggerSource.LIVING_UI_IMPORT,
-                    description=import_instruction,
-                    priority=50,
-                    session_id=import_session.id,
-                    payload={
-                        "type": "living_ui_import",
-                        "source": source,
-                        "workflow_skills": ["living-ui-importer"],
-                        "workflow_action_sets": [
-                            "file_operations",
-                            "code_execution",
-                            "living_ui",
-                            "core",
-                        ],
-                    },
-                )
-            )
-        else:
-            # Couldn't create the session — don't leave a stuck "creating" tab.
+        if not source.lower().endswith(".zip"):
             await self._broadcast(
                 {
                     "type": "living_ui_error",
                     "data": {
-                        "projectId": project_id,
-                        "error": "Failed to start import run",
+                        "projectId": "",
+                        "error": (
+                            "Only exported Living UI ZIPs can be imported right "
+                            "now — GitHub/path import returns with the V2 "
+                            "import workflow."
+                        ),
                     },
                 }
             )
-
-        # Mirror the import into chat as a system message so the request is
-        # visible in the conversation (not just the new tab).
-        origin = "uploaded ZIP file" if is_zip else source
+            return
         try:
-            await self._display_chat_message(
-                "System",
-                f"**Living UI: {name}**\n\nImporting from {origin}.\n\n"
-                "Setting up your app now — track progress in the new tab.",
-                "system",
+            project = await self._living_ui_manager.import_project_zip(
+                source, name or None
             )
+            await self.broadcast_living_ui_created(project.to_dict())
         except Exception as e:
-            logger.debug(f"[LIVING_UI] import chat message failed: {e}")
-
-        await self._broadcast(
-            {
-                "type": "living_ui_import",
-                "data": {"status": "started", "name": name, "source": source},
-            }
-        )
-
-    # =====================
-    # WhatsApp QR Code Flow
-    # =====================
+            await self._broadcast(
+                {
+                    "type": "living_ui_error",
+                    "data": {"projectId": "", "error": f"Import failed: {e}"},
+                }
+            )
+        return
 
     async def _handle_whatsapp_start_qr(self) -> None:
         """Start WhatsApp Web session and return QR code."""

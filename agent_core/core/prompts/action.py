@@ -147,7 +147,8 @@ A non-parallelizable action MUST be the ONLY action in its step — this
 includes any write/mutate (write_file, stream_edit, clipboard_write), wait,
 and add_action_sets / remove_action_sets / use_skill / unload_skill.
 Never emit two of the same single-instance action: combine multiple messages
-into ONE send, and use ONE update_todos with the full list.
+into ONE send, and use ONE update_todos with the COMPLETE list — the payload
+replaces the whole list, so any todo you omit is deleted.
 A FINAL send_message (continue_work absent or false) must be the ONLY action
 in its step — pairing it with working actions is contradictory.
 </parallel_actions>

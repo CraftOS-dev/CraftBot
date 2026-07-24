@@ -22,16 +22,21 @@ from agent_core import action
     input_schema={
         "todos": {
             "type": "array",
-            "description": 'Array of todo objects. Each object MUST have exactly 2 keys: \'content\' (string: the task text) and \'status\' (string: \'pending\'|\'in_progress\'|\'completed\'). Example: [{"content": "Do X", "status": "completed"}, {"content": "Do Y", "status": "in_progress"}]',
+            "description": 'Array of todo objects — this payload REPLACES the whole list, so ALWAYS send the complete list (every item you want to keep, not just changes). Each object MUST have exactly 2 keys: \'content\' (string: the task text) and \'status\' (string: \'pending\'|\'in_progress\'|\'completed\'). Example: [{"content": "Do X", "status": "completed"}, {"content": "Do Y", "status": "in_progress"}]',
             "required": True,
-        }
+        },
     },
     output_schema={
         "status": {
             "type": "string",
             "example": "success",
             "description": "Indicates if the update was successful",
-        }
+        },
+        "message": {
+            "type": "string",
+            "example": "List now has 7 todos (3 completed, 1 in progress, 3 pending).",
+            "description": "Summary of the FULL merged list after this update.",
+        },
     },
     test_payload={
         "todos": [
@@ -62,6 +67,20 @@ def update_todos(input_data: dict) -> dict:
             todos, session_id=input_data.get("_session_id")
         )
         status = "success" if result.get("status") in ("ok", "success") else "error"
-        return {"status": status}
+        # Echo the resulting list state — the payload replaces the whole list,
+        # so this is the model's (and the activity feed's) immediate feedback
+        # on what the list actually became after this call.
+        updated = result.get("todos", []) or []
+        counts = {"completed": 0, "in_progress": 0, "pending": 0}
+        for t in updated:
+            key = t.get("status", "pending")
+            counts[key] = counts.get(key, 0) + 1
+        return {
+            "status": status,
+            "message": (
+                f"List now has {len(updated)} todos ({counts['completed']} completed, "
+                f"{counts['in_progress']} in progress, {counts['pending']} pending)."
+            ),
+        }
 
     return {"status": "success"}

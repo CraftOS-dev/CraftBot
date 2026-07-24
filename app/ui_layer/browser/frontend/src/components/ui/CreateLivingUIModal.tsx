@@ -34,6 +34,31 @@ interface MarketplaceApp {
 
 const MAX_WORDS = 5000
 
+const LAYOUTS: { id: string; label: string }[] = [
+  { id: 'free', label: 'Free — agent decides' },
+  { id: 'sidebar-body', label: 'Sidebar + body' },
+  { id: 'topnav-body', label: 'Top nav + body' },
+  { id: 'hero-cards', label: 'Hero + cards' },
+  { id: 'split-view', label: 'Split view' },
+  { id: 'dashboard-grid', label: 'Dashboard grid' },
+  { id: 'columns-board', label: 'Columns board' },
+  { id: 'single-page', label: 'Single page' },
+]
+
+const STYLE_PACKS: { id: string; label: string; bg: string; accent: string }[] = [
+  { id: 'craftbot', label: 'CraftBot', bg: '#1d1d22', accent: '#ff4f18' },
+  { id: 'normal', label: 'Modern', bg: '#16181f', accent: '#3b82f6' },
+  { id: 'glass', label: 'Glass', bg: '#1e2436', accent: '#818cf8' },
+  { id: 'classic', label: 'Classic', bg: '#26231b', accent: '#d4a017' },
+  { id: 'velvet', label: 'Velvet', bg: '#281826', accent: '#ec4899' },
+  { id: 'ink', label: 'Ink', bg: '#f5f5f5', accent: '#111111' },
+  { id: 'acid', label: 'Acid', bg: '#1b2513', accent: '#a3e635' },
+  { id: 'blueprint', label: 'Blueprint', bg: '#102039', accent: '#60a5fa' },
+  { id: 'ocean', label: 'Ocean', bg: '#102635', accent: '#38bdf8' },
+  { id: 'forest', label: 'Forest', bg: '#14261a', accent: '#4ade80' },
+  { id: 'pastel', label: 'Pastel', bg: '#251c2e', accent: '#c084fc' },
+]
+
 function countWords(text: string): number {
   const trimmed = text.trim()
   if (!trimmed) return 0
@@ -61,6 +86,29 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   const [configuringApp, setConfiguringApp] = useState<MarketplaceApp | null>(null)
   const installTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
+  const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system')
+  const [authMode, setAuthMode] = useState<'none' | 'multi-user'>('none')
+  const [layout, setLayout] = useState('free')
+  const [stylePack, setStylePack] = useState('craftbot')
+  const [refFiles, setRefFiles] = useState<{ name: string; path: string }[]>([])
+  const [uploadingRef, setUploadingRef] = useState(false)
+
+  const uploadRefFiles = async (files: FileList | File[]) => {
+    setUploadingRef(true)
+    try {
+      for (const file of Array.from(files).slice(0, 10 - refFiles.length)) {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await fetch('/api/living-ui/stage', { method: 'POST', body: fd })
+        if (res.ok) {
+          const data = await res.json()
+          setRefFiles(prev => [...prev, { name: file.name, path: data.path }])
+        }
+      }
+    } finally {
+      setUploadingRef(false)
+    }
+  }
 
   // Marketplace filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -288,7 +336,15 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) return
-    onSubmit({ name: name.trim(), description: description.trim() })
+    onSubmit({
+      name: name.trim(),
+      description: description.trim(),
+      theme,
+      authMode,
+      layout,
+      stylePack,
+      referenceFiles: refFiles.map(f => f.path),
+    })
   }
 
   // Fully unmount when closed and no installs pending; stay mounted (invisible) while installs run
@@ -514,7 +570,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
                     placeholder="Describe what you want the Living UI to display and do. Be specific about the data, layout, interactions, styling preferences, and any external APIs or data sources to use..."
                     value={description}
                     onChange={e => setDescription(e.target.value)}
-                    rows={12}
+                    rows={5}
                   />
                   <div className={styles.descriptionFooter}>
                     <span className={styles.hint}>
@@ -525,6 +581,88 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
                     </span>
                   </div>
                   {errors.description && <span className={styles.errorText}>{errors.description}</span>}
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Reference files (optional)</label>
+                  <div
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); void uploadRefFiles(e.dataTransfer.files) }}
+                    onClick={() => document.getElementById('lui-ref-input')?.click()}
+                    style={{ border: '1px dashed var(--color-border, #444)', borderRadius: 8, padding: '14px', textAlign: 'center', cursor: 'pointer', fontSize: 13, opacity: 0.85 }}
+                  >
+                    {uploadingRef ? 'Uploading…' : 'Drop design sketches, screenshots, or documents — or click to browse'}
+                    <input id="lui-ref-input" type="file" multiple hidden
+                      onChange={e => { if (e.target.files) void uploadRefFiles(e.target.files) }} />
+                  </div>
+                  {refFiles.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {refFiles.map(f => (
+                        <span key={f.path} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 999, border: '1px solid var(--color-border, #444)' }}>
+                          {f.name}
+                          <button type="button" style={{ marginLeft: 6, background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+                            onClick={() => setRefFiles(prev => prev.filter(x => x.path !== f.path))}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Layout</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {LAYOUTS.map(l => (
+                      <button key={l.id} type="button" onClick={() => setLayout(l.id)}
+                        style={{
+                          padding: '14px 8px', borderRadius: 8, fontSize: 12, cursor: 'pointer', color: 'inherit',
+                          background: 'transparent',
+                          border: layout === l.id ? '1.5px solid var(--color-primary, #ff4f18)' : '1px solid var(--color-border, #444)',
+                        }}>
+                        {l.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Theme</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {STYLE_PACKS.map(t => (
+                      <button key={t.id} type="button" onClick={() => setStylePack(t.id)}
+                        style={{
+                          padding: 8, borderRadius: 8, fontSize: 12, cursor: 'pointer', color: 'inherit',
+                          background: 'transparent',
+                          border: stylePack === t.id ? '1.5px solid var(--color-primary, #ff4f18)' : '1px solid var(--color-border, #444)',
+                        }}>
+                        <span style={{ display: 'block', height: 34, borderRadius: 5, marginBottom: 6, background: t.bg, position: 'relative', overflow: 'hidden' }}>
+                          <span style={{ position: 'absolute', left: 6, top: 7, width: '45%', height: 4, borderRadius: 2, background: t.id === 'ink' ? '#11111133' : '#ffffff2e' }} />
+                          <span style={{ position: 'absolute', left: 6, top: 15, width: '65%', height: 4, borderRadius: 2, background: t.id === 'ink' ? '#11111122' : '#ffffff1f' }} />
+                          <span style={{ position: 'absolute', right: 6, bottom: 6, width: 16, height: 8, borderRadius: 4, background: t.accent }} />
+                        </span>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <div className={styles.formGroup} style={{ flex: 1 }}>
+                    <label htmlFor="living-ui-theme" className={styles.label}>Mode</label>
+                    <select id="living-ui-theme" className={styles.input} value={theme}
+                      onChange={e => setTheme(e.target.value as 'system' | 'light' | 'dark')}>
+                      <option value="system">Follow system</option>
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </div>
+                  <div className={styles.formGroup} style={{ flex: 1 }}>
+                    <label htmlFor="living-ui-auth" className={styles.label}>Access</label>
+                    <select id="living-ui-auth" className={styles.input} value={authMode}
+                      onChange={e => setAuthMode(e.target.value as 'none' | 'multi-user')}>
+                      <option value="none">Just me (no login)</option>
+                      <option value="multi-user">Multi-user (accounts)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>

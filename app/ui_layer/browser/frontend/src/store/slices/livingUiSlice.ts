@@ -28,6 +28,7 @@ export interface LivingUITodo {
 export interface LivingUIPendingQuestion {
   sessionId: string
   message: string
+  options?: string[]
 }
 
 interface LivingUiState {
@@ -164,10 +165,10 @@ const livingUiSlice = createSlice({
     },
     setPendingQuestion(
       state,
-      action: PayloadAction<{ projectId: string; sessionId: string; message: string }>,
+      action: PayloadAction<{ projectId: string; sessionId: string; message: string; options?: string[] }>,
     ) {
-      const { projectId, sessionId, message } = action.payload
-      state.pendingQuestions[projectId] = { sessionId, message }
+      const { projectId, sessionId, message, options } = action.payload
+      state.pendingQuestions[projectId] = { sessionId, message, options }
     },
     clearPendingQuestion(state, action: PayloadAction<{ projectId: string }>) {
       delete state.pendingQuestions[action.payload.projectId]
@@ -206,8 +207,17 @@ register('living_ui_list', (data, dispatch) => {
 })
 
 register('living_ui_create', (data, dispatch) => {
-  const r = data as LivingUICreateResponse
-  if (r.success && r.project) dispatch(addProject(r.project))
+  const r = data as LivingUICreateResponse & { stylePack?: string }
+  if (r.success && r.project) {
+    dispatch(addProject(r.project))
+    // Seed the per-project theme with the wizard's choice so the app opens
+    // in the selected style pack (the Theme modal can still override later).
+    if (r.stylePack && r.stylePack !== 'craftbot') {
+      try {
+        localStorage.setItem(`livingui-theme-${r.project.id}`, r.stylePack)
+      } catch { /* storage unavailable — cosmetic only */ }
+    }
+  }
 })
 
 register('living_ui_status', (data, dispatch) => {
@@ -261,9 +271,9 @@ register('living_ui_todos', (data, dispatch) => {
 })
 
 register('living_ui_question', (data, dispatch) => {
-  const u = data as { projectId: string; sessionId?: string; message?: string }
+  const u = data as { projectId: string; sessionId?: string; message?: string; options?: string[] }
   if (u.projectId && u.sessionId && u.message) {
-    dispatch(setPendingQuestion({ projectId: u.projectId, sessionId: u.sessionId, message: u.message }))
+    dispatch(setPendingQuestion({ projectId: u.projectId, sessionId: u.sessionId, message: u.message, options: u.options }))
   } else if (u.projectId) {
     dispatch(clearPendingQuestion({ projectId: u.projectId }))
   }

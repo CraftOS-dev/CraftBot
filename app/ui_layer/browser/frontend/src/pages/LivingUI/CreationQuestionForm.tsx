@@ -3,6 +3,7 @@ import { ArrowRight, MessagesSquare } from 'lucide-react'
 import styles from './CreationQuestionForm.module.css'
 
 interface Props {
+  options?: string[]
   projectName: string
   message: string
   onAnswer?: (text: string) => void
@@ -51,7 +52,7 @@ function parseQuestions(message: string): ParsedQuestions {
  * the normal reply path, resuming the task — so answering here or in chat are
  * equivalent (whichever lands first wins).
  */
-export function CreationQuestionForm({ projectName, message, onAnswer }: Props) {
+export function CreationQuestionForm({ projectName, message, options, onAnswer }: Props) {
   const parsed = useMemo(() => parseQuestions(message), [message])
   const multi = parsed.items.length > 0
   const [single, setSingle] = useState('')
@@ -129,6 +130,39 @@ export function CreationQuestionForm({ projectName, message, onAnswer }: Props) 
                 autoFocus
               />
             </>
+          )}
+
+          {options && options.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {options.map(opt => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => {
+                    if (parsed.items.length > 1) {
+                      setAnswers(prev => {
+                        const i = prev.findIndex(a => !a.trim())
+                        const idx = i === -1 ? prev.length - 1 : i
+                        return prev.map((a, j) => (j === idx ? opt : a))
+                      })
+                    } else {
+                      setSingle(prev => (prev.trim() ? `${prev}, ${opt}` : opt))
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    border: '1px solid var(--color-border, #444)',
+                    background: 'var(--color-surface, #222)',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                  }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
           )}
 
           <div className={styles.questionActions}>

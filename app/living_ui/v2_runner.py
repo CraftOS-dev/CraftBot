@@ -1,0 +1,231 @@
+"""V2 Living UI runner — thin adapter between CraftBot and the living-ui-v2
+workspace (spec REQUIREMENTS §14/I1).
+
+Consumes only the two public contracts:
+  * the tools CLI (`create`, `validate`, `pb path`) for scaffold/gate/binary,
+  * the manifest pipeline semantics (single PocketBase process, /api/health).
+
+Knows nothing about the manager's registry, sessions, or broadcasting —
+the manager composes this class; it never reaches back.
+"""
+
+import asyncio
+import json
+import logging
+import shutil
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+GATE_TIMEOUT_S = 600
+INSTALL_TIMEOUT_S = 600
+HEALTH_TIMEOUT_S = 30
+
+
+@dataclass
+class V2ScaffoldResult:
+    path: Path
+    id: str
+    slug: str
+    port: int
+
+
+@dataclass
+class V2GateResult:
+    passed: bool
+    output: str
+
+
+class V2RunnerUnavailable(RuntimeError):
+    """Node or the living-ui-v2 workspace is missing."""
+
+
+class V2Runner:
+    """Drives V2 projects through scaffold → install → gate → serve."""
+
+    def __init__(self, workspace_dir: Path):
+        self.workspace_dir = Path(workspace_dir)
+        self._node = shutil.which("node")
+
+    # ------------------------------------------------------------------ setup
+
+    @property
+    def cli_path(self) -> Path:
+        return self.workspace_dir / "tools" / "src" / "cli.ts"
+
+    def ensure_available(self) -> None:
+        if self._node is None:
+            raise V2RunnerUnavailable(
+                "Node.js >= 24 is required to build Living UIs (not found on PATH)."
+            )
+        if not self.cli_path.exists():
+            raise V2RunnerUnavailable(
+                f"living-ui-v2 workspace not found at {self.workspace_dir}"
+            )
+
+    def _cli(self, *args: str) -> list:
+        return [self._node, str(self.cli_path), *args]
+
+    async def _run(
+        self, cmd: list, timeout: int, cwd: Optional[Path] = None
+    ) -> "tuple[int, str]":
+        """Run a command, return (exit_code, combined_output)."""
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(cwd) if cwd else None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return 124, f"timed out after {timeout}s: {' '.join(map(str, cmd))}"
+        return proc.returncode or 0, out.decode(errors="replace")
+
+    # ------------------------------------------------------------- lifecycle
+
+    async def scaffold(
+        self,
+        name: str,
+        description: str,
+        parent_dir: Path,
+        port: int,
+        project_id: str,
+        auth_mode: str = "none",
+        folder: Optional[str] = None,
+        style: Optional[str] = None,
+    ) -> V2ScaffoldResult:
+        """Scaffold via `lui create --json` (copies blueprint, vendors kit,
+        substitutes placeholders, bootstraps superuser, canonizes hashes)."""
+        self.ensure_available()
+        args = [
+            "create",
+            name,
+            "--description",
+            description,
+            "--dir",
+            str(parent_dir),
+            "--port",
+            str(port),
+            "--auth",
+            auth_mode,
+            "--id",
+            project_id,
+            "--json",
+        ]
+        if folder is not None:
+            args += ["--folder", folder]
+        if style:
+            args += ["--style", style]
+        code, out = await self._run(self._cli(*args), timeout=GATE_TIMEOUT_S)
+        if code != 0:
+            raise RuntimeError(f"scaffold failed:\n{out}")
+        # --json prints exactly one JSON line (steps log lines precede it).
+        payload = json.loads(out.strip().splitlines()[-1])
+        return V2ScaffoldResult(
+            path=Path(payload["path"]),
+            id=payload["id"],
+            slug=payload["slug"],
+            port=int(payload["port"]),
+        )
+
+    async def install(self, project_dir: Path) -> None:
+        """Install frontend deps (skipped when node_modules already exists)."""
+        frontend = project_dir / "frontend"
+        if (frontend / "node_modules").exists():
+            return
+        code, out = await self._run(
+            ["npm", "install", "--no-audit", "--no-fund"],
+            timeout=INSTALL_TIMEOUT_S,
+            cwd=frontend,
+        )
+        if code != 0:
+            raise RuntimeError(f"npm install failed:\n{out[-4000:]}")
+
+    async def gate(self, project_dir: Path) -> V2GateResult:
+        """Run the validation gate; output is the machine-readable error list."""
+        self.ensure_available()
+        code, out = await self._run(
+            self._cli("validate", str(project_dir)), timeout=GATE_TIMEOUT_S
+        )
+        return V2GateResult(passed=code == 0, output=out)
+
+    async def kit_sync(self, project_dir: Path) -> None:
+        """Re-vendor the kit and re-canonize system-file hashes (used after
+        import, where identity rewrites invalidate the shipped hash canon)."""
+        code, out = await self._run(
+            self._cli("kit-sync", str(project_dir)), timeout=GATE_TIMEOUT_S
+        )
+        if code != 0:
+            raise RuntimeError(f"kit-sync failed:\n{out[-2000:]}")
+
+    async def pb_binary(self) -> Path:
+        code, out = await self._run(self._cli("pb", "path"), timeout=300)
+        if code != 0:
+            raise RuntimeError(f"could not resolve PocketBase binary:\n{out}")
+        return Path(out.strip().splitlines()[-1])
+
+    async def start(self, project_dir: Path, port: int) -> subprocess.Popen:
+        """Start the single production process: PocketBase serving app + API."""
+        pb_bin = await self.pb_binary()
+        pb_dir = project_dir / "pb"
+        logs_dir = project_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = open(logs_dir / "pocketbase.log", "a")
+        process = subprocess.Popen(
+            [
+                str(pb_bin),
+                "serve",
+                f"--http=127.0.0.1:{port}",
+                "--dir",
+                str(pb_dir / "pb_data"),
+                "--hooksDir",
+                str(pb_dir / "pb_hooks"),
+                "--migrationsDir",
+                str(pb_dir / "pb_migrations"),
+                "--publicDir",
+                str(pb_dir / "pb_public"),
+            ],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+        logger.info(f"[LIVING_UI:V2] started PocketBase pid={process.pid} port={port}")
+        return process
+
+    async def verify(self, project_dir: Path, url: str) -> "tuple[str, str]":
+        """Headless smoke verification of the running app (walk-verify core).
+
+        Returns (status, detail) where status is 'pass' | 'fail' | 'skipped'.
+        Skipped (no browser installed) must not block a launch.
+        """
+        code, out = await self._run(
+            self._cli("verify", str(project_dir), "--url", url), timeout=120
+        )
+        detail = out.strip().splitlines()[-1] if out.strip() else "{}"
+        if code == 0:
+            return "pass", detail
+        if code == 2:
+            return "skipped", detail
+        return "fail", detail
+
+    async def wait_healthy(self, port: int, timeout: int = HEALTH_TIMEOUT_S) -> bool:
+        """Poll /api/health until 200 or timeout."""
+        import urllib.request
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        url = f"http://127.0.0.1:{port}/api/health"
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                status = await asyncio.to_thread(
+                    lambda: urllib.request.urlopen(url, timeout=2).status
+                )
+                if status == 200:
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        return False

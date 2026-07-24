@@ -8,6 +8,7 @@ import styles from './LivingUIPage.module.css'
 interface Props {
   projectName: string
   todos: LivingUITodo[] | undefined
+  statusMessage?: string
 }
 
 const HINTS = [
@@ -70,7 +71,7 @@ function deriveProgressView(todos: LivingUITodo[] | undefined): ProgressView {
   }
 }
 
-export function CreationProgress({ projectName, todos }: Props) {
+export function CreationProgress({ projectName, todos, statusMessage }: Props) {
   const hint = useRotatingHint(HINTS)
   const view = useMemo(() => deriveProgressView(todos), [todos])
 
@@ -85,6 +86,11 @@ export function CreationProgress({ projectName, todos }: Props) {
 
       <div className={styles.progressMeta}>
         <span className={styles.phaseLabel}>{view.stepLabel}</span>
+        {statusMessage && (
+          <span className={styles.phaseLabel} style={{ display: 'block', opacity: 0.75, marginTop: 4 }}>
+            {statusMessage}
+          </span>
+        )}
       </div>
 
       <div className={styles.progressBar}>

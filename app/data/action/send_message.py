@@ -32,6 +32,16 @@ from agent_core import action
                 "will keep working after sending it."
             ),
         },
+        "options": {
+            "type": "array",
+            "example": ["Single user", "Multi-user"],
+            "description": (
+                "Optional quick-answer choices (max 8, short strings). When "
+                "asking the user a question, ALWAYS provide options if the "
+                "answer space is enumerable — they render as tap-to-answer "
+                "chips. The user can still type a free-form reply."
+            ),
+        },
     },
     output_schema={
         "status": {
@@ -74,7 +84,12 @@ async def send_message(input_data: dict) -> dict:
             try:
                 from app.living_ui import broadcast_living_ui_question
 
-                await broadcast_living_ui_question(session_id, message)
+                options = input_data.get("options") or []
+                if not isinstance(options, list):
+                    options = []
+                await broadcast_living_ui_question(
+                    session_id, message, [str(o)[:80] for o in options[:8]]
+                )
             except Exception:
                 pass
 

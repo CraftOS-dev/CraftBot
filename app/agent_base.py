@@ -1738,6 +1738,9 @@ class AgentBase:
         try:
             from app.living_ui import get_living_ui_manager
 
+            from app.config import PROJECT_ROOT
+
+            _lui_cli = f"{PROJECT_ROOT}/living-ui-v2/tools/src/cli.ts"
             mgr = get_living_ui_manager()
             if mgr:
                 proj = mgr.get_project(living_ui_project_id)
@@ -1747,8 +1750,14 @@ class AgentBase:
                         f"Project path: {proj.path}\n"
                         f"Read {proj.path}/LIVING_UI.md for app context.\n"
                         f"If debugging issues, FIRST read these logs:\n"
-                        f"  - {proj.path}/backend/logs/subprocess_output.log (crashes, stack traces)\n"
-                        f"  - {proj.path}/backend/logs/frontend_console.log (frontend errors, network failures)"
+                        f"  - {proj.path}/logs/pocketbase.log (server, migrations, crashes)\n"
+                        f"  - {proj.path}/logs/frontend_console.log (frontend errors, network failures)\n"
+                        f"To OPERATE the app (read/write data, run its verbs), use the lui CLI via run_shell\n"
+                        f"(preferred over living_ui_http). Use these EXACT absolute commands (the shell's\n"
+                        f"cwd is NOT the repo root — relative paths will fail):\n"
+                        f"  node {_lui_cli} ops {proj.path}\n"
+                        f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
+                        f"  node {_lui_cli} data {proj.path} <collection> list --limit 20"
                     )
         except Exception:
             pass
