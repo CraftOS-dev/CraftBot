@@ -10,6 +10,12 @@ interface SessionMessages {
   items: ChatMessage[]
   hasMore: boolean
   loadingOlder: boolean
+  // Has an authoritative (session-scoped) page been fetched via
+  // chat_history since the last init/reconnect? `init`'s message sample is
+  // capped globally across every session, not per session — a bucket it
+  // seeds must NOT be mistaken for a fully-loaded one just because it has
+  // some items.
+  initialLoaded: boolean
 }
 
 interface MessagesState {
@@ -23,7 +29,7 @@ const initialState: MessagesState = {
 function bucketFor(state: MessagesState, sessionId: string): SessionMessages {
   let bucket = state.bySession[sessionId]
   if (!bucket) {
-    bucket = { items: [], hasMore: false, loadingOlder: false }
+    bucket = { items: [], hasMore: false, loadingOlder: false, initialLoaded: false }
     state.bySession[sessionId] = bucket
   }
   return bucket
@@ -64,26 +70,27 @@ const messagesSlice = createSlice({
       const incoming = action.payload
       if (!incoming.sessionId) return
       const bucket = bucketFor(state, incoming.sessionId)
-      // Carry the optimistic bubble's own timestamp forward rather than
-      // adopting the server's. The two are assigned by different clocks
-      // (client send-click time vs. server receipt time), so swapping to
-      // the server's value can shift this message's sort position past
-      // activity items that streamed in during the round trip — a
-      // mid-render reorder that the virtualizer renders as a transient
-      // overlap between rows.
-      let timestamp = incoming.timestamp
+      // Use the server's authoritative timestamp (incoming.timestamp) —
+      // it's what's actually persisted in chat.db, and what
+      // get_messages_before's pagination cursor is compared against there.
+      // Pinning this to the client's optimistic send-time instead (as a
+      // past revision did, to dodge a virtualizer reorder-overlap bug)
+      // would leave this message's in-store timestamp permanently
+      // mismatched with its stored value — harmless for a message that
+      // stays at the tail of a session, but if it's ever the oldest loaded
+      // message it becomes the "before" cursor sent back to the server,
+      // which can skip genuinely-older rows the mismatch excludes. The
+      // reorder-overlap bug is now handled by the virtualizer's
+      // content-keyed getItemKey instead, so this no longer needs pinning.
       if (incoming.clientId) {
         // Swap the pending optimistic entry (same clientId) for the
         // confirmed server message so no duplicate bubble appears.
         const tempIdx = bucket.items.findIndex(
           m => m.pending && m.clientId === incoming.clientId,
         )
-        if (tempIdx !== -1) {
-          timestamp = bucket.items[tempIdx].timestamp
-          bucket.items.splice(tempIdx, 1)
-        }
+        if (tempIdx !== -1) bucket.items.splice(tempIdx, 1)
       }
-      upsertMessage(bucket, { ...incoming, timestamp, pending: false })
+      upsertMessage(bucket, { ...incoming, pending: false })
     },
     addOptimistic(state, action: PayloadAction<ChatMessage>) {
       if (!action.payload.sessionId) return
@@ -114,6 +121,7 @@ const messagesSlice = createSlice({
       }
       bucket.hasMore = action.payload.hasMore
       bucket.loadingOlder = false
+      bucket.initialLoaded = true
     },
     clearSession(state, action: PayloadAction<{ sessionId: string | null }>) {
       const { sessionId } = action.payload

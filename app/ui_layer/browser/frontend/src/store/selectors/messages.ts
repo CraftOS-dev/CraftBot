@@ -14,6 +14,12 @@ export const selectSessionHasMoreMessages = (state: RootState, sessionId: string
 export const selectSessionLoadingOlderMessages = (state: RootState, sessionId: string): boolean =>
   state.messages.bySession[sessionId]?.loadingOlder ?? false
 
+// Has this session's own authoritative recent page been fetched (via
+// chat_history) since the last init/reconnect? False for a bucket only
+// seeded by init's globally-capped message sample.
+export const selectSessionInitialLoaded = (state: RootState, sessionId: string): boolean =>
+  state.messages.bySession[sessionId]?.initialLoaded ?? false
+
 export const selectSessionOldestMessageTimestamp = (
   state: RootState,
   sessionId: string,

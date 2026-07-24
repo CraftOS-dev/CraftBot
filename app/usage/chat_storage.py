@@ -161,6 +161,65 @@ class ChatStorage:
 
             conn.commit()
 
+        self._migrate_orphaned_session_ids()
+
+    # Skill-workflow-scoped session ids that predate persisted sessions and
+    # are deliberately left alone by the orphan cleanup below — they're
+    # distinct system flows (onboarding, living-UI creation logs), not
+    # casual conversation that belongs in the main chat.
+    _ORPHAN_MIGRATION_EXCLUDED_PREFIXES = ("User_Profile_Interview_", "Create_Living_UI_")
+
+    def _migrate_orphaned_session_ids(self) -> None:
+        """One-time cleanup: pre-session-revamp rows were tagged with the
+        old task_session_id scheme — effectively a per-task/per-run id, not
+        a per-conversation one. The schema migration above carries that
+        value into session_id verbatim (falling back to 'main' only when
+        it was NULL), so any row whose task_session_id pointed at an
+        ephemeral run that was never registered as a real, persisted
+        session is now permanently invisible: no sidebar entry exists for
+        it, and it isn't attributed to 'main' either. Fold any such
+        genuinely-orphaned session_id into 'main', since that's the single
+        conversation these messages conceptually belonged to before
+        sessions existed. Naturally idempotent — once run, nothing is left
+        to fold, so every later app start is a cheap no-op.
+        """
+        try:
+            from app.config import APP_DATA_PATH
+
+            sessions_db = Path(APP_DATA_PATH) / ".usage" / "sessions.db"
+            if not sessions_db.exists():
+                return
+            with sqlite3.connect(str(sessions_db)) as sconn:
+                known_ids = {row[0] for row in sconn.execute("SELECT session_id FROM sessions")}
+        except Exception:
+            logger.warning(
+                "[ChatStorage] Could not read sessions.db for orphaned-session "
+                "cleanup; skipping"
+            )
+            return
+
+        with sqlite3.connect(self._db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT session_id FROM chat_messages")
+            orphaned = [
+                sid
+                for (sid,) in cursor.fetchall()
+                if sid not in known_ids
+                and sid != MAIN_SESSION_ID
+                and not sid.startswith(self._ORPHAN_MIGRATION_EXCLUDED_PREFIXES)
+            ]
+            if not orphaned:
+                return
+            cursor.executemany(
+                "UPDATE chat_messages SET session_id = ? WHERE session_id = ?",
+                [(MAIN_SESSION_ID, sid) for sid in orphaned],
+            )
+            conn.commit()
+            logger.info(
+                f"[ChatStorage] Folded {len(orphaned)} orphaned session_id(s) "
+                f"into {MAIN_SESSION_ID}: {orphaned}"
+            )
+
     def insert_message(self, message: StoredChatMessage) -> int:
         """
         Insert a single chat message.
