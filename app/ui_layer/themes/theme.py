@@ -39,7 +39,6 @@ class BaseTheme:
         StyleType.SUCCESS: StyleDefinition(foreground=COLOR_GREEN, bold=True),
         StyleType.WARNING: StyleDefinition(foreground=COLOR_YELLOW, bold=True),
         # Action panel styles
-        StyleType.TASK: StyleDefinition(foreground=COLOR_PRIMARY, bold=True),
         StyleType.ACTION: StyleDefinition(foreground=COLOR_GRAY, bold=True),
         # Status styles
         StyleType.PENDING: StyleDefinition(foreground=COLOR_GRAY),

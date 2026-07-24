@@ -331,8 +331,8 @@ class UIController:
         """Watch and transform agent events to UI events."""
         # Mark all pre-existing events as seen so restored events
         # from previous sessions are not emitted as new UI messages.
-        # State-updating events (task_start, task_end) are still processed
-        # to rebuild UI state (e.g., show restored tasks as running).
+        # State-updating events (action_start/action_end) are still processed
+        # to rebuild UI state (e.g., show a restored in-flight action).
         streams = self._agent.event_stream_manager.get_all_streams_with_ids()
         for task_id, stream in streams:
             for event in stream.as_list():
@@ -350,12 +350,11 @@ class UIController:
 
                 for task_id, stream in streams:
                     for event in stream.as_list():
-                        # Create deduplication key. task_id must be part of
-                        # the key: iso_ts is seconds-precision and task_end
-                        # messages are generic, so two tasks ending in the
-                        # same second would otherwise collide and the second
-                        # TASK_END would be dropped — leaving that task stuck
-                        # "running" in every UI until restart.
+                        # Create deduplication key. task_id (the session id)
+                        # must be part of the key: iso_ts is seconds-precision,
+                        # so two sessions emitting a generic event in the same
+                        # second would otherwise collide and the second event
+                        # would be dropped.
                         key = (task_id, event.iso_ts, event.kind, event.message)
 
                         # Skip if already seen

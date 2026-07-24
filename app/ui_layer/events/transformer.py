@@ -267,11 +267,9 @@ def _install_dispatch() -> None:
         EventType.REASONING: EventTransformer._build_reasoning,
         EventType.ACTION_START: EventTransformer._build_action_start,
         EventType.ACTION_END: EventTransformer._build_action_end,
-        # Intentionally hidden from the UI (legacy core enum values with no
-        # UI surface — nothing emits the first three anymore; TODOS flows
-        # through SessionManager's post-update-todos hooks instead):
-        EventType.TASK_START: EventTransformer._build_hidden,
-        EventType.TASK_END: EventTransformer._build_hidden,
+        # Intentionally hidden from the UI (core enum values with no UI
+        # surface; TODOS flows through SessionManager's post-update-todos
+        # hooks instead):
         EventType.WAITING_FOR_USER: EventTransformer._build_hidden,
         EventType.RELEVANT_MEMORIES: EventTransformer._build_hidden,
         EventType.TODOS: EventTransformer._build_hidden,

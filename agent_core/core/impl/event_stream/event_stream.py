@@ -177,7 +177,6 @@ class EventStream:
         action_id: str | None = None,
         action_input: Optional[dict] = None,
         action_output: Optional[dict] = None,
-        task_status: Optional[str] = None,
         platform: Optional[str] = None,
     ) -> int:
         """
@@ -207,8 +206,6 @@ class EventStream:
                 ``ActionManager`` (which generates it as ``run_id`` internally).
             action_input: Structured input dict for ACTION_START events.
             action_output: Structured output dict for ACTION_END events.
-            task_status: ``"completed"`` | ``"error"`` | ``"cancelled"`` for
-                TASK_END events.
             platform: Originating/destination platform for chat messages.
 
         Returns:
@@ -229,7 +226,6 @@ class EventStream:
             action_id=action_id,
             action_input=action_input,
             action_output=action_output,
-            task_status=task_status,
             platform=platform,
         )
         rec = EventRecord(event=ev)

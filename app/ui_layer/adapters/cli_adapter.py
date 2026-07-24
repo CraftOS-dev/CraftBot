@@ -47,7 +47,6 @@ class CLIThemeAdapter(ThemeAdapter):
             StyleType.ERROR: "error",
             StyleType.INFO: "info",
             StyleType.SUCCESS: "success",
-            StyleType.TASK: "task",
             StyleType.ACTION: "action",
         }
         style = style_map.get(style_type, "info")
@@ -74,23 +73,14 @@ class CLIThemeAdapter(ThemeAdapter):
         self,
         name: str,
         status: str,
-        is_task: bool,
         indent: int = 0,
     ) -> str:
         """Format an action panel item."""
         fmt = _get_formatter()
-        if is_task:
-            if status == "running":
-                return fmt.format_task_start(name)
-            else:
-                success = status == "completed"
-                return fmt.format_task_end(name, success)
-        else:
-            if status == "running":
-                return fmt.format_action_start(name, is_sub_action=indent > 0)
-            else:
-                success = status == "completed"
-                return fmt.format_action_end(name, success, is_sub_action=indent > 0)
+        if status == "running":
+            return fmt.format_action_start(name, is_sub_action=indent > 0)
+        success = status == "completed"
+        return fmt.format_action_end(name, success, is_sub_action=indent > 0)
 
 
 class CLIChatComponent(ChatComponentProtocol):
