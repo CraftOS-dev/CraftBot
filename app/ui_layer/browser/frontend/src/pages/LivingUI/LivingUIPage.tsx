@@ -194,7 +194,9 @@ export function LivingUIPage() {
       type: 'livingui-theme',
       themeId: livingUITheme,
       mode: appTheme,
-      customColors: livingUICustomColors,
+      // Only for the 'custom' theme — the bridge applies these as inline
+      // overrides that outrank every style-pack rule.
+      customColors: livingUITheme === 'custom' ? livingUICustomColors : undefined,
     })
   }, [livingUITheme, livingUICustomColors, appTheme, projectId, project?.status])
 
@@ -209,7 +211,7 @@ export function LivingUIPage() {
         type: 'livingui-theme',
         themeId: livingUITheme,
         mode: appTheme,
-        customColors: livingUICustomColors,
+        customColors: livingUITheme === 'custom' ? livingUICustomColors : undefined,
       }, '*')
     }
     window.addEventListener('message', onIframeReady)
