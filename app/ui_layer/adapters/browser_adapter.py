@@ -186,59 +186,6 @@ class BrowserThemeAdapter(ThemeAdapter):
 """
 
 
-def _stored_to_chat_message(s: "StoredChatMessage") -> Optional[ChatMessage]:
-    """Convert one stored row to a ChatMessage.
-
-    Returns None (and logs) instead of raising on a malformed row — e.g. a
-    legacy, pre-multi-session-migration row whose attachments/options JSON
-    doesn't match the shape assumed below. Without this, one bad row used
-    to blow up the entire enclosing try/except and silently discard the
-    WHOLE page/batch it was part of (see the blanket `except Exception:
-    return []` this replaced in get_messages_before), which made
-    "load older messages" pagination look like it had permanently reached
-    the start of history for any session unlucky enough to have one.
-    """
-    try:
-        attachments = None
-        if s.attachments:
-            attachments = [
-                Attachment(
-                    name=att.get("name", ""),
-                    path=att.get("path", ""),
-                    type=att.get("type", ""),
-                    size=att.get("size", 0),
-                    url=att.get("url", ""),
-                )
-                for att in s.attachments
-            ]
-        options = None
-        if s.options:
-            from app.ui_layer.components.types import ChatMessageOption
-
-            options = [
-                ChatMessageOption(
-                    label=o.get("label", ""),
-                    value=o.get("value", ""),
-                    style=o.get("style", "default"),
-                )
-                for o in s.options
-            ]
-        return ChatMessage(
-            sender=s.sender,
-            content=s.content,
-            style=s.style,
-            timestamp=s.timestamp,
-            message_id=s.message_id,
-            attachments=attachments,
-            session_id=s.session_id,
-            options=options,
-            option_selected=s.option_selected,
-        )
-    except Exception as e:
-        logger.warning(f"[ChatHistory] Skipping malformed stored message {s.message_id}: {e}")
-        return None
-
-
 class BrowserChatComponent(ChatComponentProtocol):
     """Browser chat component sending messages via WebSocket."""
 
@@ -258,9 +205,43 @@ class BrowserChatComponent(ChatComponentProtocol):
             # Load recent messages from storage (initial page)
             stored_messages = self._storage.get_recent_messages(limit=50)
             for stored in stored_messages:
-                msg = _stored_to_chat_message(stored)
-                if msg is not None:
-                    self._messages.append(msg)
+                attachments = None
+                if stored.attachments:
+                    attachments = [
+                        Attachment(
+                            name=att.get("name", ""),
+                            path=att.get("path", ""),
+                            type=att.get("type", ""),
+                            size=att.get("size", 0),
+                            url=att.get("url", ""),
+                        )
+                        for att in stored.attachments
+                    ]
+                options = None
+                if stored.options:
+                    from app.ui_layer.components.types import ChatMessageOption
+
+                    options = [
+                        ChatMessageOption(
+                            label=o.get("label", ""),
+                            value=o.get("value", ""),
+                            style=o.get("style", "default"),
+                        )
+                        for o in stored.options
+                    ]
+                self._messages.append(
+                    ChatMessage(
+                        sender=stored.sender,
+                        content=stored.content,
+                        style=stored.style,
+                        timestamp=stored.timestamp,
+                        message_id=stored.message_id,
+                        attachments=attachments,
+                        session_id=stored.session_id,
+                        options=options,
+                        option_selected=stored.option_selected,
+                    )
+                )
         except Exception:
             # Storage may not be available, continue without persistence
             pass
@@ -354,29 +335,56 @@ class BrowserChatComponent(ChatComponentProtocol):
         before_timestamp: float,
         session_id: Optional[str] = None,
         limit: int = 50,
-    ) -> tuple[List[ChatMessage], bool]:
-        """Get older messages from storage before a given timestamp.
-
-        Returns (messages, has_more). has_more reflects the RAW row count
-        returned by the query, not the count after per-row conversion —
-        a malformed row that gets skipped by _stored_to_chat_message must
-        not be mistaken for "reached the start of history".
-        """
+    ) -> List[ChatMessage]:
+        """Get older messages from storage before a given timestamp."""
         if not self._storage:
-            return [], False
+            return []
         try:
             stored = self._storage.get_messages_before(
                 before_timestamp, session_id=session_id, limit=limit
             )
+            messages = []
+            for s in stored:
+                attachments = None
+                if s.attachments:
+                    attachments = [
+                        Attachment(
+                            name=att.get("name", ""),
+                            path=att.get("path", ""),
+                            type=att.get("type", ""),
+                            size=att.get("size", 0),
+                            url=att.get("url", ""),
+                        )
+                        for att in s.attachments
+                    ]
+                options = None
+                if s.options:
+                    from app.ui_layer.components.types import ChatMessageOption
+
+                    options = [
+                        ChatMessageOption(
+                            label=o.get("label", ""),
+                            value=o.get("value", ""),
+                            style=o.get("style", "default"),
+                        )
+                        for o in s.options
+                    ]
+                messages.append(
+                    ChatMessage(
+                        sender=s.sender,
+                        content=s.content,
+                        style=s.style,
+                        timestamp=s.timestamp,
+                        message_id=s.message_id,
+                        attachments=attachments,
+                        session_id=s.session_id,
+                        options=options,
+                        option_selected=s.option_selected,
+                    )
+                )
+            return messages
         except Exception:
-            logger.exception(
-                f"[ChatHistory] get_messages_before query failed for session {session_id}"
-            )
-            return [], False
-        messages = [
-            m for s in stored if (m := _stored_to_chat_message(s)) is not None
-        ]
-        return messages, len(stored) == limit
+            return []
 
     def get_total_count(self, session_id: Optional[str] = None) -> int:
         """Get total message count from storage."""
@@ -7157,7 +7165,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         try:
             if before_timestamp is not None:
-                messages, has_more = self._chat.get_messages_before(
+                messages = self._chat.get_messages_before(
                     before_timestamp, session_id=session_id, limit=limit
                 )
             else:
@@ -7168,19 +7176,51 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if storage
                     else []
                 )
-                messages = [
-                    m for s in stored if (m := _stored_to_chat_message(s)) is not None
-                ]
-                # has_more from the RAW row count, not the post-conversion
-                # count — a skipped malformed row must not look like "this
-                # session has no more history".
-                has_more = len(stored) == limit
+                messages = []
+                for s in stored:
+                    attachments = None
+                    if s.attachments:
+                        attachments = [
+                            Attachment(
+                                name=att.get("name", ""),
+                                path=att.get("path", ""),
+                                type=att.get("type", ""),
+                                size=att.get("size", 0),
+                                url=att.get("url", ""),
+                            )
+                            for att in s.attachments
+                        ]
+                    options = None
+                    if s.options:
+                        from app.ui_layer.components.types import ChatMessageOption
+
+                        options = [
+                            ChatMessageOption(
+                                label=o.get("label", ""),
+                                value=o.get("value", ""),
+                                style=o.get("style", "default"),
+                            )
+                            for o in s.options
+                        ]
+                    messages.append(
+                        ChatMessage(
+                            sender=s.sender,
+                            content=s.content,
+                            style=s.style,
+                            timestamp=s.timestamp,
+                            message_id=s.message_id,
+                            attachments=attachments,
+                            session_id=s.session_id,
+                            options=options,
+                            option_selected=s.option_selected,
+                        )
+                    )
 
             await _reply(
                 {
                     "sessionId": session_id,
                     "messages": [m.to_dict() for m in messages],
-                    "hasMore": has_more,
+                    "hasMore": len(messages) == limit,
                 }
             )
         except Exception as e:

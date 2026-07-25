@@ -19,7 +19,6 @@ import {
   selectSessionHasMoreMessages,
   selectSessionLoadingOlderMessages,
   selectSessionOldestMessageTimestamp,
-  selectSessionInitialLoaded,
 } from '../../store/selectors/messages'
 import { selectSessionActivity } from '../../store/selectors/activity'
 import { selectSessionBusy } from '../../store/selectors/agent'
@@ -171,7 +170,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const hasMoreMessages = useAppSelector(state => selectSessionHasMoreMessages(state, sessionId))
   const loadingOlderMessages = useAppSelector(state => selectSessionLoadingOlderMessages(state, sessionId))
   const oldestMessageTimestamp = useAppSelector(state => selectSessionOldestMessageTimestamp(state, sessionId))
-  const initialHistoryLoaded = useAppSelector(state => selectSessionInitialLoaded(state, sessionId))
 
   // Live status row: while a run is in flight, the timeline ends with ONE
   // persistent row that is EITHER the currently-running action OR the
@@ -361,27 +359,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const prevRowCountRef = useRef(0)
   const hasInitialScrolled = useRef(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
-  // Lifted out of the scroll-listener effect's closure so the pinToBottom
-  // effect below can also see it — a resize-driven size change must not
-  // win a race against a scrollbar drag that hasn't produced its first
-  // native `scroll` event yet (which is when stickToBottomRef itself would
-  // normally be released).
-  const pointerHeldRef = useRef(false)
-
-  // Scroll-position anchor for "load older messages" (scroll-up
-  // pagination): prepending ~50 rows above the viewport otherwise leaves
-  // scrollTop untouched, so the browser silently shows different content
-  // than the user was looking at (everything shifts down by the height of
-  // the newly-inserted rows). Compensation is CONTINUOUS while anchoringRef
-  // is true — not one-shot — because only the rows within the visible+
-  // overscan window measure in the same commit as the prepend; the rest of
-  // the ~50 rows measure later, as the user scrolls into them, each
-  // correction changing totalContentSize again. lastAnchoredHeightRef holds
-  // the last scrollHeight already accounted for, so each firing applies
-  // only the NEW delta since the previous one.
-  const anchoringRef = useRef(false)
-  const lastAnchoredHeightRef = useRef(0)
-  const anchorSettleTimerRef = useRef<number | null>(null)
 
   // Ticker so live durations keep updating — running action rows AND the
   // collapsed tail chunk's "Working… <elapsed>" header (which ticks for
@@ -465,79 +442,22 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     return () => window.clearTimeout(t)
   }, [mascotPhase])
 
-  // Calibrated (then FROZEN) per-kind row heights, seeded with the old flat
-  // guesses and refined toward this session's actual typical sizes during a
-  // short calibration window (see measureMessageRow/measureOtherRow below),
-  // then held constant for the rest of the session's lifetime.
-  //
-  // A flat guess this far from reality (a 96px estimate against
-  // conversations with long text/code/images) makes react-virtual's own
-  // ResizeObserver-driven correction fire on nearly every never-before-seen
-  // row while scrolling — each correction calls scrollTo() internally,
-  // fighting the user's own wheel/drag input. Estimates this close make
-  // those corrections rare and small instead of constant and visible.
-  //
-  // Freezing after calibration (rather than updating forever) is load-
-  // bearing, not just an optimization: react-virtual's getMeasurements
-  // calls estimateSize(i) FRESH, every time ANY row anywhere gets measured,
-  // for every row that isn't individually cached yet — often hundreds of
-  // them in a long session. A continuously-drifting average gets re-
-  // applied to all of them on every recompute, so getTotalSize() (and thus
-  // scrollHeight) constantly shifts with whatever's been measured most
-  // recently — which tracks scroll position. That's what made the
-  // scrollbar thumb balloon/shrink while scrolling and made "jump to
-  // bottom" chase a moving scrollHeight. Freezing after a small sample
-  // keeps the accuracy win but makes the estimate — and therefore
-  // getTotalSize() for anything not yet measured — constant again.
-  const CALIBRATION_SAMPLE_LIMIT = 30
-  const avgMessageHeightRef = useRef(96)
-  const avgActivityHeightRef = useRef(36)
-  const messageSampleCountRef = useRef(0)
-  const activitySampleCountRef = useRef(0)
-
   const virtualizer = useVirtualizer({
     count: rowCount,
     getItemKey: getRowKey,
     getScrollElement: () => parentRef.current,
+    // Honest per-kind estimates. When an estimate is far off (the old flat
+    // 100 vs ~32px real activity rows), every measurement makes the
+    // virtualizer shift scrollTop by the difference to keep content
+    // stable — constant multi-pixel corrections that fought stick-to-
+    // bottom and left phantom gaps. Close estimates make those
+    // corrections negligible.
     estimateSize: (index) => {
       if (index >= displayRows.length) return 54 // live status row + bottom padding
-      return displayRows[index].kind === 'message'
-        ? avgMessageHeightRef.current
-        : avgActivityHeightRef.current
+      return displayRows[index].kind === 'message' ? 96 : 36
     },
-    // Larger than the old 5: a normal-speed scroll/drag now sweeps across
-    // this many never-before-measured rows per frame before the buffer
-    // runs out, keeping the ResizeObserver-correction burst described
-    // above small even with imperfect estimates.
-    overscan: 20,
+    overscan: 5,
   })
-
-  // Wrap virtualizer.measureElement to also feed the real measured height
-  // back into the per-kind average above, ONLY during the calibration
-  // window (see CALIBRATION_SAMPLE_LIMIT above) — must stop, not keep
-  // averaging forever, or estimateSize's value (and therefore
-  // getTotalSize()) never settles.
-  const measureMessageRow = useCallback((el: HTMLDivElement | null) => {
-    virtualizer.measureElement(el)
-    if (el && messageSampleCountRef.current < CALIBRATION_SAMPLE_LIMIT) {
-      const h = el.getBoundingClientRect().height
-      if (h > 0) {
-        avgMessageHeightRef.current = avgMessageHeightRef.current * 0.85 + h * 0.15
-        messageSampleCountRef.current += 1
-      }
-    }
-  }, [virtualizer])
-
-  const measureOtherRow = useCallback((el: HTMLDivElement | null) => {
-    virtualizer.measureElement(el)
-    if (el && activitySampleCountRef.current < CALIBRATION_SAMPLE_LIMIT) {
-      const h = el.getBoundingClientRect().height
-      if (h > 0) {
-        avgActivityHeightRef.current = avgActivityHeightRef.current * 0.85 + h * 0.15
-        activitySampleCountRef.current += 1
-      }
-    }
-  }, [virtualizer])
 
   // "First unread" divider: frozen on mount so it doesn't chase the user
   // down the timeline as new messages arrive while they read. Dismissed
@@ -672,6 +592,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     const container = parentRef.current
     if (!container) return
 
+    let pointerHeld = false
+
     const handleScroll = () => {
       const scrollTop = container.scrollTop
       const distFromBottom = container.scrollHeight - scrollTop - container.clientHeight
@@ -679,7 +601,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
       if (nearBottom) {
         stickToBottomRef.current = true
-      } else if (pointerHeldRef.current) {
+      } else if (pointerHeld) {
         // The only scroll-driven release: the user is actively dragging
         // the scrollbar away from the bottom.
         stickToBottomRef.current = false
@@ -687,8 +609,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       setShowScrollToBottom(!nearBottom && !stickToBottomRef.current)
 
       if (!isDraft && scrollTop < 100 && hasMoreMessages && !loadingOlderMessages && oldestMessageTimestamp !== undefined) {
-        anchoringRef.current = true
-        lastAnchoredHeightRef.current = container.scrollHeight
         requestChatHistory(sessionId, oldestMessageTimestamp, 50)
       }
     }
@@ -714,8 +634,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
       lastTouchY = y
     }
 
-    const handlePointerDown = () => { pointerHeldRef.current = true }
-    const handlePointerUp = () => { pointerHeldRef.current = false }
+    const handlePointerDown = () => { pointerHeld = true }
+    const handlePointerUp = () => { pointerHeld = false }
 
     container.addEventListener('scroll', handleScroll)
     container.addEventListener('wheel', handleWheel, { passive: true })
@@ -733,50 +653,18 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     }
   }, [hasMoreMessages, loadingOlderMessages, oldestMessageTimestamp, requestChatHistory, sessionId, isDraft])
 
-  // Eagerly load this session's own recent page the first time it's opened
-  // (or reopened after a reconnect wiped bySession). init's message sample
-  // is capped GLOBALLY across every session, not per session — a session
-  // that didn't happen to own most of those slots would otherwise show
-  // near-zero history forever, since hasMoreMessages (derived from that
-  // same capped sample) defaults to false and never triggers the scroll-up
-  // fetch above. This mirrors the no-cursor branch of the backend's
-  // chat_history handler — the same path scroll-up pagination already
-  // uses — so every session-open gets its authoritative recent page.
-  // initialLoaded gates this to one request per session per connection;
-  // prependMany's upsert-by-messageId makes it safe to layer on top of
-  // anything init already seeded.
-  useEffect(() => {
-    if (isDraft || initialHistoryLoaded || !connected) return
-    requestChatHistory(sessionId, undefined, 50)
-  }, [sessionId, isDraft, initialHistoryLoaded, connected, requestChatHistory])
-
-  // Instant jump to the true bottom. No smooth animation: an animated
-  // scroll chasing a moving bottom lands short, which is what caused the
-  // pin to give up mid-run. Re-applies scrollTop = scrollHeight across
-  // successive animation frames — not just once or twice — because a row
-  // that hasn't been individually measured yet (e.g. the last message, or
-  // the live status row) can still grow the real scrollHeight a frame or
-  // two after the jump; a fixed number of attempts can land short if that
-  // settling takes longer. Stops once scrollHeight holds steady for a
-  // frame, or after a small attempt cap so a genuinely still-growing chat
-  // (new tokens streaming in) can't pin this into an infinite loop.
+  // Instant jump to the true bottom (now + next frame, so post-commit
+  // re-measures by the virtualizer are covered too). No smooth animation:
+  // an animated scroll chasing a moving bottom lands short, which is what
+  // caused the pin to give up mid-run.
   const pinToBottom = useCallback(() => {
     const container = parentRef.current
     if (!container) return
-    const MAX_ATTEMPTS = 10
-    let attempts = 0
-    let lastHeight = -1
-    const settle = () => {
+    container.scrollTop = container.scrollHeight
+    requestAnimationFrame(() => {
       const c = parentRef.current
-      if (!c || !stickToBottomRef.current) return
-      const height = c.scrollHeight
-      c.scrollTop = height
-      attempts += 1
-      if (height === lastHeight || attempts >= MAX_ATTEMPTS) return
-      lastHeight = height
-      requestAnimationFrame(settle)
-    }
-    settle()
+      if (c && stickToBottomRef.current) c.scrollTop = c.scrollHeight
+    })
   }, [])
 
   const scrollToBottom = useCallback(() => {
@@ -820,61 +708,8 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   const totalContentSize = virtualizer.getTotalSize()
   useEffect(() => {
     if (!hasInitialScrolled.current || !stickToBottomRef.current) return
-    // Don't fight an in-progress scrollbar drag: stickToBottomRef is only
-    // released inside handleScroll, which needs an actual `scroll` event to
-    // have already landed. There's a brief window right after pointerdown
-    // (grabbing the thumb) where stickToBottomRef can still read true; a
-    // resize-driven size change landing in that window would otherwise
-    // snap the view back to the bottom and cancel the drag before it
-    // starts.
-    if (pointerHeldRef.current) return
     pinToBottom()
   }, [totalContentSize, pinToBottom])
-
-  // Anchor scroll position after "load older messages" prepends rows above
-  // the viewport (see anchoringRef above). Runs synchronously after the DOM
-  // reflects each newly-measured batch but before paint, so the
-  // compensation is invisible instead of a visible jump. Keyed on
-  // totalContentSize (not messages.length): only the rows within the
-  // visible+overscan window measure in the SAME commit as the prepend, so
-  // this must keep firing as the remaining ~50 rows individually settle
-  // from their estimated size to their real one over several subsequent
-  // commits — a one-shot correction would only catch the first jump and
-  // leave the rest to drift.
-  useLayoutEffect(() => {
-    if (!anchoringRef.current) return
-    const container = parentRef.current
-    if (!container) return
-    const delta = container.scrollHeight - lastAnchoredHeightRef.current
-    if (delta !== 0) {
-      container.scrollTop += delta
-      lastAnchoredHeightRef.current = container.scrollHeight
-    }
-  }, [totalContentSize])
-
-  // Close the anchoring window off loadingOlderMessages returning to
-  // false — which fires on EVERY chat_history response, success or empty —
-  // rather than off messages.length, which never changes on a zero-result
-  // response (the previous design's bug: a dead-end "reached the start of
-  // history" fetch left anchoringRef stuck true forever, so the NEXT
-  // unrelated message arrival would misfire a stale correction). The short
-  // settle delay afterward gives trailing row-measurement corrections a
-  // moment to still be caught by the effect above before anchoring turns
-  // off.
-  useEffect(() => {
-    if (loadingOlderMessages || !anchoringRef.current) return
-    if (anchorSettleTimerRef.current !== null) window.clearTimeout(anchorSettleTimerRef.current)
-    anchorSettleTimerRef.current = window.setTimeout(() => {
-      anchoringRef.current = false
-      anchorSettleTimerRef.current = null
-    }, 500)
-    return () => {
-      if (anchorSettleTimerRef.current !== null) {
-        window.clearTimeout(anchorSettleTimerRef.current)
-        anchorSettleTimerRef.current = null
-      }
-    }
-  }, [loadingOlderMessages])
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = inputRef.current
@@ -1348,7 +1183,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   <div
                     key={getRowKey(virtualItem.index)}
                     data-index={virtualItem.index}
-                    ref={entry.kind === 'message' ? measureMessageRow : measureOtherRow}
+                    ref={virtualizer.measureElement}
                     style={{
                       position: 'absolute',
                       top: 0,
