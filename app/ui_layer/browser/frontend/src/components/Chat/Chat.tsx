@@ -282,6 +282,24 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     return { displayRows: rows, tailChunk: tail as TailChunkInfo | null }
   }, [timeline, expandedChunks])
 
+  // Stable, content-derived row key shared by the virtualizer's own
+  // measurement cache (via getItemKey) and React's key prop. Without this,
+  // react-virtual keys its itemSizeCache by raw index, so a reordered,
+  // inserted, or removed row can inherit a neighbor's stale measured
+  // height until the next ResizeObserver pass corrects it — a visible
+  // overlap between rows. Keying by content identity instead means a
+  // row's measured size always follows that row, regardless of where it
+  // ends up in the array.
+  const getRowKey = useCallback((index: number): string => {
+    if (index >= displayRows.length) return 'live-status-row'
+    const entry = displayRows[index]
+    return entry.kind === 'message'
+      ? (entry.message.clientId || entry.message.messageId || `msg:${index}`)
+      : entry.kind === 'chunkHeader'
+        ? `chunk:${entry.chunkId}`
+        : entry.item.id
+  }, [displayRows])
+
   const [input, setInput] = useState('')
   const [enhancing, setEnhancing] = useState(false)
   // Reply-to-bubble: set from an agent bubble's hover Reply action. The
@@ -426,6 +444,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
 
   const virtualizer = useVirtualizer({
     count: rowCount,
+    getItemKey: getRowKey,
     getScrollElement: () => parentRef.current,
     // Honest per-kind estimates. When an estimate is far off (the old flat
     // 100 vs ~32px real activity rows), every measurement makes the
@@ -1106,7 +1125,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 if (virtualItem.index >= displayRows.length) {
                   return (
                     <div
-                      key="live-status-row"
+                      key={getRowKey(virtualItem.index)}
                       data-index={virtualItem.index}
                       ref={virtualizer.measureElement}
                       style={{
@@ -1130,10 +1149,12 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                   entry.kind === 'message' &&
                   firstUnreadMessageId !== null &&
                   entry.message.messageId === firstUnreadMessageId
-                // Prefer clientId as the React key so that when a pending optimistic
-                // message is reconciled with the server echo (messageId changes from
-                // `pending:<cid>` to the real id), React reuses the same DOM node
-                // instead of remounting the bubble.
+                // getRowKey prefers clientId as the React key so that when a
+                // pending optimistic message is reconciled with the server
+                // echo (messageId changes from `pending:<cid>` to the real
+                // id), React reuses the same DOM node instead of remounting
+                // the bubble. It also backs the virtualizer's own
+                // measurement cache (getItemKey) — see its definition above.
                 //
                 // NOTE: rows must NOT get a CSS transition on transform. Rows
                 // slide to new offsets whenever one above is re-measured, and
@@ -1143,11 +1164,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                 // render time, which broke stick-to-bottom (verified with a
                 // live scroll trace: every pin landed at dist=0, then the
                 // animation grew the page ~35px with no further events).
-                const rowKey = entry.kind === 'message'
-                  ? (entry.message.clientId || entry.message.messageId || virtualItem.index)
-                  : entry.kind === 'chunkHeader'
-                    ? `chunk:${entry.chunkId}`
-                    : entry.item.id
                 // Vertical rhythm (as bottom padding so the virtualizer
                 // measures it): consecutive activity rows sit 10px apart so
                 // a chunk reads as one work block; the block's last row
@@ -1165,7 +1181,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
                     : 0
                 return (
                   <div
-                    key={rowKey}
+                    key={getRowKey(virtualItem.index)}
                     data-index={virtualItem.index}
                     ref={virtualizer.measureElement}
                     style={{
