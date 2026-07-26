@@ -94,6 +94,19 @@ treat non-2xx `status` as "not available".
 - Styling: Tailwind utilities + kit tokens (`var(--lui-*)`). Never hardcode
   colors — theming is host-owned and must keep working when the host switches
   style packs or dark mode.
+- Presets (kit 0.5.0) collapse the common surfaces — reach for these before
+  hand-rolling:
+  - `EntityForm` / `EntityTable` — declare a `fields`/`columns` spec, get a
+    validated create/edit form (ref fields become live dropdowns) and a live,
+    sortable table with row actions + delete confirmation, both wired to a PB
+    collection.
+  - Inputs: `NumberInput`, `DateInput`, `SearchInput` (debounced), `TagInput`,
+    plus `Select`, `Textarea`, `Switch`.
+  - Overlays/actions: `useConfirm()` (never `window.confirm`), `DropdownMenu`
+    (⋯ row actions), `Drawer` (slide-over), `Tooltip`.
+  - Data display: `Sparkline`, `MiniBarChart`, `SortableList` +
+    `reorderAndSave`, `FileUpload` / `ImageInput` (PB file fields).
+  - Hooks: `useDebounce`, `useHotkey`.
 - Required UX (from GLOBAL rules): empty states with a next action, loading
   states, confirmation dialogs for destructive actions, toasts on CRUD,
   responsive layout.
