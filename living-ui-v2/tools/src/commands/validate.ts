@@ -19,6 +19,135 @@ interface GateError {
   message: string;
 }
 
+/**
+ * Dependency policy (agent-editable package.json, bounded trust):
+ * - `dependencies` may ONLY contain blueprint baseline packages plus the
+ *   curated allowlist below. npm packages execute code at install time, so
+ *   an open package.json is a supply-chain door — especially for imported /
+ *   marketplace apps, which run through this same gate.
+ * - `devDependencies` and `scripts` are frozen (build tooling is platform-
+ *   owned); lifecycle script keys are forbidden outright.
+ * - Version specs must be plain semver (optionally ^ or ~) — never git/url/
+ *   file specs, which sidestep the registry entirely.
+ */
+const BASELINE_DEPS = new Set([
+  '@radix-ui/react-dialog',
+  'class-variance-authority',
+  'clsx',
+  'pocketbase',
+  'react',
+  'react-dom',
+  'tailwind-merge',
+]);
+
+const APPROVED_EXTRA_DEPS = new Set([
+  // maps
+  'leaflet',
+  'react-leaflet',
+  '@types/leaflet',
+  'maplibre-gl',
+  // charts & viz
+  'recharts',
+  'chart.js',
+  'react-chartjs-2',
+  'd3',
+  // dates
+  'date-fns',
+  'dayjs',
+  // drag & drop / interaction
+  '@dnd-kit/core',
+  '@dnd-kit/sortable',
+  '@dnd-kit/utilities',
+  // tables / virtual lists
+  '@tanstack/react-table',
+  '@tanstack/react-virtual',
+  // content
+  'marked',
+  'dompurify',
+  '@types/dompurify',
+  // utilities
+  'zod',
+  'zustand',
+  'nanoid',
+  'uuid',
+  '@types/uuid',
+  // icons & motion
+  'lucide-react',
+  'framer-motion',
+]);
+
+const BASELINE_DEV_DEPS = new Set([
+  '@tailwindcss/vite',
+  '@types/react',
+  '@types/react-dom',
+  '@vitejs/plugin-react',
+  'tailwindcss',
+  'typescript',
+  'vite',
+]);
+
+const BASELINE_SCRIPTS: Record<string, string> = {
+  dev: 'vite',
+  build: 'tsc -p . && vite build',
+  typecheck: 'tsc -p .',
+};
+
+const SEMVER_SPEC = /^[~^]?\d+\.\d+\.\d+(-[\w.]+)?$/;
+
+/** Problems with a project's frontend/package.json under the policy above.
+ *  Exported for unit tests. */
+export function checkDependencies(projectDir: string): string[] {
+  const pkgPath = join(projectDir, 'frontend', 'package.json');
+  if (!existsSync(pkgPath)) return ['frontend/package.json is missing'];
+  let pkg: Record<string, unknown>;
+  try {
+    pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
+  } catch (e) {
+    return [`frontend/package.json is not valid JSON: ${(e as Error).message}`];
+  }
+  const problems: string[] = [];
+
+  const deps = (pkg.dependencies ?? {}) as Record<string, string>;
+  for (const [name, spec] of Object.entries(deps)) {
+    if (!BASELINE_DEPS.has(name) && !APPROVED_EXTRA_DEPS.has(name)) {
+      problems.push(
+        `dependency '${name}' is not an approved library. Approved extras: ${[...APPROVED_EXTRA_DEPS].sort().join(', ')}`,
+      );
+    } else if (!SEMVER_SPEC.test(spec)) {
+      problems.push(
+        `dependency '${name}' uses spec '${spec}' — only plain semver (e.g. "^1.9.4") is allowed, never git/url/file specs`,
+      );
+    }
+  }
+
+  const devDeps = (pkg.devDependencies ?? {}) as Record<string, string>;
+  for (const name of Object.keys(devDeps)) {
+    if (!BASELINE_DEV_DEPS.has(name)) {
+      problems.push(
+        `devDependencies are frozen (build tooling is platform-owned); remove '${name}'`,
+      );
+    }
+  }
+
+  const scripts = (pkg.scripts ?? {}) as Record<string, string>;
+  for (const [name, cmd] of Object.entries(scripts)) {
+    if (/^(pre|post)?(install|prepare|prepublish)/.test(name)) {
+      problems.push(
+        `script '${name}' is a lifecycle hook — forbidden (runs arbitrary code at install)`,
+      );
+    } else if (BASELINE_SCRIPTS[name] !== undefined && BASELINE_SCRIPTS[name] !== cmd) {
+      problems.push(
+        `script '${name}' was changed — the platform owns build scripts (expected: '${BASELINE_SCRIPTS[name]}')`,
+      );
+    }
+  }
+  for (const name of Object.keys(BASELINE_SCRIPTS)) {
+    if (scripts[name] === undefined) problems.push(`script '${name}' is missing (platform-owned)`);
+  }
+  return problems;
+}
+
+
 interface Operation {
   name?: unknown;
   description?: unknown;
@@ -188,6 +317,17 @@ export async function run(args: string[]): Promise<number> {
       cwd: frontendDir, stdio: 'pipe', encoding: 'utf8', shell: isWin,
     });
   };
+
+  runStep(errors, 'dependencies (approved libraries)', () => {
+    const problems = checkDependencies(projectDir);
+    if (problems.length > 0) {
+      throw new Error(
+        `frontend/package.json violates the dependency policy:\n${problems.join('\n')}\n` +
+          `You may add approved libraries to "dependencies" with plain semver pins; ` +
+          `devDependencies and scripts are platform-owned.`,
+      );
+    }
+  });
 
   runStep(errors, 'types (tsc --noEmit)', () => npmRun('typecheck'));
 

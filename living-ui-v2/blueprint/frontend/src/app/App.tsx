@@ -9,8 +9,9 @@ import type { RecordModel } from 'pocketbase';
 import {
   Button,
   Card,
-  CardBody,
+  CardContent,
   CardHeader,
+  CardTitle,
   Dialog,
   Input,
   Table,
@@ -68,8 +69,10 @@ export function App(): React.JSX.Element {
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
       <Card>
-        <CardHeader title="Items" />
-        <CardBody className="flex gap-2">
+        <CardHeader>
+          <CardTitle>Items</CardTitle>
+        </CardHeader>
+        <CardContent className="flex gap-2">
           <Input
             placeholder="What needs doing?"
             value={title}
@@ -81,8 +84,8 @@ export function App(): React.JSX.Element {
           <Button loading={busy} onClick={() => void addItem()}>
             Add
           </Button>
-        </CardBody>
-        <CardBody className="p-0">
+        </CardContent>
+        <CardContent className="p-0">
           {loading ? (
             <p className="px-6 py-10 text-center text-sm text-[var(--lui-muted)]">Loading…</p>
           ) : error !== null ? (
@@ -126,7 +129,7 @@ export function App(): React.JSX.Element {
               ]}
             />
           )}
-        </CardBody>
+        </CardContent>
       </Card>
 
       <Dialog
