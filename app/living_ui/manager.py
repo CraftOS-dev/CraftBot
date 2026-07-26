@@ -809,6 +809,123 @@ UI in {project.path}/frontend/src/app/."""
     _python_path_cache: Optional[str] = None
 
     @classmethod
+    def _find_real_python(cls) -> str:
+        """Find a usable system Python interpreter, skipping the Microsoft
+        Store stub alias.
+
+        On Windows, `%LocalAppData%\\Microsoft\\WindowsApps\\python.exe` is
+        an "App Execution Alias" stub that prints "Python was not found..."
+        and exits non-zero — even when the user HAS python.org's Python
+        installed elsewhere. The stub is high on PATH so a naive
+        `shutil.which("python")` returns it, leading to silent failures.
+
+        Strategy: walk every PATH entry (PATHEXT-aware) for python3/python,
+        skip WindowsApps, validate candidates with `--version`, then fall
+        back to well-known python.org install locations. Cached after the
+        first hit.
+        """
+        if cls._python_path_cache:
+            return cls._python_path_cache
+
+        seen = set()
+
+        def _candidates_via_path():
+            # shutil.which returns ONLY the first match. We want to walk
+            # every PATH entry so a Store stub doesn't shadow a real Python.
+            path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+            exts = [""] + os.environ.get("PATHEXT", ".EXE;.BAT;.CMD").split(
+                os.pathsep
+            )
+            for d in path_dirs:
+                if not d:
+                    continue
+                for name in ("python3", "python"):
+                    for ext in exts:
+                        full = os.path.join(d, name + ext)
+                        if os.path.isfile(full):
+                            yield full
+
+        def _candidates_well_known():
+            user = os.path.expanduser("~")
+            for ver in ("313", "312", "311", "310"):
+                yield rf"C:\Python{ver}\python.exe"
+                yield os.path.join(
+                    user,
+                    "AppData",
+                    "Local",
+                    "Programs",
+                    "Python",
+                    f"Python{ver}",
+                    "python.exe",
+                )
+
+        for path in list(_candidates_via_path()) + list(_candidates_well_known()):
+            key = path.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            # Microsoft Store App Execution Alias stub — never works.
+            if "\\windowsapps\\" in key.replace("/", "\\"):
+                continue
+            if not os.path.isfile(path):
+                continue
+            try:
+                result = subprocess.run(
+                    [path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except Exception:
+                continue
+            output = (result.stdout or "") + (result.stderr or "")
+            if result.returncode == 0 and "Python" in output:
+                cls._python_path_cache = path
+                logger.info(
+                    f"[LIVING_UI] Resolved system Python: {path} ({output.strip()})"
+                )
+                return path
+        return ""
+
+    @classmethod
+    def _resolve_python_in_command(cls, command: str) -> str:
+        """Replace a leading `pip`/`python`/`python3` token with a real
+        interpreter path.
+
+        In source mode `sys.executable` is the running Python — correct.
+        In a PyInstaller-frozen agent (`sys.frozen == True`),
+        `sys.executable` is the agent EXE itself, not a Python interpreter —
+        substituting it would spawn the entire agent again with junk args.
+        Find a real system Python via `_find_real_python` instead.
+        """
+        if not (
+            command.startswith("pip ")
+            or command.startswith("python3 ")
+            or command.startswith("python ")
+        ):
+            return command
+
+        py = sys.executable
+        if getattr(sys, "frozen", False):
+            py = cls._find_real_python()
+            if not py:
+                logger.error(
+                    "[LIVING_UI] Project needs python/pip but no real system "
+                    "Python was found. The Microsoft Store stub at "
+                    "%LocalAppData%\\Microsoft\\WindowsApps doesn't count — "
+                    "install Python 3.10+ from python.org. Command was: %s",
+                    command,
+                )
+                py = "python"  # will raise FileNotFoundError at spawn time
+        if command.startswith("pip "):
+            return f'"{py}" -m pip {command[4:]}'
+        if command.startswith("python3 "):
+            return f'"{py}" {command[8:]}'
+        if command.startswith("python "):
+            return f'"{py}" {command[7:]}'
+        return command
+
+    @classmethod
     def _start_process(
         self,
         cwd: Path,
@@ -1203,6 +1320,34 @@ UI in {project.path}/frontend/src/app/."""
         )
         return project
 
+    def _replace_placeholders(
+        self, directory: Path, replacements: Dict[str, str]
+    ) -> None:
+        """Replace template placeholders in all text files under directory.
+
+        Values substituted into .json files are JSON-escaped (a description
+        containing quotes/newlines must not break manifest.json)."""
+        text_extensions = {
+            ".ts", ".tsx", ".js", ".jsx", ".json", ".html",
+            ".css", ".md", ".py", ".txt", ".env",
+        }
+        for filepath in directory.rglob("*"):
+            if not (filepath.is_file() and filepath.suffix in text_extensions):
+                continue
+            try:
+                content = filepath.read_text(encoding="utf-8")
+                modified = False
+                for placeholder, value in replacements.items():
+                    if placeholder in content:
+                        if filepath.suffix == ".json":
+                            value = json.dumps(value)[1:-1]
+                        content = content.replace(placeholder, value)
+                        modified = True
+                if modified:
+                    filepath.write_text(content, encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] Failed to process {filepath}: {e}")
+
     async def install_from_marketplace(
         self,
         app_id: str,
@@ -1293,6 +1438,29 @@ UI in {project.path}/frontend/src/app/."""
 
             logger.info(f"[LIVING_UI:MARKETPLACE] Extracted {app_id} to {project_path}")
 
+            # COMPATIBILITY GATE: this platform only runs Living UI V2
+            # projects (root manifest.json, livingUIVersion 2, PocketBase
+            # backend). Legacy V1 apps (config/manifest.json, FastAPI
+            # backend) are rejected until re-published as V2.
+            mf = project_path / "manifest.json"
+            is_v2 = False
+            if mf.exists():
+                try:
+                    is_v2 = json.loads(mf.read_text()).get("livingUIVersion") == 2
+                except Exception:
+                    is_v2 = False
+            if not is_v2:
+                shutil.rmtree(project_path, ignore_errors=True)
+                return {
+                    "status": "error",
+                    "error": (
+                        f"Marketplace app '{app_id}' is in the legacy V1 "
+                        "format and cannot run on this V2-only platform. It "
+                        "needs to be re-published as a V2 app in the "
+                        "marketplace."
+                    ),
+                }
+
             # Allocate ports
             frontend_port = self._allocate_port()
             backend_port = self._allocate_port()
@@ -1315,6 +1483,10 @@ UI in {project.path}/frontend/src/app/."""
                     replacements[f"{{{{{key}}}}}"] = value
 
             self._replace_placeholders(project_path, replacements)
+
+            # Identity rewrite touched hash-canonized files (manifest.json):
+            # re-vendor the kit and re-canonize hashes, as zip import does.
+            await self.v2_runner.kit_sync(project_path)
 
             # Create project instance
             project = LivingUIProject(
@@ -1613,6 +1785,35 @@ UI in {project.path}/frontend/src/app/."""
 
         return new_start, new_env
 
+    async def _wait_for_server(self, port: int, timeout: int = 10) -> bool:
+        """Wait for a server to start listening on a port."""
+        for _ in range(timeout * 2):
+            if self._is_port_in_use(port):
+                return True
+            await asyncio.sleep(0.5)
+        return False
+
+    async def _wait_for_health_check(self, url: str, timeout: int = 15) -> bool:
+        """Wait for a server's health endpoint to respond with HTTP 200."""
+        import urllib.request
+        import urllib.error
+
+        for _ in range(timeout * 2):
+            try:
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    if response.status == 200:
+                        return True
+            except (
+                urllib.error.URLError,
+                urllib.error.HTTPError,
+                TimeoutError,
+                OSError,
+            ):
+                pass
+            await asyncio.sleep(0.5)
+        return False
+
     async def _check_health_with_strategy(
         self, health_cfg, port: int, process, timeout: int = 30
     ) -> bool:
@@ -1727,13 +1928,27 @@ UI in {project.path}/frontend/src/app/."""
         if project.backend_port:
             self._release_port(project.backend_port)
 
-        # Delete project directory
-        project_path = Path(project.path)
-        if project_path.exists():
-            try:
-                shutil.rmtree(project_path)
-            except Exception as e:
-                logger.error(f"[LIVING_UI] Failed to delete project directory: {e}")
+        # Delete project directory. SAFETY: only ever delete inside the
+        # Living UI workspace. A never-adopted placeholder has path "" and
+        # Path("") == Path(".") == the process CWD — i.e. the CraftBot repo
+        # root; rmtree on it wiped the entire working tree twice
+        # (2026-07-25/26) before this guard existed.
+        if project.path:
+            project_path = Path(project.path).resolve()
+            living_root = self.living_ui_dir.resolve()
+            if living_root in project_path.parents:
+                if project_path.exists():
+                    try:
+                        shutil.rmtree(project_path)
+                    except Exception as e:
+                        logger.error(
+                            f"[LIVING_UI] Failed to delete project directory: {e}"
+                        )
+            else:
+                logger.error(
+                    f"[LIVING_UI] REFUSED to delete project directory outside "
+                    f"the Living UI workspace: {project.path!r}"
+                )
 
         # Delete the project's dedicated session (triggers + streams + rows)
         if project.session_id:
