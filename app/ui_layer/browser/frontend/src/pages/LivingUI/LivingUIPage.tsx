@@ -26,7 +26,7 @@ import { ConstructionDock } from './ConstructionDock'
 import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
 import { useAppSelector } from '../../store/hooks'
-import { selectLivingUiBuildEvents } from '../../store/selectors/livingUi'
+import { selectLivingUiBuildEvents, selectLivingUiSnapshots } from '../../store/selectors/livingUi'
 import type { LivingUIBuildEvent } from '../../types'
 import styles from './LivingUIPage.module.css'
 
@@ -75,6 +75,7 @@ export function LivingUIPage() {
   const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
   const { theme: appTheme } = useTheme()
   const buildEventsMap = useAppSelector(selectLivingUiBuildEvents)
+  const snapshotMap = useAppSelector(selectLivingUiSnapshots)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
@@ -140,10 +141,11 @@ export function LivingUIPage() {
     } catch { /* cosmetic only */ }
   }, [projectId, project?.uiTheme, project?.stylePack])
 
-  // Build-event feed for the construction dock (read-only observation).
+  // Build-event feed + live-activity row for the construction dock (read-only).
   const buildEvents = projectId
     ? (buildEventsMap[projectId] ?? EMPTY_EVENTS)
     : EMPTY_EVENTS
+  const snapshot = projectId ? (snapshotMap[projectId] ?? null) : null
 
   // Set active Living UI when viewing
   useEffect(() => {
@@ -399,6 +401,7 @@ export function LivingUIPage() {
               project={project}
               todos={livingUITodos[project.id]}
               events={buildEvents}
+              snapshot={snapshot}
             />
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>

@@ -767,7 +767,7 @@ export interface LivingUICreateRequest {
 export interface LivingUIBuildEvent {
   id: string
   ts: number
-  kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold'
+  kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold' | 'read' | 'search' | 'run' | 'verify' | 'todo'
   area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
   label: string
   file?: string
@@ -779,6 +779,10 @@ export interface LivingUIBuildEvent {
   }
   snippet?: string
   tests?: { passed: number; failed: number }
+  /** Authoritative counts scanned from the project on disk at event time —
+   * the source of truth for the dock's summary chips (not the per-write
+   * entities above, which only describe what that one write touched). */
+  snapshot?: { collections: number; components: number; routes: number }
 }
 
 export interface LivingUIStatusUpdate {

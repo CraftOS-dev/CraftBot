@@ -9,6 +9,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Grow from the feet so the beacon "stand taller" rises the head, not the
+     whole body. No baseline animation — the beacon is a driven episode. */
+  transform-origin: 50% 100%;
+}
+
+/* Beacon episode (driven by the `beacon` prop, ~4.8s one-shot): stand
+   slightly taller, MAINTAIN through the antenna pulses, then return. */
+.beaconActive {
+  animation: mascotBeaconStand 4.8s ease-in-out;
+}
+
+@keyframes mascotBeaconStand {
+  0% { transform: scale(1, 1); }
+  8% { transform: scale(0.97, 1.12); }
+  92% { transform: scale(0.97, 1.12); }
+  100% { transform: scale(1, 1); }
 }
 
 .float {
@@ -29,6 +45,26 @@
   transform-origin: 50% 60%;
   animation: mascotBreathe 6s ease-in-out infinite;
   overflow: visible;
+}
+
+/* Antenna beacon wave — invisible at rest; pulses 4× while beacon is active
+   (4 × 1s iterations, kicked off just after the stand-taller ramp). */
+.antennaBeacon {
+  fill: none;
+  stroke: #ffdd33;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.beaconPulsing {
+  animation: antennaPulse 1s ease-out 4;
+  animation-delay: 0.4s;
+}
+
+@keyframes antennaPulse {
+  0% { r: 4px; opacity: 0.9; stroke-width: 5px; }
+  70% { r: 130px; opacity: 0; stroke-width: 1px; }
+  100% { r: 130px; opacity: 0; stroke-width: 1px; }
 }
 
 .eye {
