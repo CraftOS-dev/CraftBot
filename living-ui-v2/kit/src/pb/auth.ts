@@ -17,6 +17,24 @@ export interface AuthState {
 export function useAuth(): AuthState {
   const client = getPbClient();
   const [userId, setUserId] = useState<string | null>(client.pb.authStore.record?.id ?? null);
+  // A persisted token can outlive the record it points at: PocketBase apps
+  // are served on recycled loopback ports, so localStorage may hold a token
+  // minted by a DIFFERENT app (or by this one before its data was reset).
+  // The store would look "signed in" while every write fails server-side
+  // with `create rule failure`. Validate once on mount and clear if stale.
+  useEffect(() => {
+    if (client.pb.authStore.record === null) return;
+    let cancelled = false;
+    void client.pb
+      .collection('users')
+      .authRefresh()
+      .catch(() => {
+        if (!cancelled) client.pb.authStore.clear();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
   const [email, setEmail] = useState<string | null>(
     (client.pb.authStore.record?.['email'] as string | undefined) ?? null,
   );
