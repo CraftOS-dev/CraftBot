@@ -32,16 +32,6 @@ from agent_core import action
                 "will keep working after sending it."
             ),
         },
-        "options": {
-            "type": "array",
-            "example": ["Single user", "Multi-user"],
-            "description": (
-                "Optional quick-answer choices (max 8, short strings). When "
-                "asking the user a question, ALWAYS provide options if the "
-                "answer space is enumerable — they render as tap-to-answer "
-                "chips. The user can still type a free-form reply."
-            ),
-        },
     },
     output_schema={
         "status": {
@@ -76,22 +66,6 @@ async def send_message(input_data: dict) -> dict:
         await internal_action_interface.InternalActionInterface.do_chat(
             message, session_id=session_id
         )
-
-        # Mirror a final question onto the Living UI creation screen (no-op
-        # unless this session belongs to a Living UI project) so the user can
-        # answer from the Living UI page even with the chat panel closed.
-        if not continue_work and session_id:
-            try:
-                from app.living_ui import broadcast_living_ui_question
-
-                options = input_data.get("options") or []
-                if not isinstance(options, list):
-                    options = []
-                await broadcast_living_ui_question(
-                    session_id, message, [str(o)[:80] for o in options[:8]]
-                )
-            except Exception:
-                pass
 
     # Return 'success' for test compatibility, but keep 'ok' in production if needed
     status = "success" if simulated_mode else "ok"

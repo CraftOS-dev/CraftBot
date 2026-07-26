@@ -729,12 +729,27 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_todos=self.broadcast_living_ui_todos,
             broadcast_data_changed=self.broadcast_living_ui_data_changed,
             broadcast_created=self.broadcast_living_ui_created,
-            broadcast_question=self.broadcast_living_ui_question,
+            broadcast_build_event=self.broadcast_living_ui_build_event,
         )
 
         # Subscribe the Living UI module to SessionManager todo updates so
         # that the agent's build breakdown streams to the browser automatically.
         agent.session_manager.add_post_update_todos_hook(make_todo_broadcast_hook())
+
+        # READ-ONLY build observer: derive construction-dock build events from
+        # the actions the agent already performs (write_file / stream_edit /
+        # living_ui_scaffold / living_ui_notify_ready). These hooks are
+        # single-callback and currently unset; the executor wraps them in
+        # try/except and the observer swallows all exceptions, so this can
+        # never affect a build. It reads inputs/outputs only, mutates nothing.
+        try:
+            from app.living_ui import construction_events
+
+            on_start, on_end = construction_events.make_action_hooks()
+            agent.action_manager._on_action_start = on_start
+            agent.action_manager._on_action_end = on_end
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] build-event observer not attached: {e}")
 
     @property
     def theme_adapter(self) -> ThemeAdapter:
@@ -2808,6 +2823,24 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     },
                 }
             )
+            # Replay buffered build events for any in-progress build so a
+            # reconnecting client repopulates the construction dock feed.
+            try:
+                from app.living_ui import construction_events
+
+                for p in projects:
+                    if getattr(p, "status", None) not in ("creating", "error"):
+                        continue
+                    events = construction_events.get_buffered_events(p.id)
+                    if events:
+                        await self._broadcast(
+                            {
+                                "type": "living_ui_build_events_replay",
+                                "data": {"projectId": p.id, "events": events},
+                            }
+                        )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] build-event replay skipped: {e}")
         except Exception as e:
             logger.error(f"[LIVING_UI] Error listing projects: {e}")
             await self._broadcast(
@@ -2895,6 +2928,12 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             session_id = project.session_id if project else None
 
             success = await self._living_ui_manager.delete_project(project_id)
+            try:
+                from app.living_ui import construction_events
+
+                construction_events.clear_buffer(project_id)
+            except Exception:
+                pass
             await self._broadcast(
                 {
                     "type": "living_ui_delete",
@@ -3486,6 +3525,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
             logger.info(f"[LIVING_UI] Project {project_id} launched and ready")
+            # Build finished — drop the buffered construction-dock feed so a
+            # later rebuild of the same project starts from a clean slate.
+            try:
+                from app.living_ui import construction_events
+
+                construction_events.clear_buffer(project_id)
+            except Exception:
+                pass
             return True
         else:
             # Launch failed
@@ -3514,25 +3561,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "success": True,
                     "projectId": project.get("id", ""),
                     "project": project,
-                },
-            }
-        )
-
-    async def broadcast_living_ui_question(
-        self, project_id: str, session_id: str, message: str, options=None
-    ) -> None:
-        """Mirror an agent question onto the creation screen so the user can
-        answer from the Living UI page even when the chat panel is closed. The
-        on-screen answer is sent back as a reply targeting `session_id`.
-        `options` (list of strings) renders as tap-to-answer chips."""
-        await self._broadcast(
-            {
-                "type": "living_ui_question",
-                "data": {
-                    "projectId": project_id,
-                    "sessionId": session_id,
-                    "message": message,
-                    "options": options or [],
                 },
             }
         )
@@ -3569,6 +3597,21 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "data": {
                     "projectId": project_id,
                     "todos": todos,
+                },
+            }
+        )
+
+    async def broadcast_living_ui_build_event(
+        self, project_id: str, event: dict
+    ) -> None:
+        """Broadcast one construction-dock build event (from the read-only
+        observer in construction_events). Fire-and-forget UI observation."""
+        await self._broadcast(
+            {
+                "type": "living_ui_build_event",
+                "data": {
+                    "projectId": project_id,
+                    "event": event,
                 },
             }
         )

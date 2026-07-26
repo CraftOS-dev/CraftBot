@@ -22,14 +22,16 @@ import { IconButton } from '../../components/ui/IconButton'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { Chat } from '../../components/Chat'
 import { getOrCreateIframe, showIframe, hideIframe, refreshIframe, removeIframe, postMessageToIframe, getIframeWindow } from './iframePool'
-import { CreationProgress } from './CreationProgress'
-import { CreationQuestionForm } from './CreationQuestionForm'
+import { ConstructionDock } from './ConstructionDock'
 import { LivingUIThemeModal, DEFAULT_CUSTOM_COLORS } from './LivingUIThemeModal'
 import type { LivingUIThemeId, LivingUICustomColors } from './LivingUIThemeModal'
-import { useAppSelector, useAppDispatch } from '../../store/hooks'
-import { selectLivingUiCreating, selectLivingUiPendingQuestions } from '../../store/selectors/livingUi'
-import { clearPendingQuestion } from '../../store/slices/livingUiSlice'
+import { useAppSelector } from '../../store/hooks'
+import { selectLivingUiBuildEvents } from '../../store/selectors/livingUi'
+import type { LivingUIBuildEvent } from '../../types'
 import styles from './LivingUIPage.module.css'
+
+// Stable empty array so the dock's memoized selectors don't churn per render.
+const EMPTY_EVENTS: LivingUIBuildEvent[] = []
 
 function loadLivingUITheme(projectId: string): LivingUIThemeId {
   try {
@@ -68,14 +70,11 @@ export function LivingUIPage() {
     stopLivingUI,
     deleteLivingUI,
     setActiveLivingUI,
-    sendMessage,
     updateLivingUITheme,
   } = useWebSocket()
   const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
   const { theme: appTheme } = useTheme()
-  const dispatch = useAppDispatch()
-  const pendingQuestions = useAppSelector(selectLivingUiPendingQuestions)
-  const creatingStatus = useAppSelector(selectLivingUiCreating)
+  const buildEventsMap = useAppSelector(selectLivingUiBuildEvents)
 
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showThemeModal, setShowThemeModal] = useState(false)
@@ -141,16 +140,10 @@ export function LivingUIPage() {
     } catch { /* cosmetic only */ }
   }, [projectId, project?.uiTheme, project?.stylePack])
 
-  // A question the agent mirrored onto this screen (waiting on the user's reply).
-  const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
-
-  // Answer from the screen → sent as a normal chat message into the
-  // project's session, where the waiting agent picks it up.
-  const handleAnswer = (text: string) => {
-    if (!projectId || !pendingQuestion) return
-    sendMessage(text, undefined, pendingQuestion.sessionId)
-    dispatch(clearPendingQuestion({ projectId }))
-  }
+  // Build-event feed for the construction dock (read-only observation).
+  const buildEvents = projectId
+    ? (buildEventsMap[projectId] ?? EMPTY_EVENTS)
+    : EMPTY_EVENTS
 
   // Set active Living UI when viewing
   useEffect(() => {
@@ -400,23 +393,11 @@ export function LivingUIPage() {
           {project.status === 'running' && project.url ? (
             <div ref={iframePlaceholderRef} className={styles.iframe} />
           ) : project.status === 'creating' ? (
-            pendingQuestion ? (
-              <CreationQuestionForm
-                key={pendingQuestion.message}
-                projectName={project.name}
-                message={pendingQuestion.message}
-                options={pendingQuestion.options}
-                onAnswer={handleAnswer}
-              />
-            ) : (
-              <CreationProgress
-                projectName={project.name}
-                todos={livingUITodos[project.id]}
-                statusMessage={
-                  creatingStatus?.projectId === project.id ? creatingStatus.message : undefined
-                }
-              />
-            )
+            <ConstructionDock
+              project={project}
+              todos={livingUITodos[project.id]}
+              events={buildEvents}
+            />
           ) : project.status === 'launching' ? (
             <div className={styles.loading}>
               <CraftBotMascot state="launching" size={96} />

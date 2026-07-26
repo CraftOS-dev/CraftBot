@@ -181,48 +181,21 @@
   color: var(--text-muted);
 }
 
-/* Creation Progress */
-.creationProgress {
+/* ── Construction dock (read-only build visualizer) ─────────────────────── */
+
+/* Full-pane host: no app/skeleton behind the dock — just the centered card. */
+.constructionDockCenter {
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  max-width: 480px;
+  justify-content: center;
   padding: var(--space-4);
-  color: var(--text-secondary);
-  text-align: center;
+  background: var(--bg-primary);
+  overflow: hidden;
 }
 
-.creationTitle {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.progressMeta {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  width: 100%;
-  margin-top: var(--space-2);
-}
-
-.phaseLabel {
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-.progressPercent {
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
+/* Shared progress bar (also used by the dock pill). */
 .progressBar {
   width: 100%;
   height: 6px;
@@ -254,38 +227,256 @@
   100% { transform: translateX(350%); }
 }
 
-.progressMessage {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  min-height: 1.4em;
-}
-
-.hintsBox {
+.dock {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-4);
+  width: min(560px, 100%);
   padding: var(--space-3);
-  width: 100%;
-  min-height: 64px;
-  background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  text-align: left;
+  border-radius: var(--radius-lg, 12px);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  transition: width 240ms ease, padding 240ms ease;
 }
 
-.hintIcon {
+.dockCollapsed {
+  width: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.dockPill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.dockPillBar {
+  position: relative;
+  width: 72px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--border-primary);
+  overflow: hidden;
+}
+
+.dockPillBar .progressFill { display: block; }
+
+.dockPillLabel { white-space: nowrap; }
+
+.dockHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.dockTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dockStep {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dockButtons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   flex-shrink: 0;
-  margin-top: 2px;
+}
+
+.dockIconBtn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dockIconBtn:hover {
+  background: var(--bg-primary);
   color: var(--text-primary);
 }
 
-.rotatingHint {
+.dockCurrent {
   margin: 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   color: var(--text-secondary);
-  transition: opacity 300ms ease-in-out;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.railChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  animation: feedItemEnter 320ms ease-out both;
+}
+
+.railChipPass {
+  color: var(--color-success, #3fb950);
+  border-color: color-mix(in srgb, var(--color-success, #3fb950) 40%, transparent);
+}
+
+.railChipFail {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+}
+
+.railFeed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.feedItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  animation: feedItemEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.feedItem:nth-child(n + 2) { opacity: 0.55; }
+
+.feedIcon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: inline-flex;
+}
+
+.feedIconPass { color: var(--color-success, #3fb950); }
+.feedIconFail { color: var(--color-error); }
+
+.feedLabel {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feedCount {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-muted);
+}
+
+@keyframes feedItemEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.codePeek {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.codePeekFile {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codePeekBody {
+  margin: 0;
+  padding: var(--space-2);
+  height: 170px;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 1.55;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.codePeekCursor {
+  color: var(--text-primary);
+  animation: codePeekBlink 1s steps(1) infinite;
+}
+
+@keyframes codePeekBlink {
+  50% { opacity: 0; }
+}
+
+.dockSwapIn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: dockSwapEnter 320ms ease-out both;
+}
+
+@keyframes dockSwapEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* Resize Handle - matches Chat/Tasks page style */

@@ -178,7 +178,8 @@ export type WSMessageType =
   | 'living_ui_delete'
   | 'living_ui_state_update'
   | 'living_ui_data_changed'
-  | 'living_ui_question'
+  | 'living_ui_build_event'
+  | 'living_ui_build_events_replay'
   | 'living_ui_error'
   | 'prompt_enhanced'
 
@@ -758,6 +759,26 @@ export interface LivingUICreateRequest {
   layout?: string
   stylePack?: string
   referenceFiles?: string[]
+}
+
+// One derived "the app is being built" event, produced read-only by the
+// backend construction observer (app/living_ui/construction_events.py) and
+// rendered in the construction dock's feed + CodePeek.
+export interface LivingUIBuildEvent {
+  id: string
+  ts: number
+  kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold'
+  area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
+  label: string
+  file?: string
+  entities?: {
+    models?: string[]
+    routes?: string[]
+    components?: string[]
+    tests?: string[]
+  }
+  snippet?: string
+  tests?: { passed: number; failed: number }
 }
 
 export interface LivingUIStatusUpdate {
