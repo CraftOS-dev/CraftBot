@@ -48,6 +48,58 @@ export { Dialog } from './components/Dialog.tsx';
 export type { DialogProps } from './components/Dialog.tsx';
 export { Table } from './components/Table.tsx';
 export type { Column, TableProps } from './components/Table.tsx';
+export { Select } from './components/Select.tsx';
+export type { SelectOption, SelectProps } from './components/Select.tsx';
+export { Textarea } from './components/Textarea.tsx';
+export type { TextareaProps } from './components/Textarea.tsx';
+export { Switch } from './components/Switch.tsx';
+export type { SwitchProps } from './components/Switch.tsx';
+export { Spinner } from './components/Spinner.tsx';
+export type { SpinnerProps } from './components/Spinner.tsx';
+
+// Form input presets (kit 0.5.0)
+export { NumberInput, DateInput, SearchInput, TagInput } from './components/forms.tsx';
+export type {
+  NumberInputProps,
+  DateInputProps,
+  SearchInputProps,
+  TagInputProps,
+} from './components/forms.tsx';
+
+// Schema-aware CRUD presets (kit 0.5.0)
+export { EntityForm, EntityTable } from './components/entity.tsx';
+export type {
+  EntityField,
+  EntityFieldType,
+  EntityFormProps,
+  EntityColumn,
+  EntityTableProps,
+} from './components/entity.tsx';
+
+// Overlays & actions (kit 0.5.0)
+export { ConfirmDialog, useConfirm } from './components/confirm.tsx';
+export type { ConfirmDialogProps } from './components/confirm.tsx';
+export { DropdownMenu } from './components/menu.tsx';
+export type { DropdownMenuProps, DropdownMenuItem } from './components/menu.tsx';
+export { Drawer } from './components/drawer.tsx';
+export type { DrawerProps } from './components/drawer.tsx';
+export { Tooltip } from './components/tooltip.tsx';
+export type { TooltipProps } from './components/tooltip.tsx';
+
+// Data display & interaction (kit 0.5.0)
+export { Sparkline, MiniBarChart } from './components/charts.tsx';
+export type {
+  SparklineProps,
+  MiniBarChartProps,
+  MiniBarChartDatum,
+} from './components/charts.tsx';
+export { SortableList, reorderAndSave } from './components/dnd.tsx';
+export type { SortableListProps } from './components/dnd.tsx';
+export { FileUpload, ImageInput } from './components/upload.tsx';
+export type { FileUploadProps, ImageInputProps, UploadedFile } from './components/upload.tsx';
+
+// Hooks
+export { useDebounce, useHotkey } from './lib/hooks.ts';
 
 // Utilities
 export { cn } from './lib/cn.ts';

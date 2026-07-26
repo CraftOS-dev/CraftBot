@@ -5,6 +5,10 @@
  */
 :root,
 :root[data-theme='light'] {
+  /* Themes the internals of native controls (date picker popup, <select>
+     options, scrollbars). Without it they follow the OS scheme and render
+     mismatched — e.g. a dark date picker on a light app. */
+  color-scheme: light;
   --lui-bg: #f7f7f8;
   --lui-surface: #ffffff;
   --lui-text: #1a1a1e;
@@ -16,6 +20,7 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --lui-bg: #131316;
   --lui-surface: #1d1d22;
   --lui-text: #f2f2f5;
