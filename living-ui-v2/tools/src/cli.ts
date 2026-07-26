@@ -44,9 +44,19 @@ async function main(): Promise<number> {
 }
 
 main().then(
-  (code) => process.exit(code),
+  (code) => {
+    // Set the exit code but let Node tear down its event loop naturally.
+    // Calling process.exit() here races the async stdout pipe and libuv
+    // threadpool handles (from fetch) on Windows, aborting with
+    //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)  (async.c)
+    // — which made even SUCCESSFUL commands (their JSON already flushed to
+    // stdout) report a non-zero crash code, so run_shell marked them failed.
+    // Undici unrefs idle sockets, so one-shot commands still exit promptly
+    // once their request settles.
+    process.exitCode = code;
+  },
   (err: unknown) => {
     log.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    process.exitCode = 1;
   },
 );
