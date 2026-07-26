@@ -985,3 +985,247 @@ def living_ui_http(input_data: dict) -> dict:
             "elapsed_ms": 0,
             "message": str(e),
         }
+
+
+@action(
+    name="living_ui_marketplace_list",
+    description=(
+        "List the Living UI marketplace catalogue: pre-built apps the user "
+        "can install by id. Use when the user asks what apps are available "
+        "or wants to install something by name (list first to resolve the id)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=True,
+    input_schema={},
+    output_schema={
+        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "apps": {
+            "type": "array",
+            "example": [{"id": "kanban-board", "name": "Kanban Board", "description": "Tasks in columns"}],
+            "description": "Catalogue entries (id, name, description, ...).",
+        },
+        "message": {"type": "string", "description": "Summary line."},
+    },
+    test_payload={"simulated_mode": True},
+)
+async def living_ui_marketplace_list(input_data: dict) -> dict:
+    """Fetch the marketplace catalogue (GitHub-hosted JSON)."""
+    if input_data.get("simulated_mode"):
+        return {"status": "success", "apps": [], "message": "0 apps (simulated)."}
+    import asyncio
+    import json as _json
+    import re as _re
+    import ssl
+    import urllib.request
+
+    CATALOGUE_URL = (
+        "https://raw.githubusercontent.com/CraftOS-dev/"
+        "living-ui-marketplace/main/catalogue.json"
+    )
+
+    def _fetch() -> dict:
+        try:
+            import certifi
+
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = ssl.create_default_context()
+        req = urllib.request.Request(CATALOGUE_URL, headers={"User-Agent": "CraftBot"})
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            raw = r.read().decode()
+        # Tolerate trailing commas in hand-edited JSON.
+        return _json.loads(_re.sub(r",\s*([}\]])", r"\1", raw))
+
+    try:
+        catalogue = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        apps = catalogue.get("apps", [])
+        return {
+            "status": "success",
+            "apps": apps,
+            "message": (
+                f"{len(apps)} marketplace app(s) available. Install with "
+                'living_ui_marketplace_install(app_id="<id>").'
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "apps": [], "message": f"Could not fetch catalogue: {e}"}
+
+
+@action(
+    name="living_ui_marketplace_install",
+    description=(
+        "Install a pre-built Living UI app from the marketplace by id "
+        "(resolve ids with living_ui_marketplace_list). Downloads the app, "
+        "registers it as a project, and runs the full launch pipeline. "
+        "Marketplace apps are pre-built — no walk-verify needed; report the "
+        "returned URL to the user."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    irreversible=True,
+    input_schema={
+        "app_id": {
+            "type": "string",
+            "example": "kanban-board",
+            "description": "The app id from the marketplace catalogue.",
+        },
+        "name": {
+            "type": "string",
+            "example": "My Kanban",
+            "description": "Optional display name (defaults to the catalogue name/app id).",
+        },
+        "description": {
+            "type": "string",
+            "example": "Team task board",
+            "description": "Optional project description.",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "message": {"type": "string", "description": "Outcome with the app URL on success."},
+        "project_id": {"type": "string", "description": "The new project id on success."},
+    },
+    test_payload={"app_id": "test-app", "simulated_mode": True},
+)
+async def living_ui_marketplace_install(input_data: dict) -> dict:
+    """Download, register and launch a marketplace app."""
+    app_id = (input_data.get("app_id") or "").strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "message": f"Installed '{app_id}' at http://localhost:3100 (simulated).",
+        }
+    if not app_id:
+        return {"status": "error", "message": "app_id is required"}
+
+    try:
+        from app.living_ui import (
+            broadcast_living_ui_created,
+            broadcast_living_ui_ready,
+            get_living_ui_manager,
+        )
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized."}
+
+        result = await manager.install_from_marketplace(
+            app_id=app_id,
+            app_name=input_data.get("name") or app_id,
+            app_description=input_data.get("description") or "",
+        )
+        if result.get("status") != "success":
+            return {
+                "status": "error",
+                "message": result.get("error") or "Installation failed.",
+            }
+
+        project = result.get("project") or {}
+        project_id = project.get("id", "")
+        url = result.get("url") or project.get("url") or ""
+        # Surface it in the sidebar + viewport like the UI-driven install.
+        try:
+            await broadcast_living_ui_created(project)
+            live = manager.get_project(project_id)
+            if live is not None and live.port:
+                await broadcast_living_ui_ready(project_id, url, live.port)
+        except Exception:
+            pass
+        return {
+            "status": "success",
+            "project_id": project_id,
+            "message": (
+                f"Marketplace app '{app_id}' installed and running at {url}. "
+                "Tell the user it is ready."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Install failed: {str(e)}"}
+
+
+@action(
+    name="living_ui_import_zip",
+    description=(
+        "Import a Living UI V2 project from an exported ZIP file (round-trip "
+        "with export): registers it as a NEW project with fresh identity and "
+        "port, strips shipped credentials, and re-vendors the kit. The "
+        "project is registered STOPPED — launch it with "
+        "living_ui_notify_ready, then living_ui_walk_verify. Only V2 Living "
+        "UI exports are supported (foreign apps/repos are not)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    irreversible=True,
+    input_schema={
+        "zip_path": {
+            "type": "string",
+            "example": "/Users/me/Downloads/my-app-export.zip",
+            "description": "Absolute path to the exported Living UI ZIP.",
+        },
+        "name": {
+            "type": "string",
+            "example": "My Imported App",
+            "description": "Optional display name (defaults to the export's name).",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "project_id": {"type": "string", "description": "The new project id."},
+        "project_path": {"type": "string", "description": "Absolute project path."},
+        "message": {"type": "string", "description": "Next steps."},
+    },
+    test_payload={"zip_path": "/tmp/test.zip", "simulated_mode": True},
+)
+async def living_ui_import_zip(input_data: dict) -> dict:
+    """Import a V2 export ZIP as a new registered project."""
+    zip_path = (input_data.get("zip_path") or "").strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "project_path": "/workspace/living_ui/imported_abc12345",
+            "message": "Imported (simulated).",
+        }
+    if not zip_path:
+        return {"status": "error", "message": "zip_path is required"}
+
+    import os
+
+    if not os.path.isfile(zip_path):
+        return {"status": "error", "message": f"File not found: {zip_path}"}
+
+    try:
+        from app.living_ui import broadcast_living_ui_created, get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized."}
+
+        project = await manager.import_project_zip(
+            zip_path, name=input_data.get("name")
+        )
+        try:
+            await broadcast_living_ui_created(project.to_dict())
+        except Exception:
+            pass
+        return {
+            "status": "success",
+            "project_id": project.id,
+            "project_path": project.path,
+            "message": (
+                f"Imported as '{project.name}' ({project.id}) at {project.path}. "
+                f"Now launch it: living_ui_notify_ready(project_id=\"{project.id}\"), "
+                f"then living_ui_walk_verify(project_id=\"{project.id}\")."
+            ),
+        }
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Import failed: {str(e)}"}
