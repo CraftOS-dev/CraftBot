@@ -123,17 +123,20 @@ The launch verifier fails the app on any first-paint console error.
 
 Update `LIVING_UI.md` after each feature (entities table, ops list, checklist).
 
-## Finish: validate + launch
+## Finish: launch, then verify
 
-```
-living_ui_notify_ready(project_id="<PROJECT_ID>")
-```
+1. `living_ui_notify_ready(project_id="<PROJECT_ID>")` — runs the gate
+   (**types → build → migrations-on-fresh-db → ops → ownership**), starts the
+   app and health-checks it. On errors: read ALL of them, fix ALL of them,
+   call it again. Success = app RUNNING but NOT yet verified. Never start
+   servers manually.
+2. `living_ui_walk_verify(project_id="<PROJECT_ID>")` — an independent
+   sub-agent walks the running app in a real (headless) browser against
+   `reference/requirements.md`. **Success announces the app to the user and
+   completes the build.** Failing features come back as a report: fix them,
+   then repeat step 1 and step 2.
 
-It runs the gate — **types → build → migrations-on-fresh-db → ops → ownership**
-— then starts the app and health-checks it. On errors: read ALL of them, fix
-ALL of them, call it again. Never start servers manually.
-
-**HONESTY RULE:** the app is ready ONLY when `living_ui_notify_ready` returns
+**HONESTY RULE:** the app is ready ONLY when `living_ui_walk_verify` returns
 `status: success`. If you cannot make it pass, tell the user the build
 **failed** and exactly what's blocking. Never claim a broken app is ready.
 
@@ -155,4 +158,4 @@ ALL of them, call it again. Never start servers manually.
 - Printing or copying `.superuser` credentials
 - Starting `pocketbase`, `vite`, or `npm run` servers by hand
 - Ending the run mid-build — pause ONLY for a user question (final
-  send_message), finish ONLY via `living_ui_notify_ready`
+  send_message), finish ONLY via `living_ui_walk_verify`

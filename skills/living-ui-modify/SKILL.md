@@ -41,10 +41,14 @@ this skill covers only what differs.
 ## Finish
 
 ```
-living_ui_notify_ready(project_id="<PROJECT_ID>")
+living_ui_notify_ready(project_id="<PROJECT_ID>")   # gate + relaunch
+living_ui_walk_verify(project_id="<PROJECT_ID>")    # verify + announce
 ```
 
-Runs the gate (types, build, migrations-on-fresh-db, ops, ownership), restarts
-the app, health-checks and smoke-verifies it. Fix ALL returned errors and call
-again. HONESTY RULE: success only when it returns `status: success` — never
-tell the user a change is live when the relaunch failed.
+`notify_ready` runs the gate (types, build, migrations-on-fresh-db, ops,
+ownership), restarts the app, health-checks and smoke-verifies it — fix ALL
+returned errors and call again. `walk_verify` then drives the running app in
+a real (headless) browser; its success is what announces the app. HONESTY
+RULE: the change is live only when `living_ui_walk_verify` returns
+`status: success` — never tell the user a change is live when the relaunch
+or verification failed.

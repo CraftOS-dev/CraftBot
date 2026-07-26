@@ -1170,7 +1170,8 @@
       "transport": "stdio",
       "command": "npx",
       "args": [
-        "@playwright/mcp@latest"
+        "@playwright/mcp@latest",
+        "--headless"
       ],
       "env": {},
       "enabled": true
