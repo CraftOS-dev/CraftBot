@@ -244,7 +244,7 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         }
 
     try:
-        from app.living_ui import get_living_ui_manager, broadcast_living_ui_ready
+        from app.living_ui import get_living_ui_manager
 
         manager = get_living_ui_manager()
         if not manager:
@@ -258,116 +258,23 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
 
         if result["status"] == "success":
             url = result.get("url", "")
-            port = result.get("port", 0)
             _proj_ok = manager.get_project(project_id)
             if _proj_ok is not None:
                 _proj_ok._gate_fp = None
                 _proj_ok._gate_fp_count = 0
 
-            # HARD GATE: independent walk-verify of the running app. Success
-            # is reported only on an all-pass verdict set — the building
-            # agent cannot self-grade or skip this.
-            from app.living_ui.walk_verify import run_walk_verify
-
-            project = manager.get_project(project_id)
-            report = None
-            if project is not None:
-                try:
-                    from app.living_ui import broadcast_living_ui_progress
-
-                    await broadcast_living_ui_progress(
-                        project_id,
-                        "verifying",
-                        92,
-                        "Walk-verify: independently testing features against "
-                        "the requirements (this takes a minute)…",
-                    )
-                except Exception:
-                    pass
-                try:
-                    import asyncio as _asyncio
-
-                    # Belt-and-suspenders ceiling above the runner's own
-                    # 30-min wall cap: even if the verifier wedges, the
-                    # session turn must end. Timeout = tooling failure
-                    # (blocked), never an app defect.
-                    report = await _asyncio.wait_for(
-                        run_walk_verify(project), timeout=2100
-                    )
-                except _asyncio.TimeoutError:
-                    report = {"kind": "blocked", "passed": [], "defects": [],
-                              "raw": "walk_verify exceeded the 35-minute ceiling"}
-                except Exception as verify_err:
-                    report = {"kind": "blocked", "passed": [], "defects": [],
-                              "raw": f"walk_verify crashed: {verify_err}"}
-                try:
-                    kind = (report or {}).get("kind")
-                    passed_n = len((report or {}).get("passed") or [])
-                    if kind == "defects":
-                        outcome = (
-                            f"Walk-verify: {len(report['defects']) or 'some'} "
-                            "feature(s) FAILED — fixing before launch"
-                        )
-                    elif kind == "pass":
-                        outcome = f"Walk-verify PASSED: {passed_n} feature(s) work"
-                    elif kind == "incomplete":
-                        outcome = (
-                            f"Walk-verify: {passed_n} passed, coverage incomplete "
-                            "(some features NOT REACHED)"
-                        )
-                    else:
-                        outcome = "Walk-verify BLOCKED (tooling) — smoke checks only"
-                    await broadcast_living_ui_progress(project_id, "verifying", 96, outcome)
-                except Exception:
-                    pass
-
-            kind = (report or {}).get("kind")
-            if kind == "defects":
-                # Observed misbehavior — the only thing that blocks a launch.
-                await manager.stop_project(project_id)
-                defects = report.get("defects") or []
-                raw = (report.get("raw") or "")[:2500]
-                return {
-                    "status": "error",
-                    "message": (
-                        "Launch blocked by walk-verify: "
-                        f"{len(defects) or 'some'} feature(s) observed NOT working."
-                    ),
-                    "test_errors": defects[:10] or [raw],
-                    "details": (
-                        "The walk-verify report (a real browser drove the app):\n"
-                        + raw
-                        + "\n\nFix these features, then call living_ui_notify_ready "
-                        "again. Do NOT tell the user the app is ready."
-                    ),
-                }
-
-            # Notify browser that the UI is ready
-            await broadcast_living_ui_ready(project_id, url, port)
-            if kind == "pass":
-                verified = (
-                    f" ({len(report.get('passed') or [])} feature(s) walk-verified "
-                    "in a real browser)"
-                )
-            elif kind == "incomplete":
-                verified = (
-                    f" (walk-verify: {len(report.get('passed') or [])} passed; "
-                    "coverage INCOMPLETE — some features NOT REACHED. Tell the "
-                    "user which features were not walked; do NOT claim they were "
-                    "tested.)"
-                )
-            elif kind == "blocked":
-                verified = (
-                    " (WARNING: walk-verify was BLOCKED — tooling/browser issue, "
-                    "not an app defect. Launch passed smoke checks only: "
-                    + str((report or {}).get("raw") or "")[:200]
-                    + ")"
-                )
-            else:
-                verified = " (walk-verify unavailable — smoke checks only)"
+            # Launched, healthy, smoke-passed — but NOT yet feature-verified.
+            # Verification is its own visible step: living_ui_walk_verify.
             return {
                 "status": "success",
-                "message": f"Living UI {project_id} is now ready at {url}{verified}",
+                "message": (
+                    f"App launched at {url} — gate, health and smoke checks "
+                    "passed. NOT VERIFIED YET: now call "
+                    f'living_ui_walk_verify(project_id="{project_id}") to run '
+                    "the independent verifier against the running app. The "
+                    "build is complete ONLY when that returns success — do "
+                    "NOT tell the user the app is ready before then."
+                ),
             }
         else:
             # Return errors directly so the agent can fix them
@@ -413,6 +320,180 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
             }
     except Exception as e:
         return {"status": "error", "message": f"Failed to launch: {str(e)}"}
+
+
+@action(
+    name="living_ui_walk_verify",
+    description=(
+        "Run the independent walk-verify sub-agent against the RUNNING Living "
+        "UI project: a real browser (headless) drives the app "
+        "feature-by-feature against reference/requirements.md. A clean "
+        "verdict announces the app to the user — the ONLY way a Living UI "
+        "build completes. Observed defects return the failure report: fix, "
+        "relaunch with living_ui_notify_ready, then call this again. "
+        "Requires the app to be running (living_ui_notify_ready first)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The Living UI project ID (provided in task instruction).",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' = app verified and announced ready.",
+        },
+        "message": {
+            "type": "string",
+            "example": "Living UI abc12345 is now ready (5 features walk-verified).",
+            "description": "Outcome summary.",
+        },
+        "test_errors": {
+            "type": "array",
+            "example": ["- Onboarding — FAIL — form does not save"],
+            "description": "Observed defects when verification fails.",
+        },
+    },
+    test_payload={
+        "project_id": "test123",
+        "simulated_mode": True,
+    },
+)
+async def living_ui_walk_verify(input_data: dict) -> dict:
+    """Independent feature verification of the running app; announces the
+    app on a clean verdict."""
+    project_id = input_data.get("project_id", "")
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "message": f"Living UI {project_id} verified (simulated).",
+        }
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+
+    try:
+        import asyncio as _asyncio
+
+        from app.living_ui import (
+            broadcast_living_ui_progress,
+            broadcast_living_ui_ready,
+            get_living_ui_manager,
+        )
+        from app.living_ui.walk_verify import run_walk_verify
+
+        manager = get_living_ui_manager()
+        project = manager.get_project(project_id) if manager else None
+        if project is None:
+            return {"status": "error", "message": f"Unknown project: {project_id}"}
+        if project.status != "running":
+            return {
+                "status": "error",
+                "message": (
+                    "The app is not running — call living_ui_notify_ready "
+                    "first, then verify."
+                ),
+            }
+        url = f"http://127.0.0.1:{project.port}"
+
+        try:
+            await broadcast_living_ui_progress(
+                project_id,
+                "verifying",
+                92,
+                "Walk-verify: independently testing features against "
+                "the requirements (this takes a minute)…",
+            )
+        except Exception:
+            pass
+        try:
+            # Belt-and-suspenders ceiling above the runner's own 30-min wall
+            # cap: even if the verifier wedges, the turn must end. Timeout =
+            # tooling failure (blocked), never an app defect.
+            report = await _asyncio.wait_for(run_walk_verify(project), timeout=2100)
+        except _asyncio.TimeoutError:
+            report = {"kind": "blocked", "passed": [], "defects": [],
+                      "raw": "walk_verify exceeded the 35-minute ceiling"}
+        except Exception as verify_err:
+            report = {"kind": "blocked", "passed": [], "defects": [],
+                      "raw": f"walk_verify crashed: {verify_err}"}
+
+        kind = (report or {}).get("kind")
+        passed_n = len((report or {}).get("passed") or [])
+        try:
+            if kind == "defects":
+                outcome = (
+                    f"Walk-verify: {len(report['defects']) or 'some'} "
+                    "feature(s) FAILED — fixing before launch"
+                )
+            elif kind == "pass":
+                outcome = f"Walk-verify PASSED: {passed_n} feature(s) work"
+            elif kind == "incomplete":
+                outcome = (
+                    f"Walk-verify: {passed_n} passed, coverage incomplete "
+                    "(some features NOT REACHED)"
+                )
+            else:
+                outcome = "Walk-verify BLOCKED (tooling) — smoke checks only"
+            await broadcast_living_ui_progress(project_id, "verifying", 96, outcome)
+        except Exception:
+            pass
+
+        if kind == "defects":
+            # Observed misbehavior — the only thing that blocks a launch.
+            await manager.stop_project(project_id)
+            defects = report.get("defects") or []
+            raw = (report.get("raw") or "")[:2500]
+            return {
+                "status": "error",
+                "message": (
+                    f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
+                    "observed NOT working. The app was stopped."
+                ),
+                "test_errors": defects[:10] or [raw],
+                "details": (
+                    "The walk-verify report (a real browser drove the app):\n"
+                    + raw
+                    + "\n\nFix these features, relaunch with "
+                    "living_ui_notify_ready, then call living_ui_walk_verify "
+                    "again. Do NOT tell the user the app is ready."
+                ),
+            }
+
+        # Clean verdict (pass / incomplete / tooling-blocked): announce.
+        await broadcast_living_ui_ready(project_id, url, project.port)
+        if kind == "pass":
+            verified = (
+                f" ({passed_n} feature(s) walk-verified in a real browser)"
+            )
+        elif kind == "incomplete":
+            verified = (
+                f" (walk-verify: {passed_n} passed; coverage INCOMPLETE — "
+                "some features NOT REACHED. Tell the user which features "
+                "were not walked; do NOT claim they were tested.)"
+            )
+        elif kind == "blocked":
+            verified = (
+                " (WARNING: walk-verify was BLOCKED — tooling/browser issue, "
+                "not an app defect. Launch passed smoke checks only. Tell "
+                "the user NOTHING was feature-verified: "
+                + str((report or {}).get("raw") or "")[:200]
+                + ")"
+            )
+        else:
+            verified = " (walk-verify unavailable — smoke checks only)"
+        return {
+            "status": "success",
+            "message": f"Living UI {project_id} is now ready at {url}{verified}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"walk-verify failed to run: {str(e)}"}
 
 
 @action(

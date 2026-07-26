@@ -44,16 +44,24 @@ Follow the living-ui-creator skill. Workflow:
 6. Quality bar: empty states with a next action, loading states, confirmation dialog
    for destructive actions, toasts on CRUD, responsive layout, kit tokens only
    (never hardcoded colors — theming is host-owned)
-7. Call living_ui_notify_ready(project_id="{project_id}") — it runs the validation
-   gate (types, build, migrations-on-fresh-db, ops structure, ownership) and launches.
-   If it returns errors: read ALL of them, fix ALL of them, call it again.
+7. FINISH — two steps, in order:
+   a. living_ui_notify_ready(project_id="{project_id}") — runs the validation
+      gate (types, build, migrations-on-fresh-db, ops structure, ownership),
+      launches, health-checks, smoke-verifies. On errors: read ALL of them,
+      fix ALL of them, call it again. Success = the app is RUNNING but NOT
+      yet verified.
+   b. living_ui_walk_verify(project_id="{project_id}") — an independent
+      verifier walks the RUNNING app in a real (headless) browser against
+      reference/requirements.md. Success = the app is announced to the user
+      and the build is COMPLETE. Failing features come back as a report:
+      fix them, then repeat (a) and (b).
 
 RUN RULE: this run IS the build — there is no "continue in a later turn".
 The ONLY valid ways this run ends: a question to the user (a FINAL
 send_message, continue_work=false — the reply wakes the session) or
-living_ui_notify_ready returning success. Never end_turn mid-build.
+living_ui_walk_verify returning success. Never end_turn mid-build.
 
-HONESTY RULE: the app is ready ONLY when living_ui_notify_ready returns
+HONESTY RULE: the app is ready ONLY when living_ui_walk_verify returns
 status=success. If you cannot make it pass, tell the user the build FAILED and
 exactly what is blocking — NEVER claim the app is ready or usable when the
 launch failed. A false "ready" is the worst possible outcome.
