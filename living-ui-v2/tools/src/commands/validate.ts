@@ -21,14 +21,16 @@ interface GateError {
 
 /**
  * Dependency policy (agent-editable package.json, bounded trust):
- * - `dependencies` may ONLY contain blueprint baseline packages plus the
- *   curated allowlist below. npm packages execute code at install time, so
- *   an open package.json is a supply-chain door — especially for imported /
- *   marketplace apps, which run through this same gate.
+ * - `dependencies` may contain ANY package from the npm registry — agents
+ *   need real libraries and a curated list can never keep up.
+ * - The supply-chain door that curation was guarding is closed differently:
+ *   installs run with `--ignore-scripts` (see lib/npm.ts), so a malicious or
+ *   typosquatted package cannot execute code at install time. Package code
+ *   still runs inside the app itself once imported and bundled.
+ * - Version specs must be plain semver (optionally ^ or ~) — never git/url/
+ *   file specs, which sidestep the registry (and its scripts policy) entirely.
  * - `devDependencies` and `scripts` are frozen (build tooling is platform-
  *   owned); lifecycle script keys are forbidden outright.
- * - Version specs must be plain semver (optionally ^ or ~) — never git/url/
- *   file specs, which sidestep the registry entirely.
  */
 const BASELINE_DEPS = new Set([
   '@radix-ui/react-dialog',
@@ -40,41 +42,6 @@ const BASELINE_DEPS = new Set([
   'tailwind-merge',
 ]);
 
-const APPROVED_EXTRA_DEPS = new Set([
-  // maps
-  'leaflet',
-  'react-leaflet',
-  '@types/leaflet',
-  'maplibre-gl',
-  // charts & viz
-  'recharts',
-  'chart.js',
-  'react-chartjs-2',
-  'd3',
-  // dates
-  'date-fns',
-  'dayjs',
-  // drag & drop / interaction
-  '@dnd-kit/core',
-  '@dnd-kit/sortable',
-  '@dnd-kit/utilities',
-  // tables / virtual lists
-  '@tanstack/react-table',
-  '@tanstack/react-virtual',
-  // content
-  'marked',
-  'dompurify',
-  '@types/dompurify',
-  // utilities
-  'zod',
-  'zustand',
-  'nanoid',
-  'uuid',
-  '@types/uuid',
-  // icons & motion
-  'lucide-react',
-  'framer-motion',
-]);
 
 const BASELINE_DEV_DEPS = new Set([
   '@tailwindcss/vite',
@@ -107,13 +74,11 @@ export function checkDependencies(projectDir: string): string[] {
   }
   const problems: string[] = [];
 
+  // Any npm package is allowed; only the SPEC is policed (installs run with
+  // --ignore-scripts, so registry packages cannot run code at install time).
   const deps = (pkg.dependencies ?? {}) as Record<string, string>;
   for (const [name, spec] of Object.entries(deps)) {
-    if (!BASELINE_DEPS.has(name) && !APPROVED_EXTRA_DEPS.has(name)) {
-      problems.push(
-        `dependency '${name}' is not an approved library. Approved extras: ${[...APPROVED_EXTRA_DEPS].sort().join(', ')}`,
-      );
-    } else if (!SEMVER_SPEC.test(spec)) {
+    if (!SEMVER_SPEC.test(spec)) {
       problems.push(
         `dependency '${name}' uses spec '${spec}' — only plain semver (e.g. "^1.9.4") is allowed, never git/url/file specs`,
       );
@@ -318,12 +283,12 @@ export async function run(args: string[]): Promise<number> {
     });
   };
 
-  runStep(errors, 'dependencies (approved libraries)', () => {
+  runStep(errors, 'dependencies (semver specs)', () => {
     const problems = checkDependencies(projectDir);
     if (problems.length > 0) {
       throw new Error(
         `frontend/package.json violates the dependency policy:\n${problems.join('\n')}\n` +
-          `You may add approved libraries to "dependencies" with plain semver pins; ` +
+          `Any npm package may go in "dependencies" with a plain semver pin; ` +
           `devDependencies and scripts are platform-owned.`,
       );
     }
