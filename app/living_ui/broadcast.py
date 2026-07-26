@@ -249,5 +249,12 @@ def make_todo_broadcast_hook() -> Callable[[Any, List[Dict[str, Any]]], None]:
             f"[LIVING_UI] Broadcasting {len(todos)} todos to project {project.id}"
         )
         _dispatch_todos(project.id, todos)
+        # Narrate plan milestones into the build feed (start / complete rows).
+        try:
+            from . import construction_events
+
+            construction_events.record_todo_transitions(project.id, todos)
+        except Exception:
+            pass
 
     return hook

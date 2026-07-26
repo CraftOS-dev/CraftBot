@@ -26,6 +26,11 @@ interface Props {
    *  animation; the component must NOT bind that attribute in JSX or React
    *  will clobber the hook's writes on every render. */
   eyeGroupRef?: Ref<SVGGElement>
+  /** Beacon episode: when true, the mascot stands slightly taller and its
+   *  antenna emits a yellow light wave (pulses ~4× over the episode). Driven
+   *  externally (DraftMascot orchestrates it) so it never overlaps other
+   *  behaviors — it is a standalone animation. */
+  beacon?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -273,6 +278,7 @@ export function CraftBotMascot({
   facing = 'right',
   reaction = null,
   eyeGroupRef,
+  beacon = false,
 }: Props) {
   const wiggling = useWiggleOnIncrease(completedCount)
   const pose = getPose(state)
@@ -283,7 +289,7 @@ export function CraftBotMascot({
 
   return (
     <div
-      className={styles.wrapper}
+      className={`${styles.wrapper} ${beacon ? styles.beaconActive : ''}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
@@ -312,6 +318,16 @@ export function CraftBotMascot({
               transform="translate(52,31) scale(1,0.94)"
             />
             <FaceEyes reaction={reaction} sleeping={pose.sleeping} eyeGroupRef={eyeGroupRef} />
+            {/* Antenna beacon: a yellow light wave that expands from the
+                antenna tip, pulsing while `beacon` is active (invisible
+                otherwise). Rides inside the mirror group so it stays on the
+                antenna when the mascot flips. */}
+            <circle
+              className={`${styles.antennaBeacon} ${beacon ? styles.beaconPulsing : ''}`}
+              cx="48"
+              cy="12"
+              r="4"
+            />
             <path d={ANTENNA_D} fill="#FF4F18" transform="translate(52,2)" />
             {showBlush && (
               <g className={styles.blushPulse}>

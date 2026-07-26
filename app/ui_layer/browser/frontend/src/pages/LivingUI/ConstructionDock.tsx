@@ -13,7 +13,7 @@
  * the app launches, LivingUIPage swaps this out for the running app iframe.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Server,
   PanelsTopLeft,
@@ -23,17 +23,22 @@ import {
   Rocket,
   CheckCircle2,
   XCircle,
-  ChevronDown,
-  ChevronUp,
+  Eye,
+  Search,
+  Terminal,
+  MonitorPlay,
+  ListChecks,
 } from 'lucide-react'
+import { DraftMascot } from '@mascot'
 import type { LivingUIProject, LivingUIBuildEvent } from '../../types'
-import type { LivingUITodo } from '../../store/slices/livingUiSlice'
+import type { LivingUITodo, LivingUISnapshot } from '../../store/slices/livingUiSlice'
 import styles from './LivingUIPage.module.css'
 
 interface Props {
   project: LivingUIProject
   todos: LivingUITodo[] | undefined
   events: LivingUIBuildEvent[]
+  snapshot: LivingUISnapshot | null
 }
 
 // ── progress derived from the agent's todos ────────────────────────────────
@@ -50,22 +55,19 @@ function cleanLabel(text: string | undefined | null): string {
 interface ProgressView {
   progress: number
   todoLabel: string
-  stepLabel: string
   indeterminate: boolean
 }
 
 function deriveProgress(todos: LivingUITodo[] | undefined): ProgressView {
   const list = todos ?? []
   if (list.length === 0) {
-    return { progress: 0, todoLabel: '', stepLabel: 'Planning', indeterminate: true }
+    return { progress: 0, todoLabel: '', indeterminate: true }
   }
   const completed = list.filter(t => t.status === 'completed').length
   const inProgress = list.find(t => t.status === 'in_progress') ?? null
-  const currentIdx = inProgress ? list.findIndex(t => t.id === inProgress.id) : completed
   return {
     progress: (completed / list.length) * 100,
     todoLabel: cleanLabel(inProgress?.active_form) || cleanLabel(inProgress?.content),
-    stepLabel: `Step ${Math.min(currentIdx + 1, list.length)} of ${list.length}`,
     indeterminate: false,
   }
 }
@@ -105,13 +107,21 @@ interface FeedRow {
   count: number
 }
 
+// Only collapse repeated writes/edits to the SAME file — reads, searches,
+// runs, verifies and todo milestones are distinct steps and each gets its
+// own row so the feed reads as a running narrative.
+const COALESCE_KINDS = new Set(['file_write', 'file_edit'])
+
 function coalesce(events: LivingUIBuildEvent[]): FeedRow[] {
   const rows: FeedRow[] = []
   for (const e of events) {
     const last = rows[rows.length - 1]
-    const key = `${e.kind}:${e.file ?? e.area}`
-    const lastKey = last ? `${last.event.kind}:${last.event.file ?? last.event.area}` : null
-    if (last && key === lastKey) {
+    const mergeable =
+      last &&
+      COALESCE_KINDS.has(e.kind) &&
+      last.event.kind === e.kind &&
+      (last.event.file ?? last.event.area) === (e.file ?? e.area)
+    if (mergeable) {
       last.event = e
       last.count += 1
     } else {
@@ -159,6 +169,16 @@ const AREA_ICONS: Record<LivingUIBuildEvent['area'], JSX.Element> = {
   other: <Package size={13} />,
 }
 
+// Kind-specific icons for the activity events; file writes/edits fall back to
+// the area icon (backend/frontend/…).
+const KIND_ICONS: Partial<Record<LivingUIBuildEvent['kind'], JSX.Element>> = {
+  read: <Eye size={13} />,
+  search: <Search size={13} />,
+  run: <Terminal size={13} />,
+  verify: <MonitorPlay size={13} />,
+  todo: <ListChecks size={13} />,
+}
+
 function eventIcon(e: LivingUIBuildEvent): JSX.Element {
   if (e.kind === 'test_run') {
     return e.tests && e.tests.failed > 0 ? (
@@ -167,32 +187,68 @@ function eventIcon(e: LivingUIBuildEvent): JSX.Element {
       <CheckCircle2 size={13} className={styles.feedIconPass} />
     )
   }
-  return AREA_ICONS[e.area] ?? AREA_ICONS.other
+  return KIND_ICONS[e.kind] ?? AREA_ICONS[e.area] ?? AREA_ICONS.other
+}
+
+// ── summary chip with a game-style "+N" pop on increase ─────────────────────
+
+function PoppingChip({
+  value,
+  className,
+  children,
+}: {
+  value: number
+  className?: string
+  children: ReactNode
+}) {
+  const prev = useRef(0) // starts at 0 so the first appearance also pops
+  const idRef = useRef(0)
+  const timers = useRef<number[]>([])
+  const [pops, setPops] = useState<{ id: number; delta: number }[]>([])
+  const [bump, setBump] = useState(false)
+
+  useEffect(() => () => { timers.current.forEach(t => clearTimeout(t)) }, [])
+
+  useEffect(() => {
+    if (value <= prev.current) {
+      prev.current = value
+      return
+    }
+    const delta = value - prev.current
+    prev.current = value
+    const id = ++idRef.current
+    setPops(p => [...p, { id, delta }])
+    setBump(true)
+    timers.current.push(
+      window.setTimeout(() => setPops(p => p.filter(x => x.id !== id)), 1500),
+      window.setTimeout(() => setBump(false), 300),
+    )
+  }, [value])
+
+  return (
+    <span className={`${styles.railChip} ${styles.chipPoppable} ${bump ? styles.chipBump : ''} ${className ?? ''}`}>
+      {children}
+      {pops.map(p => (
+        <span key={p.id} className={styles.chipPop}>+{p.delta}</span>
+      ))}
+    </span>
+  )
 }
 
 // ── main view ───────────────────────────────────────────────────────────────
 
-export function ConstructionDock({ project, todos, events }: Props) {
+export function ConstructionDock({ project, todos, events, snapshot }: Props) {
   const displayed = usePacedEvents(events)
   const view = useMemo(() => deriveProgress(todos), [todos])
-  const [collapsed, setCollapsed] = useState(false)
   const isLaunching = project.status !== 'creating'
-  const stepLabel = view.stepLabel
 
-  // Built-so-far chips, aggregated over the revealed feed.
-  const summary = useMemo(() => {
-    const models = new Set<string>()
-    const routes = new Set<string>()
-    const components = new Set<string>()
-    let tests: { passed: number; failed: number } | null = null
-    for (const e of displayed) {
-      e.entities?.models?.forEach(m => models.add(m))
-      e.entities?.routes?.forEach(r => routes.add(r))
-      e.entities?.components?.forEach(c => components.add(c))
-      if (e.kind === 'test_run' && e.tests) tests = e.tests
-    }
-    return { models, routes, components, tests }
-  }, [displayed])
+  // Built-so-far chips: counts come from the persisted authoritative snapshot
+  // (backend disk scan, stored in the slice so it survives event eviction).
+  const summary = {
+    components: snapshot?.components ?? 0,
+    collections: snapshot?.collections ?? 0,
+    routes: snapshot?.routes ?? 0,
+  }
 
   const latestSnippet = useMemo(() => {
     for (let i = displayed.length - 1; i >= 0; i--) {
@@ -202,122 +258,84 @@ export function ConstructionDock({ project, todos, events }: Props) {
     return null
   }, [displayed])
 
-  const feed = useMemo(() => coalesce(displayed).slice(-3).reverse(), [displayed])
+  const feed = useMemo(() => coalesce(displayed).slice(-5).reverse(), [displayed])
 
   const activityLabel =
     view.todoLabel ||
     (isLaunching ? 'Final checks…' : 'Preparing your workspace…')
 
   const hasSummary =
-    summary.models.size > 0 ||
-    summary.routes.size > 0 ||
-    summary.components.size > 0 ||
-    !!summary.tests
+    summary.collections > 0 ||
+    summary.routes > 0 ||
+    summary.components > 0
 
   return (
     <div className={styles.constructionDockCenter}>
-      <div className={`${styles.dock} ${collapsed ? styles.dockCollapsed : ''}`}>
-        {collapsed ? (
-          <button
-            type="button"
-            className={styles.dockPill}
-            onClick={() => setCollapsed(false)}
-            title="Show build progress"
-          >
-            <span className={styles.dockPillBar}>
-              <span
-                className={`${styles.progressFill} ${view.indeterminate ? styles.indeterminate : ''}`}
-                style={view.indeterminate ? undefined : { width: `${view.progress}%` }}
-              />
-            </span>
-            <span className={styles.dockPillLabel}>
-              {isLaunching ? 'Launching…' : stepLabel}
-            </span>
-            <ChevronUp size={14} />
-          </button>
-        ) : (
-          <>
-            <div className={styles.dockHeader}>
-              <span className={styles.dockTitle}>
-                {isLaunching ? (
-                  <>
-                    <Rocket size={13} /> Launching {project.name}
-                  </>
-                ) : (
-                  <>Creating {project.name}</>
-                )}
-              </span>
-              <span className={styles.dockStep}>
-                {isLaunching ? 'Final checks' : stepLabel}
-              </span>
-              <span className={styles.dockButtons}>
-                <button
-                  type="button"
-                  className={styles.dockIconBtn}
-                  onClick={() => setCollapsed(true)}
-                  title="Minimize"
-                >
-                  <ChevronDown size={14} />
-                </button>
-              </span>
-            </div>
-
-            <div className={styles.progressBar}>
-              <div
-                className={`${styles.progressFill} ${view.indeterminate ? styles.indeterminate : ''}`}
-                style={view.indeterminate ? undefined : { width: `${view.progress}%` }}
-              />
-            </div>
-
-            <p className={styles.dockCurrent}>{activityLabel}</p>
-
-            {hasSummary && (
-              <div className={styles.railChips}>
-                {summary.components.size > 0 && (
-                  <span className={styles.railChip}>
-                    <PanelsTopLeft size={11} /> {summary.components.size} component{summary.components.size > 1 ? 's' : ''}
-                  </span>
-                )}
-                {summary.models.size > 0 && (
-                  <span className={styles.railChip}>
-                    <Server size={11} /> {summary.models.size} collection{summary.models.size > 1 ? 's' : ''}
-                  </span>
-                )}
-                {summary.routes.size > 0 && (
-                  <span className={styles.railChip}>
-                    <Package size={11} /> {summary.routes.size} route{summary.routes.size > 1 ? 's' : ''}
-                  </span>
-                )}
-                {summary.tests && (
-                  <span
-                    className={`${styles.railChip} ${summary.tests.failed ? styles.railChipFail : styles.railChipPass}`}
-                  >
-                    <FlaskConical size={11} /> {summary.tests.passed} passed
-                    {summary.tests.failed ? `, ${summary.tests.failed} failed` : ''}
-                  </span>
-                )}
-              </div>
+      <div className={styles.dock}>
+        <div className={styles.dockHeader}>
+          <span className={styles.dockTitle}>
+            {isLaunching ? (
+              <>
+                <Rocket size={13} /> Launching {project.name}
+              </>
+            ) : (
+              <>Creating {project.name}</>
             )}
+          </span>
+        </div>
 
-            <div className={styles.dockSwapIn}>
-              {feed.length > 0 && (
-                <div className={styles.railFeed}>
-                  {feed.map(({ event: e, count }) => (
-                    <div key={e.id} className={styles.feedItem}>
-                      <span className={styles.feedIcon}>{eventIcon(e)}</span>
-                      <span className={styles.feedLabel}>{e.label}</span>
-                      {count > 1 && <span className={styles.feedCount}>×{count}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
+        <div className={styles.progressBar}>
+          <div
+            className={`${styles.progressFill} ${view.indeterminate ? styles.indeterminate : ''}`}
+            style={view.indeterminate ? undefined : { width: `${view.progress}%` }}
+          />
+        </div>
 
-              {latestSnippet && (
-                <CodePeek file={latestSnippet.file} snippet={latestSnippet.snippet} />
-              )}
-            </div>
-          </>
+        <p className={styles.dockCurrent}>{activityLabel}</p>
+
+        {hasSummary && (
+          <div className={styles.railChips}>
+            {summary.components > 0 && (
+              <PoppingChip value={summary.components}>
+                <PanelsTopLeft size={11} /> {summary.components} component{summary.components > 1 ? 's' : ''}
+              </PoppingChip>
+            )}
+            {summary.collections > 0 && (
+              <PoppingChip value={summary.collections}>
+                <Server size={11} /> {summary.collections} collection{summary.collections > 1 ? 's' : ''}
+              </PoppingChip>
+            )}
+            {summary.routes > 0 && (
+              <PoppingChip value={summary.routes}>
+                <Package size={11} /> {summary.routes} route{summary.routes > 1 ? 's' : ''}
+              </PoppingChip>
+            )}
+          </div>
         )}
+
+        <div className={styles.dockSwapIn}>
+          {feed.length > 0 && (
+            <div className={styles.railFeed}>
+              {feed.map(({ event: e, count }) => (
+                <div key={e.id} className={styles.feedItem}>
+                  <span className={styles.feedIcon}>{eventIcon(e)}</span>
+                  <span className={styles.feedLabel}>{e.label}</span>
+                  {count > 1 && <span className={styles.feedCount}>×{count}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {latestSnippet && (
+            <CodePeek file={latestSnippet.file} snippet={latestSnippet.snippet} />
+          )}
+        </div>
+      </div>
+
+      {/* Mascot keeps the user company at the bottom of the page while the
+          app is being built (same character as the New Chat hero). */}
+      <div className={styles.dockMascot}>
+        <DraftMascot size={60} />
       </div>
     </div>
   )

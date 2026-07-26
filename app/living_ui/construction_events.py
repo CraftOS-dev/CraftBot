@@ -30,9 +30,26 @@ except ImportError:
 from ._state import get_living_ui_manager
 
 # Actions we derive build events from. Everything else is ignored at the
-# hook's first line, so the per-action overhead is one set lookup.
-_WATCHED_ACTIONS = frozenset(
-    {"write_file", "stream_edit", "living_ui_scaffold", "living_ui_notify_ready"}
+# hook's first line, so the per-action overhead is one set lookup. The read/
+# search/run/verify actions don't change the app, but the agent performs them
+# constantly — surfacing them keeps the feed lively during the long reasoning
+# stretches between file writes.
+_FILE_ACTIONS = frozenset({"write_file", "stream_edit"})
+_READ_ACTIONS = frozenset({"read_file", "list_folder"})
+_SEARCH_ACTIONS = frozenset({"find_files", "grep_files"})
+_WATCHED_ACTIONS = (
+    _FILE_ACTIONS
+    | _READ_ACTIONS
+    | _SEARCH_ACTIONS
+    | frozenset(
+        {
+            "living_ui_scaffold",
+            "living_ui_notify_ready",
+            "run_shell",
+            "spawn_subagent",
+            "browser_probe",
+        }
+    )
 )
 
 # run_id -> recorded start info, popped on action end. Bounded as a
@@ -43,6 +60,9 @@ _PENDING_MAX = 500
 # Per-project ring buffers so a page refresh mid-build can replay the feed.
 _BUFFER_MAX = 200
 _BUFFERS: Dict[str, Deque[Dict[str, Any]]] = {}
+
+# Last-seen todo status per project, for emitting start/complete transitions.
+_PREV_TODOS: Dict[str, Dict[str, str]] = {}
 
 _SNIPPET_MAX_LINES = 18
 _SNIPPET_MAX_CHARS = 900
@@ -96,6 +116,70 @@ def _extract_entities(rel_path: str, content: str) -> Dict[str, List[str]]:
         if names:
             entities["components"] = names
     return entities
+
+
+# ── authoritative project snapshot (source of truth for the dock chips) ─────
+# The chips count what actually EXISTS in the project on disk, not what a
+# single write payload happened to contain — so scaffold-created collections
+# and incremental edits are all reflected, and the numbers can't drift.
+# Read-only, fail-silent, cheap (a handful of small files).
+
+# Declared components: function/class Foo (any capitalized top-level decl).
+_COMPONENT_DECL_RE = re.compile(
+    r"(?:export\s+)?(?:default\s+)?(?:function|class)\s+([A-Z]\w*)", re.MULTILINE
+)
+# Rendered JSX tags: <Card …> / <Button/>. The negative lookbehind drops TS
+# generics like useCollection<Task> (the '<' there follows a word char) and
+# member access; closing tags never match ('<' followed by '/').
+_JSX_TAG_RE = re.compile(r"(?<![\w.])<([A-Z]\w*)(?=[\s/>\n])")
+
+_SNAPSHOT_SKIP_HOOKS = {"_system.pb.js", "_craftbot_bridge.js"}
+
+
+def _project_snapshot(project_path: Any) -> Optional[Dict[str, int]]:
+    """Distinct collections / components / routes present in the project on
+    disk right now. Authoritative source for the dock's summary chips."""
+    try:
+        root = Path(project_path)
+
+        collections: set = set()
+        mig = root / "pb" / "pb_migrations"
+        if mig.is_dir():
+            for f in mig.glob("*.js"):
+                collections.update(
+                    _PB_COLLECTION_RE.findall(
+                        f.read_text(encoding="utf-8", errors="replace")
+                    )
+                )
+
+        routes: set = set()
+        hooks = root / "pb" / "pb_hooks"
+        if hooks.is_dir():
+            for f in hooks.glob("*.pb.js"):
+                if f.name in _SNAPSHOT_SKIP_HOOKS:
+                    continue
+                text = f.read_text(encoding="utf-8", errors="replace")
+                for m, path in _PB_ROUTE_RE.findall(text):
+                    routes.add(f"{m.upper()} {path}")
+
+        # Components = declared (function/class Foo) ∪ rendered JSX tags
+        # (kit + custom) — so a monolithic App that renders Button/Card/Dialog
+        # reads as the pieces it's actually assembled from, not just "1".
+        components: set = set()
+        app_dir = root / "frontend" / "src" / "app"
+        if app_dir.is_dir():
+            for f in list(app_dir.rglob("*.tsx")) + list(app_dir.rglob("*.jsx")):
+                text = f.read_text(encoding="utf-8", errors="replace")
+                components.update(_COMPONENT_DECL_RE.findall(text))
+                components.update(_JSX_TAG_RE.findall(text))
+
+        return {
+            "collections": len(collections),
+            "components": len(components),
+            "routes": len(routes),
+        }
+    except Exception:
+        return None
 
 
 def _snippet_of(content: str) -> str:
@@ -163,6 +247,7 @@ def _build_event(
     entities: Optional[Dict[str, List[str]]] = None,
     snippet: str = "",
     tests: Optional[Dict[str, int]] = None,
+    snapshot: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     event: Dict[str, Any] = {
         "id": run_id,
@@ -179,6 +264,8 @@ def _build_event(
         event["snippet"] = snippet
     if tests is not None:
         event["tests"] = tests
+    if snapshot is not None:
+        event["snapshot"] = snapshot
     return event
 
 
@@ -202,6 +289,28 @@ def get_buffered_events(project_id: str) -> List[Dict[str, Any]]:
 
 def clear_buffer(project_id: str) -> None:
     _BUFFERS.pop(project_id, None)
+    _PREV_TODOS.pop(project_id, None)
+
+
+# ── project resolution ──────────────────────────────────────────────────────
+
+
+def _building_project_from_session(inputs: Dict[str, Any]) -> Optional[Any]:
+    """Resolve the building project from the action's injected _session_id
+    (works for path-less actions like search/shell/verify)."""
+    session_id = inputs.get("_session_id") if isinstance(inputs, dict) else None
+    if not session_id:
+        return None
+    manager = get_living_ui_manager()
+    if manager is None:
+        return None
+    try:
+        project = manager.get_project_by_session_id(session_id)
+    except Exception:
+        project = None
+    if project and getattr(project, "status", None) in ("creating", "error"):
+        return project
+    return None
 
 
 # ── labels ──────────────────────────────────────────────────────────────────
@@ -265,8 +374,15 @@ def _classify_file_action(
         file=rel,
         entities=entities,
         snippet=_snippet_of(content),
+        snapshot=_project_snapshot(project.path),
     )
     return project.id, event
+
+
+def _snapshot_for_id(project_id: str) -> Optional[Dict[str, int]]:
+    manager = get_living_ui_manager()
+    project = manager.projects.get(project_id) if manager else None
+    return _project_snapshot(project.path) if project else None
 
 
 def _classify_scaffold_end(
@@ -282,6 +398,7 @@ def _classify_scaffold_end(
         "scaffold",
         "Workspace scaffolded — frontend/, pb/, operations.json",
         area="config",
+        snapshot=_snapshot_for_id(project_id),
     )
     return project_id, event
 
@@ -295,13 +412,99 @@ def _classify_notify_ready_end(
         return None
     ok = isinstance(outputs, dict) and outputs.get("status") == "success"
     if ok:
-        label = "Validation gate + walk-verify passed"
+        label = "Validation gate and walk-verify passed"
         tests = {"passed": 1, "failed": 0}
     else:
-        label = "Validation failed — fixing and retrying"
+        label = "Validation failed: fixing and retrying"
         tests = {"passed": 0, "failed": 1}
-    event = _build_event(run_id, "test_run", label, area="tests", tests=tests)
+    event = _build_event(
+        run_id,
+        "test_run",
+        label,
+        area="tests",
+        tests=tests,
+        snapshot=_snapshot_for_id(project_id),
+    )
     return project_id, event
+
+
+# ── activity actions (read/search/run/verify — no app change, but frequent) ──
+
+
+def _basename(path: Any) -> str:
+    return str(path).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def _clip(text: Any, n: int = 48) -> str:
+    s = " ".join(str(text or "").split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _classify_activity(
+    run_id: str, name: str, inputs: Dict[str, Any]
+) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """A read/search/run/verify action the agent performed. Attributed to the
+    building project via its session; produces a lightweight feed row."""
+    project = _building_project_from_session(inputs)
+    if project is None:
+        return None
+    if name == "read_file":
+        kind, area, label = "read", "other", f"Read {_basename(inputs.get('file_path'))}"
+    elif name == "list_folder":
+        kind, area, label = "read", "other", f"Explored {_basename(inputs.get('path') or inputs.get('folder') or '.')}/"
+    elif name == "find_files":
+        kind, area, label = "search", "other", "Searched project files"
+    elif name == "grep_files":
+        term = _clip(inputs.get("pattern") or inputs.get("query"), 32)
+        kind, area, label = "search", "other", (f"Searched for “{term}”" if term else "Searched the code")
+    elif name == "run_shell":
+        kind, area, label = "run", "other", f"Ran {_clip(inputs.get('command'), 40)}"
+    elif name == "browser_probe":
+        kind, area, label = "verify", "tests", "Reviewed the app in a browser"
+    elif name == "spawn_subagent":
+        agent_type = str(inputs.get("agent_type", ""))
+        if agent_type == "walk_verify":
+            kind, area, label = "verify", "tests", "Reviewed the app in a browser"
+        else:
+            kind, area, label = "run", "other", "Delegated a sub-task"
+    else:
+        return None
+    return project.id, _build_event(run_id, kind, label, area=area)
+
+
+# ── todo transitions (start / complete milestones) ──────────────────────────
+
+
+def record_todo_transitions(project_id: str, todos: List[Dict[str, Any]]) -> None:
+    """Emit a feed row when a todo starts or completes. Diffs against the last
+    seen statuses; called from the SessionManager todo hook. Fail-silent."""
+    try:
+        prev = _PREV_TODOS.get(project_id, {})
+        current: Dict[str, str] = {}
+        for t in todos or []:
+            tid = str(t.get("id") or "")
+            if not tid:
+                continue
+            status = str(t.get("status") or "")
+            current[tid] = status
+            if status == prev.get(tid):
+                continue
+            content = _clip(t.get("content") or t.get("active_form"), 60)
+            if not content:
+                continue
+            if status == "in_progress":
+                _record(
+                    project_id,
+                    _build_event(f"todo-{tid}-start", "todo", f"▸ {content}", area="other"),
+                )
+            elif status == "completed":
+                _record(
+                    project_id,
+                    _build_event(f"todo-{tid}-done", "todo", f"✓ {content}", area="other"),
+                )
+        _PREV_TODOS[project_id] = current
+    except Exception as exc:
+        logger.debug(f"[LIVING_UI:BUILD_EVENTS] todo transitions failed: {exc}")
 
 
 # ── ActionManager hooks (single-callback each; assigned in browser_adapter) ──
@@ -320,12 +523,10 @@ def make_action_hooks():
             name = getattr(action, "name", "") or ""
             if name not in _WATCHED_ACTIONS:
                 return
+            inputs = dict(input_data) if isinstance(input_data, dict) else {}
             if len(_PENDING) >= _PENDING_MAX:
                 _PENDING.pop(next(iter(_PENDING)), None)
-            _PENDING[run_id] = {
-                "name": name,
-                "inputs": dict(input_data) if isinstance(input_data, dict) else {},
-            }
+            _PENDING[run_id] = {"name": name, "inputs": inputs}
         except Exception:
             pass
 
@@ -340,13 +541,15 @@ def make_action_hooks():
             inputs = pending["inputs"]
 
             result: Optional[Tuple[str, Dict[str, Any]]] = None
-            if name in ("write_file", "stream_edit"):
+            if name in _FILE_ACTIONS:
                 if not failed:
                     result = _classify_file_action(run_id, name, inputs)
             elif name == "living_ui_scaffold":
                 result = _classify_scaffold_end(run_id, out)
             elif name == "living_ui_notify_ready":
                 result = _classify_notify_ready_end(run_id, inputs, out)
+            elif not failed:
+                result = _classify_activity(run_id, name, inputs)
 
             if result:
                 project_id, event = result

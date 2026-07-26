@@ -27,11 +27,21 @@ export interface LivingUITodo {
 // construction_events.py) so replay + live never exceed what the server holds.
 const MAX_BUILD_EVENTS = 200
 
+// Authoritative "built so far" counts for the summary chips. Persisted
+// separately from the (capped, paced) event feed so a flood of read/search
+// events can never evict the writes that carried the snapshot.
+export interface LivingUISnapshot {
+  collections: number
+  components: number
+  routes: number
+}
+
 interface LivingUiState {
   projects: LivingUIProject[]
   creating: LivingUIStatusUpdate | null
   todos: Record<string, LivingUITodo[]>
   buildEvents: Record<string, LivingUIBuildEvent[]>
+  snapshots: Record<string, LivingUISnapshot>
   activeId: string | null
   states: Record<string, LivingUIStateUpdate['state']>
 }
@@ -41,6 +51,7 @@ const initialState: LivingUiState = {
   creating: null,
   todos: {},
   buildEvents: {},
+  snapshots: {},
   activeId: null,
   states: {},
 }
@@ -80,6 +91,7 @@ const livingUiSlice = createSlice({
       const { projectId, url, port } = action.payload
       state.creating = null
       delete state.buildEvents[projectId]
+      delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'running', url, port } : p,
       )
@@ -87,6 +99,7 @@ const livingUiSlice = createSlice({
     markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number }>) {
       const { projectId, url, port } = action.payload
       delete state.buildEvents[projectId]
+      delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
         p.id === projectId ? { ...p, status: 'running', url, port } : p,
       )
@@ -137,6 +150,7 @@ const livingUiSlice = createSlice({
       state.projects = state.projects.filter(p => p.id !== id)
       delete state.todos[id]
       delete state.buildEvents[id]
+      delete state.snapshots[id]
       delete state.states[id]
       if (state.activeId === id) state.activeId = null
     },
@@ -150,6 +164,9 @@ const livingUiSlice = createSlice({
       action: PayloadAction<{ projectId: string; event: LivingUIBuildEvent }>,
     ) {
       const { projectId, event } = action.payload
+      // Persist the authoritative snapshot the moment it arrives, so the chips
+      // survive event eviction/pacing (they read this, not the feed).
+      if (event.snapshot) state.snapshots[projectId] = event.snapshot
       const list = state.buildEvents[projectId] ?? []
       if (list.some(e => e.id === event.id)) return
       const next = [...list, event]
@@ -163,6 +180,12 @@ const livingUiSlice = createSlice({
     ) {
       const { projectId, events } = action.payload
       state.buildEvents[projectId] = events.slice(-MAX_BUILD_EVENTS)
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].snapshot) {
+          state.snapshots[projectId] = events[i].snapshot!
+          break
+        }
+      }
     },
     setProjectState(state, action: PayloadAction<LivingUIStateUpdate>) {
       state.states[action.payload.projectId] = action.payload.state

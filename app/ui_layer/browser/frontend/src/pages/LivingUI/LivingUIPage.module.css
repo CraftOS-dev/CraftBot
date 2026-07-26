@@ -183,19 +183,30 @@
 
 /* ── Construction dock (read-only build visualizer) ─────────────────────── */
 
-/* Full-pane host: no app/skeleton behind the dock — just the centered card. */
+/* Full-pane host: the dock sits centered in the pane (no app/skeleton behind
+   it). Same centered card as before — just without the border and shadow. */
 .constructionDockCenter {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-4);
+  /* No bottom padding: the mascot sits flush against the panel's bottom edge. */
+  padding: var(--space-4) var(--space-4) 0;
   background: var(--bg-primary);
   overflow: hidden;
 }
 
-/* Shared progress bar (also used by the dock pill). */
+/* Mascot pinned flush to the bottom-center of the build view, below the dock. */
+.dockMascot {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 70%);
+}
+
 .progressBar {
   width: 100%;
   height: 6px;
@@ -227,60 +238,20 @@
   100% { transform: translateX(350%); }
 }
 
+/* Centered card, integrated look: same size as before, just no border/shadow. */
 .dock {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   width: min(560px, 100%);
   padding: var(--space-3);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg, 12px);
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
-  transition: width 240ms ease, padding 240ms ease;
-}
-
-.dockCollapsed {
-  width: auto;
-  padding: 0;
-  border: none;
   background: transparent;
-  backdrop-filter: none;
-  box-shadow: none;
 }
-
-.dockPill {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-
-.dockPillBar {
-  position: relative;
-  width: 72px;
-  height: 4px;
-  border-radius: var(--radius-full);
-  background: var(--border-primary);
-  overflow: hidden;
-}
-
-.dockPillBar .progressFill { display: block; }
-
-.dockPillLabel { white-space: nowrap; }
 
 .dockHeader {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   min-width: 0;
 }
@@ -298,43 +269,8 @@
   white-space: nowrap;
 }
 
-.dockStep {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: var(--font-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.dockButtons {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.dockIconBtn {
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.dockIconBtn:hover {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
 .dockCurrent {
-  margin: 0;
+  margin: 0 0 var(--space-8);
   font-size: var(--text-xs);
   color: var(--text-secondary);
   overflow: hidden;
@@ -345,6 +281,7 @@
 .railChips {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-1);
 }
 
@@ -362,19 +299,43 @@
   animation: feedItemEnter 320ms ease-out both;
 }
 
-.railChipPass {
-  color: var(--color-success, #3fb950);
-  border-color: color-mix(in srgb, var(--color-success, #3fb950) 40%, transparent);
+/* Game-style "+N" pop when a summary chip's count goes up. */
+.chipPoppable {
+  position: relative;
 }
 
-.railChipFail {
-  color: var(--color-error);
-  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+.chipBump {
+  animation: chipBump 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chipPop {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-success, #3fb950);
+  pointer-events: none;
+  animation: chipPop 1500ms ease-out forwards;
+}
+
+@keyframes chipBump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@keyframes chipPop {
+  0% { opacity: 0; transform: translate(-50%, 4px) scale(0.8); }
+  18% { opacity: 1; transform: translate(-50%, -4px) scale(1.1); }
+  70% { opacity: 1; transform: translate(-50%, -18px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -30px) scale(1); }
 }
 
 .railFeed {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
   min-height: 0;
 }

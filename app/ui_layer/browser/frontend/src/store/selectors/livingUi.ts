@@ -12,6 +12,9 @@ export const selectLivingUiTodos = (state: RootState) =>
 export const selectLivingUiBuildEvents = (state: RootState) =>
   state.livingUi.buildEvents
 
+export const selectLivingUiSnapshots = (state: RootState) =>
+  state.livingUi.snapshots
+
 export const selectActiveLivingUiId = (state: RootState) =>
   state.livingUi.activeId
 
