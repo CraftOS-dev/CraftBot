@@ -62,6 +62,12 @@ class LivingUIProject:
     auto_launch: bool = False  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
     style_pack: str = ""  # wizard-chosen default style pack (host may override)
+    # Display icon: "lucide:<name>" (picker) or "file:<relpath>" (uploaded,
+    # doubles as the app's favicon).
+    icon: Optional[str] = None
+    # Server-side theme persistence: {"themeId": ..., "customColors": {...}}.
+    # The host adopts this absent a local (per-browser) override.
+    ui_theme: Optional[Dict[str, Any]] = None
     project_type: str = "native"  # 'native' or 'external'
     app_runtime: Optional[str] = (
         None  # 'go', 'node', 'python', 'rust', 'docker', 'static'
@@ -91,6 +97,8 @@ class LivingUIProject:
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
             "stylePack": self.style_pack,
+            "icon": self.icon,
+            "uiTheme": self.ui_theme,
             "projectType": self.project_type,
             "appRuntime": self.app_runtime,
             "livingUIVersion": 2,
@@ -480,6 +488,8 @@ UI in {project.path}/frontend/src/app/."""
                             auto_launch=project_data.get("autoLaunch", False),
                             log_cleanup=project_data.get("logCleanup", True),
                             style_pack=project_data.get("stylePack", ""),
+                            icon=project_data.get("icon"),
+                            ui_theme=project_data.get("uiTheme"),
                             project_type=project_data.get("projectType", "native"),
                             app_runtime=project_data.get("appRuntime"),
                         )
@@ -1366,6 +1376,16 @@ UI in {project.path}/frontend/src/app/."""
             if error:
                 self.projects[project_id].error = error
             self._save_projects()
+
+    def set_project_ui_theme(
+        self, project_id: str, ui_theme: Optional[Dict[str, Any]]
+    ) -> None:
+        """Persist the project's display theme ({"themeId", "customColors"})."""
+        project = self.projects.get(project_id)
+        if project is None:
+            return
+        project.ui_theme = ui_theme or None
+        self._save_projects()
 
     def get_project_by_session_id(
         self, session_id: str

@@ -19,7 +19,7 @@ Every file in a project has exactly one owner. You edit **only** these paths:
 | `reference/` | Requirements and materials handed to you |
 
 Everything else — `frontend/src/kit/`, `main.tsx`, `config.gen.ts`, configs,
-`_system.pb.js`, `manifest.json` — is **system-managed**. The validation gate
+`_system.pb.js`, `_craftbot_bridge.js`, `manifest.json` — is **system-managed**. The validation gate
 hashes those files and **fails the build if you touched them** (ownership step).
 Need different behavior from a kit component? Wrap it in `app/`:
 
@@ -65,6 +65,22 @@ forgot to declare.
 - `crud` — parameterized collection access, no hook needed.
 - `job` — POST route returning `{jobId}`, status at `GET /api/_jobs/{jobId}`.
 - Mark data-deleting ops `"destructive": true` — hosts confirm before running.
+
+### 4.1 The CraftBot bridge (LLM + integrations, zero keys)
+
+Hook routes can reach the host's LLM and connected integrations through the
+system module `pb/pb_hooks/_craftbot_bridge.js` — no API keys in the app:
+
+```js
+const bridge = require(`${__hooks}/_craftbot_bridge.js`);
+const summary = bridge.callLLM('Summarize:\n' + text, 'Reply in one sentence.');
+const res = bridge.callIntegration('slack', 'POST', '/chat.postMessage', { ... });
+```
+
+`callLLM` returns `''` and `callIntegration` returns `{status: 503, ...}` when
+the app runs outside CraftBot — degrade gracefully (skip the feature, never
+crash the route). Only integrations the user has connected in CraftBot work;
+treat non-2xx `status` as "not available".
 
 ## 5. Frontend
 

@@ -17,17 +17,13 @@ Project Path: {project_path}
 Follow the living-ui-creator skill. Workflow:
 
 1. Read agent_file_system/GLOBAL_LIVING_UI.md — apply its colors, fonts, and rules
-2. Read {project_path}/LIVING_UI.md (plan/index) and {project_path}/reference/requirements.md if present
-3. QnA PHASE — MANDATORY unless the requirements are already detailed and
-   unambiguous: ask the user 1-2 batches of clarifying questions (data to track,
-   must-have features, design preferences, single- vs multi-user) using
-   send_message as your FINAL message (continue_work=false — the reply wakes the session), ALWAYS passing the `options`
-   param with quick-answer choices when the answer space is enumerable
-   (they render as tap-to-answer chips on the creation screen). Write the agreed requirements to
-   {project_path}/reference/requirements.md and mirror the feature checklist
-   into LIVING_UI.md BEFORE any coding. Writing reference/requirements.md is
-   MANDATORY — it is the binding spec for verification.
-3b. This build IS substantial work — the standard run protocol applies as-is
+2. Read {project_path}/LIVING_UI.md (plan/index) and {project_path}/reference/requirements.md.
+   The creation wizard interviewed the user and synthesized requirements.md — it
+   is the BINDING spec: implement it EXACTLY and mirror its feature checklist into
+   LIVING_UI.md before coding. If requirements.md is absent, build from the
+   Description above; only ask the user (a FINAL send_message, continue_work=false)
+   when something is blocking and you cannot reasonably decide it yourself.
+3. This build IS substantial work — the standard run protocol applies as-is
    (scope, plan, execute, verify, deliver). Do not skip it because these
    numbered steps exist; they only describe the Living-UI-specific parts.
 4. OWNERSHIP RULE (the gate enforces this by hashing):

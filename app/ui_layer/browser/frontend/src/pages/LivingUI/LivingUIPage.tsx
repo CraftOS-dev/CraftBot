@@ -69,6 +69,7 @@ export function LivingUIPage() {
     deleteLivingUI,
     setActiveLivingUI,
     sendMessage,
+    updateLivingUITheme,
   } = useWebSocket()
   const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreen()
   const { theme: appTheme } = useTheme()
@@ -119,16 +120,26 @@ export function LivingUIPage() {
   // Find the current project
   const project = livingUIProjects.find(p => p.id === projectId)
 
-  // Wizard-chosen style pack: seed it when the user hasn't picked one yet
-  // (survives frontend rebuilds and cleared localStorage).
+  // Server-persisted theme (wizard pick or another browser's selection):
+  // adopt it when the user has no local override — survives frontend
+  // rebuilds and cleared localStorage. Legacy projects fall back to the
+  // scaffold-time stylePack.
   useEffect(() => {
-    if (!projectId || !project?.stylePack || project.stylePack === 'craftbot') return
+    if (!projectId) return
     try {
-      if (!localStorage.getItem(`livingui-theme-${projectId}`)) {
-        setLivingUITheme(project.stylePack as LivingUIThemeId)
+      if (localStorage.getItem(`livingui-theme-${projectId}`)) return
+      const serverTheme = project?.uiTheme?.themeId || project?.stylePack
+      if (serverTheme && serverTheme !== 'craftbot') {
+        setLivingUITheme(serverTheme as LivingUIThemeId)
+        const colors = project?.uiTheme?.customColors
+        if (serverTheme === 'custom' && colors?.bg && colors?.surface && colors?.text && colors?.accent) {
+          setLivingUICustomColors({
+            bg: colors.bg, surface: colors.surface, text: colors.text, accent: colors.accent,
+          })
+        }
       }
     } catch { /* cosmetic only */ }
-  }, [projectId, project?.stylePack])
+  }, [projectId, project?.uiTheme, project?.stylePack])
 
   // A question the agent mirrored onto this screen (waiting on the user's reply).
   const pendingQuestion = projectId ? pendingQuestions[projectId] : undefined
@@ -220,6 +231,11 @@ export function LivingUIPage() {
       setLivingUICustomColors(colors)
       saveLivingUICustomColors(projectId, colors)
     }
+    // Server-side persistence so the pick follows the user across browsers.
+    updateLivingUITheme(projectId, {
+      themeId,
+      ...(themeId === 'custom' ? { customColors: colors ?? livingUICustomColors } : {}),
+    })
   }
 
   const handleLaunch = () => {

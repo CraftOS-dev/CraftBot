@@ -51,14 +51,13 @@ export function DueBadge({ overdue }: { overdue: boolean }) { /* compose */ }
 ## Before coding
 
 1. Read `agent_file_system/GLOBAL_LIVING_UI.md` — colors, fonts, enforced rules.
-2. Read `{project_path}/LIVING_UI.md` and `reference/requirements.md` (if present).
-3. **QnA phase (mandatory unless requirements are already detailed and
-   unambiguous):** ask the user 1–2 batches of clarifying questions — data to
-   track, must-have features, design preferences, single- vs multi-user — via
-   a FINAL `send_message` (`continue_work=false` — the reply wakes the session) (questions appear on the
-   creation screen). Write the agreed requirements to
-   `reference/requirements.md` before any coding.
-4. A Living UI build is substantial work — the standard run protocol applies
+2. Read `{project_path}/LIVING_UI.md` and `reference/requirements.md`. The
+   creation wizard interviewed the user and synthesized `requirements.md` — it
+   is the **binding spec**: implement it exactly and mirror its checklist into
+   `LIVING_UI.md`. If it is absent, build from the project description; only ask
+   the user (a FINAL `send_message`, `continue_work=false`) when something is
+   genuinely blocking and you cannot reasonably decide it yourself.
+3. A Living UI build is substantial work — the standard run protocol applies
    as-is (scope, plan, execute, verify, deliver); this skill adds nothing to
    it. `reference/requirements.md` is the binding spec verification checks
    against; mirror the feature checklist in `LIVING_UI.md`.

@@ -209,6 +209,13 @@ interface WebSocketContextType extends WebSocketState {
   stopLivingUI: (projectId: string) => void
   deleteLivingUI: (projectId: string) => void
   setActiveLivingUI: (projectId: string | null) => void
+  updateLivingUITheme: (
+    projectId: string,
+    theme: {
+      themeId: string
+      customColors?: { bg: string; surface: string; text: string; accent: string }
+    },
+  ) => void
 }
 
 const defaultState: WebSocketState = {
@@ -659,6 +666,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     dispatch(livingUiSetActiveId(projectId))
   }, [dispatch])
 
+  const updateLivingUITheme = useCallback((
+    projectId: string,
+    theme: {
+      themeId: string
+      customColors?: { bg: string; surface: string; text: string; accent: string }
+    },
+  ) => {
+    if (client.isConnected) {
+      client.sendString(JSON.stringify({
+        type: 'living_ui_theme_update',
+        projectId,
+        theme,
+      }))
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -721,6 +744,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         stopLivingUI,
         deleteLivingUI,
         setActiveLivingUI,
+        updateLivingUITheme,
       }}
     >
       {children}

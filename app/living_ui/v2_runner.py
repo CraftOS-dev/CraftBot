@@ -138,8 +138,11 @@ class V2Runner:
         frontend = project_dir / "frontend"
         if (frontend / "node_modules").exists():
             return
+        # Windows: bare "npm" is npm.cmd — CreateProcess only finds it via
+        # the resolved path, so always spawn the which()-resolved binary.
+        npm = shutil.which("npm") or "npm"
         code, out = await self._run(
-            ["npm", "install", "--no-audit", "--no-fund"],
+            [npm, "install", "--no-audit", "--no-fund"],
             timeout=INSTALL_TIMEOUT_S,
             cwd=frontend,
         )

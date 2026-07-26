@@ -61,9 +61,12 @@ export async function run(args: string[]): Promise<number> {
   );
   children.push(pb);
 
-  const vite = spawn('npm', ['run', 'dev'], {
+  // Windows: npm is npm.cmd, which Node refuses to spawn without a shell.
+  const isWin = process.platform === 'win32';
+  const vite = spawn(isWin ? 'npm.cmd' : 'npm', ['run', 'dev'], {
     cwd: join(projectDir, 'frontend'),
     stdio: 'inherit',
+    shell: isWin,
     env: {
       ...process.env,
       VITE_PB_URL: `http://127.0.0.1:${pbPort}`,

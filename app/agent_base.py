@@ -173,8 +173,9 @@ RUN_CARRY_KEYS = (
 # turn start: source value → (emoji, label). Without this, non-chat runs
 # (scheduler fires, background workflows) just start streaming actions
 # with no visible cause. Sources absent here stay silent — user messages
-# have their own chat bubble; continuations, restart notices and living-ui
-# plumbing are internal. Closed set keyed on the typed source enum.
+# have their own chat bubble; continuations, restart notices, living-ui
+# creation (adapter posts its own richer summary) and living-ui import are
+# handled elsewhere. Closed set keyed on the typed source enum.
 TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
@@ -184,6 +185,10 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
+    # NB: LIVING_UI_DEV (creation build) is NOT here — the adapter posts a
+    # richer "Living UI: <name> / <description> / Building your app now…"
+    # summary into the project session at creation, which would duplicate.
+    TriggerSource.LIVING_UI_CRASH_FIX.value: ("🔧", "Fixing your Living UI"),
 }
 
 

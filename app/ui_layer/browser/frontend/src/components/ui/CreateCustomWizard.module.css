@@ -1,0 +1,538 @@
+/* Create Custom wizard (inside the Add Living UI modal) */
+
+.wizardScroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.wizardBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.configForm {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+}
+
+.configInner {
+  max-width: 880px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.nameRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.nameRow .input {
+  flex: 1;
+}
+
+.formGroup {
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.required {
+  color: var(--color-primary);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.inputError {
+  border-color: var(--color-error, #e5484d);
+}
+
+.errorText {
+  font-size: 11px;
+  color: var(--color-error, #e5484d);
+}
+
+.fieldFooter {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.wordCount {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.wordCountError {
+  color: var(--color-error, #e5484d);
+}
+
+/* — layout silhouettes — */
+
+.layoutGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.layoutCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.layoutCard:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.layoutCardActive {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.silhouetteSvg {
+  width: 64px;
+  height: 44px;
+  display: block;
+}
+
+/* — theme picker (mirrors the Living UI theme modal's presets) — */
+
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+
+.themeCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.themeCard:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.themeCardActive {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+}
+
+.layoutLabel {
+  font-size: 10.5px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* — icon picker — */
+
+.iconCell {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.iconCell:hover {
+  border-color: var(--text-muted);
+}
+
+.iconCellActive {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.iconPreview {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+/* — icon square dropdown — */
+
+.iconDropdownWrap {
+  position: relative;
+  align-self: flex-start;
+}
+
+.iconSquare {
+  width: 52px;
+  align-self: stretch;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.iconSquare:hover {
+  border-color: var(--text-muted);
+}
+
+.iconSquareChevron {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.iconPanel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  width: 268px;
+}
+
+.iconGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.iconUploadRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.iconUploadRow:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+/* — access chips — */
+
+.accessRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.chip {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.chip:hover {
+  border-color: var(--text-muted);
+}
+
+.chipActive {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* — attachments — */
+
+.dropZone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.dropZone:hover {
+  border-color: var(--text-secondary);
+}
+
+.dropIcon {
+  flex-shrink: 0;
+}
+
+.fileList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.fileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+}
+
+.fileRemove {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.fileRemove:hover {
+  color: var(--text-primary);
+}
+
+/* — footer — */
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+/* — interview — */
+
+.interview {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 360px;
+}
+
+.interviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.interviewProgress {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.backLink,
+.skipLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.backLink:hover,
+.skipLink:hover {
+  color: var(--text-primary);
+}
+
+.questionText {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.questionWhy {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.optionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.optionRow:hover {
+  border-color: var(--text-muted);
+}
+
+.optionRowActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-secondary));
+}
+
+.optionInput {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.freeAnswerRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.freeAnswerRow .input {
+  flex: 1;
+}
+
+/* — full-screen states — */
+
+.stateScreen {
+  flex: 1;
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.stateTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.stateSub {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 420px;
+  margin: 0;
+}
+
+.stateError {
+  font-size: 13px;
+  color: var(--color-error, #e5484d);
+  max-width: 480px;
+}
+
+.stateActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.spinner {
+  animation: cwSpin 1s linear infinite;
+  color: var(--text-muted);
+}
+
+@keyframes cwSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

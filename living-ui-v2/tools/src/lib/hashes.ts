@@ -19,6 +19,7 @@ const SYSTEM_PATHS = [
   'frontend/vite.config.ts',
   'frontend/tsconfig.json',
   'pb/pb_hooks/_system.pb.js',
+  'pb/pb_hooks/_craftbot_bridge.js',
   'manifest.json',
 ];
 

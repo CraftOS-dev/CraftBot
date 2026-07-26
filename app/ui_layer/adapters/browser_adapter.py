@@ -703,6 +703,9 @@ class BrowserAdapter(InterfaceAdapter):
 
         # Living UI manager
         self._living_ui_manager = LivingUIManager(workspace_root=AGENT_WORKSPACE_ROOT)
+        # Wizard: reference-image VLM notes cached between interview and
+        # finalize (keyed by wizardId) so images are described only once.
+        self._wizard_image_notes: Dict[str, List[str]] = {}
         # Bind session manager and trigger service for project sessions
         agent = self._controller.agent
         self._living_ui_manager.bind_session_manager(
@@ -867,6 +870,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         )
         self._app.router.add_post(
             "/api/living-ui/stage", self._living_ui_stage_handler
+        )
+        self._app.router.add_get(
+            "/api/living-ui/icon/{project_id}", self._living_ui_icon_handler
         )
 
         # Workspace and chat HTTP upload routes
@@ -1679,6 +1685,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "living_ui_create":
             await self._handle_living_ui_create(data)
 
+        elif msg_type == "living_ui_wizard_interview":
+            await self._handle_living_ui_wizard_interview(data)
+
+        elif msg_type == "living_ui_wizard_finalize":
+            await self._handle_living_ui_wizard_finalize(data)
+
+        elif msg_type == "living_ui_theme_update":
+            await self._handle_living_ui_theme_update(data)
+
         elif msg_type == "living_ui_list":
             await self._handle_living_ui_list()
 
@@ -2437,6 +2452,204 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     # Living UI Handlers
     # -------------------------------------------------------------------------
 
+    async def _handle_living_ui_wizard_interview(self, data: Dict[str, Any]) -> None:
+        """Wizard step 2: generate interview questions from the Step-1
+        configuration via a direct LLM call (no project/session exists yet)."""
+        from app.living_ui import wizard
+
+        wizard_id = str(data.get("wizardId", ""))
+        try:
+            config = data.get("config") or {}
+            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
+            wizard.sweep_stale_staging(living_ui_dir)
+
+            # Reference images are described once and reused at finalize.
+            image_notes = await wizard.describe_staged_images(
+                living_ui_dir, wizard_id
+            )
+            self._wizard_image_notes[wizard_id] = image_notes
+
+            questions = await wizard.generate_interview(config, image_notes)
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_interview",
+                    "data": {
+                        "success": True,
+                        "wizardId": wizard_id,
+                        "questions": questions,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] interview failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_interview",
+                    "data": {
+                        "success": False,
+                        "wizardId": wizard_id,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_living_ui_wizard_finalize(self, data: Dict[str, Any]) -> None:
+        """Wizard step 3: synthesize the requirements document, create the
+        project, move staged attachments in, queue the build run in the
+        project's session, and hand the frontend its projectId to navigate to."""
+        from app.living_ui import wizard
+
+        wizard_id = str(data.get("wizardId", ""))
+        try:
+            config = data.get("config") or {}
+            answers = data.get("answers") or []
+            name = str(config.get("name", "")).strip()
+            description = str(config.get("description", "")).strip()
+            if not name or not description:
+                raise ValueError("Name and description are required")
+
+            living_ui_dir = Path(self._living_ui_manager.living_ui_dir)
+            image_notes = self._wizard_image_notes.pop(wizard_id, None)
+            if image_notes is None:
+                image_notes = await wizard.describe_staged_images(
+                    living_ui_dir, wizard_id
+                )
+
+            requirements_doc = await wizard.synthesize_requirements(
+                config, answers, image_notes
+            )
+
+            auth_mode = str(config.get("authMode") or "none")
+            # stylePack is derived by the frontend from the theme catalog
+            # (style-bearing theme id, or "" for pinned color themes).
+            style_pack = str(config.get("stylePack") or "")
+            project = await self._living_ui_manager.create_project(
+                name=name,
+                description=description,
+                auth_mode=auth_mode,
+                style_pack=style_pack,
+            )
+
+            # Staged files: uploaded icon → app favicon, references →
+            # <project>/reference/. An uploaded icon wins over a lucide pick.
+            moved = wizard.move_staging_into_project(
+                living_ui_dir, wizard_id, Path(project.path)
+            )
+            if moved["icon"]:
+                project.icon = moved["icon"]
+                # Favicon injection edited the system-owned index.html —
+                # re-canonize hashes so the validation gate stays green.
+                try:
+                    await self._living_ui_manager.v2_runner.kit_sync(
+                        Path(project.path)
+                    )
+                except Exception as e:
+                    logger.warning(f"[LIVING_UI:WIZARD] re-canon failed: {e}")
+            elif str(config.get("icon", "")).startswith("lucide:"):
+                project.icon = str(config.get("icon"))
+
+            # The wizard's theme pick becomes the project's default display
+            # theme — the Living UI page adopts it (absent a local override)
+            # and pushes it to the app via the livingui-theme protocol.
+            ui_theme = str(config.get("uiTheme") or "").strip()
+            if ui_theme:
+                project.ui_theme = {"themeId": ui_theme}
+            self._living_ui_manager._save_projects()
+
+            # The build's binding specification (walk-verify reads it too).
+            reference_dir = Path(project.path) / "reference"
+            reference_dir.mkdir(parents=True, exist_ok=True)
+            (reference_dir / "requirements.md").write_text(
+                requirements_doc, encoding="utf-8"
+            )
+
+            # Create the project's session BEFORE broadcasting so the project
+            # snapshot carries sessionId — the Living UI page keys its chat
+            # panel on project.sessionId, and nothing back-fills it later.
+            # (start_development_run reuses this session; ensure is idempotent.)
+            self._living_ui_manager.ensure_project_session(project)
+
+            # Same broadcast the plain create path uses — the store's
+            # living_ui_create handler adds the project tab.
+            await self._broadcast(
+                {
+                    "type": "living_ui_create",
+                    "data": {
+                        "success": True,
+                        "projectId": project.id,
+                        "project": project.to_dict(),
+                        "stylePack": style_pack,
+                    },
+                }
+            )
+
+            # Post the "what you asked for" summary as the first bubble in the
+            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # user is auto-switched into, so the build has a visible cause.
+            try:
+                await self._display_chat_message(
+                    "System",
+                    f"**Living UI: {name}**\n\n{description}\n\n"
+                    "Building your app now — follow the progress here.",
+                    "system",
+                    session_id=project.session_id,
+                )
+            except Exception as e:
+                logger.debug(f"[LIVING_UI] create chat message failed: {e}")
+
+            await self._broadcast(
+                {
+                    "type": "living_ui_status",
+                    "data": {
+                        "projectId": project.id,
+                        "phase": "initializing",
+                        "progress": 10,
+                        "message": "Project created, starting development...",
+                    },
+                }
+            )
+
+            # Queue the build run in the project's dedicated session.
+            session_id = await self._living_ui_manager.start_development_run(
+                project.id
+            )
+            if not session_id:
+                raise RuntimeError("Failed to start development run")
+
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_finalize",
+                    "data": {
+                        "success": True,
+                        "wizardId": wizard_id,
+                        "projectId": project.id,
+                    },
+                }
+            )
+        except Exception as e:
+            logger.error(f"[LIVING_UI:WIZARD] finalize failed: {e}")
+            await self._broadcast(
+                {
+                    "type": "living_ui_wizard_finalize",
+                    "data": {
+                        "success": False,
+                        "wizardId": wizard_id,
+                        "error": str(e),
+                    },
+                }
+            )
+
+    async def _handle_living_ui_theme_update(self, data: Dict[str, Any]) -> None:
+        """Persist a project's display theme so it follows the user across
+        browsers ({"projectId", "theme": {"themeId", "customColors"}})."""
+        try:
+            project_id = str(data.get("projectId", ""))
+            theme = data.get("theme")
+            if project_id:
+                self._living_ui_manager.set_project_ui_theme(project_id, theme)
+        except Exception as e:
+            logger.debug(f"[LIVING_UI] theme update failed: {e}")
+
     async def _handle_living_ui_create(self, data: Dict[str, Any]) -> None:
         """Create a new Living UI project."""
         try:
@@ -2500,6 +2713,11 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     if src.exists() and staging_root in src.parents:
                         shutil.move(str(src), str(ref_dir / src.name))
 
+            # Create the session BEFORE broadcasting so the project snapshot
+            # carries sessionId (the Living UI page's chat panel keys on it;
+            # nothing back-fills it later). start_development_run reuses it.
+            self._living_ui_manager.ensure_project_session(project)
+
             # Broadcast project created
             await self._broadcast(
                 {
@@ -2513,14 +2731,16 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 }
             )
 
-            # Mirror the new project into chat as a system message so the
-            # request is visible in the conversation (not just the new tab).
+            # Post the "what you asked for" summary as the first bubble in the
+            # PROJECT'S session (never main) — it heads the Living UI chat the
+            # user is auto-switched into, so the build has a visible cause.
             try:
                 await self._display_chat_message(
                     "System",
                     f"**Living UI: {name}**\n\n{description}\n\n"
-                    "Building your app now — track progress in the new tab.",
+                    "Building your app now — follow the progress here.",
                     "system",
+                    session_id=project.session_id,
                 )
             except Exception as e:
                 logger.debug(f"[LIVING_UI] create chat message failed: {e}")
@@ -2741,22 +2961,43 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
 
         Saves under living_ui/_staging/refs/ and returns {"path": ...}. The
         create flow moves staged files into the project's reference/ dir.
+
+        Wizard mode: with ?wizardId=<id> (and optional &kind=icon) the file
+        stages under living_ui/_staging/wizard/<id>/ instead; icons are
+        normalized to icon.<ext> so finalize can find them.
         """
         from aiohttp import web
 
+        from app.living_ui import wizard
+
+        wizard_id = request.query.get("wizardId", "")
+        kind = request.query.get("kind", "reference")
         try:
             reader = await request.multipart()
             saved = None
             async for part in reader:
                 if part.name == "file":
                     filename = Path(part.filename or "reference.bin").name
-                    staging = Path(self._living_ui_manager.living_ui_dir) / "_staging" / "refs"
+                    if wizard_id:
+                        staging = wizard.staging_dir(
+                            Path(self._living_ui_manager.living_ui_dir), wizard_id
+                        )
+                        if kind == "icon":
+                            filename = f"icon{Path(filename).suffix.lower() or '.png'}"
+                    else:
+                        staging = Path(self._living_ui_manager.living_ui_dir) / "_staging" / "refs"
                     staging.mkdir(parents=True, exist_ok=True)
                     target = staging / filename
-                    i = 1
-                    while target.exists():
-                        target = staging / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
-                        i += 1
+                    if wizard_id and kind == "icon":
+                        # Re-picking the icon replaces it (finalize looks
+                        # for exactly icon.<ext>); clear stale extensions.
+                        for old in staging.glob("icon.*"):
+                            old.unlink(missing_ok=True)
+                    else:
+                        i = 1
+                        while target.exists():
+                            target = staging / f"{target.stem.split('__')[0]}__{i}{target.suffix}"
+                            i += 1
                     with open(target, "wb") as f:
                         while True:
                             chunk = await part.read_chunk()
@@ -2769,6 +3010,23 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             return web.json_response({"path": saved})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _living_ui_icon_handler(self, request: "web.Request") -> "web.StreamResponse":
+        """Serve a project's uploaded icon (project.icon == "file:<relpath>")."""
+        from aiohttp import web
+
+        project = self._living_ui_manager.get_project(
+            request.match_info.get("project_id", "")
+        )
+        if project and (project.icon or "").startswith("file:"):
+            icon_path = (Path(project.path) / project.icon[5:]).resolve()
+            # The relpath is server-written, but never serve outside the project.
+            if (
+                icon_path.is_file()
+                and str(icon_path).startswith(str(Path(project.path).resolve()))
+            ):
+                return web.FileResponse(icon_path)
+        return web.json_response({"error": "no icon"}, status=404)
 
     async def _living_ui_import_handler(self, request: "web.Request") -> "web.Response":
         """HTTP handler: stage a ZIP file upload and return the temp path.

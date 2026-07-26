@@ -181,13 +181,17 @@ export async function run(args: string[]): Promise<number> {
   const frontendDir = join(projectDir, 'frontend');
   const errors: GateError[] = [];
 
-  runStep(errors, 'types (tsc --noEmit)', () => {
-    execFileSync('npm', ['run', 'typecheck'], { cwd: frontendDir, stdio: 'pipe', encoding: 'utf8' });
-  });
+  // Windows: npm is npm.cmd, which Node refuses to spawn without a shell.
+  const isWin = process.platform === 'win32';
+  const npmRun = (script: string): void => {
+    execFileSync(isWin ? 'npm.cmd' : 'npm', ['run', script], {
+      cwd: frontendDir, stdio: 'pipe', encoding: 'utf8', shell: isWin,
+    });
+  };
 
-  runStep(errors, 'build (vite)', () => {
-    execFileSync('npm', ['run', 'build'], { cwd: frontendDir, stdio: 'pipe', encoding: 'utf8' });
-  });
+  runStep(errors, 'types (tsc --noEmit)', () => npmRun('typecheck'));
+
+  runStep(errors, 'build (vite)', () => npmRun('build'));
 
   const pbBin = await ensurePbBinary();
   runStep(errors, 'migrations (fresh pb_data)', () => {

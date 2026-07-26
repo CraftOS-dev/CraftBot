@@ -739,10 +739,13 @@ export interface LivingUIProject {
   port?: number
   url?: string
   createdAt: number
-  icon?: string
+  /** "lucide:<Name>" or "file:<relpath>" (uploaded favicon). */
+  icon?: string | null
   features?: string[]
   error?: string
   stylePack?: string
+  /** Server-persisted display theme; adopted when no local override exists. */
+  uiTheme?: { themeId?: string; customColors?: Record<string, string> } | null
 }
 
 export interface LivingUICreateRequest {
