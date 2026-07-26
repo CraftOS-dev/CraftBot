@@ -142,7 +142,9 @@ class V2Runner:
         # the resolved path, so always spawn the which()-resolved binary.
         npm = shutil.which("npm") or "npm"
         code, out = await self._run(
-            [npm, "install", "--no-audit", "--no-fund"],
+            # --ignore-scripts: any npm package is allowed in a project, so
+            # lifecycle scripts must never run (supply-chain guard, spec B7).
+            [npm, "install", "--no-audit", "--no-fund", "--ignore-scripts"],
             timeout=INSTALL_TIMEOUT_S,
             cwd=frontend,
         )
@@ -172,10 +174,77 @@ class V2Runner:
             raise RuntimeError(f"could not resolve PocketBase binary:\n{out}")
         return Path(out.strip().splitlines()[-1])
 
+    async def ensure_superuser(self, project_dir: Path) -> None:
+        """Guarantee the project's PocketBase has a machine superuser.
+
+        Without one, PocketBase treats the first `serve` as an install and
+        POPS OPEN ITS SETUP/LOGIN PAGE IN THE USER'S BROWSER — jarring, and
+        it exposes an admin console the user never asked for. `lui create`
+        bootstraps this for scaffolded projects, but marketplace installs
+        and ZIP imports skip that path, and a wiped pb_data loses it, so
+        (re)assert it on every launch. `superuser upsert` is idempotent.
+
+        Credentials live only in the project-local, 0600 `.superuser` file
+        (spec B5) — never logged, never shipped.
+        """
+        import json as _json
+        import secrets
+
+        pb_bin = await self.pb_binary()
+        pb_dir = project_dir / "pb"
+        cred_file = project_dir / ".superuser"
+
+        email = "agent@lui.local"
+        password = ""
+        if cred_file.exists():
+            try:
+                stored = _json.loads(cred_file.read_text(encoding="utf-8"))
+                email = stored.get("email") or email
+                password = stored.get("password") or ""
+            except Exception:
+                password = ""
+        if password == "":
+            password = secrets.token_urlsafe(18)
+
+        code, out = await self._run(
+            [
+                str(pb_bin),
+                "superuser",
+                "upsert",
+                email,
+                password,
+                "--dir",
+                str(pb_dir / "pb_data"),
+                "--migrationsDir",
+                str(pb_dir / "pb_migrations"),
+                "--hooksDir",
+                str(pb_dir / "pb_hooks"),
+            ],
+            timeout=60,
+        )
+        if code != 0:
+            # Non-fatal: the app still serves; worst case PB shows its setup
+            # page. Never include the password in the log.
+            logger.warning(
+                f"[LIVING_UI:V2] superuser upsert failed for {project_dir.name}: "
+                f"{out[-300:]}"
+            )
+            return
+        try:
+            cred_file.write_text(
+                _json.dumps({"email": email, "password": password}) + "\n",
+                encoding="utf-8",
+            )
+            cred_file.chmod(0o600)
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:V2] could not persist .superuser: {e}")
+
     async def start(self, project_dir: Path, port: int) -> subprocess.Popen:
         """Start the single production process: PocketBase serving app + API."""
         pb_bin = await self.pb_binary()
         pb_dir = project_dir / "pb"
+        # Must happen BEFORE serve, or PocketBase opens its setup page.
+        await self.ensure_superuser(project_dir)
         logs_dir = project_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(logs_dir / "pocketbase.log", "a")

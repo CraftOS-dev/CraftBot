@@ -9,7 +9,7 @@
   "pbVersion": "{{PB_VERSION}}",
   "kitVersion": "{{KIT_VERSION}}",
   "pipeline": {
-    "install": "npm install --prefix frontend",
+    "install": "npm install --ignore-scripts --prefix frontend",
     "build": "npm run build --prefix frontend",
     "start": "pocketbase serve --http=127.0.0.1:{{PORT}} --dir pb/pb_data --hooksDir pb/pb_hooks --migrationsDir pb/pb_migrations --publicDir pb/pb_public",
     "health": "/api/health"
