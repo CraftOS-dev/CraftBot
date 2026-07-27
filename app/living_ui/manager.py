@@ -1378,7 +1378,7 @@ UI in {project.path}/frontend/src/app/."""
         app_name: str,
         app_description: str,
         custom_fields: Optional[Dict[str, str]] = None,
-        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace/tree/dev",
+        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace/",
         project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -1413,8 +1413,7 @@ UI in {project.path}/frontend/src/app/."""
             parts = repo_url.rstrip("/").split("/")
             owner = parts[-2]
             repo = parts[-1]
-            zip_url = f"https://github.com/CraftOS-dev/living-ui-marketplace/archive/refs/heads/dev.zip"
-
+            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
             import ssl
