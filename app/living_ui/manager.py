@@ -590,6 +590,9 @@ UI in {project.path}/frontend/src/app/."""
                     text=True,
                     shell=True,
                     timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
                 for line in result.stdout.split("\n"):
                     if "LISTENING" in line:
@@ -666,7 +669,12 @@ UI in {project.path}/frontend/src/app/."""
         try:
             if os.name == "nt":
                 subprocess.run(
-                    ["taskkill", "/F", "/PID", pid], capture_output=True, shell=True
+                    ["taskkill", "/F", "/PID", pid],
+                    capture_output=True,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
             else:
                 subprocess.run(["kill", "-9", pid], capture_output=True)
@@ -875,6 +883,9 @@ UI in {project.path}/frontend/src/app/."""
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
             except Exception:
                 continue
@@ -1010,6 +1021,9 @@ UI in {project.path}/frontend/src/app/."""
                     ["taskkill", "/T", "/F", "/PID", str(process.pid)],
                     capture_output=True,
                     shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
             else:
                 process.terminate()
@@ -1050,8 +1064,17 @@ UI in {project.path}/frontend/src/app/."""
         else:
             # Windows: use netstat and taskkill
             try:
+                no_window = (
+                    subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0
+                )
                 result = subprocess.run(
-                    ["netstat", "-ano"], capture_output=True, text=True, shell=True
+                    ["netstat", "-ano"],
+                    capture_output=True,
+                    text=True,
+                    shell=True,
+                    creationflags=no_window,
                 )
                 killed = False
                 for line in result.stdout.split("\n"):
@@ -1064,6 +1087,7 @@ UI in {project.path}/frontend/src/app/."""
                                 ["taskkill", "/T", "/F", "/PID", pid],
                                 capture_output=True,
                                 shell=True,
+                                creationflags=no_window,
                             )
                             logger.info(
                                 f"[LIVING_UI] Killed process tree {pid} on port {port}"
@@ -1354,7 +1378,7 @@ UI in {project.path}/frontend/src/app/."""
         app_name: str,
         app_description: str,
         custom_fields: Optional[Dict[str, str]] = None,
-        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace",
+        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace/tree/dev",
         project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -1389,7 +1413,7 @@ UI in {project.path}/frontend/src/app/."""
             parts = repo_url.rstrip("/").split("/")
             owner = parts[-2]
             repo = parts[-1]
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+            zip_url = f"https://github.com/CraftOS-dev/living-ui-marketplace/archive/refs/heads/dev.zip"
 
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
@@ -2188,6 +2212,9 @@ UI in {project.path}/frontend/src/app/."""
                         ],
                         capture_output=True,
                         timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                        if hasattr(subprocess, "CREATE_NO_WINDOW")
+                        else 0,
                     )
                 else:
                     subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
