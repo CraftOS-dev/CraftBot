@@ -14,6 +14,7 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -73,11 +74,17 @@ class V2Runner:
         self, cmd: list, timeout: int, cwd: Optional[Path] = None
     ) -> "tuple[int, str]":
         """Run a command, return (exit_code, combined_output)."""
+        kwargs = {}
+        if sys.platform == "win32":
+            # Without this, spawning node/npm/pocketbase from this windowless
+            # process makes Windows flash a new console window per invocation.
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd) if cwd else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            **kwargs,
         )
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -264,6 +271,7 @@ class V2Runner:
             ],
             stdout=log_file,
             stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         logger.info(f"[LIVING_UI:V2] started PocketBase pid={process.pid} port={port}")
         return process
