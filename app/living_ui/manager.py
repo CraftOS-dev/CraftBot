@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -308,8 +309,12 @@ class LivingUIManager:
                     restart_ok = True
                     project.process = None
                     try:
+                        if not project.bridge_token:
+                            project.bridge_token = secrets.token_urlsafe(32)
                         project.process = await self.v2_runner.start(
-                            Path(project.path), project.port
+                            Path(project.path),
+                            project.port,
+                            bridge_token=project.bridge_token,
                         )
                         restart_ok = await self.v2_runner.wait_healthy(project.port)
                     except Exception as e:
@@ -727,8 +732,13 @@ UI in {project.path}/frontend/src/app/."""
         if not gate.passed:
             return _fail("validation", [gate.output])
 
+        if not project.bridge_token:
+            project.bridge_token = secrets.token_urlsafe(32)
+
         try:
-            project.process = await self.v2_runner.start(project_path, project.port)
+            project.process = await self.v2_runner.start(
+                project_path, project.port, bridge_token=project.bridge_token
+            )
         except Exception as e:
             return _fail("start", [str(e)])
 
@@ -1386,7 +1396,7 @@ UI in {project.path}/frontend/src/app/."""
         app_name: str,
         app_description: str,
         custom_fields: Optional[Dict[str, str]] = None,
-        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace/",
+        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace/tree/fix/v2-living-uis",
         project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -1421,7 +1431,7 @@ UI in {project.path}/frontend/src/app/."""
             parts = repo_url.rstrip("/").split("/")
             owner = parts[-2]
             repo = parts[-1]
-            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
+            zip_url = f"https://github.com/CraftOS-dev/living-ui-marketplace/archive/refs/heads/fix/v2-living-uis.zip"
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
             import ssl
