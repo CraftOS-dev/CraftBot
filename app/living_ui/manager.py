@@ -1254,6 +1254,7 @@ UI in {project.path}/frontend/src/app/."""
 
         self.projects[project_id] = project
         self._save_projects()
+        self.ensure_project_session(project)
 
         logger.info(f"[LIVING_UI] Created V2 project: {name} ({project_id})")
         return project
@@ -1312,6 +1313,7 @@ UI in {project.path}/frontend/src/app/."""
         )
         self.projects[project_id] = project
         self._save_projects()
+        self.ensure_project_session(project)
         logger.info(f"[LIVING_UI] Imported V2 project: {display} ({project_id})")
         return project
 
@@ -1524,6 +1526,7 @@ UI in {project.path}/frontend/src/app/."""
 
             self.projects[project_id] = project
             self._save_projects()
+            self.ensure_project_session(project)
 
             logger.info(
                 f"[LIVING_UI:MARKETPLACE] Created project: {app_name} ({project_id})"
