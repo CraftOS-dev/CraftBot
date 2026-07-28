@@ -3521,6 +3521,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "projectId": project_id,
                         "url": project.url if project else url,
                         "port": project.port if project else port,
+                        "sessionId": project.session_id if project else None,
                     },
                 }
             )
@@ -6713,6 +6714,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         "projectId": project_id,
                         "url": result.get("url"),
                         "port": result["project"].get("port"),
+                        "sessionId": result["project"].get("sessionId"),
                     },
                 }
             )
