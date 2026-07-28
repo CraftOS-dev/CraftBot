@@ -12,6 +12,7 @@ the manager composes this class; it never reaches back.
 import asyncio
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -246,7 +247,9 @@ class V2Runner:
         except Exception as e:
             logger.warning(f"[LIVING_UI:V2] could not persist .superuser: {e}")
 
-    async def start(self, project_dir: Path, port: int) -> subprocess.Popen:
+    async def start(
+        self, project_dir: Path, port: int, bridge_token: str = ""
+    ) -> subprocess.Popen:
         """Start the single production process: PocketBase serving app + API."""
         pb_bin = await self.pb_binary()
         pb_dir = project_dir / "pb"
@@ -255,6 +258,22 @@ class V2Runner:
         logs_dir = project_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(logs_dir / "pocketbase.log", "a")
+
+        # The app's pb_hooks (_craftbot_bridge.js) call back into CraftBot's
+        # LLM/integration bridge over HTTP using these two env vars — without
+        # them every AI feature silently no-ops (empty prompt result, no
+        # network call attempted at all).
+        env = os.environ.copy()
+        if bridge_token:
+            bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
+            env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"
+            env["CRAFTBOT_BRIDGE_TOKEN"] = bridge_token
+            logger.info(
+                f"[LIVING_UI:V2] bridge env injected: URL=http://localhost:{bridge_port}, token={bridge_token[:8]}..."
+            )
+        else:
+            logger.warning("[LIVING_UI:V2] no bridge token provided; AI features will be unavailable")
+
         process = subprocess.Popen(
             [
                 str(pb_bin),
@@ -269,6 +288,7 @@ class V2Runner:
                 "--publicDir",
                 str(pb_dir / "pb_public"),
             ],
+            env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
