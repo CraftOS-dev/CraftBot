@@ -87,13 +87,15 @@ const livingUiSlice = createSlice({
         return { ...p, status: status.phase === 'launching' ? 'ready' : 'creating' }
       })
     },
-    markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number }>) {
-      const { projectId, url, port } = action.payload
+    markReady(state, action: PayloadAction<{ projectId: string; url: string; port: number; sessionId?: string }>) {
+      const { projectId, url, port, sessionId } = action.payload
       state.creating = null
       delete state.buildEvents[projectId]
       delete state.snapshots[projectId]
       state.projects = state.projects.map(p =>
-        p.id === projectId ? { ...p, status: 'running', url, port } : p,
+        p.id === projectId
+          ? { ...p, status: 'running', url, port, ...(sessionId ? { sessionId } : {}) }
+          : p,
       )
     },
     markRunning(state, action: PayloadAction<{ projectId: string; url?: string; port?: number }>) {
@@ -255,7 +257,7 @@ register('living_ui_status', (data, dispatch) => {
 })
 
 register('living_ui_ready', (data, dispatch, getState) => {
-  const ready = data as { projectId: string; url: string; port: number }
+  const ready = data as { projectId: string; url: string; port: number; sessionId?: string }
   const exists = getState().livingUi.projects.some(p => p.id === ready.projectId)
   if (exists) {
     dispatch(markReady(ready))
