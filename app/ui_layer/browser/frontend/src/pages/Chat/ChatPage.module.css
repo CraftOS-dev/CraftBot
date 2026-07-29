@@ -678,18 +678,3 @@
   margin: var(--space-1) 0;
 }
 
-/* Floating mascot dock — top-right overlay now that the task panel is gone. */
-.mascotDock {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-4);
-  width: 300px;
-  z-index: 5;
-  pointer-events: auto;
-}
-
-@media (max-width: 768px) {
-  .mascotDock {
-    display: none;
-  }
-}

@@ -215,6 +215,10 @@
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-primary);
   flex-shrink: 0;
+  /* Fills a resizable dashboard-widget container (the chat-panel dock this
+     was originally built for sized to content instead). Harmless no-op in
+     a plain-flow container since flex-shrink:0 already caps growth there. */
+  height: 100%;
 }
 
 /* The stage no longer hosts an action card — the speech bubble lives
@@ -225,6 +229,7 @@
   position: relative;
   padding: var(--space-3);
   min-height: 220px;
+  flex: 1;
   overflow: hidden;
 }
 
