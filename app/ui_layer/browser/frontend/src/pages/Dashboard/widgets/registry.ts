@@ -5,19 +5,24 @@ import {
   Cpu,
   Globe,
   Hammer,
+  History,
+  Layers,
   Package,
   TrendingUp,
 } from 'lucide-react'
 import type { WidgetDefinition } from './types'
-import { TaskStatsWidget } from './TaskStatsWidget'
-import { TokenUsageWidget } from './TokenUsageWidget'
+import { TaskStatsWidget, TaskStatsHeaderBadge } from './TaskStatsWidget'
+import { TokenUsageWidget, TokenUsageHeaderBadge } from './TokenUsageWidget'
 import { SystemResourcesWidget } from './SystemResourcesWidget'
-import { UsagePatternsWidget } from './UsagePatternsWidget'
+import { UsagePatternsWidget, UsagePatternsHeaderBadge } from './UsagePatternsWidget'
 import { McpServersWidget } from './McpServersWidget'
 import { SkillsWidget } from './SkillsWidget'
 import { IntegrationsWidget } from './IntegrationsWidget'
 import { ModelInfoWidget } from './ModelInfoWidget'
 import { MascotWidget } from './MascotWidget'
+import { AgentStatusWidget } from './AgentStatusWidget'
+import { LivingUIWidget } from './LivingUIWidget'
+import { RecentActivityWidget } from './RecentActivityWidget'
 
 // One entry per widget type. Phase 2 widgets (Agent Status, Living UI,
 // Recent Activity, Logs, ...) are added here later — no other file in
@@ -29,6 +34,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Activity,
     description: 'Completed, failed, running tasks and success rate.',
     component: TaskStatsWidget,
+    headerBadge: TaskStatsHeaderBadge,
     defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
     singleton: true,
   },
@@ -38,6 +44,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: TrendingUp,
     description: 'Input/output/cached token totals and ratios.',
     component: TokenUsageWidget,
+    headerBadge: TokenUsageHeaderBadge,
     defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
     singleton: true,
   },
@@ -47,7 +54,7 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: Cpu,
     description: 'CPU, memory, disk, thread pool and network I/O.',
     component: SystemResourcesWidget,
-    defaultLayout: { w: 6, h: 9, minW: 4, minH: 7 },
+    defaultLayout: { w: 6, h: 6, minW: 3, minH: 5 },
     singleton: true,
   },
   usagePatterns: {
@@ -56,7 +63,8 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     icon: BarChart3,
     description: 'Hourly request distribution and peak usage.',
     component: UsagePatternsWidget,
-    defaultLayout: { w: 6, h: 9, minW: 4, minH: 7 },
+    headerBadge: UsagePatternsHeaderBadge,
+    defaultLayout: { w: 6, h: 9, minW: 3, minH: 7 },
     singleton: true,
   },
   mcpServers: {
@@ -102,6 +110,33 @@ export const WIDGET_REGISTRY: Record<string, WidgetDefinition> = {
     description: 'The CraftBot mascot — reacts to agent activity.',
     component: MascotWidget,
     defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
+    singleton: true,
+  },
+  agentStatus: {
+    id: 'agentStatus',
+    title: 'Agent Status',
+    icon: Activity,
+    description: 'Live status, uptime, currently running tasks, last error.',
+    component: AgentStatusWidget,
+    defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
+    singleton: true,
+  },
+  livingUi: {
+    id: 'livingUi',
+    title: 'Living UI',
+    icon: Layers,
+    description: 'Installed and running Living UIs.',
+    component: LivingUIWidget,
+    defaultLayout: { w: 4, h: 7, minW: 3, minH: 5 },
+    singleton: true,
+  },
+  recentActivity: {
+    id: 'recentActivity',
+    title: 'Recent Activity',
+    icon: History,
+    description: 'Most recent actions across all sessions, with timing and tokens.',
+    component: RecentActivityWidget,
+    defaultLayout: { w: 6, h: 10, minW: 3, minH: 6 },
     singleton: true,
   },
 }

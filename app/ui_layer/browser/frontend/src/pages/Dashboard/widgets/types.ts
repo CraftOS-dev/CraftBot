@@ -14,6 +14,8 @@ export interface WidgetDefinition {
   icon: LucideIcon
   description?: string
   component: ComponentType
+  /** Optional small badge rendered in the title bar (e.g. a live count). */
+  headerBadge?: ComponentType
   defaultLayout: WidgetDefaultLayout
   /** Phase 1: every widget is a singleton — at most one instance per layout. */
   singleton?: boolean
