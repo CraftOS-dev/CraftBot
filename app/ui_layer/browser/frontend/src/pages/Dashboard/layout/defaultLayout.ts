@@ -4,17 +4,22 @@ import type { BreakpointLayouts, NamedLayout } from './types'
 import { WIDGET_REGISTRY } from '../widgets/registry'
 
 // Visual order for the seed/default layout — roughly mirrors the original
-// monolithic dashboard's panel order, with the Mascot widget (new in this
-// revamp) placed alongside Task/Token stats.
+// monolithic dashboard's panel order. Agent Status leads (replacing the
+// old page header's prominence); Mascot and the Phase 2 widgets (Recent
+// Activity, Living UI) are woven in alongside their closest thematic
+// neighbors.
 const DEFAULT_ORDER = [
+  'agentStatus',
   'taskStats',
   'tokenUsage',
   'mascot',
+  'recentActivity',
   'systemResources',
   'usagePatterns',
   'mcpServers',
   'skills',
   'integrations',
+  'livingUi',
   'modelInfo',
 ]
 

@@ -50,7 +50,7 @@ export function DashboardGrid({ activeLayout, onLayoutsChange, onRemoveWidget }:
         const Comp = def.component
         return (
           <div key={id}>
-            <WidgetChrome title={def.title} icon={def.icon} onRemove={() => onRemoveWidget(id)}>
+            <WidgetChrome title={def.title} icon={def.icon} headerBadge={def.headerBadge} onRemove={() => onRemoveWidget(id)}>
               <Comp />
             </WidgetChrome>
           </div>

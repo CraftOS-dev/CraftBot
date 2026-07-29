@@ -3,6 +3,20 @@ import type { MetricsTimePeriod } from '../../../types'
 import { useWebSocket } from '../../../contexts/WebSocketContext'
 import styles from './widgets.module.css'
 
+export function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${mins}m`
+  }
+  if (hours > 0) {
+    return `${hours}h ${mins}m`
+  }
+  return `${mins}m`
+}
+
 export function formatBytes(mb: number): string {
   if (mb >= 1024) {
     return `${(mb / 1024).toFixed(1)} GB`

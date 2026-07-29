@@ -18,9 +18,6 @@ export function TokenUsageWidget() {
 
   return (
     <>
-      <div className={styles.bodyBadgeRow}>
-        <Badge variant="default">{totalTokens.toLocaleString()} total</Badge>
-      </div>
       <TimePeriodSelector selected={period} onChange={onChange} />
       <div className={styles.tokenRatioDisplay}>
         <div className={styles.tokenRatioBar}>
@@ -61,4 +58,12 @@ export function TokenUsageWidget() {
       </div>
     </>
   )
+}
+
+// Rendered separately, in WidgetChrome's title bar — see TaskStatsHeaderBadge
+// for why this always shows the all-time total rather than the currently
+// selected period.
+export function TokenUsageHeaderBadge() {
+  const { dashboardMetrics } = useWebSocket()
+  return <Badge variant="default">{(dashboardMetrics?.token.total ?? 0).toLocaleString()} total</Badge>
 }
