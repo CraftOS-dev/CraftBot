@@ -11,14 +11,10 @@ export function TaskStatsWidget() {
   const taskCompleted = filteredData?.task.completed ?? (dashboardMetrics?.task.completed ?? 0)
   const taskFailed = filteredData?.task.failed ?? (dashboardMetrics?.task.failed ?? 0)
   const taskRunning = filteredData?.task.running ?? (dashboardMetrics?.task.running ?? 0)
-  const taskTotal = filteredData?.task.total ?? (dashboardMetrics?.task.total ?? 0)
   const taskSuccessRate = filteredData?.task.successRate ?? (dashboardMetrics?.task.successRate ?? 100)
 
   return (
     <>
-      <div className={styles.bodyBadgeRow}>
-        <Badge variant="default">{taskTotal} total</Badge>
-      </div>
       <TimePeriodSelector selected={period} onChange={onChange} />
       <div className={styles.statsGrid}>
         <div className={styles.statItem}>
@@ -52,4 +48,13 @@ export function TaskStatsWidget() {
       </div>
     </>
   )
+}
+
+// Rendered separately, in WidgetChrome's title bar. Always shows the
+// all-time total (dashboardMetrics), independent of whichever period the
+// body's TimePeriodSelector currently has selected — the badge and body
+// are separate React subtrees with no shared local state.
+export function TaskStatsHeaderBadge() {
+  const { dashboardMetrics } = useWebSocket()
+  return <Badge variant="default">{dashboardMetrics?.task.total ?? 0} total</Badge>
 }

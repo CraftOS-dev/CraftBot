@@ -15,9 +15,6 @@ export function UsagePatternsWidget() {
 
   return (
     <>
-      <div className={styles.bodyBadgeRow}>
-        <Badge variant="default">{usageRequestCount} requests</Badge>
-      </div>
       <TimePeriodSelector selected={period} onChange={onChange} />
       <div className={styles.usageStats}>
         <div className={styles.usageStat}>
@@ -57,4 +54,13 @@ export function UsagePatternsWidget() {
       </div>
     </>
   )
+}
+
+// Rendered separately, in WidgetChrome's title bar — see TaskStatsHeaderBadge
+// for why this always shows the all-time request count rather than the
+// currently selected period.
+export function UsagePatternsHeaderBadge() {
+  const { dashboardMetrics } = useWebSocket()
+  const total = (dashboardMetrics?.usage.hourlyDistribution ?? []).reduce((sum, count) => sum + count, 0)
+  return <Badge variant="default">{total} requests</Badge>
 }
