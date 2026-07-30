@@ -84,6 +84,15 @@
   margin-left: calc(32px + var(--space-2));
 }
 
+/* A "system" message that also offers a choice (e.g. the Retry/Change Model
+   prompt) — left-aligned like an error/agent bubble instead of the centered
+   treatment plain system notices ("Conversation cleared.", etc.) get. */
+.messageWrapper.systemPromptWrapper {
+  margin-right: auto;
+  align-items: flex-start;
+  margin-left: calc(32px + var(--space-2));
+}
+
 .messageWrapper.infoWrapper {
   margin: 0 auto;
   align-items: center;

@@ -1448,13 +1448,14 @@ class AgentBase:
             )
 
     async def _display_fatal_llm_error(self, session_id: str, info: ErrorInfo) -> None:
-        """Show the single, classified fatal-error prompt with Retry/Change
-        Model options — the only visible bubble for a fatal LLM failure.
+        """Show the fatal-error bubble pair: what went wrong, then the
+        Retry/Change Model prompt.
 
-        Displayed directly via the chat component (like
+        Both are displayed directly via the chat component (like
         `_send_limit_choice_message`) instead of round-tripping through a
         `UIEvent` on the event bus, so there's no ordering race with the
-        (now-invisible) event-stream log entry above.
+        (now-invisible) event-stream log entry above, and the two bubbles
+        always land in a fixed order.
         """
         if not (self.ui_controller and self.ui_controller.active_adapter):
             logger.warning(
@@ -1465,14 +1466,26 @@ class AgentBase:
             build_error_chat_message,
             retry_change_model_options,
         )
+        from app.ui_layer.components.types import ChatMessage
 
-        message = build_error_chat_message(
-            info,
-            sender="System",
-            session_id=session_id,
-            extra_options=retry_change_model_options(),
+        chat = self.ui_controller.active_adapter.chat_component
+        # Bubble 1: what went wrong — the classified error (category-aware
+        # icon/color, plus any category-specific actions like "Open settings").
+        await chat.append_message(
+            build_error_chat_message(info, sender="Error", session_id=session_id)
         )
-        await self.ui_controller.active_adapter.chat_component.append_message(message)
+        # Bubble 2: what to do about it. Rendered left-aligned (see
+        # systemPromptWrapper in ChatPage.module.css) rather than the default
+        # centered "system" treatment, since this is an actionable prompt.
+        await chat.append_message(
+            ChatMessage(
+                sender="System",
+                content="What would you like to do?",
+                style="system",
+                session_id=session_id,
+                options=retry_change_model_options(),
+            )
+        )
 
     # ----- Agent Limits -----
 

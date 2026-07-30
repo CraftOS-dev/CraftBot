@@ -121,3 +121,23 @@ def test_llm_consecutive_failure_error_uses_immediate_message_when_flagged():
 
     err = LLMConsecutiveFailureError(1, is_immediate=True)
     assert MSG_FAILED_IMMEDIATELY in str(err)
+
+
+def test_llm_consecutive_failure_error_auto_derives_immediate_from_count():
+    """A raise site with failure_count=1 must never say "consecutive
+    failures" even if it forgot to pass is_immediate=True — e.g. the hard
+    per-call timeout in app/subagent/runner.py raises with count=1 and no
+    last_error_info, going through this same constructor."""
+    from agent_core.core.impl.llm.errors import (
+        LLMConsecutiveFailureError,
+        MSG_CONSECUTIVE_FAILURE,
+        MSG_FAILED_IMMEDIATELY,
+    )
+
+    single = LLMConsecutiveFailureError(1)
+    assert single.is_immediate is True
+    assert MSG_FAILED_IMMEDIATELY in str(single)
+
+    multiple = LLMConsecutiveFailureError(5)
+    assert multiple.is_immediate is False
+    assert MSG_CONSECUTIVE_FAILURE in str(multiple)

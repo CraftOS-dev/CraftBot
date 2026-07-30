@@ -194,8 +194,13 @@ class LLMConsecutiveFailureError(Exception):
         self.failure_count = failure_count
         self.last_error = last_error
         self.last_error_info = last_error_info
-        self.is_immediate = is_immediate
-        message = MSG_FAILED_IMMEDIATELY if is_immediate else MSG_CONSECUTIVE_FAILURE
+        # Any raise site with failure_count <= 1 is, by definition, a single
+        # failure — never say "consecutive failures" for one failure, even if
+        # a call site forgot to pass is_immediate explicitly (e.g. a hard
+        # per-call timeout raised directly with count=1, not routed through
+        # LLMInterface._register_failure's fail-fast categorization).
+        self.is_immediate = is_immediate or failure_count <= 1
+        message = MSG_FAILED_IMMEDIATELY if self.is_immediate else MSG_CONSECUTIVE_FAILURE
         if last_error:
             message += f" Last error: {last_error}"
         super().__init__(message)
