@@ -177,8 +177,26 @@ class LivingUIManager:
     def ensure_project_session(self, project: "LivingUIProject"):
         """Ensure the project's dedicated session exists and return it.
 
-        Creates the session on first use with the Living UI toolchain
-        preloaded (living-ui-creator skill + build action sets).
+        NO Living UI skill is preloaded. Which skill a run needs depends on
+        what is being ASKED, not on how the project arrived, so the agent picks
+        one per run. Ordinary data work needs none at all — the interaction
+        note carries the data model and the exact commands, and the app itself
+        publishes how to drive it at GET /api/_a2app/describe, which is also
+        the only copy an agent outside CraftBot can read.
+
+        System-dispatched runs whose purpose IS known (crash repair, a
+        development run) still declare their skill on the trigger via
+        `workflow_skills`, loaded at run start and unloaded at run end —
+        nothing has to infer what those runs are for.
+
+        This used to preload living-ui-creator unconditionally, because
+        originally every Living UI was one the agent had just written. Install
+        and import were added later and reused this helper, so an app that
+        arrived fully built still got a BUILD session — and the creator skill's
+        "Finish: launch, then verify" recipe permanently in its prompt. The
+        observed cost: asking a freshly installed habit tracker to record one
+        habit relaunched the app twice, re-ran the validation gate, and drove a
+        headless browser that clicked "Add habit" ten times against real data.
         """
         if not self._session_manager:
             return None
@@ -198,7 +216,7 @@ class LivingUIManager:
             title=project.name,
             session_id=project.session_id or f"lui_{project.id}",
             action_sets=["file_operations", "code_execution", "living_ui"],
-            selected_skills=["living-ui-creator"],
+            selected_skills=[],
             living_ui_project_id=project.id,
         )
         project.session_id = session.id
@@ -457,7 +475,12 @@ UI in {project.path}/frontend/src/app/."""
                     description=task_instruction,
                     priority=30,  # Higher priority than normal creation runs
                     session_id=session.id,
-                    payload={"project_id": project_id},
+                    payload={
+                        "project_id": project_id,
+                        # This run writes code, so it needs the build skill —
+                        # loaded now, unloaded when the run ends.
+                        "workflow_skills": ["living-ui-creator"],
+                    },
                 )
             )
 
@@ -1669,7 +1692,12 @@ UI in {project.path}/frontend/src/app/."""
                     description=task_instruction,
                     priority=50,
                     session_id=session.id,
-                    payload={"project_id": project_id},
+                    payload={
+                        "project_id": project_id,
+                        # This run writes code, so it needs the build skill —
+                        # loaded now, unloaded when the run ends.
+                        "workflow_skills": ["living-ui-creator"],
+                    },
                 )
             )
 

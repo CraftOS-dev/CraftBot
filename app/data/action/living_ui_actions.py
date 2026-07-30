@@ -191,10 +191,13 @@ async def living_ui_scaffold(input_data: dict) -> dict:
 @action(
     name="living_ui_notify_ready",
     description=(
-        "Launch, verify, and serve a Living UI project. "
-        "Call this after building the Living UI code. "
-        "This action installs dependencies, runs tests, starts the backend and frontend, "
-        "and notifies the browser. Returns test errors if anything fails."
+        "Launch or RELAUNCH a Living UI project: installs dependencies, runs the "
+        "validation gate, restarts backend and frontend, notifies the browser. "
+        "Call this ONLY after CREATING or CHANGING the app's CODE (migrations, "
+        "hooks, frontend). An app that is already running does NOT need it — "
+        "adding, editing or deleting DATA never requires a relaunch, and calling "
+        "it then rebuilds and restarts a live app for no reason. "
+        "Returns test errors if anything fails."
     ),
     default=False,
     mode="CLI",
@@ -329,9 +332,13 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         "UI project: a real browser (headless) drives the app "
         "feature-by-feature against reference/requirements.md. A clean "
         "verdict announces the app to the user — the ONLY way a Living UI "
-        "build completes. Observed defects return the failure report: fix, "
+        "BUILD completes. Observed defects return the failure report: fix, "
         "relaunch with living_ui_notify_ready, then call this again. "
-        "Requires the app to be running (living_ui_notify_ready first)."
+        "Requires the app to be running (living_ui_notify_ready first). "
+        "ONLY after building or modifying the app's CODE. NEVER after a data "
+        "change: it drives a real browser and CLICKS through the UI, including "
+        "buttons that create records, so running it against an app holding the "
+        "user's data can alter that data."
     ),
     default=False,
     mode="CLI",

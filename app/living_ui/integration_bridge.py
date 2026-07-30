@@ -12,7 +12,8 @@ Routes are registered on the browser adapter's aiohttp app.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict, Optional
 
 from aiohttp import web
 import httpx
@@ -38,7 +39,9 @@ class IntegrationBridge:
 
     def __init__(self, manager: "LivingUIManager"):
         self._manager = manager
-        self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=True)
+        # follow_redirects is OFF for the proxy: an allowed host could 302 to an
+        # attacker-controlled host and the injected credentials would follow it.
+        self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=False)
 
     def register_routes(self, app: web.Application) -> None:
         """Register integration bridge routes on the aiohttp app."""
@@ -109,6 +112,39 @@ class IntegrationBridge:
             return web.json_response(
                 {"error": "Missing required fields: integration, url"}, status=400
             )
+
+        # Gate 1 — capability. An app may only use integrations its manifest
+        # declares. Without this, any app that can reach the bridge can use
+        # every credential the user has connected: a kanban board could send
+        # mail as them. The declaration is the hook the Phase 5 consent flow
+        # attaches to; until then it is at least an explicit, reviewable list.
+        granted, why = self._project_grants(project_id, integration)
+        if not granted:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED (capability) project={project_id} "
+                f"integration={integration!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app is not permitted to use '{integration}': {why}"},
+                status=403,
+            )
+
+        # Gate 2 — destination. Without it this endpoint is a credential
+        # exfiltration primitive: `url` is caller-controlled and the user's real
+        # OAuth token is injected into whatever host is named, so one line in a
+        # third-party app's pb_hooks could ship a Gmail token anywhere. Fails
+        # CLOSED — an integration with no entry cannot be proxied at all.
+        allowed, resolved = self._resolve_destination(integration, url)
+        if not allowed:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED proxy from project={project_id} "
+                f"integration={integration!r} url={url!r}: {resolved}"
+            )
+            return web.json_response(
+                {"error": f"Destination not permitted for '{integration}': {resolved}"},
+                status=403,
+            )
+        url = resolved
 
         # Get auth headers from platform client
         auth_headers = self._get_auth_headers(integration)
@@ -255,6 +291,108 @@ class IntegrationBridge:
 
         token = auth[7:]
         return self._manager.validate_bridge_token(token)
+
+    # Where each integration's credentials may be sent: (base, allowed hosts).
+    #
+    # `base` also REPAIRS the proxy. Callers pass a path — the shipped apps do
+    # `callIntegration('gmail','POST','/gmail/v1/users/me/messages/send',…)` —
+    # and nothing ever resolved it, so httpx got a relative URL and every call
+    # failed. crm-system even carries a "Gmail integration unavailable" fallback
+    # because of it. Resolving against `base` fixes that, and a path can never
+    # escape the base, so it is also the safe form.
+    #
+    # Host matching is exact-or-dot-suffix, so "api.github.com.evil.com" does
+    # not pass as "api.github.com". Omission denies — the safe direction.
+    PROXY_DESTINATIONS: Dict[str, tuple] = {
+        "github": ("https://api.github.com", ("api.github.com",)),
+        "gmail": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_calendar": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_docs": ("https://docs.googleapis.com", ("googleapis.com",)),
+        "google_drive": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_youtube": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_workspace": ("https://www.googleapis.com", ("googleapis.com",)),
+        "outlook": ("https://graph.microsoft.com", ("graph.microsoft.com",)),
+        "slack": ("https://slack.com", ("slack.com",)),
+        "discord": ("https://discord.com", ("discord.com", "discordapp.com")),
+        "notion": ("https://api.notion.com", ("api.notion.com",)),
+        "hubspot": ("https://api.hubapi.com", ("api.hubapi.com",)),
+        "jira": ("https://api.atlassian.com", ("atlassian.net", "api.atlassian.com")),
+        "linkedin": ("https://api.linkedin.com", ("api.linkedin.com",)),
+        "stripe": ("https://api.stripe.com", ("api.stripe.com",)),
+        "line": ("https://api.line.me", ("api.line.me",)),
+        "lark": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "lark_calendar": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "lark_drive": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "telegram_bot": ("https://api.telegram.org", ("api.telegram.org",)),
+        "telegram_user": ("https://api.telegram.org", ("api.telegram.org",)),
+        "twitter": ("https://api.twitter.com", ("api.twitter.com", "api.x.com")),
+        "whatsapp_business": ("https://graph.facebook.com", ("graph.facebook.com",)),
+    }
+
+    def _project_grants(self, project_id: str, integration: str) -> tuple:
+        """(ok, reason) — does this project declare `integration` in its
+        manifest's `capabilities.integrations`? Fails closed."""
+        import json as _json
+
+        try:
+            project = self._manager.get_project(project_id)
+        except Exception as e:
+            return False, f"unknown project ({e})"
+        if project is None:
+            return False, "unknown project"
+
+        try:
+            manifest_path = Path(project.path) / "manifest.json"
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"manifest unreadable ({e})"
+
+        capabilities = manifest.get("capabilities") or {}
+        declared = capabilities.get("integrations")
+        if not isinstance(declared, list):
+            return False, (
+                "manifest declares no capabilities.integrations — add "
+                f'"capabilities": {{"integrations": ["{integration}"]}} to grant it'
+            )
+        if integration not in declared:
+            return False, f"not in capabilities.integrations {declared}"
+        return True, ""
+
+    def _resolve_destination(self, integration: str, url: str) -> tuple:
+        """(ok, resolved_url_or_reason) for this integration's credentials."""
+        from urllib.parse import urlparse
+
+        entry = self.PROXY_DESTINATIONS.get(integration)
+        if not entry:
+            return False, "integration has no permitted destinations"
+        base, allowed = entry
+
+        raw = (url or "").strip()
+        if not raw:
+            return False, "empty url"
+
+        # A path resolves against the base and cannot escape it. Note "//host"
+        # is protocol-relative, NOT a path — urljoin would happily send it to
+        # another host, so it must be rejected here.
+        if raw.startswith("/") and not raw.startswith("//"):
+            return True, base.rstrip("/") + raw
+
+        try:
+            parsed = urlparse(raw)
+        except Exception:
+            return False, "unparseable url"
+
+        if parsed.scheme != "https":
+            return False, f"scheme {parsed.scheme!r} is not https"
+
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return False, "no host in url"
+
+        for candidate in allowed:
+            if host == candidate or host.endswith("." + candidate):
+                return True, raw
+        return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
     def _get_auth_headers(self, platform_id: str) -> Optional[dict]:
         """

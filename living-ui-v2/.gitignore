@@ -16,3 +16,4 @@ logs/
 # Local env/secrets
 .env
 .superuser
+.agent-token

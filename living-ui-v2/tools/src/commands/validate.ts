@@ -144,6 +144,56 @@ function collectHookRoutes(projectDir: string): Set<string> {
 }
 
 /**
+ * Reject the PocketBase transaction footgun (spec A2APP-PLAN §3.2).
+ *
+ * `runInTransaction(txApp => …)` hands you a transaction handle. Using the
+ * OUTER app handle (`e.app` / `$app`) inside that callback does not merely
+ * misbehave:
+ *   - a READ returns stale data silently
+ *   - a WRITE **deadlocks the whole process, permanently**
+ * and the app keeps answering `GET /api/health` with 200 throughout, so the
+ * host's own health check cannot see it. One line in one hook turns the app
+ * into a read-only zombie.
+ *
+ * The correct handle is the callback's parameter. This is a cheap structural
+ * check for a failure that is otherwise near-impossible to diagnose from
+ * outside.
+ */
+function checkTransactionHandles(projectDir: string): void {
+  const hooksDir = join(projectDir, 'pb', 'pb_hooks');
+  if (!existsSync(hooksDir)) return;
+
+  for (const name of readdirSync(hooksDir)) {
+    if (!name.endsWith('.js')) continue;
+    const source = readFileSync(join(hooksDir, name), 'utf8');
+
+    // Find each runInTransaction( … ) callback body by brace matching, so a
+    // nested function or object literal does not end the scan early.
+    const opener = /runInTransaction\s*\(/g;
+    for (const start of source.matchAll(opener)) {
+      const from = (start.index ?? 0) + start[0].length;
+      let depth = 1;
+      let i = from;
+      for (; i < source.length && depth > 0; i++) {
+        if (source[i] === '(') depth++;
+        else if (source[i] === ')') depth--;
+      }
+      const body = source.slice(from, i);
+      const offender = /\b(e\.app|\$app)\s*\./.exec(body);
+      if (offender !== null) {
+        const line = source.slice(0, from + offender.index).split('\n').length;
+        throw new Error(
+          `${name}:${line}: "${offender[1]}" used inside runInTransaction — use the ` +
+            `callback's own transaction handle instead. Writing through the outer ` +
+            `handle DEADLOCKS the process permanently, and /api/health keeps ` +
+            `returning 200 so nothing detects it.`
+        );
+      }
+    }
+  }
+}
+
+/**
  * Append the offending SOURCE to every error that names a location, in any
  * gate step — agents fix the wrong thing when they only see line numbers.
  * Handles `path(line,col)` (tsc), `path:line:col` (esbuild/vite), and
@@ -331,6 +381,10 @@ export async function run(args: string[]): Promise<number> {
   });
 
   runStep(errors, 'operations.json (structure)', () => validateOps(projectDir));
+
+  runStep(errors, 'hooks (transaction handles)', () =>
+    checkTransactionHandles(projectDir)
+  );
 
   runStep(errors, 'ownership (system files unmodified)', () => {
     const drift = verifySystemHashes(projectDir);

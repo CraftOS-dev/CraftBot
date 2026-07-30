@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import traceback
 import time
@@ -300,6 +301,12 @@ class AgentBase:
             self.llm,
             agent_file_system_path=AGENT_FILE_SYSTEM_PATH,
         )
+
+        # A2APP claim gate (spec A2APP-PLAN Phase 1 B10): what this run has
+        # actually written to a Living UI, and how many messages have been
+        # withheld for misreporting it. Both reset when the run ends.
+        self._lui_run_writes: Dict[str, list] = {}
+        self._lui_blocked_claims: Dict[str, int] = {}
 
         # action layer
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
@@ -1046,6 +1053,15 @@ class AgentBase:
             f"[ACTION] Ready to run {len(actions_with_input)} action(s): {action_names}"
         )
 
+        # A2APP: a message that misreports what happened is stopped BEFORE the
+        # user sees it, and the discrepancy is handed back to the agent to fix.
+        # Correcting it in front of the user (a System bubble contradicting the
+        # assistant) is worse than not saying it — the agent should just be
+        # right. See spec/A2APP-PLAN.md Phase 1 B10.
+        actions_with_input = self._gate_false_claims(session_id, actions_with_input)
+        if not actions_with_input:
+            return {}  # nothing ran; run continues so the agent can try again
+
         results = await self.action_manager.execute_actions_parallel(
             actions=actions_with_input,
             context=context,
@@ -1055,7 +1071,225 @@ class AgentBase:
             is_running_task=True,
         )
 
+        # A2APP: when the agent writes to a Living UI, the SYSTEM reports what
+        # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
+        self._report_living_ui_writes(session_id, actions_with_input, results)
+
         return self._merge_action_outputs(results)
+
+    # Past-tense MUTATION verbs only. Recall is traded away for precision on
+    # purpose: a missed lie is no worse than today, but a wrongly withheld
+    # message is invisible to the user and strictly worse.
+    #
+    # "done" and "all set" were here and had to go — in a kanban app "Done" is
+    # a list name, so "Which list: To Do, In Progress or Done?" was blocked in
+    # testing. Swallowing a clarifying question is the worst outcome this gate
+    # can produce, so ambiguous words are out and questions are exempt.
+    _SUCCESS_CLAIM = re.compile(
+        r"\b(added|created|updated|deleted|removed|saved|scheduled|moved|renamed)\b",
+        re.IGNORECASE,
+    )
+
+    def _gate_false_claims(self, session_id: str, actions_with_input: list) -> list:
+        """Drop a `send_message` whose claim the record does not support.
+
+        Only ONE rule is enforced, and it needs no language understanding:
+        *the agent says it changed something, and nothing was successfully
+        written this run.* That is exact, and it covers the largest class of
+        false success. Fuzzier checks (does the prose's date match the stored
+        date?) are only LOGGED, until the telemetry says they would be right.
+
+        A blocked message is not shown to the user. The reason goes into the
+        event stream, so the agent reads it on its next turn and corrects
+        itself. After one correction attempt the message is allowed through
+        regardless — looping in silence is worse than one imprecise sentence.
+        """
+        writes = self._lui_run_writes.get(session_id) or []
+        if writes:
+            return actions_with_input  # something was written; nothing to dispute
+
+        kept = []
+        for action, params in actions_with_input:
+            if getattr(action, "name", None) != "send_message":
+                kept.append((action, params))
+                continue
+
+            message = str((params or {}).get("message") or "")
+            # A question is never an assertion that something changed, and
+            # withholding one strands the user waiting on an answer.
+            if message.rstrip().endswith("?"):
+                kept.append((action, params))
+                continue
+            if not self._SUCCESS_CLAIM.search(message):
+                kept.append((action, params))
+                continue
+            if not self._session_touches_living_ui(session_id):
+                kept.append((action, params))
+                continue
+
+            blocked = self._lui_blocked_claims.get(session_id, 0)
+            if blocked >= 1:
+                logger.warning(
+                    f"[A2APP] claim still unsupported after a correction; "
+                    f"allowing it through for session={session_id}"
+                )
+                kept.append((action, params))
+                continue
+
+            self._lui_blocked_claims[session_id] = blocked + 1
+            logger.warning(f"[A2APP] blocked unsupported claim: {message[:120]}")
+            if self.event_stream_manager:
+                self.event_stream_manager.log(
+                    kind="action_error",
+                    message=(
+                        "Your message was NOT sent. It says you changed something, but no "
+                        "write to this Living UI succeeded in this run. Either perform the "
+                        "write, or tell the user plainly what went wrong. Do not claim an "
+                        "action you did not complete."
+                    ),
+                    event_type=EventType.ACTION_END,
+                    display_message="message withheld — claim not supported by any write",
+                    action_name="send_message",
+                    action_output={"status": "blocked", "reason": "unsupported_claim"},
+                    task_id=session_id,
+                )
+        return kept
+
+    def _session_touches_living_ui(self, session_id: str) -> bool:
+        try:
+            session = self.session_manager.get(session_id)
+        except Exception:
+            return False
+        return bool(getattr(session, "living_ui_project_id", None)) if session else False
+
+    # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
+    # they change nothing and need no receipt.
+    _LUI_WRITE = re.compile(
+        r"cli\.ts\s+(?:data\s+\S+\s+(?P<collection>\S+)\s+(?P<verb>create|update|delete)"
+        r"|run\s+\S+\s+(?P<op>[\w.\-]+))"
+    )
+
+    def _report_living_ui_writes(
+        self, session_id: str, actions_with_input: list, results: list
+    ) -> None:
+        """Report what a turn changed, IN CRAFTBOT'S VOICE, and refresh the app.
+
+        Why the system writes it: in the incident that motivated A2APP the
+        agent wrote a card with an empty due date, read `"due_date":""` in its
+        own tool output, and told the user "scheduled for tomorrow". Guarding
+        the write stops the bad data; it does not stop the false sentence.
+
+        Why it is not a separate "System" speaker: it was, and it read badly —
+        the user saw a grey robot line restating what the assistant then said
+        again, less precisely ("due tomorrow" against the receipt's "due Fri 31
+        Jul") and padded with filler. Delivering the fact AS CraftBot removes
+        the duplication and the extra narration turn, and keeps the guarantee:
+        the words come from the stored record, not from the model.
+
+        One line per turn, not per write, so a turn that changes three things
+        does not produce three bubbles. (A bulk run spread over many turns
+        still yields many lines — see A2APP-PLAN for the open case.)
+
+        Also the only place `dispatch_living_ui_data_changed` fires on the CLI
+        path — previously it fired solely from the deprecated `living_ui_http`
+        action, so agent writes never refreshed the iframe.
+        """
+        try:
+            session = self.session_manager.get(session_id)
+        except Exception:
+            session = None
+        project_id = getattr(session, "living_ui_project_id", None) if session else None
+        if not project_id:
+            return
+
+        summaries = []
+        for (action, params), result in zip(actions_with_input, results):
+            try:
+                if getattr(action, "name", None) != "run_shell":
+                    continue
+                command = str((params or {}).get("command") or "")
+                match = self._LUI_WRITE.search(command)
+                if match is None:
+                    continue
+                summary = self._describe_write(session_id, project_id, match, result)
+                if summary:
+                    summaries.append(summary)
+            except Exception as e:  # a receipt must never break the turn
+                logger.debug(f"[A2APP] receipt skipped: {e}")
+
+        if not summaries:
+            return
+
+        if self.event_stream_manager:
+            text = summaries[0] if len(summaries) == 1 else "\n".join(f"• {s}" for s in summaries)
+            self.event_stream_manager.log(
+                kind="living_ui_write",
+                message=text,
+                event_type=EventType.AGENT_MESSAGE,
+                display_message=text,
+                task_id=session_id,
+            )
+
+        try:
+            from app.living_ui import dispatch_living_ui_data_changed
+
+            dispatch_living_ui_data_changed(project_id)
+        except Exception as e:
+            logger.debug(f"[A2APP] data-changed dispatch skipped: {e}")
+
+    def _describe_write(
+        self, session_id: str, project_id: str, match, result: dict
+    ) -> Optional[str]:
+        """One CLI write result -> one plain sentence, or None if there is
+        nothing the user needs to read."""
+        import json as _json
+
+        collection = match.group("collection")
+        verb = match.group("verb")
+        target = match.group("op") or f"{collection}.{verb}"
+        stdout = str((result or {}).get("stdout") or "")
+        stderr = str((result or {}).get("stderr") or "")
+        failed = (result or {}).get("status") == "error" or (result or {}).get(
+            "return_code"
+        ) not in (0, None)
+
+        # A failure the agent goes on to recover from is NOT an event in the
+        # user's world — it is an internal retry, and putting it in the chat
+        # reads like the assistant arguing with itself. The agent still sees it
+        # (action_end carries the full stderr) and so does anyone who opens the
+        # actions detail; the conversation stays about what the user asked for.
+        if failed:
+            logger.info(f"[A2APP] {target} rejected: {(stderr or stdout).strip()[:200]}")
+            return None
+
+        record = None
+        try:
+            parsed = _json.loads(stdout)
+            if isinstance(parsed, dict) and "id" in parsed:
+                record = parsed
+        except Exception:
+            record = None
+
+        summary = f"{target} ok"
+        if record is not None and collection:
+            try:
+                from app.living_ui import get_living_ui_manager
+                from app.living_ui.agent_view import humanise_write
+
+                mgr = get_living_ui_manager()
+                proj = mgr.get_project(project_id) if mgr else None
+                base = (proj.backend_url or proj.url) if proj else None
+                if base:
+                    summary = humanise_write(
+                        base.rstrip("/"), collection, verb or "create", record
+                    )
+            except Exception as e:
+                logger.debug(f"[A2APP] could not humanise receipt: {e}")
+
+        self._lui_run_writes.setdefault(session_id, []).append(
+            {"collection": collection, "verb": verb, "record": record, "summary": summary}
+        )
+        return summary
 
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
@@ -1103,6 +1337,10 @@ class AgentBase:
         run_ends = bool(action_output.get("run_ends", False))
 
         if run_ends:
+            # The claim gate is scoped to a run: what was written for THIS
+            # request says nothing about the next one.
+            self._lui_run_writes.pop(session.id, None)
+            self._lui_blocked_claims.pop(session.id, None)
             await self._on_run_end(session, trigger.payload or {})
             return
 
@@ -1750,19 +1988,48 @@ class AgentBase:
             if mgr:
                 proj = mgr.get_project(living_ui_project_id)
                 if proj:
+                    # The DATA MODEL goes in the prompt, not behind a pointer.
+                    # Twice now the agent has ignored "Read LIVING_UI.md", never
+                    # run `lui ops`, and guessed collection names instead
+                    # (`items`, then `tasks`) — and once invented an enum value
+                    # (`priority: "normal"`) it could not have known was wrong.
+                    # Advisory text does not work on a weak model; context does.
+                    schema = None
+                    try:
+                        from app.living_ui.agent_view import schema_block
+
+                        base = proj.backend_url or proj.url
+                        if base:
+                            schema = schema_block(base.rstrip("/"))
+                    except Exception:
+                        schema = None
+
+                    model = (
+                        f"Data model (field(type), * = required):\n{schema}\n"
+                        if schema
+                        else f"Data model: run  node {_lui_cli} data {proj.path} schema\n"
+                    )
                     return (
                         f"[INTERACTING WITH LIVING UI: {proj.name} ({living_ui_project_id})]\n"
                         f"Project path: {proj.path}\n"
-                        f"Read {proj.path}/LIVING_UI.md for app context.\n"
-                        f"If debugging issues, FIRST read these logs:\n"
-                        f"  - {proj.path}/logs/pocketbase.log (server, migrations, crashes)\n"
-                        f"  - {proj.path}/logs/frontend_console.log (frontend errors, network failures)\n"
-                        f"To OPERATE the app (read/write data, run its verbs), use the lui CLI via run_shell\n"
-                        f"(preferred over living_ui_http). Use these EXACT absolute commands (the shell's\n"
-                        f"cwd is NOT the repo root — relative paths will fail):\n"
-                        f"  node {_lui_cli} ops {proj.path}\n"
+                        f"{model}"
+                        f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
+                        f"references by name, e.g. --list \"To Do\". Only set fields the user asked for.\n"
+                        f"AFTER A SUCCESSFUL WRITE the user is ALREADY shown exactly what changed, in\n"
+                        f"your voice, generated from the stored record. Do NOT send a message repeating\n"
+                        f"it — end the turn. Send a message only to add something that report does not\n"
+                        f"cover: a failure, a question, an answer to a question, or a summary of many\n"
+                        f"changes.\n"
+                        f"To OPERATE the app, use the lui CLI via run_shell with ABSOLUTE paths\n"
+                        f"(the shell's cwd is NOT the repo root):\n"
+                        f'  node {_lui_cli} data {proj.path} <collection> create --field "value"\n'
+                        f'  ALWAYS quote values — an unquoted # starts a shell comment and\n'
+                        f'  silently drops the rest of the command.\n'
+                        f"  node {_lui_cli} data {proj.path} <collection> list --limit 20\n"
                         f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
-                        f"  node {_lui_cli} data {proj.path} <collection> list --limit 20"
+                        f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
+                        f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
+                        f"load the right Living UI skill first (use_skill); list_skills shows all skills."
                     )
         except Exception:
             pass

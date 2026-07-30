@@ -5,7 +5,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeSystemHashes } from '../lib/hashes.ts';
-import { vendorKitInto } from '../lib/kit.ts';
+import { adapterVersion, vendorKitInto, vendorSystemFilesInto } from '../lib/kit.ts';
 import { log } from '../lib/log.ts';
 
 export async function run(args: string[]): Promise<number> {
@@ -17,15 +17,26 @@ export async function run(args: string[]): Promise<number> {
 
   const version = vendorKitInto(projectDir);
 
+  // System hooks too — this is how imported and marketplace apps receive the
+  // A2APP write guard, and it makes the re-canonization below honest.
+  const systemFiles = vendorSystemFilesInto(projectDir);
+  const adapter = adapterVersion();
+
   const manifestPath = join(projectDir, 'manifest.json');
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { kitVersion?: string };
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    kitVersion?: string;
+    adapterVersion?: string;
+  };
   const previous = manifest.kitVersion ?? 'unknown';
+  const previousAdapter = manifest.adapterVersion ?? 'none';
   manifest.kitVersion = version;
+  manifest.adapterVersion = adapter;
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
   // Re-canonize: the sync itself is the new legitimate system-file state.
   writeSystemHashes(projectDir);
 
   log.ok(`Kit ${previous} → ${version} in ${projectDir} (rebuild required)`);
+  log.ok(`Adapter ${previousAdapter} → ${adapter} (${systemFiles.length} system hook file(s))`);
   return 0;
 }

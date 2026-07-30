@@ -18,6 +18,7 @@ const COMMANDS: Record<string, { summary: string }> = {
   data: { summary: 'Read/write collection records of the RUNNING app (list/get/create/update/delete)' },
   probe: { summary: 'Scripted headless-browser walk of the RUNNING app (goto/click/type/read/screenshot)' },
   'kit-sync': { summary: 'Re-vendor the kit into a project (wholesale replace)' },
+  'adapter-sync': { summary: 'Re-vendor only the system pb_hooks (A2APP adapter) — no rebuild' },
 };
 
 async function main(): Promise<number> {

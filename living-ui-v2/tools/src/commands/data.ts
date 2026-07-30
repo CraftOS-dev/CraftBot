@@ -14,9 +14,23 @@
  */
 import { log } from '../lib/log.ts';
 import { loadProject, request } from '../lib/project.ts';
+import { coerceBody, describe, droppedFields, fetchSchema, suggest } from '../lib/schema.ts';
 
 // Reserved flags that control the query/body, never treated as record fields.
-const CONTROL_FLAGS = new Set(['json', 'filter', 'sort', 'limit']);
+const CONTROL_FLAGS = new Set(['json', 'filter', 'sort', 'limit', 'idempotency-key']);
+
+function safeJson(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function idempotencyHeaders(key: string | undefined): Record<string, string> | undefined {
+  return key === undefined ? undefined : { 'Idempotency-Key': key };
+}
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -33,7 +47,7 @@ function coerceScalar(v: string): unknown {
 }
 
 /** Collect `--field value` pairs (excluding CONTROL_FLAGS) into a body object.
- *  A flag with no following value (or followed by another flag) becomes true. */
+ *  Every flag must carry a value — a valueless one is an error, not `true`. */
 function collectFields(args: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (let i = 0; i < args.length; i++) {
@@ -46,11 +60,16 @@ function collectFields(args: string[]): Record<string, unknown> {
     }
     const next = args[i + 1];
     if (next === undefined || next.startsWith('--')) {
-      out[key] = true; // bare flag
-    } else {
-      out[key] = coerceScalar(next);
-      i++;
+      // This used to become `true`, which silently stored a boolean in whatever
+      // field was named — a colour field ended up holding "true". The job here
+      // is to STOP that write, not to explain how it happened: a valueless flag
+      // and a value eaten by shell quoting arrive byte-identically, so any
+      // cause we named would be a guess. The note teaches quoting up front;
+      // this just refuses.
+      throw new Error(`--${key} has no value. Every flag needs one: --${key} "value".`);
     }
+    out[key] = coerceScalar(next);
+    i++;
   }
   return out;
 }
@@ -75,8 +94,43 @@ export async function run(args: string[]): Promise<number> {
     return 1;
   }
   const project = loadProject(dirArg);
+  const schema = await fetchSchema(project);
+
+  // `data <dir> schema` — the app's data model, so an agent never has to guess
+  // a collection name or a field type (the failure that motivated all of this).
+  if (collection === 'schema' && !schema.has('schema')) {
+    log.raw(`${project.name} — collections (field(type), * = required):\n${describe(schema)}`);
+    return 0;
+  }
+
+  // PocketBase answers an unknown collection with a bare 404 that names
+  // nothing. Answer it properly instead.
+  if (schema.size > 0 && !schema.has(collection)) {
+    const hint = suggest(collection, [...schema.keys()]);
+    log.error(
+      `No collection "${collection}" in ${project.name}${hint !== null ? ` — did you mean "${hint}"?` : ''}`
+    );
+    log.raw(`Collections (field(type), * = required):\n${describe(schema)}`);
+    return 1;
+  }
+
+  // Opt-in, not automatic: the CLI does not retry internally, so a generated
+  // key would protect nothing. It exists so a caller that DOES retry — an agent
+  // loop, an HTTP layer — can make a write safe to repeat.
+  const idempotencyKey = flag(args, 'idempotency-key');
   const base = `/api/collections/${collection}/records`;
-  const body = buildBody(args);
+  let body = buildBody(args) as Record<string, unknown> | undefined;
+
+  // Coerce CLI-side: relative dates and relation labels. The app still
+  // validates — this only makes a well-formed request out of human input.
+  if (body !== undefined && (verb === 'create' || verb === 'update')) {
+    const coerced = await coerceBody(project, schema, collection, body);
+    if (coerced.errors.length > 0) {
+      for (const message of coerced.errors) log.error(message);
+      return 1;
+    }
+    body = coerced.body;
+  }
 
   let res;
   switch (verb) {
@@ -98,13 +152,13 @@ export async function run(args: string[]): Promise<number> {
     case 'create':
       if (body === undefined)
         return usageError("create needs fields (e.g. --title \"…\") or --json '{...}'");
-      res = await request(project, 'POST', base, body);
+      res = await request(project, 'POST', base, body, idempotencyHeaders(idempotencyKey));
       break;
     case 'update':
       if (id === undefined) return usageError('update needs an <id>');
       if (body === undefined)
         return usageError("update needs fields (e.g. --status \"…\") or --json '{...}'");
-      res = await request(project, 'PATCH', `${base}/${id}`, body);
+      res = await request(project, 'PATCH', `${base}/${id}`, body, idempotencyHeaders(idempotencyKey));
       break;
     case 'delete':
       if (id === undefined) return usageError('delete needs an id');
@@ -113,8 +167,48 @@ export async function run(args: string[]): Promise<number> {
     default:
       return usageError(`unknown verb "${verb}"`);
   }
-  log.raw(res.body || `(HTTP ${res.status}${res.status < 300 ? ', ok' : ''})`);
-  return res.status < 300 ? 0 : 1;
+  // Failure: surface the app's message plainly instead of a wall of JSON, so
+  // the reason reaches the caller rather than being buried in a body.
+  if (res.status >= 300) {
+    const parsed = safeJson(res.body);
+    log.error(String(parsed?.['message'] ?? `HTTP ${res.status}`));
+
+    // A2APP rejections list EVERY problem, so show them all — one round trip
+    // should be enough for the caller to fix everything.
+    const violations = parsed?.['violations'];
+    if (Array.isArray(violations) && violations.length > 1) {
+      for (const v of violations.slice(1) as { field?: string; expected?: string }[]) {
+        log.raw(`  also: --${v.field} expects ${v.expected}`);
+      }
+    } else {
+      // PocketBase's own rejections keep its shape and carry no a2app marker.
+      const detail = parsed?.['data'];
+      if (detail !== undefined && Object.keys(detail as object).length > 0) {
+        log.raw(`  fields: ${JSON.stringify(detail)}`);
+      }
+    }
+    return 1;
+  }
+
+  log.raw(res.body || `(HTTP ${res.status}, ok)`);
+
+  // Backstop for apps whose adapter predates the in-app write guard: if a value
+  // we asked for is missing from what came back, the write did not do what was
+  // asked, and that must not look like success.
+  if (body !== undefined && (verb === 'create' || verb === 'update')) {
+    const saved = safeJson(res.body);
+    if (saved !== null) {
+      const dropped = droppedFields(body, saved);
+      if (dropped.length > 0) {
+        log.error(
+          `WRITE INCOMPLETE — the app accepted the request but did not store: ${dropped.join(', ')}. ` +
+            `Do NOT report this as done.`
+        );
+        return 1;
+      }
+    }
+  }
+  return 0;
 
   function usageError(msg: string): number {
     log.error(msg);

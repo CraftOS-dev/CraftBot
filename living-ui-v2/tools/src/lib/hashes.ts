@@ -9,8 +9,11 @@ import { join, relative, sep } from 'node:path';
 
 const HASH_FILE = join('.lui', 'system-hashes.json');
 
-/** System-managed paths, relative to the project root (files or directories). */
-const SYSTEM_PATHS = [
+/** System-managed paths, relative to the project root (files or directories).
+ *  Exported because this list is also the delivery manifest: `kit-sync`
+ *  re-vendors every system file so the hashes it re-canonizes are hashes of
+ *  files it actually just wrote (see vendorSystemFilesInto). */
+export const SYSTEM_PATHS = [
   'frontend/src/kit',
   'frontend/src/main.tsx',
   'frontend/src/config.gen.ts',
@@ -20,6 +23,9 @@ const SYSTEM_PATHS = [
   'frontend/tsconfig.json',
   'pb/pb_hooks/_system.pb.js',
   'pb/pb_hooks/_craftbot_bridge.js',
+  'pb/pb_hooks/_a2app.pb.js',
+  'pb/pb_hooks/_a2app_lib.js',
+  'pb/pb_hooks/_a2app_rules.js',
   'manifest.json',
 ];
 
