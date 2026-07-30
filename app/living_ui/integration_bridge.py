@@ -17,6 +17,9 @@ from typing import TYPE_CHECKING, Optional
 from aiohttp import web
 import httpx
 
+from app.errors import make_error
+from app.errors.web import error_json_response
+
 if TYPE_CHECKING:
     from app.living_ui.manager import LivingUIManager
 
@@ -148,10 +151,14 @@ class IntegrationBridge:
             )
 
         except httpx.TimeoutException:
-            return web.json_response({"error": "External API timeout"}, status=504)
+            return error_json_response(
+                make_error("CONNECTION_TIMEOUT", target="the integration API"), status=504
+            )
         except Exception as e:
             logger.error(f"[INTEGRATION_BRIDGE] Proxy error: {e}")
-            return web.json_response({"error": f"Proxy error: {str(e)}"}, status=502)
+            return error_json_response(
+                make_error("PROXY_ERROR", detail=f"Proxy error: {str(e)}"), status=502
+            )
 
     async def _handle_llm(self, request: web.Request) -> web.Response:
         """Proxy LLM completion request through CraftBot's configured LLM."""

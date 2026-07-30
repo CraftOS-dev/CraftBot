@@ -67,6 +67,7 @@ from craftos_integrations import (
 from app.internal_action_interface import InternalActionInterface
 
 from app.llm import LLMInterface
+from agent_core.core.errors import ErrorCategory, ErrorInfo, Severity
 from agent_core.core.impl.llm.errors import (
     classify_llm_error_message,
     LLMConsecutiveFailureError,
@@ -1337,6 +1338,39 @@ class AgentBase:
 
     # ----- Error Handling -----
 
+    @staticmethod
+    def _find_fatal_llm_error(
+        error: Exception,
+    ) -> tuple[bool, LLMConsecutiveFailureError | None]:
+        """Walk the exception chain (__cause__, __context__) to detect the
+        fatal-LLM case. We need the LLMConsecutiveFailureError to surface the
+        *cause* of the failure(s) (e.g. "rate-limited on Google AI Studio"),
+        not just a meta-message about retry counts."""
+        seen: set[int] = set()
+        exc: BaseException | None = error
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
+            if isinstance(exc, LLMConsecutiveFailureError):
+                return True, exc
+            cause = exc.__cause__ or exc.__context__
+            if cause is None or cause is exc:
+                break
+            exc = cause
+        return False, None
+
+    @staticmethod
+    def _fallback_fatal_error_info(fatal_exc: LLMConsecutiveFailureError) -> ErrorInfo:
+        """Used when a fatal LLMConsecutiveFailureError carries no classified
+        `last_error_info` (should be rare — only if classification itself
+        raised)."""
+        return ErrorInfo(
+            category=ErrorCategory.UNKNOWN,
+            code="LLM_UNKNOWN",
+            title="AI service error",
+            message=str(fatal_exc),
+            severity=Severity.CRITICAL,
+        )
+
     async def _handle_react_error(
         self,
         error: Exception,
@@ -1350,47 +1384,31 @@ class AgentBase:
         if not session_id or not self.event_stream_manager:
             return
 
-        # Walk the exception chain (__cause__, __context__) to detect the
-        # fatal-LLM case. We need the LLMConsecutiveFailureError to surface
-        # the *cause* of the 5 failures (e.g. "rate-limited on Google AI
-        # Studio"), not the meta-message about retry counts.
-        is_fatal_llm_error = False
-        fatal_exc: LLMConsecutiveFailureError | None = None
-        seen: set[int] = set()
-        exc: BaseException | None = error
-        while exc is not None and id(exc) not in seen:
-            seen.add(id(exc))
-            if isinstance(exc, LLMConsecutiveFailureError):
-                is_fatal_llm_error = True
-                fatal_exc = exc
-                break
-            cause = exc.__cause__ or exc.__context__
-            if cause is None or cause is exc:
-                break
-            exc = cause
+        is_fatal_llm_error, fatal_exc = self._find_fatal_llm_error(error)
+        fatal_info = fatal_exc.last_error_info if fatal_exc else None
 
-        if (
-            is_fatal_llm_error
-            and fatal_exc is not None
-            and fatal_exc.last_error_info is not None
-        ):
-            cause_msg = fatal_exc.last_error_info.message
-            user_message = f"Aborted after consecutive failures. {cause_msg}"
+        if is_fatal_llm_error and fatal_info is not None:
+            audit_message = f"Aborted after consecutive failures. {fatal_info.message}"
         elif is_fatal_llm_error and fatal_exc is not None:
-            user_message = str(fatal_exc)
+            audit_message = str(fatal_exc)
         else:
             try:
-                user_message = classify_llm_error_message(error)
+                audit_message = classify_llm_error_message(error)
             except Exception:
-                user_message = str(error) or "AI service error"
+                audit_message = str(error) or "AI service error"
 
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
+            # display_message=None: this event stays in the session stream
+            # for LLM self-correction/audit context, but never renders a
+            # chat bubble on its own. Rendering the user-visible message is
+            # handled below, once, for the fatal case only — avoids the
+            # old "one red Error bubble per silent retry" duplication.
             self.event_stream_manager.log(
                 "error",
-                f"[REACT] {type(error).__name__}: {user_message}",
+                f"[REACT] {type(error).__name__}: {audit_message}",
                 event_type=EventType.ERROR,
-                display_message=user_message,
+                display_message=None,
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
@@ -1405,16 +1423,9 @@ class AgentBase:
                     "Continue where you left off — the previous attempt was "
                     "aborted by an AI-provider failure."
                 )
-                if self.ui_controller:
-                    from app.ui_layer.events import UIEvent, UIEventType
-
-                    self.ui_controller.event_bus.emit(
-                        UIEvent(
-                            type=UIEventType.LLM_FATAL_ERROR,
-                            data={"session_id": session_id},
-                            task_id=session_id,
-                        )
-                    )
+                await self._display_fatal_llm_error(
+                    session_id, fatal_info or self._fallback_fatal_error_info(fatal_exc)
+                )
             else:
                 # Recoverable turn error: continue the run so the LLM sees
                 # the error event and can adapt.
@@ -1435,6 +1446,33 @@ class AgentBase:
                 "[REACT ERROR] Failed to log to event stream or create trigger",
                 exc_info=True,
             )
+
+    async def _display_fatal_llm_error(self, session_id: str, info: ErrorInfo) -> None:
+        """Show the single, classified fatal-error prompt with Retry/Change
+        Model options — the only visible bubble for a fatal LLM failure.
+
+        Displayed directly via the chat component (like
+        `_send_limit_choice_message`) instead of round-tripping through a
+        `UIEvent` on the event bus, so there's no ordering race with the
+        (now-invisible) event-stream log entry above.
+        """
+        if not (self.ui_controller and self.ui_controller.active_adapter):
+            logger.warning(
+                "[REACT ERROR] No active UI adapter - fatal error not displayed"
+            )
+            return
+        from app.ui_layer.components.error_message import (
+            build_error_chat_message,
+            retry_change_model_options,
+        )
+
+        message = build_error_chat_message(
+            info,
+            sender="System",
+            session_id=session_id,
+            extra_options=retry_change_model_options(),
+        )
+        await self.ui_controller.active_adapter.chat_component.append_message(message)
 
     # ----- Agent Limits -----
 
@@ -1519,19 +1557,13 @@ class AgentBase:
         # Display message with options directly in the chat UI (awaited).
         if self.ui_controller and self.ui_controller.active_adapter:
             try:
-                from app.ui_layer.components.types import ChatMessage, ChatMessageOption
+                from app.ui_layer.components.types import ChatMessage
+                from app.ui_layer.components.error_message import continue_stop_options
                 from app.onboarding import onboarding_manager
                 import time as _time
 
                 agent_name = onboarding_manager.state.agent_name or "Agent"
-                options = [
-                    ChatMessageOption(
-                        label="Continue", value="continue_limit", style="primary"
-                    ),
-                    ChatMessageOption(
-                        label="Stop", value="abort_limit", style="danger"
-                    ),
-                ]
+                options = continue_stop_options()
                 await self.ui_controller.active_adapter.chat_component.append_message(
                     ChatMessage(
                         sender=agent_name,

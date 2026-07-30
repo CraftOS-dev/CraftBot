@@ -181,8 +181,15 @@
 }
 
 .sender {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-weight: var(--font-semibold);
   font-size: var(--text-sm);
+}
+
+.errorCategoryIcon {
+  flex-shrink: 0;
 }
 
 .message.user .sender {

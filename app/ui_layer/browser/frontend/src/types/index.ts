@@ -16,6 +16,7 @@ export interface ChatMessageOption {
   label: string
   value: string
   style?: 'primary' | 'danger' | 'default'
+  url?: string  // If set, clicking also opens this URL in a new tab (e.g. a billing link)
 }
 
 export interface ChatMessage {
@@ -30,6 +31,9 @@ export interface ChatMessage {
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment
+  errorCategory?: string  // ErrorCategory value (e.g. "auth", "rate_limit") when style === 'error'
+  errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
+  errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -30,8 +30,10 @@ from agent_core.core.impl.llm.cache import (
     get_cache_config,
     get_cache_metrics,
 )
+from agent_core.core.errors import ErrorCategory, FAIL_FAST_CATEGORIES
 from agent_core.core.impl.llm.errors import (
     LLMConsecutiveFailureError,
+    LLMErrorInfo,
     classify_llm_error,
 )
 from agent_core.core.hooks import (
@@ -493,6 +495,46 @@ class LLMInterface:
         )
 
     # ───────────────────────────  Public helpers  ────────────────────────────
+
+    def _register_failure(
+        self,
+        *,
+        error_info: Optional[LLMErrorInfo],
+        raw_error: Optional[Exception] = None,
+    ) -> None:
+        """Single chokepoint for consecutive-failure bookkeeping.
+
+        Non-transient categories (bad key, out of credits, invalid model,
+        blocked content, malformed request — see FAIL_FAST_CATEGORIES) abort
+        immediately: retrying the same request with the same error can't
+        succeed. Transient categories (rate-limit, server, connection,
+        unclassified) keep the existing 5-attempt budget.
+
+        Always raises `LLMConsecutiveFailureError` when the run should abort;
+        otherwise returns normally so the caller can continue its own retry
+        path.
+        """
+        category = error_info.category if error_info else ErrorCategory.UNKNOWN
+        if category in FAIL_FAST_CATEGORIES:
+            logger.critical(
+                f"[LLM ABORT] Non-transient category={category.value} — failing fast "
+                f"instead of retrying."
+            )
+            raise LLMConsecutiveFailureError(
+                1, last_error=raw_error, last_error_info=error_info, is_immediate=True
+            )
+
+        self._consecutive_failures += 1
+        logger.warning(
+            f"[LLM CONSECUTIVE FAILURE] Count: "
+            f"{self._consecutive_failures}/{self._max_consecutive_failures} "
+            f"(category={category.value})"
+        )
+        if self._consecutive_failures >= self._max_consecutive_failures:
+            raise LLMConsecutiveFailureError(
+                self._consecutive_failures, last_error=raw_error, last_error_info=error_info
+            )
+
     def _generate_response_sync(
         self,
         system_prompt: Optional[str] = None,
@@ -562,22 +604,13 @@ class LLMInterface:
                         f"Check your credentials and API status."
                     )
                 logger.error(f"[LLM ERROR] {error_detail}")
-                # Track consecutive failure
-                self._consecutive_failures += 1
-                logger.warning(
-                    f"[LLM CONSECUTIVE FAILURE] Count: {self._consecutive_failures}/{self._max_consecutive_failures}"
-                )
-                if self._consecutive_failures >= self._max_consecutive_failures:
-                    # Attach the underlying classified info so the agent_base
-                    # error handler can show the *cause* of the 5 failures
-                    # (e.g. "rate-limited on Google AI Studio") instead of a
-                    # meta-message about retry counts.
-                    raise LLMConsecutiveFailureError(
-                        self._consecutive_failures,
-                        last_error_info=error_info,
-                    )
+                # Registers/raises based on category (fail-fast vs retry
+                # budget) — see _register_failure. Attaches the classified
+                # info so the agent_base error handler can show the *cause*
+                # of the failure(s), not just a retry count.
+                self._register_failure(error_info=error_info)
                 # Use _EmptyResponse so the outer except-Exception block does NOT
-                # re-increment the counter for this same call (double-counting bug).
+                # re-register this same call (double-counting bug).
                 raise _EmptyResponse(error_detail)
 
             # Success - reset consecutive failure counter
@@ -600,25 +633,14 @@ class LLMInterface:
             # Failure already counted above; convert back to RuntimeError for callers.
             raise RuntimeError(str(e)) from None
         except Exception as e:
-            # Track consecutive failure for any other exception
-            self._consecutive_failures += 1
-            logger.warning(
-                f"[LLM CONSECUTIVE FAILURE] Count: {self._consecutive_failures}/{self._max_consecutive_failures} | Error: {e}"
-            )
-            if self._consecutive_failures >= self._max_consecutive_failures:
-                # Classify on the way out so the fatal-failure handler can
-                # surface the cause, not just the count.
-                try:
-                    info = classify_llm_error(
-                        e, provider=self.provider, model=self.model
-                    )
-                except Exception:
-                    info = None
-                raise LLMConsecutiveFailureError(
-                    self._consecutive_failures,
-                    last_error=e,
-                    last_error_info=info,
-                ) from e
+            # Classify on every failure now (not just once the retry budget
+            # is exhausted) so non-transient categories can fail fast.
+            try:
+                info = classify_llm_error(e, provider=self.provider, model=self.model)
+            except Exception:
+                info = None
+            logger.error(f"[LLM ERROR] {e}")
+            self._register_failure(error_info=info, raw_error=e)
             raise
 
     @profile("llm_generate_response", OperationCategory.LLM)
@@ -894,11 +916,10 @@ class LLMInterface:
         """Shared tail for the session-cache provider branches.
 
         Mirrors the failure handling in `_generate_response_sync`: an empty
-        response is treated as a failure, the consecutive-failure counter is
-        tracked, and the classified cause is surfaced (raising
-        `LLMConsecutiveFailureError` once the threshold is hit so the agent
-        aborts instead of retrying forever). On success the counter resets and
-        the cleaned content is returned.
+        response is treated as a failure and routed through
+        `_register_failure` (fail-fast for non-transient categories, retry
+        budget otherwise). On success the counter resets and the cleaned
+        content is returned.
         """
         content = (response.get("content") or "").strip()
         if not content:
@@ -915,15 +936,7 @@ class LLMInterface:
                     f"This may indicate an API error or service unavailability."
                 )
             logger.error(f"[LLM ERROR] {error_detail}")
-            self._consecutive_failures += 1
-            logger.warning(
-                f"[LLM CONSECUTIVE FAILURE] Count: "
-                f"{self._consecutive_failures}/{self._max_consecutive_failures}"
-            )
-            if self._consecutive_failures >= self._max_consecutive_failures:
-                raise LLMConsecutiveFailureError(
-                    self._consecutive_failures, last_error_info=error_info
-                )
+            self._register_failure(error_info=error_info)
             raise RuntimeError(error_detail)
 
         # Success - reset consecutive failure counter

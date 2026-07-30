@@ -38,11 +38,15 @@ class ChatMessageOption:
         label: Button text displayed to the user (e.g. "Continue")
         value: Machine-readable value sent back on click (e.g. "continue_limit")
         style: Visual style - "primary", "danger", or "default"
+        url: If set, clicking the button also opens this URL in a new tab
+            (e.g. a billing/top-up link from a classified error's actions),
+            in addition to dispatching `value` back over the socket.
     """
 
     label: str
     value: str
     style: str = "default"
+    url: Optional[str] = None
 
 
 @dataclass
@@ -62,6 +66,11 @@ class ChatMessage:
         session_id: The chat session this message belongs to ("main" default)
         options: Optional list of interactive options/buttons
         option_selected: Value of the option that was selected, if any
+        error_category: ErrorCategory value (e.g. "auth", "rate_limit") when
+            this message represents a classified error — lets the frontend
+            pick a category-aware icon/color instead of a flat error style.
+        error_code: Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY").
+        error_severity: Severity value ("info"/"warning"/"error"/"critical").
     """
 
     sender: str
@@ -76,6 +85,9 @@ class ChatMessage:
     # Client-generated UUID from the sender; echoed back so the browser can
     # reconcile optimistic-pending messages with the server-acknowledged copy.
     client_id: Optional[str] = None
+    error_category: Optional[str] = None
+    error_code: Optional[str] = None
+    error_severity: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -109,11 +121,22 @@ class ChatMessage:
             ]
         if self.options:
             data["options"] = [
-                {"label": o.label, "value": o.value, "style": o.style}
+                {
+                    "label": o.label,
+                    "value": o.value,
+                    "style": o.style,
+                    **({"url": o.url} if o.url else {}),
+                }
                 for o in self.options
             ]
         if self.option_selected:
             data["optionSelected"] = self.option_selected
+        if self.error_category:
+            data["errorCategory"] = self.error_category
+        if self.error_code:
+            data["errorCode"] = self.error_code
+        if self.error_severity:
+            data["errorSeverity"] = self.error_severity
         return data
 
 
