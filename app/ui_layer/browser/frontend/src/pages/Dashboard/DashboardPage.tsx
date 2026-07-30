@@ -153,15 +153,21 @@ export function DashboardPage() {
 
   // Token metrics - use cached filtered metrics for all periods (including 'total')
   const tokenFilteredData = filteredMetricsCache[tokenPeriod]
-  const inputTokens = tokenFilteredData?.token.input ?? (metrics?.token.input ?? 0)
+  const rawInputTokens = tokenFilteredData?.token.input ?? (metrics?.token.input ?? 0)
   const outputTokens = tokenFilteredData?.token.output ?? (metrics?.token.output ?? 0)
   const totalTokens = tokenFilteredData?.token.total ?? (metrics?.token.total ?? 0)
   const cachedTokens = tokenFilteredData?.token.cached ?? (metrics?.token.cached ?? 0)
 
+  // `token.input` from the API is the full prompt size — cache reads included.
+  // The Input tile shows only the genuinely new tokens; Cached shows the rest.
+  const inputTokens = Math.max(0, rawInputTokens - cachedTokens)
+
   // Calculate token ratios
   const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0
   const outputRatio = totalTokens > 0 ? Math.round((outputTokens / totalTokens) * 100) : 0
-  const cachedRatio = inputTokens > 0 ? Math.min(100, Math.round((cachedTokens / inputTokens) * 100)) : 0
+  // Cache hit rate — share of the prompt served from cache. Denominator is the
+  // full prompt, not totalTokens: output tokens are never cacheable.
+  const cachedRatio = rawInputTokens > 0 ? Math.min(100, Math.round((cachedTokens / rawInputTokens) * 100)) : 0
 
   const cpuPercent = metrics?.system.cpuPercent ?? 0
   const memoryPercent = metrics?.system.memoryPercent ?? 0
