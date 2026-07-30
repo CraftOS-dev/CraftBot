@@ -40,7 +40,7 @@ routerUse((e) => {
   var origin = '';
   try {
     origin = String(e.request.header.get('Origin') || '');
-  } catch (err) {
+  } catch {
     origin = '';
   }
 
@@ -76,7 +76,7 @@ routerUse((e) => {
   var method = '';
   try {
     method = String(e.request.method || '').toUpperCase();
-  } catch (err) {
+  } catch {
     method = '';
   }
   if (method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE') {
@@ -109,7 +109,7 @@ routerUse((e) => {
   var path = '';
   try {
     path = String((e.request.url && e.request.url.path) || '');
-  } catch (err) {
+  } catch {
     return e.next();
   }
   if (path.indexOf('/api/ops/') !== 0) return e.next();
@@ -120,7 +120,7 @@ routerUse((e) => {
       toString($os.readFile($filepath.join(__hooks, '..', '..', 'manifest.json')))
     );
     authMode = String(manifest.authMode || 'none');
-  } catch (err) {
+  } catch {
     authMode = 'none';
   }
   if (authMode !== 'multi-user') return e.next();
@@ -128,14 +128,14 @@ routerUse((e) => {
   var authed = false;
   try {
     if (e.auth) authed = true;
-  } catch (err) {
+  } catch {
     /* fall through */
   }
   if (!authed) {
     try {
       var info = e.requestInfo();
       if (info && info.auth) authed = true;
-    } catch (err) {
+    } catch {
       /* fall through */
     }
   }
@@ -172,7 +172,7 @@ routerUse((e) => {
     method = String(e.request.method || '').toUpperCase();
     path = String((e.request.url && e.request.url.path) || '');
     origin = String(e.request.header.get('Origin') || '');
-  } catch (err) {
+  } catch {
     return e.next();
   }
   if (method !== 'POST' && method !== 'PATCH' && method !== 'PUT' && method !== 'DELETE') {
@@ -189,7 +189,7 @@ routerUse((e) => {
   var expected = '';
   try {
     expected = toString($os.readFile($filepath.join(__hooks, '..', '..', '.agent-token'))).trim();
-  } catch (err) {
+  } catch {
     expected = '';
   }
   if (expected === '') return e.next(); // no token provisioned — do not lock the app out
@@ -197,7 +197,7 @@ routerUse((e) => {
   var presented = '';
   try {
     presented = String(e.request.header.get('X-LUI-Token') || '').trim();
-  } catch (err) {
+  } catch {
     presented = '';
   }
   if (presented !== expected) {
@@ -256,7 +256,7 @@ routerAdd('POST', '/api/_console', (e) => {
   let origin = '';
   try {
     origin = String(e.request.header.get('Origin') || '');
-  } catch (err) {
+  } catch {
     origin = '';
   }
   if (origin !== '' && !ALLOWED_ORIGIN.test(origin)) {

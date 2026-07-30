@@ -106,7 +106,7 @@ function fieldsOf(app, collection) {
       entry.maxSelect = maxSelect;
       try {
         entry.target = String(app.findCollectionByNameOrId(f.collectionId).name);
-      } catch (err) {
+      } catch {
         entry.target = null;
       }
     }
@@ -167,13 +167,13 @@ function idempotencyKey(e, collectionName) {
   try {
     var headers = e.requestInfo().headers || {};
     supplied = String(headers.idempotency_key || '');
-  } catch (err) {
+  } catch {
     supplied = '';
   }
   if (supplied === '') {
     try {
       supplied = String(e.request.header.get('Idempotency-Key') || '');
-    } catch (err) {
+    } catch {
       supplied = '';
     }
   }
@@ -193,7 +193,7 @@ function idempotencySeen(key) {
     if (!entry) return null;
     if (Date.now() - Number(entry.ts || 0) > IDEMPOTENCY_TTL_MS) return null;
     return entry;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -202,7 +202,7 @@ function idempotencyRecord(key, recordId) {
   if (!key) return;
   try {
     $app.store().set(key, { id: String(recordId), ts: Date.now() });
-  } catch (err) {
+  } catch {
     /* never break a write over bookkeeping */
   }
 }
@@ -215,7 +215,7 @@ function guardRequest(e) {
   try {
     method = String(e.request.method || '').toUpperCase();
     path = String((e.request.url && e.request.url.path) || '');
-  } catch (err) {
+  } catch {
     return e.next();
   }
   if (method !== 'POST' && method !== 'PATCH' && method !== 'PUT') return e.next();
@@ -242,7 +242,7 @@ function guardRequest(e) {
   try {
     collection = e.app.findCollectionByNameOrId(m[1]);
     body = e.requestInfo().body;
-  } catch (err) {
+  } catch {
     return e.next(); // unknown collection / unparseable body — let PocketBase answer
   }
   if (!collection || !body || typeof body !== 'object' || Array.isArray(body)) return e.next();
@@ -345,11 +345,11 @@ function logAction(entry) {
     var existing = '';
     try {
       existing = toString($os.readFile(file));
-    } catch (err) {
+    } catch {
       existing = '';
     }
     $os.writeFile(file, existing + JSON.stringify(entry) + '\n', 0o644);
-  } catch (err) {
+  } catch {
     // Logging must never break a write.
   }
 }
@@ -361,13 +361,13 @@ function agentIdOf(e) {
   try {
     var h = e.requestInfo().headers || {};
     if (h.x_lui_agent) return String(h.x_lui_agent).slice(0, 120);
-  } catch (err) {
+  } catch {
     /* fall through */
   }
   try {
     var id = e.request.header.get('X-LUI-Agent');
     if (id) return String(id).slice(0, 120);
-  } catch (err) {
+  } catch {
     /* fall through */
   }
   return 'unknown';
@@ -436,7 +436,7 @@ function describeApp(app) {
       toString($os.readFile($filepath.join(__hooks, '..', '..', 'operations.json')))
     );
     operations = manifest.operations || [];
-  } catch (err) {
+  } catch {
     operations = [];
   }
 

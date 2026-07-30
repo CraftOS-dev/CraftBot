@@ -32,17 +32,6 @@ interface GateError {
  * - `devDependencies` and `scripts` are frozen (build tooling is platform-
  *   owned); lifecycle script keys are forbidden outright.
  */
-const BASELINE_DEPS = new Set([
-  '@radix-ui/react-dialog',
-  'class-variance-authority',
-  'clsx',
-  'pocketbase',
-  'react',
-  'react-dom',
-  'tailwind-merge',
-]);
-
-
 const BASELINE_DEV_DEPS = new Set([
   '@tailwindcss/vite',
   '@types/react',

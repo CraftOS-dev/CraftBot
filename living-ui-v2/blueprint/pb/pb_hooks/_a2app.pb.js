@@ -24,7 +24,7 @@ routerAdd('GET', '/api/_a2app', (e) => {
   let manifest = {};
   try {
     manifest = JSON.parse(toString($os.readFile($filepath.join(__hooks, '..', '..', 'manifest.json'))));
-  } catch (err) {
+  } catch {
     manifest = {};
   }
   return e.json(200, {

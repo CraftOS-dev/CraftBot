@@ -194,7 +194,7 @@ function divergences(fields, body, read) {
     var stored;
     try {
       stored = read(key);
-    } catch (err) {
+    } catch {
       stored = null;
     }
     if (isBlank(stored) || String(stored) === '') {
