@@ -155,12 +155,14 @@ export function DashboardPage() {
   const tokenFilteredData = filteredMetricsCache[tokenPeriod]
   const rawInputTokens = tokenFilteredData?.token.input ?? (metrics?.token.input ?? 0)
   const outputTokens = tokenFilteredData?.token.output ?? (metrics?.token.output ?? 0)
-  const totalTokens = tokenFilteredData?.token.total ?? (metrics?.token.total ?? 0)
   const cachedTokens = tokenFilteredData?.token.cached ?? (metrics?.token.cached ?? 0)
 
   // `token.input` from the API is the full prompt size — cache reads included.
   // The Input tile shows only the genuinely new tokens; Cached shows the rest.
   const inputTokens = Math.max(0, rawInputTokens - cachedTokens)
+  // Total counts new tokens only. `token.total` from the API is
+  // rawInput + output, so it double-counts cache reads — derive instead.
+  const totalTokens = inputTokens + outputTokens
 
   // Calculate token ratios
   const inputRatio = totalTokens > 0 ? Math.round((inputTokens / totalTokens) * 100) : 0

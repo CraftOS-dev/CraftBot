@@ -44,6 +44,18 @@ def attribute_usage_to_current_task(event: UsageEventData) -> None:
             event.cached_tokens or 0
         )
 
+        # Cumulative session totals — survive reset_run_counters(), which
+        # clears the per-run counters above at the start of every run.
+        session.total_input_tokens = (session.total_input_tokens or 0) + int(
+            event.input_tokens or 0
+        )
+        session.total_output_tokens = (session.total_output_tokens or 0) + int(
+            event.output_tokens or 0
+        )
+        session.total_cache_tokens = (session.total_cache_tokens or 0) + int(
+            event.cached_tokens or 0
+        )
+
         logger.info(
             f"[TOKEN_ATTR] session={session.id} +in={event.input_tokens} "
             f"+out={event.output_tokens} +cached={event.cached_tokens} "
