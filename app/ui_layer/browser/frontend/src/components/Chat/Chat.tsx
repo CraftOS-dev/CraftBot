@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, KeyboardEvent, useCallback, ChangeEvent, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Send, Paperclip, Plus, X, Loader2, File, AlertCircle, Mic, MicOff, ChevronDown, Sparkles, BookOpen, Reply } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useWebSocket } from '../../contexts/WebSocketContext'
@@ -150,6 +151,7 @@ const formatDateDivider = (tsMs: number): string => {
 }
 
 export function Chat({ sessionId, placeholder }: ChatProps) {
+  const navigate = useNavigate()
   const {
     connected,
     sendMessage,
@@ -765,8 +767,12 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   }, [input, enhancing, enhancePrompt])
 
   const handleOptionClick = useCallback((value: string, messageId: string) => {
+    if (value === 'open_settings_model') {
+      navigate('/settings')
+      return
+    }
     sendOptionClick(value, messageId, sessionId)
-  }, [sendOptionClick, sessionId])
+  }, [navigate, sendOptionClick, sessionId])
 
   // Reply action from an agent bubble — arm the reply bar and focus the
   // input so the user can type straight away.

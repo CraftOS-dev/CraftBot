@@ -2990,7 +2990,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             response._zip_cleanup_path = zip_path
             return response
         except (ValueError, FileNotFoundError) as e:
-            from agent_core.core.errors import ErrorCategory, ErrorInfo
+            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
             from app.errors.web import error_json_response
 
             return error_json_response(
@@ -2998,13 +2998,13 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     category=ErrorCategory.NOT_FOUND,
                     code="LIVING_UI_EXPORT_NOT_FOUND",
                     title="Export not found",
-                    message=str(e),
+                    message=redact(str(e)),
                 ),
                 status=404,
             )
         except Exception as e:
             logger.error(f"[LIVING_UI] Export error: {e}")
-            from agent_core.core.errors import ErrorCategory, ErrorInfo
+            from agent_core.core.errors import ErrorCategory, ErrorInfo, redact
             from app.errors.web import error_json_response
 
             return error_json_response(
@@ -3012,7 +3012,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     category=ErrorCategory.INTERNAL,
                     code="LIVING_UI_EXPORT_FAILED",
                     title="Export failed",
-                    message=str(e),
+                    message=redact(str(e)),
                 ),
                 status=500,
             )

@@ -19,6 +19,7 @@ from agent_core.core.errors import (
     ErrorCategory,
     ErrorInfo,
     Severity,
+    redact,
 )
 
 
@@ -104,10 +105,16 @@ def make_error(code: str, **fmt_kwargs) -> ErrorInfo:
     `fmt_kwargs` fill the entry's message template (e.g. `provider=`,
     `target=`). A missing key raises `KeyError` here, at the call site,
     rather than shipping a broken `"{provider}"` literal to the UI.
+
+    `detail` is redacted before formatting — by convention it's raw
+    exception text (`str(e)`), unlike `provider`/`target` which are
+    semantic, already-user-known values.
     """
     spec = _CODEBOOK.get(code)
     if spec is None:
         raise KeyError(f"Unknown error code {code!r} — add it to app/errors/codebook.py")
+    if "detail" in fmt_kwargs:
+        fmt_kwargs["detail"] = redact(str(fmt_kwargs["detail"]))
     message = spec.message_template.format(**fmt_kwargs)
     return ErrorInfo(
         category=spec.category,
