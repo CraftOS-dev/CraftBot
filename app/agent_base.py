@@ -67,11 +67,15 @@ from craftos_integrations import (
 from app.internal_action_interface import InternalActionInterface
 
 from app.llm import LLMInterface
-from agent_core.core.errors import ErrorCategory, ErrorInfo, Severity
-from agent_core.core.impl.llm.errors import (
-    classify_llm_error_message,
-    LLMConsecutiveFailureError,
+from agent_core.core.errors import (
+    ClassifiedError,
+    ErrorCategory,
+    ErrorInfo,
+    ErrorInfoLike,
+    Severity,
+    redact,
 )
+from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
 from app.video_gen_interface import VideoGenInterface
@@ -243,9 +247,6 @@ class AgentBase:
         self.db_interface = self._build_db_interface(
             data_dir=data_dir, chroma_path=chroma_path
         )
-
-        # Stores original run instructions keyed by session_id for LLM retry after failure
-        self._llm_retry_instructions: dict[str, str] = {}
 
         # LLM + prompt plumbing (may be deferred if API key not yet configured)
         self.llm = LLMInterface(
@@ -1339,35 +1340,52 @@ class AgentBase:
     # ----- Error Handling -----
 
     @staticmethod
-    def _find_fatal_llm_error(
+    def _classify_react_error(
         error: Exception,
-    ) -> tuple[bool, LLMConsecutiveFailureError | None]:
-        """Walk the exception chain (__cause__, __context__) to detect the
-        fatal-LLM case. We need the LLMConsecutiveFailureError to surface the
-        *cause* of the failure(s) (e.g. "rate-limited on Google AI Studio"),
-        not just a meta-message about retry counts."""
+    ) -> tuple[bool, LLMConsecutiveFailureError | None, ErrorInfoLike | None]:
+        """Walk the exception chain (__cause__, __context__) once, looking for:
+
+        - `LLMConsecutiveFailureError` — the run is fatally halted (5 failed
+          attempts, or an immediate fail-fast category). Carries the *cause*
+          of the failure(s) in `.last_error_info` when known.
+        - `ClassifiedError` — a recognized, user-actionable failure that
+          didn't hit the consecutive-failure threshold (e.g. the action
+          router's own 3-attempt budget on an LLM provider error). Doesn't
+          halt the run.
+
+        Anything else is a genuinely unclassified exception — presentation
+        treats it as a critical, "broken agent loop" failure.
+
+        Returns (is_fatal, fatal_exc_or_None, classified_info_or_None).
+        """
         seen: set[int] = set()
         exc: BaseException | None = error
         while exc is not None and id(exc) not in seen:
             seen.add(id(exc))
             if isinstance(exc, LLMConsecutiveFailureError):
-                return True, exc
+                return True, exc, exc.last_error_info
+            if isinstance(exc, ClassifiedError):
+                return False, None, exc.info
             cause = exc.__cause__ or exc.__context__
             if cause is None or cause is exc:
                 break
             exc = cause
-        return False, None
+        return False, None, None
 
     @staticmethod
-    def _fallback_fatal_error_info(fatal_exc: LLMConsecutiveFailureError) -> ErrorInfo:
-        """Used when a fatal LLMConsecutiveFailureError carries no classified
-        `last_error_info` (should be rare — only if classification itself
-        raised)."""
+    def _critical_fallback_info(raw_message: str) -> ErrorInfo:
+        """Built when NO recognized/classified error info is available —
+        i.e. a genuinely unexpected exception, not a known LLM/config
+        problem. Shown with full (redacted) technical detail and critical
+        (red) styling, per the "minor vs critical" presentation split:
+        recognized failures (bad key, no credits, misconfigured provider)
+        get a short, calm message; unrecognized ones get the raw detail so
+        it's clear something actually broke."""
         return ErrorInfo(
-            category=ErrorCategory.UNKNOWN,
-            code="LLM_UNKNOWN",
-            title="AI service error",
-            message=str(fatal_exc),
+            category=ErrorCategory.INTERNAL,
+            code="INTERNAL_UNCLASSIFIED",
+            title="Unexpected error",
+            message=redact(raw_message),
             severity=Severity.CRITICAL,
         )
 
@@ -1377,58 +1395,66 @@ class AgentBase:
         session_id: str,
         action_output: dict,
     ) -> None:
-        """Handle errors during react execution."""
+        """Handle errors during react execution.
+
+        Presentation is split into two tiers:
+        - Minor/user errors (bad key, no credits, invalid model, a
+          misconfigured provider) — a short, actionable message using the
+          calm "system" bubble style, no raw exception text.
+        - Critical failures (anything not recognized as a classified LLM/
+          config problem — a genuine bug or crash) — full error detail with
+          the red "error" styling.
+
+        This is independent of whether the run halts: only a fatal
+        `LLMConsecutiveFailureError` halts the run (5 failed attempts, or an
+        immediate fail-fast category); everything else lets the react loop
+        continue to the next turn while still telling the user what happened.
+        """
         tb = traceback.format_exc()
         logger.error(f"[REACT ERROR] {error}\n{tb}")
 
         if not session_id or not self.event_stream_manager:
             return
 
-        is_fatal_llm_error, fatal_exc = self._find_fatal_llm_error(error)
-        fatal_info = fatal_exc.last_error_info if fatal_exc else None
-
-        if is_fatal_llm_error and fatal_info is not None:
-            audit_message = f"Aborted after consecutive failures. {fatal_info.message}"
-        elif is_fatal_llm_error and fatal_exc is not None:
-            audit_message = str(fatal_exc)
+        is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
+        is_critical = classified_info is None
+        if is_critical:
+            raw = str(fatal_exc) if fatal_exc is not None else (str(error) or "AI service error")
+            info = self._critical_fallback_info(raw)
         else:
-            try:
-                audit_message = classify_llm_error_message(error)
-            except Exception:
-                audit_message = str(error) or "AI service error"
+            info = classified_info
 
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
             # display_message=None: this event stays in the session stream
             # for LLM self-correction/audit context, but never renders a
-            # chat bubble on its own. Rendering the user-visible message is
-            # handled below, once, for the fatal case only — avoids the
-            # old "one red Error bubble per silent retry" duplication.
+            # chat bubble via the async event-stream path — the bubble below
+            # is displayed directly instead, so there's no ordering race and
+            # no duplicate "one bubble per silent retry" spam.
             self.event_stream_manager.log(
                 "error",
-                f"[REACT] {type(error).__name__}: {audit_message}",
+                f"[REACT] {type(error).__name__}: {info.message}",
                 event_type=EventType.ERROR,
                 display_message=None,
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-            if is_fatal_llm_error:
-                # Stop the run instead of re-queueing to prevent infinite retries.
+            if is_fatal:
+                # Stop the run instead of re-queueing to prevent infinite
+                # retries. The user resumes by sending a normal chat message
+                # — _handle_chat_message already resets the failure counter
+                # on intake, so no separate Retry action is needed.
                 logger.warning(
                     f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
                     f"session {session_id}."
                 )
                 self._emit_run_state(session_id, False)
-                self._llm_retry_instructions[session_id] = (
-                    "Continue where you left off — the previous attempt was "
-                    "aborted by an AI-provider failure."
-                )
-                await self._display_fatal_llm_error(
-                    session_id, fatal_info or self._fallback_fatal_error_info(fatal_exc)
-                )
+                await self._display_react_error(session_id, info, critical=is_critical)
             else:
-                # Recoverable turn error: continue the run so the LLM sees
-                # the error event and can adapt.
+                # Recoverable turn error: still tell the user what happened,
+                # but let the run continue so the LLM sees the error event
+                # and can adapt.
+                await self._display_react_error(session_id, info, critical=is_critical)
                 await self.trigger_service.emit(
                     TriggerSpec(
                         source=TriggerSource.RUN_CONTINUATION,
@@ -1447,45 +1473,31 @@ class AgentBase:
                 exc_info=True,
             )
 
-    async def _display_fatal_llm_error(self, session_id: str, info: ErrorInfo) -> None:
-        """Show the fatal-error bubble pair: what went wrong, then the
-        Retry/Change Model prompt.
+    async def _display_react_error(
+        self, session_id: str, info: ErrorInfoLike, *, critical: bool
+    ) -> None:
+        """Show a single error bubble: calm "system" styling for a
+        recognized, user-actionable failure; red "error" styling with full
+        detail for an unclassified/critical one.
 
-        Both are displayed directly via the chat component (like
+        Displayed directly via the chat component (like
         `_send_limit_choice_message`) instead of round-tripping through a
         `UIEvent` on the event bus, so there's no ordering race with the
-        (now-invisible) event-stream log entry above, and the two bubbles
-        always land in a fixed order.
+        (invisible) event-stream log entry above.
         """
         if not (self.ui_controller and self.ui_controller.active_adapter):
-            logger.warning(
-                "[REACT ERROR] No active UI adapter - fatal error not displayed"
-            )
+            logger.warning("[REACT ERROR] No active UI adapter - error not displayed")
             return
-        from app.ui_layer.components.error_message import (
-            build_error_chat_message,
-            retry_change_model_options,
-        )
-        from app.ui_layer.components.types import ChatMessage
+        from app.ui_layer.components.error_message import build_error_chat_message
 
         chat = self.ui_controller.active_adapter.chat_component
-        # Bubble 1: what went wrong — the classified error (category-aware
-        # icon/color, plus any category-specific actions like "Open settings").
-        await chat.append_message(
-            build_error_chat_message(info, sender="Error", session_id=session_id)
+        message = build_error_chat_message(
+            info,
+            sender="Error" if critical else "System",
+            session_id=session_id,
+            style="error" if critical else "system",
         )
-        # Bubble 2: what to do about it. Rendered left-aligned (see
-        # systemPromptWrapper in ChatPage.module.css) rather than the default
-        # centered "system" treatment, since this is an actionable prompt.
-        await chat.append_message(
-            ChatMessage(
-                sender="System",
-                content="What would you like to do?",
-                style="system",
-                session_id=session_id,
-                options=retry_change_model_options(),
-            )
-        )
+        await chat.append_message(message)
 
     # ----- Agent Limits -----
 
@@ -1657,28 +1669,6 @@ class AgentBase:
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-
-    async def handle_llm_retry(self, session_id: str) -> None:
-        """Retry after a fatal LLM failure. Resets the failure counter and resumes the run."""
-        self._llm_retry_instructions.pop(session_id, None)
-        try:
-            self.llm.reset_failure_counter()
-        except Exception as e:
-            logger.debug(f"[LLM_RETRY] Could not reset failure counter: {e}")
-
-        self._emit_run_state(session_id or MAIN_SESSION_ID, True)
-        await self.trigger_service.emit(
-            TriggerSpec(
-                source=TriggerSource.RUN_CONTINUATION,
-                description=(
-                    "Retry: the previous attempt was aborted by an AI-provider "
-                    "failure. Continue the work from where you left off based "
-                    "on the event stream."
-                ),
-                priority=5,
-                session_id=session_id or MAIN_SESSION_ID,
-            )
-        )
 
     # =====================================
     # Message intake

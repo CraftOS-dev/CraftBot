@@ -3667,16 +3667,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                         m.option_selected = value
                         break
 
-            # Navigate to model settings page
-            if value == "llm_change_model":
-                await self._broadcast(
-                    {
-                        "type": "navigate",
-                        "data": {"path": "/settings"},
-                    }
-                )
-                return
-
             # Route to the controller
             await self._controller.handle_option_click(value, session_id)
         except Exception as e:

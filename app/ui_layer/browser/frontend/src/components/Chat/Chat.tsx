@@ -10,8 +10,14 @@ import { TypingIndicatorRow } from '../../pages/Chat/TypingIndicator'
 import { ReasoningBlock, ActionBlock, ChunkHeaderRow } from '../activity/ActivityBlocks'
 import { normalizeActionName } from '../activity/actionNames'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { selectPendingPrefill } from '../../store/selectors/chatInput'
-import { clearPendingPrefill, setPendingPrefill } from '../../store/slices/chatInputSlice'
+import { selectPendingPrefill, selectDraftText } from '../../store/selectors/chatInput'
+import {
+  clearPendingPrefill,
+  setPendingPrefill,
+  setDraftText,
+  appendDraftText,
+  clearDraftText,
+} from '../../store/slices/chatInputSlice'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import { DraftMascot, DRAFT_MASCOT_EXIT_MS } from '@mascot'
 import {
@@ -282,7 +288,15 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     return { displayRows: rows, tailChunk: tail as TailChunkInfo | null }
   }, [timeline, expandedChunks])
 
-  const [input, setInput] = useState('')
+  const dispatch = useAppDispatch()
+  // Composer draft: persisted in Redux keyed by sessionId (not local
+  // component state), so it survives both switching sessions and
+  // navigating away to another app tab and back — Chat.tsx unmounts in
+  // both cases, but the store doesn't.
+  const input = useAppSelector(state => selectDraftText(state, sessionId))
+  const setInput = useCallback((text: string) => {
+    dispatch(text === '' ? clearDraftText({ sessionId }) : setDraftText({ sessionId, text }))
+  }, [dispatch, sessionId])
   const [enhancing, setEnhancing] = useState(false)
   // Reply-to-bubble: set from an agent bubble's hover Reply action. The
   // next send carries the quoted original so the event stream records
@@ -291,7 +305,6 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     displayName: string
     originalContent: string
   } | null>(null)
-  const dispatch = useAppDispatch()
   const pendingPrefill = useAppSelector(selectPendingPrefill)
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -471,7 +484,9 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   useEffect(() => {
     if (!sessionResetPendingRef.current) return
     sessionResetPendingRef.current = false
-    setInput('')
+    // Composer draft is intentionally NOT reset here — it's persisted per
+    // session in Redux (see `input`/`setInput` above) and should still be
+    // there when the user switches back to this session.
     setReplyTarget(null)
     setExpandedChunks({})
     setPendingAttachments([])
@@ -727,7 +742,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
         ta.setSelectionRange(end, end)
       }
     }, 0)
-  }, [pendingPrefill, dispatch])
+  }, [pendingPrefill, dispatch, setInput])
 
   // Consume enhanced prompt from context when WS response arrives
   useEffect(() => {
@@ -736,7 +751,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     setEnhancing(false)
     clearEnhancedPrompt()
     inputRef.current?.focus()
-  }, [enhancedPrompt, clearEnhancedPrompt])
+  }, [enhancedPrompt, clearEnhancedPrompt, setInput])
 
   // Reset enhancing spinner if the WebSocket disconnects mid-request
   useEffect(() => {
@@ -793,7 +808,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
         }
       }
       if (finalTranscript) {
-        setInput(prev => prev + (prev.endsWith(' ') || prev === '' ? '' : ' ') + finalTranscript)
+        dispatch(appendDraftText({ sessionId, text: finalTranscript }))
         if (inputRef.current) {
           inputRef.current.style.height = 'auto'
           inputRef.current.style.height = inputRef.current.scrollHeight + 'px'
@@ -814,7 +829,7 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
     recognition.start()
     setIsListening(true)
     inputRef.current?.focus()
-  }, [isListening, micLang])
+  }, [isListening, micLang, dispatch, sessionId])
 
   // Stop mic if component unmounts while listening
   useEffect(() => {

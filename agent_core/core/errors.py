@@ -117,6 +117,24 @@ class ErrorInfoLike(Protocol):
     actions: List[ErrorAction]
 
 
+class ClassifiedError(Exception):
+    """Wraps a classified `ErrorInfoLike`.
+
+    Presentation code (see `app/agent_base.py:_handle_react_error`) uses the
+    presence of this type anywhere in an exception's `__cause__`/`__context__`
+    chain — or an `LLMConsecutiveFailureError` with a populated
+    `last_error_info` — to tell a recognized, user-actionable failure ("minor"
+    tier: bad key, no credits, misconfigured provider) apart from a genuinely
+    unexpected crash ("critical" tier: unclassified bugs, broken agent loop).
+    Raise this instead of a bare `RuntimeError` at any call site that already
+    knows what went wrong.
+    """
+
+    def __init__(self, info: ErrorInfoLike):
+        self.info = info
+        super().__init__(info.message)
+
+
 # ─── Redaction ──────────────────────────────────────────────────────────
 # Ported from the now-removed app/security/error_handler.py — applied to raw
 # upstream/exception text before it's echoed to the UI (e.g. UNKNOWN/BAD_REQUEST

@@ -23,13 +23,17 @@ def build_error_chat_message(
     *,
     sender: str,
     session_id: str,
+    style: str = "error",
     extra_options: Optional[List[ChatMessageOption]] = None,
 ) -> ChatMessage:
     """Build a `ChatMessage` from a classified error.
 
+    `style` controls presentation tier: "error" (red, for critical/
+    unclassified failures) or "system" (calm gray, for recognized
+    user-actionable failures — bad key, no credits, misconfigured provider).
     Action buttons come from `info.actions` (e.g. "Top up credits" with a
     `url`, or "Open settings" with an `action` verb); `extra_options` appends
-    further buttons unrelated to the error itself (e.g. Retry/Change Model).
+    further buttons unrelated to the error itself.
     """
     options: List[ChatMessageOption] = [
         ChatMessageOption(
@@ -51,7 +55,7 @@ def build_error_chat_message(
     return ChatMessage(
         sender=sender,
         content=info.message,
-        style="error",
+        style=style,
         timestamp=time.time(),
         session_id=session_id,
         options=options or None,
@@ -59,14 +63,6 @@ def build_error_chat_message(
         error_code=code,
         error_severity=severity_value,
     )
-
-
-def retry_change_model_options() -> List[ChatMessageOption]:
-    """Options for a fatal LLM error: retry the same request, or switch model."""
-    return [
-        ChatMessageOption(label="Retry", value="llm_retry", style="primary"),
-        ChatMessageOption(label="Change Model", value="llm_change_model", style="default"),
-    ]
 
 
 def continue_stop_options() -> List[ChatMessageOption]:

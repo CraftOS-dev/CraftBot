@@ -13,7 +13,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List
 
-from agent_core.core.errors import ErrorAction, ErrorCategory, ErrorInfo, Severity
+from agent_core.core.errors import (
+    ClassifiedError,
+    ErrorAction,
+    ErrorCategory,
+    ErrorInfo,
+    Severity,
+)
 
 
 @dataclass(frozen=True)
@@ -113,10 +119,6 @@ def make_error(code: str, **fmt_kwargs) -> ErrorInfo:
     )
 
 
-class CatalogError(Exception):
+class CatalogError(ClassifiedError):
     """Drop-in replacement for `raise RuntimeError(f"...")` at call sites
     that have been migrated onto the codebook."""
-
-    def __init__(self, info: ErrorInfo):
-        self.info = info
-        super().__init__(info.message)
