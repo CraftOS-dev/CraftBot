@@ -62,6 +62,11 @@ def build_error_chat_message(
         error_category=category_value,
         error_code=code,
         error_severity=severity_value,
+        # These options are convenience shortcuts (billing links, "Open
+        # settings") attached to an already-final error message — the run
+        # isn't waiting on the user to pick one, so don't show the "Please
+        # select a response to continue" framing (see ChatMessage.requires_choice).
+        requires_choice=False,
     )
 
 

@@ -71,6 +71,15 @@ class ChatMessage:
             pick a category-aware icon/color instead of a flat error style.
         error_code: Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY").
         error_severity: Severity value ("info"/"warning"/"error"/"critical").
+        requires_choice: Whether `options` represents a blocking decision the
+            run is waiting on (e.g. the action/token limit Continue/Stop
+            prompt) — the frontend only shows "Please select a response to
+            continue" when this is true. Defaults to True to match every
+            pre-existing options-bearing message (all genuine choice
+            prompts); `build_error_chat_message` explicitly sets it False,
+            since its options are convenience shortcuts alongside a
+            classified error (e.g. "Manage billing", "Open settings"), not
+            something the run is blocked on.
     """
 
     sender: str
@@ -88,6 +97,7 @@ class ChatMessage:
     error_category: Optional[str] = None
     error_code: Optional[str] = None
     error_severity: Optional[str] = None
+    requires_choice: bool = True
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -137,6 +147,8 @@ class ChatMessage:
             data["errorCode"] = self.error_code
         if self.error_severity:
             data["errorSeverity"] = self.error_severity
+        if self.options:
+            data["requiresChoice"] = self.requires_choice
         return data
 
 

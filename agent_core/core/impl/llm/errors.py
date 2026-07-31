@@ -292,8 +292,16 @@ def _try_classify(
     if requests is not None and isinstance(error, requests.exceptions.RequestException):
         return _classify_requests(error, provider)
 
-    # Gemini's custom error type (raised by our REST client)
+    # Local precondition failures — raised before any network call (no API
+    # key configured, so the provider client was never constructed). Must be
+    # checked before the Gemini substring sniff below: "Gemini client was
+    # not initialised." would otherwise match "Gemini" and get misclassified
+    # as a Gemini API-shaped error.
     msg = str(error)
+    if isinstance(error, RuntimeError) and "was not initialised" in msg:
+        return _classify_local_config(error, provider or "unknown")
+
+    # Gemini's custom error type (raised by our REST client)
     if "Gemini" in msg or "promptFeedback" in msg or "blocked" in msg.lower():
         return _classify_gemini_runtime(error, provider or "gemini")
 
@@ -428,6 +436,21 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
     # (DeepSeek, Moonshot, MiniMax, Qwen, rinna, CLOVA, etc.) may return
     # error text in their native language when routed via OpenRouter.
     category = _refine_category_from_localised(raw_message, category)
+
+    # OpenAI's SDK raises the same RateLimitError (429) for both actual
+    # rate-limiting AND quota/credit exhaustion — normally disambiguated by
+    # `code == "insufficient_quota"` above, but some accounts/providers
+    # return 429 with a plain-language credit message and no matching
+    # structured code. "Rate limited... try again shortly" is actively wrong
+    # advice when the account is just out of funds, so fall back to sniffing
+    # the raw text.
+    if category == ErrorCategory.RATE_LIMIT:
+        raw_lower = raw_message.lower()
+        if any(
+            k in raw_lower
+            for k in ("no credits", "out of credits", "insufficient_quota", "insufficient quota", "credit balance", "credits remaining")
+        ):
+            category = ErrorCategory.CREDIT
 
     # ── Retry-After ────────────────────────────────────────────────
     retry_after = _retry_after_seconds(exc)
@@ -699,6 +722,24 @@ def _classify_httpx_connection(exc: Exception, provider: Optional[str]) -> LLMEr
     )
 
 
+def _classify_local_config(exc: Exception, provider: str) -> LLMErrorInfo:
+    """Local precondition failures raised before any network call — e.g. no
+    API key configured, so the provider client was never constructed. These
+    are permanent local misconfigurations (CONFIG, fail-fast — see
+    FAIL_FAST_CATEGORIES), never something a provider actually returned, so
+    the message is built directly from the raw text instead of going through
+    the SDK/HTTP-response composition path below."""
+    raw = str(exc).strip()
+    message = f"{raw.rstrip('.')}. Check LLM configuration, API credentials, and service availability."
+    return LLMErrorInfo(
+        category=ErrorCategory.CONFIG,
+        title="Provider not configured",
+        message=message,
+        provider=provider,
+        raw_message=raw,
+    )
+
+
 def _classify_gemini_runtime(exc: Exception, provider: str) -> LLMErrorInfo:
     """Gemini's GeminiAPIError — raised when the response shape signals an issue
     that isn't an HTTP failure (e.g. promptFeedback.blockReason)."""
@@ -820,7 +861,7 @@ _CATEGORY_TITLES: Dict[ErrorCategory, str] = {
     ErrorCategory.CREDIT: "Out of credits",
     ErrorCategory.RATE_LIMIT: "Rate limited",
     ErrorCategory.QUOTA: "Quota exceeded",
-    ErrorCategory.MODEL: "Incorrect model id",
+    ErrorCategory.MODEL: "Incorrect model ID",
     ErrorCategory.BAD_REQUEST: "Bad request",
     ErrorCategory.BLOCKED: "Blocked by safety filter",
     ErrorCategory.SERVER: "Provider service unavailable",
@@ -946,7 +987,7 @@ def _append_hint(
     if category == ErrorCategory.MODEL:
         if "settings" in raw_lower:
             return f"{base}."
-        return f"{base}. Use a correct model in Settings."
+        return f"{base}. Set a valid LLM model in Settings."
 
     if category == ErrorCategory.BLOCKED:
         return f"{base}. Edit your prompt and retry."

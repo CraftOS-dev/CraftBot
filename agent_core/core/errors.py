@@ -59,6 +59,7 @@ FAIL_FAST_CATEGORIES = frozenset(
         ErrorCategory.MODEL,
         ErrorCategory.BLOCKED,
         ErrorCategory.BAD_REQUEST,
+        ErrorCategory.CONFIG,
     }
 )
 

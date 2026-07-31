@@ -89,11 +89,6 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   const isAgent = message.style === 'agent'
   const errorStyle = message.style === 'error' ? getErrorCategoryStyle(message.errorCategory) : null
   const ErrorIcon = errorStyle?.icon
-  // A "system" message offering a choice (e.g. the Retry/Change Model
-  // prompt) reads as the agent addressing the user, not a passive log
-  // notice — left-align it like agent/error bubbles instead of the default
-  // centered treatment for plain system notices.
-  const wrapperStyleKey = message.style === 'system' && hasPendingOptions ? 'systemPrompt' : message.style
 
   const bubbleContainer = (
     <div className={styles.messageBubbleContainer}>
@@ -125,7 +120,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         </div>
         {message.options && message.options.length > 0 && (
           <div className={styles.messageOptions}>
-            <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+            {message.requiresChoice !== false && (
+              <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+            )}
             {message.options.map((opt, index) => (
               <button
                 key={opt.value}
@@ -186,7 +183,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
 
   return (
     <div
-      className={`${styles.messageWrapper} ${styles[wrapperStyleKey + 'Wrapper']}`}
+      className={`${styles.messageWrapper} ${styles[message.style + 'Wrapper']}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

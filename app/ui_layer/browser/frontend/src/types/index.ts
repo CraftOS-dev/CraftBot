@@ -28,6 +28,7 @@ export interface ChatMessage {
   sessionId: string
   attachments?: Attachment[]
   options?: ChatMessageOption[]
+  requiresChoice?: boolean  // True when options is a blocking choice (e.g. Continue/Stop) vs. convenience action links; absent/true means show "Please select a response to continue"
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment

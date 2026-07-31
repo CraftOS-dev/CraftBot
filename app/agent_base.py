@@ -1363,7 +1363,8 @@ class AgentBase:
         while exc is not None and id(exc) not in seen:
             seen.add(id(exc))
             if isinstance(exc, LLMConsecutiveFailureError):
-                return True, exc, exc.last_error_info
+                info = exc.last_error_info or AgentBase._consecutive_failure_fallback_info(exc)
+                return True, exc, info
             if isinstance(exc, ClassifiedError):
                 return False, None, exc.info
             cause = exc.__cause__ or exc.__context__
@@ -1371,6 +1372,37 @@ class AgentBase:
                 break
             exc = cause
         return False, None, None
+
+    @staticmethod
+    def _consecutive_failure_fallback_info(
+        exc: LLMConsecutiveFailureError,
+    ) -> Optional[ErrorInfo]:
+        """Built when a fatal `LLMConsecutiveFailureError` has no classified
+        `last_error_info` but does carry a raw `last_error` (e.g. BytePlus
+        returning an empty response with no exception to classify — see
+        agent_core/core/impl/llm/interface.py's empty-response handling).
+
+        Folds the "gave up after repeated failures" fact into the SAME
+        message as the underlying cause, minor/system tier, instead of
+        showing it as a second, disconnected "Aborted after consecutive
+        failures." bubble with no information about what actually failed.
+        Returns None only when there's truly nothing to show (falls back to
+        the critical/unclassified tier).
+        """
+        if exc.last_error is None:
+            return None
+        raw = str(exc.last_error).rstrip(".")
+        suffix = (
+            "This can't be fixed by retrying."
+            if exc.is_immediate
+            else "Gave up after repeated failures."
+        )
+        return ErrorInfo(
+            category=ErrorCategory.UNKNOWN,
+            code="LLM_CONSECUTIVE_FAILURE",
+            title="Repeated failures",
+            message=f"{raw}. {suffix}",
+        )
 
     @staticmethod
     def _critical_fallback_info(raw_message: str) -> ErrorInfo:
@@ -1410,31 +1442,41 @@ class AgentBase:
         immediate fail-fast category); everything else lets the react loop
         continue to the next turn while still telling the user what happened.
         """
-        tb = traceback.format_exc()
-        logger.error(f"[REACT ERROR] {error}\n{tb}")
+        is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
+        is_critical = classified_info is None
+        if is_critical:
+            # Nothing further down the stack classified/logged this in
+            # detail — this is the only place a full traceback gets
+            # captured, so it's worth the ERROR level here.
+            tb = traceback.format_exc()
+            logger.error(f"[REACT ERROR] {error}\n{tb}")
+            raw = str(fatal_exc) if fatal_exc is not None else (str(error) or "AI service error")
+            info = self._critical_fallback_info(raw)
+        else:
+            # Already logged with good detail by whichever layer classified
+            # it (interface.py / router.py) — avoid a second traceback dump.
+            logger.debug(f"[REACT ERROR] {error}")
+            info = classified_info
 
         if not session_id or not self.event_stream_manager:
             return
 
-        is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
-        is_critical = classified_info is None
-        if is_critical:
-            raw = str(fatal_exc) if fatal_exc is not None else (str(error) or "AI service error")
-            info = self._critical_fallback_info(raw)
-        else:
-            info = classified_info
-
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
-            # display_message=None: this event stays in the session stream
-            # for LLM self-correction/audit context, but never renders a
-            # chat bubble via the async event-stream path — the bubble below
-            # is displayed directly instead, so there's no ordering race and
-            # no duplicate "one bubble per silent retry" spam.
+            # event_type=EventType.INTERNAL (not ERROR): this event stays in
+            # the session stream for LLM self-correction/audit context, but
+            # EventType.ERROR IS dispatched by EventTransformer (see
+            # transformer.py's _DISPATCH) regardless of display_message, so
+            # using it here would let the background event watcher
+            # (ui_controller._watch_agent_events) render a second, undesired
+            # chat bubble a poll cycle after the one displayed directly
+            # below. EventType.INTERNAL maps to _build_hidden and is never
+            # surfaced — the same pattern already used by
+            # _send_limit_choice_message.
             self.event_stream_manager.log(
                 "error",
                 f"[REACT] {type(error).__name__}: {info.message}",
-                event_type=EventType.ERROR,
+                event_type=EventType.INTERNAL,
                 display_message=None,
                 task_id=session_id,
             )
@@ -1516,7 +1558,12 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Action limit reached: 100% of the maximum actions ({max_actions} actions) has been used. Waiting for user decision.",
-                    event_type=EventType.SYSTEM,
+                    # EventType.INTERNAL (not SYSTEM): this is context-only —
+                    # EventType.SYSTEM IS dispatched to a chat bubble by
+                    # EventTransformer regardless of display_message, which
+                    # would double up with _send_limit_choice_message's own
+                    # chat bubble below.
+                    event_type=EventType.INTERNAL,
                     display_message=None,
                     task_id=session_id,
                 )
@@ -1530,7 +1577,10 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Token limit reached: 100% of the maximum tokens ({max_tokens} tokens) has been used. Waiting for user decision.",
-                    event_type=EventType.SYSTEM,
+                    # See the action-limit branch above: EventType.INTERNAL,
+                    # not SYSTEM, to avoid a second chat bubble alongside
+                    # _send_limit_choice_message's.
+                    event_type=EventType.INTERNAL,
                     display_message=None,
                     task_id=session_id,
                 )
@@ -1597,6 +1647,7 @@ class AgentBase:
                         timestamp=_time.time(),
                         session_id=session_id,
                         options=options,
+                        requires_choice=True,
                     )
                 )
             except Exception as e:

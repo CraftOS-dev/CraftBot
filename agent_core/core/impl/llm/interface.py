@@ -35,6 +35,7 @@ from agent_core.core.impl.llm.errors import (
     LLMConsecutiveFailureError,
     LLMErrorInfo,
     classify_llm_error,
+    provider_display_name,
 )
 from agent_core.core.hooks import (
     GetTokenCountHook,
@@ -108,6 +109,46 @@ def _model_supports_prefill(model: str) -> bool:
         if pattern in model_lower:
             return False
     return True
+
+
+def _generic_empty_response_detail(provider: str, model: str) -> str:
+    """Fallback detail text for an empty LLM response that carries neither a
+    classified `error_info_obj` nor a raw `error` string. Shared by
+    `_generate_response_sync` and `_finalize_session_response` — previously
+    each had its own near-identical text that had drifted apart in wording.
+    """
+    return (
+        f"LLM returned empty response. "
+        f"Provider: {provider}, Model: {model}. "
+        f"This may indicate: API authentication failure, invalid API key, rate limiting, "
+        f"connection timeout, or LLM service unavailability. "
+        f"Check your credentials and API status."
+    )
+
+
+def _byteplus_blocked_reason(result: Dict[str, Any]) -> Optional[str]:
+    """Best-effort detection of content-filter/moderation blocking in a
+    BytePlus Responses API result that came back with empty content but no
+    HTTP-level error (status 200, `choices`/`output` just empty).
+
+    Mirrors OpenAI's Responses API `status` / `incomplete_details.reason`
+    shape, which BytePlus's docs describe this endpoint as following — not
+    independently verified against a live blocked response, so this only
+    fires on an unambiguous signal and otherwise returns None, leaving the
+    existing generic empty-response handling untouched.
+    """
+    status = result.get("status")
+    if status == "incomplete":
+        reason = (result.get("incomplete_details") or {}).get("reason")
+        if reason:
+            return str(reason)
+    error = result.get("error")
+    if isinstance(error, dict):
+        code = str(error.get("code") or "").lower()
+        message = str(error.get("message") or "")
+        if any(k in code for k in ("content_filter", "moderation", "safety")):
+            return message or code
+    return None
 
 
 class LLMInterface:
@@ -596,19 +637,23 @@ class LLMInterface:
                 elif error_msg:
                     error_detail = f"LLM provider returned error: {error_msg}"
                 else:
-                    error_detail = (
-                        f"LLM returned empty response. "
-                        f"Provider: {self.provider}, Model: {self.model}. "
-                        f"This may indicate: API authentication failure, invalid API key, rate limiting, "
-                        f"connection timeout, or LLM service unavailability. "
-                        f"Check your credentials and API status."
+                    error_detail = _generic_empty_response_detail(
+                        self.provider, self.model
                     )
                 logger.error(f"[LLM ERROR] {error_detail}")
                 # Registers/raises based on category (fail-fast vs retry
                 # budget) — see _register_failure. Attaches the classified
                 # info so the agent_base error handler can show the *cause*
-                # of the failure(s), not just a retry count.
-                self._register_failure(error_info=error_info)
+                # of the failure(s), not just a retry count. raw_error is
+                # passed even when error_info is None (e.g. BytePlus's
+                # cache path returning empty content with no exception) so
+                # a fatal LLMConsecutiveFailureError still carries *some*
+                # detail instead of falling back to a bare, disconnected
+                # "Aborted after consecutive failures." — see
+                # app/agent_base.py:_classify_react_error.
+                self._register_failure(
+                    error_info=error_info, raw_error=RuntimeError(error_detail)
+                )
                 # Use _EmptyResponse so the outer except-Exception block does NOT
                 # re-register this same call (double-counting bug).
                 raise _EmptyResponse(error_detail)
@@ -930,13 +975,15 @@ class LLMInterface:
             elif error_msg:
                 error_detail = f"LLM provider returned error: {error_msg}"
             else:
-                error_detail = (
-                    f"LLM returned empty response. "
-                    f"Provider: {self.provider}, Model: {self.model}. "
-                    f"This may indicate an API error or service unavailability."
+                error_detail = _generic_empty_response_detail(
+                    self.provider, self.model
                 )
             logger.error(f"[LLM ERROR] {error_detail}")
-            self._register_failure(error_info=error_info)
+            # See _generate_response_sync's equivalent call for why
+            # raw_error is always passed, even when error_info is None.
+            self._register_failure(
+                error_info=error_info, raw_error=RuntimeError(error_detail)
+            )
             raise RuntimeError(error_detail)
 
         # Success - reset consecutive failure counter
@@ -1771,6 +1818,18 @@ class LLMInterface:
         cache_type = f"automatic_{call_type}" if call_type else "automatic"
 
         try:
+            if not self.client:
+                # No API key configured (or client construction failed) —
+                # shared by openai/minimax/deepseek/moonshot/grok/openrouter/
+                # glm/fugu, all of which route through this method. Without
+                # this guard, `self.client.chat...` below raises a bare
+                # "'NoneType' object has no attribute 'chat'" — matches the
+                # explicit "client was not initialised" pattern already used
+                # for Anthropic/Gemini/Bedrock, so it classifies as CONFIG
+                # and fails fast instead of a confusing crash.
+                raise RuntimeError(
+                    f"{provider_display_name(self.provider)} client was not initialised."
+                )
             if messages_override is not None:
                 messages: List[Dict[str, Any]] = messages_override
             else:
@@ -1903,7 +1962,7 @@ class LLMInterface:
             status = "success"
         except Exception as exc:
             exc_obj = exc
-            logger.error(f"Error calling OpenAI API: {exc}")
+            logger.debug(f"Error calling OpenAI API: {exc}")
 
         total_tokens = token_count_input + token_count_output
 
@@ -1952,7 +2011,6 @@ class LLMInterface:
             except Exception:
                 pass
             result["content"] = ""
-            logger.error(f"[OPENAI_ERROR] {error_str}")
         else:
             result["content"] = content or ""
 
@@ -1992,7 +2050,7 @@ class LLMInterface:
             status = "success"
         except Exception as exc:
             exc_obj = exc
-            logger.error(f"Error calling Ollama API: {exc}")
+            logger.debug(f"Error calling Ollama API: {exc}")
 
         self._call_log_to_db(
             system_prompt,
@@ -2025,7 +2083,6 @@ class LLMInterface:
             except Exception:
                 pass
             result["content"] = ""
-            logger.error(f"[OLLAMA_ERROR] {error_str}")
         else:
             result["content"] = content or ""
         return result
@@ -2163,7 +2220,7 @@ class LLMInterface:
             logger.error(f"Gemini API rejected the prompt: {exc}")
         except Exception as exc:  # pragma: no cover
             exc_obj = exc
-            logger.error(f"Error calling Gemini API: {exc}")
+            logger.debug(f"Error calling Gemini API: {exc}")
 
         self._call_log_to_db(
             system_prompt,
@@ -2202,7 +2259,6 @@ class LLMInterface:
             except Exception:
                 pass
             result["content"] = ""
-            logger.error(f"[GEMINI_ERROR] {error_str}")
         else:
             result["content"] = content or ""
         return result
@@ -2259,6 +2315,14 @@ class LLMInterface:
 
             # Parse response (Responses API format)
             content = self._parse_responses_api_content(result)
+
+            if not content:
+                blocked_reason = _byteplus_blocked_reason(result)
+                if blocked_reason:
+                    raise RuntimeError(
+                        f"Response was blocked by the provider's content filter "
+                        f"({blocked_reason})."
+                    )
 
             # Token usage from Responses API
             usage = result.get("usage") or {}
@@ -2319,10 +2383,10 @@ class LLMInterface:
                     return self._generate_byteplus_standard(system_prompt, user_prompt)
             else:
                 exc_obj = e
-                logger.error(f"Error calling BytePlus Responses API: {e}")
+                logger.debug(f"Error calling BytePlus Responses API: {e}")
         except Exception as exc:
             exc_obj = exc
-            logger.error(f"Error calling BytePlus Responses API: {exc}")
+            logger.debug(f"Error calling BytePlus Responses API: {exc}")
 
         self._call_log_to_db(
             system_prompt,
@@ -2344,11 +2408,23 @@ class LLMInterface:
             cached_tokens or 0,
         )
 
-        return {
+        result_out: Dict[str, Any] = {
             "tokens_used": total_tokens or 0,
-            "content": content or "",
             "cached_tokens": cached_tokens or 0,
         }
+        if exc_obj:
+            error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
+            result_out["error"] = error_str
+            try:
+                result_out["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
+            result_out["content"] = ""
+        else:
+            result_out["content"] = content or ""
+        return result_out
 
     def _parse_responses_api_content(self, result: Dict[str, Any]) -> str:
         """Parse content from BytePlus Responses API response.
@@ -2431,6 +2507,13 @@ class LLMInterface:
                     or choices[0].get("delta", {}).get("content", "")
                     or ""
                 ).strip()
+                if not content and choices[0].get("finish_reason") == "content_filter":
+                    # OpenAI-compatible signal for moderation-blocked output —
+                    # HTTP 200 with empty content, otherwise indistinguishable
+                    # from a generic empty response.
+                    raise RuntimeError(
+                        "Response was blocked by the provider's content filter."
+                    )
 
             total_tokens = int(result.get("usage", {}).get("total_tokens", 0))
 
@@ -2442,7 +2525,7 @@ class LLMInterface:
 
         except Exception as exc:  # pragma: no cover
             exc_obj = exc
-            logger.error(f"Error calling BytePlus API: {exc}")
+            logger.debug(f"Error calling BytePlus API: {exc}")
 
         self._call_log_to_db(
             system_prompt,
@@ -2480,7 +2563,6 @@ class LLMInterface:
             except Exception:
                 pass
             result["content"] = ""
-            logger.error(f"[BYTEPLUS_ERROR] {error_str}")
         else:
             result["content"] = content or ""
         return result
@@ -2632,7 +2714,7 @@ class LLMInterface:
 
         except Exception as exc:  # pragma: no cover
             exc_obj = exc
-            logger.error(f"Error calling Anthropic API: {exc}")
+            logger.debug(f"Error calling Anthropic API: {exc}")
 
         self._call_log_to_db(
             system_prompt,
@@ -2672,7 +2754,6 @@ class LLMInterface:
             except Exception:
                 pass
             result["content"] = ""
-            logger.error(f"[ANTHROPIC_ERROR] {error_str}")
         else:
             result["content"] = content or ""
         return result
@@ -2835,7 +2916,7 @@ class LLMInterface:
 
         except Exception as exc:  # pragma: no cover
             exc_obj = exc
-            logger.error(f"Error calling Bedrock Converse API: {exc}")
+            logger.debug(f"Error calling Bedrock Converse API: {exc}")
 
         self._call_log_to_db(
             system_prompt,
@@ -2870,7 +2951,6 @@ class LLMInterface:
             except Exception:
                 pass
             result["content"] = ""
-            logger.error(f"[BEDROCK_ERROR] {error_str}")
         else:
             result["content"] = content or ""
         return result

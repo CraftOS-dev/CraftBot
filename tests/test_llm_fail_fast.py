@@ -86,5 +86,9 @@ def test_fail_fast_categories_do_not_overlap_transient_set():
         ErrorCategory.SERVER,
         ErrorCategory.CONNECTION,
         ErrorCategory.UNKNOWN,
+        # CONFIG: local precondition failures (e.g. "client was not
+        # initialised" — no API key configured) — see
+        # _classify_local_config in agent_core/core/impl/llm/errors.py.
+        ErrorCategory.CONFIG,
     }
     assert FAIL_FAST_CATEGORIES | set(TRANSIENT_CATEGORIES) == llm_categories

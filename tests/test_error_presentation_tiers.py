@@ -20,11 +20,19 @@ import asyncio
 
 import pytest
 
-from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo, Severity
+from agent_core.core.errors import (
+    ClassifiedError,
+    ErrorAction,
+    ErrorCategory,
+    ErrorInfo,
+    Severity,
+)
 from agent_core.core.impl.action.router import ActionRouter
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError, LLMErrorInfo
 from app.agent_base import AgentBase
 from app.errors import CatalogError, make_error
+from app.ui_layer.components.error_message import build_error_chat_message
+from app.ui_layer.components.types import ChatMessage, ChatMessageOption
 
 
 # ─── ClassifiedError / CatalogError ────────────────────────────────────────
@@ -106,6 +114,98 @@ def test_critical_fallback_info_is_critical_severity():
     assert info.severity is Severity.CRITICAL
     assert info.category is ErrorCategory.INTERNAL
     assert "boom" in info.message
+
+
+# ─── Consecutive-failure fallback: fold "gave up" into the real cause ─────
+#
+# BytePlus can return an empty response (blocked/filtered content) with no
+# raised exception, so `last_error_info` is never populated — before this
+# fix, a fatal LLMConsecutiveFailureError with no last_error_info fell
+# straight to the critical/unclassified tier, showing a bare, disconnected
+# "Aborted after consecutive failures." bubble with zero information about
+# what actually failed. `_register_failure` now always passes `raw_error`
+# too, so `_consecutive_failure_fallback_info` can fold the real detail and
+# the "gave up" fact into one minor-tier message.
+
+
+def test_classify_react_error_fatal_with_last_error_but_no_info():
+    exc = LLMConsecutiveFailureError(
+        5, last_error=RuntimeError("LLM returned empty response. Provider: byteplus.")
+    )
+
+    is_fatal, fatal_exc, classified_info = AgentBase._classify_react_error(exc)
+
+    assert is_fatal is True
+    assert classified_info is not None
+    assert classified_info.message == (
+        "LLM returned empty response. Provider: byteplus. "
+        "Gave up after repeated failures."
+    )
+
+
+def test_classify_react_error_fatal_immediate_with_last_error_uses_immediate_wording():
+    exc = LLMConsecutiveFailureError(
+        1, last_error=RuntimeError("boom"), is_immediate=True
+    )
+
+    _, _, classified_info = AgentBase._classify_react_error(exc)
+
+    assert classified_info.message == "boom. This can't be fixed by retrying."
+
+
+def test_classify_react_error_fatal_with_neither_info_nor_last_error_stays_critical():
+    exc = LLMConsecutiveFailureError(5)
+
+    is_fatal, fatal_exc, classified_info = AgentBase._classify_react_error(exc)
+
+    assert is_fatal is True
+    assert classified_info is None
+
+
+def test_last_error_info_takes_priority_over_last_error():
+    info = ErrorInfo(category=ErrorCategory.AUTH, code="X", title="t", message="the real cause")
+    exc = LLMConsecutiveFailureError(
+        5, last_error=RuntimeError("raw text"), last_error_info=info
+    )
+
+    _, _, classified_info = AgentBase._classify_react_error(exc)
+
+    assert classified_info is info
+
+
+# ─── ChatMessage.requires_choice: don't mislabel convenience action links ──
+
+
+def test_error_action_links_do_not_require_choice():
+    info = ErrorInfo(
+        category=ErrorCategory.CREDIT,
+        code="X",
+        title="t",
+        message="m",
+        actions=[ErrorAction(label="Open settings", action="open_settings_model")],
+    )
+    message = build_error_chat_message(info, sender="System", session_id="main")
+
+    assert message.options  # the action produced a button
+    assert message.requires_choice is False
+    assert message.to_dict()["requiresChoice"] is False
+
+
+def test_limit_choice_message_requires_choice_by_default():
+    message = ChatMessage(
+        sender="Agent",
+        content="Action limit reached. Continue or stop?",
+        style="agent",
+        options=[ChatMessageOption(label="Continue", value="continue_limit")],
+    )
+
+    assert message.requires_choice is True
+    assert message.to_dict()["requiresChoice"] is True
+
+
+def test_requires_choice_omitted_from_wire_format_without_options():
+    message = ChatMessage(sender="System", content="No buttons here", style="system")
+    assert "requiresChoice" not in message.to_dict()
 
 
 # ─── Action router: clean message, no attempt-number leakage ──────────────
