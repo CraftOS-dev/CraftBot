@@ -2102,7 +2102,11 @@ class AgentBase:
             result = json.loads(response)
             return result.get("enhanced_prompt", "")
         except Exception as e:
-            logger.error(f"{classify_provider_error(error=e)}")
+            logger.error(
+                classify_provider_error(
+                    e, provider=self.llm.provider, model=getattr(self.llm, "model", "") or ""
+                )
+            )
 
     # =====================================
     # Hooks
