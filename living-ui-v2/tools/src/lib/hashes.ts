@@ -63,6 +63,31 @@ export function writeSystemHashes(projectDir: string): void {
   writeFileSync(join(projectDir, HASH_FILE), JSON.stringify(hashes, null, 2) + '\n');
 }
 
+/** Does `relPath` currently match its recorded canon hash?
+ *  true = clean, false = drifted, null = no canon recorded (fresh scaffold
+ *  mid-flight, or a path outside the canon). */
+export function fileMatchesCanon(projectDir: string, relPath: string): boolean | null {
+  const file = join(projectDir, HASH_FILE);
+  if (!existsSync(file)) return null;
+  const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+  const want = recorded[toPosix(relPath)];
+  if (want === undefined) return null;
+  const abs = join(projectDir, relPath);
+  if (!existsSync(abs)) return false;
+  return sha256(abs) === want;
+}
+
+/** Re-record the canon hash for ONE file the tooling itself just wrote
+ *  (e.g. the gate refreshing manifest.json's derived `capabilities`).
+ *  Never call this for agent-editable paths — it would canonize the edit. */
+export function recordFileHash(projectDir: string, relPath: string): void {
+  const file = join(projectDir, HASH_FILE);
+  if (!existsSync(file)) return; // no canon yet — create/kit-sync records it
+  const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+  recorded[toPosix(relPath)] = sha256(join(projectDir, relPath));
+  writeFileSync(file, JSON.stringify(recorded, null, 2) + '\n');
+}
+
 export interface OwnershipDrift {
   modified: string[];
   missing: string[];

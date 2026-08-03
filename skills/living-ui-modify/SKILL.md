@@ -28,8 +28,10 @@ this skill covers only what differs.
 ## Rules for changing a live app
 
 - **Ownership is unchanged**: edit only `frontend/src/app/`, `pb/pb_migrations/`
-  (NEW files only — never edit applied migrations), `pb/pb_hooks/ops.pb.js`
-  (+ new `*.pb.js`), `operations.json` (non-system), `LIVING_UI.md`.
+  (NEW files only — never edit, rename, or delete an applied migration: the
+  filename is its identity in the live DB, and a renamed one makes the app
+  unable to boot), `pb/pb_hooks/ops.pb.js` (+ new `*.pb.js` / `*.js` helper
+  modules), `operations.json` (non-system), `LIVING_UI.md`.
 - **Schema changes are additive migrations.** The user's data lives in
   `pb/pb_data/` — never delete it, never drop-and-recreate collections that
   hold data. To alter a collection, write a new migration that loads and

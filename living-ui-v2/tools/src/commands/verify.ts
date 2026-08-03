@@ -50,19 +50,61 @@ export async function run(args: string[]): Promise<number> {
     page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 500));
     });
-    page.on('response', (res) => {
-      if (res.status() >= 400) consoleErrors.push(`HTTP ${res.status()}: ${res.request().method()} ${res.url().slice(0, 200)}`);
+    page.on('response', async (res) => {
+      if (res.status() < 400) return;
+      // The status alone starves the fixing agent: a 502 whose body says
+      // "CITIES is not defined" is diagnosable, a bare "HTTP 502" is a wall
+      // (observed live — six blind retries). Always attach the body.
+      let body = '';
+      try {
+        body = (await res.text()).replace(/\s+/g, ' ').trim().slice(0, 300);
+      } catch {
+        /* body unavailable (redirect/aborted) — status alone will have to do */
+      }
+      consoleErrors.push(
+        `HTTP ${res.status()}: ${res.request().method()} ${res.url().slice(0, 200)}` +
+          (body !== '' ? ` — response: ${body}` : ''),
+      );
     });
     page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message.slice(0, 500)}`));
+    // Failed REQUESTS never produce a response: the console shows only
+    // "net::ERR_CONNECTION_REFUSED" with NO URL — an agent once diagnosed a
+    // nonexistent "Vite dev server" from that blank. Name the URL and cause.
+    page.on('requestfailed', (req) => {
+      const failure = req.failure()?.errorText ?? 'request failed';
+      consoleErrors.push(`REQUEST FAILED: ${req.method()} ${req.url().slice(0, 200)} — ${failure}`);
+    });
 
     // NOTE: never wait for 'networkidle' — Living UIs hold a permanent SSE
     // connection (realtime subscriptions), so the network is never idle.
-    let loaded = true;
-    try {
-      await page.goto(url, { waitUntil: 'load', timeout: 20000 });
-      await page.waitForTimeout(1500); // let React mount + realtime settle
-    } catch {
-      loaded = false;
+    // Retry once on (a) load failure or (b) connection-refused RESOURCES
+    // during the settle window: both are the signature of PocketBase's
+    // hook-watcher restart blip (~1-2s), and a smoke check landing in that
+    // window failed healthy apps twice (observed live). A genuinely dead or
+    // broken app still fails — both attempts.
+    let loaded = false;
+    let retried = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        retried = true;
+        consoleErrors.length = 0; // the blip's first paint is not evidence
+        await page.waitForTimeout(3000);
+      }
+      try {
+        await page.goto(url, { waitUntil: 'load', timeout: 20000 });
+        await page.waitForTimeout(1500); // let React mount + realtime settle
+        loaded = true;
+      } catch {
+        loaded = false;
+        continue; // load failed → retry once
+      }
+      if (
+        attempt === 0 &&
+        consoleErrors.some((e) => /ERR_CONNECTION_(REFUSED|RESET)/.test(e))
+      ) {
+        continue; // refused resources on first paint → clean re-check
+      }
+      break; // clean (or final) attempt — verdict uses what we have
     }
 
     const mounted = loaded
@@ -76,7 +118,12 @@ export async function run(args: string[]): Promise<number> {
 
     await page.screenshot({ path: screenshotPath, fullPage: false }).catch(() => {});
 
-    const checks = { loaded, mounted, noConsoleErrors: consoleErrors.length === 0 };
+    const checks: Record<string, boolean> = {
+      loaded,
+      mounted,
+      noConsoleErrors: consoleErrors.length === 0,
+    };
+    if (retried) checks.retriedLoad = true; // visible, but never fails the verdict
     const verdict: Verdict = {
       status: Object.values(checks).every(Boolean) ? 'pass' : 'fail',
       checks,

@@ -1,6 +1,11 @@
 """Living UI actions for agent to notify UI status and progress."""
 
+import logging
+from pathlib import Path
+
 from agent_core import action
+
+logger = logging.getLogger(__name__)
 
 
 @action(
@@ -268,6 +273,14 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
 
             # Launched, healthy, smoke-passed — but NOT yet feature-verified.
             # Verification is its own visible step: living_ui_walk_verify.
+            # Tell the machine the pipeline is clean → it now expects a
+            # verifier verdict (and will redispatch if this run just stops).
+            try:
+                from app.factory.host_craftbot import get_factory_host
+
+                get_factory_host().report_launch_success(project_id)
+            except Exception:
+                pass
             return {
                 "status": "success",
                 "message": (
@@ -452,52 +465,163 @@ async def living_ui_walk_verify(input_data: dict) -> dict:
         except Exception:
             pass
 
+        # Distinguish a genuinely blocked verifier (browser/tooling died —
+        # legitimate announce-with-warning) from an UNPARSEABLE report (the
+        # sub-agent produced nonsense): announcing on nonsense is the
+        # fail-open hole the factory closes (FACTORY-PLAN §3.3).
+        if kind == "blocked":
+            from app.living_ui.walk_verify import _reads_as_blocked
+
+            raw_text = str((report or {}).get("raw") or "")
+            if raw_text.strip() and not _reads_as_blocked(raw_text):
+                kind = "unparseable"
+
+        if kind == "unparseable":
+            from app.factory.host_craftbot import get_factory_host
+
+            decision = get_factory_host().report_verify(project_id, "unparseable")
+            if decision is not None and decision.payload.get("redo") == "verify":
+                return {
+                    "status": "error",
+                    "message": (
+                        "The verifier's report was unparseable (not a browser "
+                        "failure). Call living_ui_walk_verify once more."
+                    ),
+                }
+            return {
+                "status": "error",
+                "message": (
+                    "The verifier's report was unparseable twice. The system has "
+                    "reported the build as stuck to the user. End the run."
+                ),
+            }
+
         if kind == "defects":
             # Observed misbehavior — the only thing that blocks a launch.
             await manager.stop_project(project_id)
             defects = report.get("defects") or []
             raw = (report.get("raw") or "")[:2500]
+            # The browser report says WHAT failed; the server log says WHY
+            # (hook exceptions, bad queries — logged via the console.error
+            # pattern). Without it, agents invent causes: one read a bare
+            # failure and diagnosed "no outbound internet access".
+            #
+            # EVERYTHING LOCAL: action handlers run from REGISTRY-EXTRACTED
+            # SOURCE, not as this module — module-level imports/globals do
+            # not exist at execution time. A module-level `Path` silently
+            # broke this block once, and a module-level `logger` then took
+            # down every walk_verify call in a run.
+            server_log = ""
+            try:
+                from pathlib import Path as _Path
+
+                pb_log = _Path(str(project.path)) / "logs" / "pocketbase.log"
+                if pb_log.exists():
+                    lines = pb_log.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()[-400:]
+                    # Errors FIRST, then newest lines: a naive tail once
+                    # shipped realtime chatter while "cannot be blank" errors
+                    # sat just above the 30-line window.
+                    error_lines = [
+                        l for l in lines
+                        if any(k in l.lower() for k in ("error", "failed", "panic", "cannot be"))
+                    ][-25:]
+                    tail = [l for l in lines[-8:] if l not in error_lines]
+                    server_log = (
+                        "\n\npocketbase.log (recent — the server-side causes):\n"
+                        + "\n".join(error_lines + tail)
+                    )
+                else:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).warning(
+                        f"[WALK_VERIFY] no pocketbase.log at {pb_log} — "
+                        "defect report ships without server-side causes"
+                    )
+            except Exception as e:
+                # Never break the report — but never eat the reason either.
+                try:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).warning(
+                        f"[WALK_VERIFY] could not attach pocketbase.log: {e}"
+                    )
+                except Exception:
+                    pass
+            full_details = (
+                "The walk-verify report (a real browser drove the app):\n"
+                + raw
+                + server_log
+            )
+            # The MACHINE owns the fix arc now (FACTORY-PLAN Phase 1): it
+            # records the failure, applies caps, and dispatches a FRESH fix
+            # mission carrying this evidence. This run's job is over.
+            from app.factory.host_craftbot import get_factory_host
+
+            decision = get_factory_host().report_verify(
+                project_id, "defects", defects=defects, details=full_details,
+                walk_report=raw, server_log=server_log,
+            )
+            if decision is not None and decision.next_state == "stuck":
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
+                        "NOT working — and the retry cap is reached. The system "
+                        "has reported the build as stuck to the user, with the "
+                        "full history. Do NOT retry and do NOT send a status "
+                        "message. End the run."
+                    ),
+                    "test_errors": defects[:10] or [raw],
+                }
             return {
                 "status": "error",
                 "message": (
                     f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
-                    "observed NOT working. The app was stopped."
+                    "observed NOT working. The app was stopped. A FRESH fix "
+                    "mission carrying the full evidence has been queued by the "
+                    "system — do NOT fix in this run and do NOT send a status "
+                    "message. End the run now."
                 ),
                 "test_errors": defects[:10] or [raw],
-                "details": (
-                    "The walk-verify report (a real browser drove the app):\n"
-                    + raw
-                    + "\n\nFix these features, relaunch with "
-                    "living_ui_notify_ready, then call living_ui_walk_verify "
-                    "again. Do NOT tell the user the app is ready."
-                ),
             }
 
-        # Clean verdict (pass / incomplete / tooling-blocked): announce.
+        # Clean verdict (pass / incomplete / tooling-blocked): the MACHINE
+        # announces to the user (FACTORY-PLAN §3.6 — no agent-authored
+        # status); this run just ends.
         await broadcast_living_ui_ready(project_id, url, project.port)
         if kind == "pass":
-            verified = (
-                f" ({passed_n} feature(s) walk-verified in a real browser)"
-            )
+            caveat = ""
         elif kind == "incomplete":
-            verified = (
-                f" (walk-verify: {passed_n} passed; coverage INCOMPLETE — "
-                "some features NOT REACHED. Tell the user which features "
-                "were not walked; do NOT claim they were tested.)"
+            caveat = (
+                f"Coverage incomplete: {passed_n} feature(s) verified; some "
+                "were NOT exercised (see the report). Unverified features may "
+                "not work yet."
             )
         elif kind == "blocked":
-            verified = (
-                " (WARNING: walk-verify was BLOCKED — tooling/browser issue, "
-                "not an app defect. Launch passed smoke checks only. Tell "
-                "the user NOTHING was feature-verified: "
-                + str((report or {}).get("raw") or "")[:200]
-                + ")"
+            caveat = (
+                "The independent verifier could not run (browser/tooling "
+                "issue) — the app passed launch and smoke checks only; no "
+                "feature was browser-verified."
             )
         else:
-            verified = " (walk-verify unavailable — smoke checks only)"
+            caveat = "Verifier unavailable — smoke checks only."
+
+        from app.factory.host_craftbot import get_factory_host
+
+        get_factory_host().report_verify(
+            project_id, kind if kind in ("pass", "incomplete", "blocked") else "blocked",
+            url=url, verified=report.get("passed") or [], caveat=caveat,
+        )
         return {
             "status": "success",
-            "message": f"Living UI {project_id} is now ready at {url}{verified}",
+            "message": (
+                f"Living UI {project_id} is ready at {url}. The system has "
+                "announced this to the user (including any caveats). Do NOT "
+                "send your own summary — end the run, or answer only direct "
+                "questions."
+            ),
         }
     except Exception as e:
         return {"status": "error", "message": f"walk-verify failed to run: {str(e)}"}

@@ -80,6 +80,12 @@ class V2Runner:
             # Without this, spawning node/npm/pocketbase from this windowless
             # process makes Windows flash a new console window per invocation.
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
+            # Own process group, so a timeout can kill the WHOLE TREE. Killing
+            # only the direct child (cli.ts) orphans its pocketbase grandchild
+            # — observed: a wedged `pocketbase migrate` surviving its parent's
+            # timeout kill and squatting forever.
+            kwargs["start_new_session"] = True
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd) if cwd else None,
@@ -90,7 +96,19 @@ class V2Runner:
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            else:
+                import signal as _signal
+
+                try:
+                    os.killpg(proc.pid, _signal.SIGKILL)
+                except Exception:
+                    proc.kill()
             return 124, f"timed out after {timeout}s: {' '.join(map(str, cmd))}"
         return proc.returncode or 0, out.decode(errors="replace")
 

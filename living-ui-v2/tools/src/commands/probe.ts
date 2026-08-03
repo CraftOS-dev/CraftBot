@@ -47,6 +47,10 @@ export async function run(args: string[]): Promise<number> {
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 300));
     });
+    page.on('requestfailed', (req) => {
+      const failure = req.failure()?.errorText ?? 'request failed';
+      consoleErrors.push(`REQUEST FAILED: ${req.method()} ${req.url().slice(0, 200)} — ${failure}`);
+    });
     page.on('response', (res) => {
       if (res.status() >= 400) consoleErrors.push(`HTTP ${res.status()}: ${res.request().method()} ${res.url().slice(0, 200)}`);
     });

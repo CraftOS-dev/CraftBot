@@ -27,6 +27,39 @@ except Exception:
     logger = logging.getLogger(__name__)
 
 
+# RFC 2606 / 6761 reserved names: values built on these are placeholders by
+# definition — "you@example.com" compiles, validates, and mails nobody. A
+# standards-based check, not a per-integration rule.
+_PLACEHOLDER_DOMAINS = (
+    "example.com", "example.org", "example.net", "example.edu",
+    ".example", ".test", ".invalid", "@example.",
+)
+
+
+def _dry_run_param_problems(input_schema: dict, params: dict) -> list:
+    """Pure param validation for dry-run: unknown keys against the action's
+    schema, and placeholder values that would 'succeed' into a void."""
+    problems = []
+    known = set(input_schema.keys())
+    for key in params.keys():
+        if known and key not in known:
+            problems.append(
+                f"unknown param '{key}' — this action's schema has: "
+                + ", ".join(sorted(known))
+            )
+    for key, value in params.items():
+        if isinstance(value, str):
+            lowered = value.lower()
+            if any(marker in lowered for marker in _PLACEHOLDER_DOMAINS):
+                problems.append(
+                    f"param '{key}' looks like a PLACEHOLDER ({value!r}) — "
+                    "RFC-reserved example domains reach nobody. Use a real "
+                    "value, or omit the param if the action resolves it "
+                    "(send_gmail with no 'to' goes to the account owner)."
+                )
+    return problems
+
+
 class IntegrationBridge:
     """
     HTTP proxy that lets Living UI backends make authenticated API calls
@@ -47,6 +80,7 @@ class IntegrationBridge:
         """Register integration bridge routes on the aiohttp app."""
         app.router.add_get("/api/integrations/available", self._handle_available)
         app.router.add_post("/api/integrations/proxy", self._handle_proxy)
+        app.router.add_post("/api/integrations/action", self._handle_action)
         app.router.add_post("/api/bridge/llm", self._handle_llm)
         app.router.add_post("/api/bridge/vlm", self._handle_vlm)
         logger.info("[INTEGRATION_BRIDGE] Routes registered")
@@ -188,6 +222,158 @@ class IntegrationBridge:
         except Exception as e:
             logger.error(f"[INTEGRATION_BRIDGE] Proxy error: {e}")
             return web.json_response({"error": f"Proxy error: {str(e)}"}, status=502)
+
+    async def _handle_action(self, request: web.Request) -> web.Response:  # noqa: C901
+        """Execute one of CRAFTBOT'S OWN integration actions for a Living UI.
+
+        The raw proxy below makes apps speak each provider's native API —
+        which made an agent hand-roll Gmail MIME envelopes and, when its
+        invented endpoint 404'd, conclude the bridge was broken. CraftBot
+        already owns tested implementations of every integration operation
+        (send_gmail, send_slack_message, …): this endpoint exposes THEM, so
+        apps pass semantic params ({to, subject, body}) and provider-API
+        knowledge stays in one place.
+
+        Body: {"action": "send_gmail", "params": {...},
+               "confirm_irreversible": true?}
+        Grants: the gate derives capabilities.actions from callAction
+        literals in the app's hooks — same derive-from-code flow as
+        external_hosts/integrations. Only actions tied to a known
+        integration are callable; irreversible ones need the explicit flag.
+        """
+        project_id = self._validate_token(request)
+        if not project_id:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        name = str(data.get("action") or "")
+        params = data.get("params") or {}
+        if not name:
+            return web.json_response({"error": "Missing required field: action"}, status=400)
+        if not isinstance(params, dict):
+            return web.json_response({"error": "params must be an object"}, status=400)
+
+        dry_run = bool(data.get("dry_run") or data.get("dryRun"))
+
+        from agent_core.core.action_framework.registry import ActionRegistry
+
+        impl = ActionRegistry().get_action_implementation(name)
+        if impl is None:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED (unknown action) project={project_id} action={name!r}"
+            )
+            return web.json_response({"error": f"Unknown action '{name}'"}, status=404)
+
+        # Only INTEGRATION actions are exposed: the action's action_sets carry
+        # its integration id by convention (["gmail_mail", "gmail"] → gmail).
+        sets = set(getattr(impl.metadata, "action_sets", None) or [])
+        integration = next((i for i in sorted(self.PROXY_DESTINATIONS) if i in sets), None)
+        if integration is None:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED (not an integration action) "
+                f"project={project_id} action={name!r}"
+            )
+            return web.json_response(
+                {"error": f"'{name}' is not an integration action — only integration "
+                          "actions are callable through the bridge"},
+                status=403,
+            )
+
+        granted, why = self._project_action_grants(project_id, name)
+        if not granted:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED (action) project={project_id} "
+                f"action={name!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app is not permitted to call '{name}': {why}"},
+                status=403,
+            )
+
+        if getattr(impl.metadata, "irreversible", False) and not data.get("confirm_irreversible"):
+            # A refused send with no server-side log line is how an app once
+            # shipped a cron that logged "sent" while nothing ever left.
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED (irreversible, no confirm) "
+                f"project={project_id} action={name!r}"
+            )
+            return web.json_response(
+                {"error": f"'{name}' is irreversible (it acts on the user's real "
+                          "account). Retry with \"confirm_irreversible\": true."},
+                status=400,
+            )
+
+        if dry_run:
+            # Everything above ran: token, action exists, integration mapped,
+            # grant present, irreversible confirmed. Now validate params
+            # WITHOUT executing, so build-time verification can exercise
+            # paths that must never fire for real (emails, posts, deletes).
+            problems = _dry_run_param_problems(
+                getattr(impl.metadata, "input_schema", None) or {}, params
+            )
+            if problems:
+                logger.warning(
+                    f"[INTEGRATION_BRIDGE] DRY-RUN found problems "
+                    f"project={project_id} action={name!r}: {problems}"
+                )
+                return web.json_response(
+                    {"error": "Dry-run found problems: " + "; ".join(problems)},
+                    status=400,
+                )
+            return web.json_response(
+                {
+                    "status": 200,
+                    "dry_run": True,
+                    "would_execute": name,
+                    "integration": integration,
+                    "note": "All checks passed (grant, params, confirmation). "
+                            "Nothing was executed.",
+                },
+                status=200,
+            )
+
+        try:
+            import asyncio as _asyncio
+            import inspect as _inspect
+
+            if _inspect.iscoroutinefunction(impl.handler):
+                result = await impl.handler(params)
+            else:
+                result = await _asyncio.to_thread(impl.handler, params)
+            return web.json_response({"status": 200, "data": result}, status=200)
+        except Exception as e:
+            logger.error(f"[INTEGRATION_BRIDGE] action '{name}' failed: {e}")
+            return web.json_response({"error": f"Action failed: {str(e)}"}, status=502)
+
+    def _project_action_grants(self, project_id: str, action_name: str) -> tuple:
+        """(ok, reason) — is `action_name` in the manifest's derived
+        capabilities.actions? Fails closed, mirror of _project_grants."""
+        import json as _json
+
+        try:
+            project = self._manager.get_project(project_id)
+        except Exception as e:
+            return False, f"unknown project ({e})"
+        if project is None:
+            return False, "unknown project"
+        try:
+            manifest_path = Path(project.path) / "manifest.json"
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"manifest unreadable ({e})"
+
+        declared = (manifest.get("capabilities") or {}).get("actions")
+        if not isinstance(declared, list) or action_name not in declared:
+            return False, (
+                f"'{action_name}' is not in capabilities.actions. The gate derives "
+                "the list from callAction literals in your hooks — call "
+                f"bridge.callAction('{action_name}', {{…}}) with a literal name and "
+                "relaunch with living_ui_notify_ready."
+            )
+        return True, ""
 
     async def _handle_llm(self, request: web.Request) -> web.Response:
         """Proxy LLM completion request through CraftBot's configured LLM."""
@@ -349,13 +535,24 @@ class IntegrationBridge:
 
         capabilities = manifest.get("capabilities") or {}
         declared = capabilities.get("integrations")
+        # The grant is DERIVED, not hand-written: the validation gate scans
+        # the hooks for callIntegration('<id>' literals and writes the list
+        # into the (system-managed) manifest. So the fix for a missing grant
+        # is always the same: make the call in code, re-run the gate.
         if not isinstance(declared, list):
             return False, (
-                "manifest declares no capabilities.integrations — add "
-                f'"capabilities": {{"integrations": ["{integration}"]}} to grant it'
+                f"'{integration}' is not granted: the manifest has no "
+                "capabilities.integrations. The gate derives it from your "
+                f"hooks — call bridge.callIntegration('{integration}', …) with "
+                "a literal id and relaunch with living_ui_notify_ready."
             )
         if integration not in declared:
-            return False, f"not in capabilities.integrations {declared}"
+            return False, (
+                f"'{integration}' is not in capabilities.integrations "
+                f"{declared}. The gate derives the list from callIntegration "
+                "literals in your hooks — use a literal id and relaunch with "
+                "living_ui_notify_ready."
+            )
         return True, ""
 
     def _resolve_destination(self, integration: str, url: str) -> tuple:

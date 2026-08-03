@@ -307,6 +307,12 @@ class AgentBase:
         # withheld for misreporting it. Both reset when the run ends.
         self._lui_run_writes: Dict[str, list] = {}
         self._lui_blocked_claims: Dict[str, int] = {}
+        self._lui_blocked_livedata: Dict[str, int] = {}
+        self._lui_blocked_continue: Dict[str, int] = {}
+        self._lui_blocked_ready: Dict[str, int] = {}
+        # Launch lifecycle this run: {"attempted": bool, "verified": bool} —
+        # ground truth for the ready-claim gate (rule 4).
+        self._lui_run_verify: Dict[str, dict] = {}
 
         # action layer
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
@@ -611,6 +617,23 @@ class AgentBase:
             # receives, so a cause that isn't in the stream does not exist
             # for the model.
             self._log_trigger_claim(trigger, session_id)
+
+            # FACTORY: a mission's RUN has actually started (vs. merely being
+            # queued). Without this marker, a run that later ends on a
+            # run_continuation trigger (which carries no mission id) could not
+            # be attributed to its mission — and a surrendered mission would
+            # silently suppress redispatch (observed: done machine with
+            # mission_id still set).
+            try:
+                mission_id = (trigger.payload or {}).get("factory_mission_id") if trigger else None
+                if mission_id:
+                    from app.factory.host_craftbot import get_factory_host
+
+                    project_id = (trigger.payload or {}).get("project_id")
+                    if project_id:
+                        get_factory_host().mission_run_started(str(project_id), str(mission_id))
+            except Exception as e:
+                logger.debug(f"[FACTORY] mission-start marker failed: {e}")
 
             # ----- Deferred user-message stream write -----
             # User messages enter the event stream HERE — at the start of
@@ -1075,6 +1098,26 @@ class AgentBase:
         # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
         self._report_living_ui_writes(session_id, actions_with_input, results)
 
+        # Rule-4 ground truth: did this run attempt a launch, and did
+        # walk_verify ever come back clean? (Its "success" includes the
+        # blocked/incomplete verdicts, which announce themselves with their
+        # own caveats — only never-succeeded is a lie to claim ready over.)
+        try:
+            for (action, _p), result in zip(actions_with_input, results):
+                name = getattr(action, "name", None)
+                if name in ("living_ui_notify_ready", "living_ui_walk_verify"):
+                    state = self._lui_run_verify.setdefault(
+                        session_id, {"attempted": False, "verified": False}
+                    )
+                    state["attempted"] = True
+                    if (
+                        name == "living_ui_walk_verify"
+                        and (result or {}).get("status") == "success"
+                    ):
+                        state["verified"] = True
+        except Exception as e:
+            logger.debug(f"[A2APP] lifecycle tracking skipped: {e}")
+
         return self._merge_action_outputs(results)
 
     # Past-tense MUTATION verbs only. Recall is traded away for precision on
@@ -1093,11 +1136,21 @@ class AgentBase:
     def _gate_false_claims(self, session_id: str, actions_with_input: list) -> list:
         """Drop a `send_message` whose claim the record does not support.
 
-        Only ONE rule is enforced, and it needs no language understanding:
-        *the agent says it changed something, and nothing was successfully
-        written this run.* That is exact, and it covers the largest class of
-        false success. Fuzzier checks (does the prose's date match the stored
-        date?) are only LOGGED, until the telemetry says they would be right.
+        Two rules, both mechanical — no language understanding needed:
+
+        1. *The agent says it changed something, and nothing was successfully
+           written this run.* Exact, and covers the largest class of false
+           success.
+        2. *The agent says the app is ready/live, the requirements promise
+           external/live data, and the app calls no external source at all.*
+           Born from the weather-tracker incident: `Math.random()` readings
+           delivered as "Live temperature". The app's egress is ground truth
+           (`capabilities.external_hosts`, written by the gate from the hooks;
+           see EXTERNAL-DATA-PLAN §5) — a live-data promise with zero egress
+           is a fabrication, not a feature.
+
+        Fuzzier checks (does the prose's date match the stored date?) are only
+        LOGGED, until the telemetry says they would be right.
 
         A blocked message is not shown to the user. The reason goes into the
         event stream, so the agent reads it on its next turn and corrects
@@ -1105,8 +1158,6 @@ class AgentBase:
         regardless — looping in silence is worse than one imprecise sentence.
         """
         writes = self._lui_run_writes.get(session_id) or []
-        if writes:
-            return actions_with_input  # something was written; nothing to dispute
 
         kept = []
         for action, params in actions_with_input:
@@ -1120,40 +1171,237 @@ class AgentBase:
             if message.rstrip().endswith("?"):
                 kept.append((action, params))
                 continue
-            if not self._SUCCESS_CLAIM.search(message):
-                kept.append((action, params))
-                continue
             if not self._session_touches_living_ui(session_id):
                 kept.append((action, params))
                 continue
 
-            blocked = self._lui_blocked_claims.get(session_id, 0)
-            if blocked >= 1:
-                logger.warning(
-                    f"[A2APP] claim still unsupported after a correction; "
-                    f"allowing it through for session={session_id}"
-                )
+            # Only run-ENDING messages are claims; a continue_work=true update
+            # is narration of work in progress ("work plan created, researching
+            # now") and gating it both misfires and burns the one correction
+            # allowance before the final message needs it.
+            ends_run = not bool((params or {}).get("continue_work"))
+            if not ends_run:
                 kept.append((action, params))
                 continue
 
-            self._lui_blocked_claims[session_id] = blocked + 1
-            logger.warning(f"[A2APP] blocked unsupported claim: {message[:120]}")
-            if self.event_stream_manager:
-                self.event_stream_manager.log(
-                    kind="action_error",
-                    message=(
-                        "Your message was NOT sent. It says you changed something, but no "
-                        "write to this Living UI succeeded in this run. Either perform the "
-                        "write, or tell the user plainly what went wrong. Do not claim an "
-                        "action you did not complete."
-                    ),
-                    event_type=EventType.ACTION_END,
-                    display_message="message withheld — claim not supported by any write",
-                    action_name="send_message",
-                    action_output={"status": "blocked", "reason": "unsupported_claim"},
-                    task_id=session_id,
+            # Rule 3: a final message promising continued work is false by
+            # construction — sending it ENDS the run. (Observed live: "I will
+            # continue to resolve this" as the run's last act.)
+            if self._CONTINUE_PROMISE.search(message):
+                blocked = self._lui_blocked_continue.get(session_id, 0)
+                if blocked < 1:
+                    self._lui_blocked_continue[session_id] = blocked + 1
+                    logger.warning(
+                        f"[A2APP] blocked continue-promise in run-ending message: {message[:120]}"
+                    )
+                    if self.event_stream_manager:
+                        self.event_stream_manager.log(
+                            kind="action_error",
+                            message=(
+                                "Your message was NOT sent. It promises to keep working, but "
+                                "sending it as your only action ENDS the run — nothing will "
+                                "continue. Either keep working now (send the update with "
+                                "continue_work=true and take your next action), or tell the "
+                                "user plainly that you are stopping, what is broken, and what "
+                                "you tried. Do not promise work that will not happen."
+                            ),
+                            event_type=EventType.ACTION_END,
+                            display_message="message withheld — promises work after the run ends",
+                            action_name="send_message",
+                            action_output={"status": "blocked", "reason": "false_continue_promise"},
+                            task_id=session_id,
+                        )
+                    continue
+                logger.warning(
+                    f"[A2APP] continue-promise persists after a correction; "
+                    f"allowing it through for session={session_id}"
                 )
+
+            # Rule 1: change-claim with no write this run.
+            if not writes and self._SUCCESS_CLAIM.search(message):
+                blocked = self._lui_blocked_claims.get(session_id, 0)
+                if blocked >= 1:
+                    logger.warning(
+                        f"[A2APP] claim still unsupported after a correction; "
+                        f"allowing it through for session={session_id}"
+                    )
+                else:
+                    self._lui_blocked_claims[session_id] = blocked + 1
+                    logger.warning(f"[A2APP] blocked unsupported claim: {message[:120]}")
+                    if self.event_stream_manager:
+                        self.event_stream_manager.log(
+                            kind="action_error",
+                            message=(
+                                "Your message was NOT sent. It says you changed something, but no "
+                                "write to this Living UI succeeded in this run. Either perform the "
+                                "write, or tell the user plainly what went wrong. Do not claim an "
+                                "action you did not complete."
+                            ),
+                            event_type=EventType.ACTION_END,
+                            display_message="message withheld — claim not supported by any write",
+                            action_name="send_message",
+                            action_output={"status": "blocked", "reason": "unsupported_claim"},
+                            task_id=session_id,
+                        )
+                    continue
+
+            # Rule 4: ready-claim in a run that attempted a launch but never
+            # got a clean walk_verify. Observed live: two "Launch failed"
+            # results, two "app is not running" verify refusals — then
+            # "✅ build completed successfully… ready to use" and end_turn.
+            verify_state = self._lui_run_verify.get(session_id) or {}
+            if (
+                self._READY_CLAIM.search(message)
+                and verify_state.get("attempted")
+                and not verify_state.get("verified")
+            ):
+                # Allowance 3, not 1: observed live — one block, then the
+                # identical "fully functional" lie 90s later, straight through
+                # the once-only allowance. A flat false "ready" the user will
+                # act on deserves persistent resistance; the other rules'
+                # imprecise-wording cases keep the gentler single correction.
+                blocked = self._lui_blocked_ready.get(session_id, 0)
+                if blocked < 3:
+                    self._lui_blocked_ready[session_id] = blocked + 1
+                    logger.warning(
+                        f"[A2APP] blocked ready-claim without walk_verify success: {message[:120]}"
+                    )
+                    if self.event_stream_manager:
+                        self.event_stream_manager.log(
+                            kind="action_error",
+                            message=(
+                                "Your message was NOT sent. It claims the app is ready, but "
+                                "living_ui_walk_verify has not succeeded in this run — the "
+                                "launch failed or verification never passed. Either fix the "
+                                "app until walk_verify succeeds, or tell the user plainly "
+                                "that the build FAILED and exactly what is broken (read "
+                                "logs/pocketbase.log for hook errors). Never claim a broken "
+                                "app is ready."
+                            ),
+                            event_type=EventType.ACTION_END,
+                            display_message="message withheld — ready-claim without a verified launch",
+                            action_name="send_message",
+                            action_output={"status": "blocked", "reason": "unverified_ready_claim"},
+                            task_id=session_id,
+                        )
+                    continue
+                logger.warning(
+                    f"[A2APP] unverified ready-claim persists after a correction; "
+                    f"allowing it through for session={session_id}"
+                )
+
+            # Rule 2: ready/live claim while the live-data promise is unmet.
+            if self._READY_CLAIM.search(message):
+                gap = self._lui_live_data_gap(session_id)
+                blocked = self._lui_blocked_livedata.get(session_id, 0)
+                if gap is not None and blocked < 1:
+                    self._lui_blocked_livedata[session_id] = blocked + 1
+                    logger.warning(f"[A2APP] blocked live-data claim: {gap}")
+                    if self.event_stream_manager:
+                        self.event_stream_manager.log(
+                            kind="action_error",
+                            message=(
+                                "Your message was NOT sent. " + gap + " Either integrate the "
+                                "real data source (research the API, call it with $http.send "
+                                "from a hook), or tell the user plainly that the app has no "
+                                "live data yet and what is blocking it. Never present "
+                                "generated or mock data as live."
+                            ),
+                            event_type=EventType.ACTION_END,
+                            display_message="message withheld — live-data claim with no external source",
+                            action_name="send_message",
+                            action_output={"status": "blocked", "reason": "live_data_gap"},
+                            task_id=session_id,
+                        )
+                    continue
+                if gap is not None:
+                    logger.warning(
+                        f"[A2APP] live-data claim still unmet after a correction; "
+                        f"allowing it through for session={session_id}"
+                    )
+
+            kept.append((action, params))
         return kept
+
+    # "I'll keep working" in a message whose send ENDS the run — a promise the
+    # architecture guarantees is false.
+    # First-person ONLY: "the cron job will keep the data fresh" and "the app
+    # will continue to sync" are TRUE after the run ends (they live in the app
+    # process) — only the agent promising ITS OWN further work is the lie.
+    _CONTINUE_PROMISE = re.compile(
+        r"\bi\s*(?:'|’)\s*ll\s+(?:keep|continue)\b"
+        r"|\bi\s+(?:will|am)\s+(?:keep(?:ing)?|continu(?:e|ing))\b"
+        r"|\bcontinu(?:e|ing)\s+to\s+(?:resolve|fix|investigate|debug)\b"
+        r"|\bwork(?:ing)?\s+on\s+(?:it|this)\s+in\s+the\s+background\b",
+        re.IGNORECASE,
+    )
+
+    # A "the app is done" claim — only meaningful in a Living UI session, and
+    # only acted on when the live-data promise check (below) finds a gap.
+    _READY_CLAIM = re.compile(
+        r"\b(ready|complete[d]?|finished|deployed|is (?:now )?(?:live|running|up))\b",
+        re.IGNORECASE,
+    )
+
+    # The requirements phrases that constitute a promise of external data.
+    _LIVE_DATA_PROMISE = re.compile(
+        r"(?i)(external\s+(?:\w+\s+)?api|public\s+(?:\w+\s+)?api|live\s+(?:data|weather|price|feed|rate)"
+        r"|real[-\s]?time|pulled\s+from|fetched\s+from|synced?\s+(?:from|every))"
+    )
+
+    def _lui_live_data_gap(self, session_id: str) -> Optional[str]:
+        """The reason string when this session's app promises external data but
+        calls no external source — or None when the promise is met, absent, or
+        anything cannot be read (fail OPEN: never strand a user on an infra
+        hiccup; the gate exists to stop fabrication, not delivery)."""
+        try:
+            session = self.session_manager.get(session_id)
+            project_id = getattr(session, "living_ui_project_id", None) if session else None
+            if not project_id:
+                return None
+            from app.living_ui import get_living_ui_manager
+
+            project = get_living_ui_manager().get_project(project_id)
+            if project is None:
+                return None
+            root = Path(project.path)
+
+            requirements = root / "reference" / "requirements.md"
+            if not requirements.exists():
+                return None
+            if not self._LIVE_DATA_PROMISE.search(requirements.read_text(encoding="utf-8")):
+                return None
+
+            # Ground truth 1: the gate-derived egress surface.
+            try:
+                manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+                if (manifest.get("capabilities") or {}).get("external_hosts"):
+                    return None
+            except Exception:
+                pass
+            # Ground truth 2: a source in the hooks the gate has not synced yet
+            # (or the internal integration bridge, which is also real data).
+            hooks_dir = root / "pb" / "pb_hooks"
+            if hooks_dir.is_dir():
+                for hook in hooks_dir.glob("*.js"):
+                    if hook.name.startswith("_"):
+                        continue
+                    text = hook.read_text(encoding="utf-8")
+                    if (
+                        "$http.send" in text
+                        or "callIntegration" in text
+                        or "callAction" in text
+                    ):
+                        return None
+
+            return (
+                "The requirements promise external/live data, but the app calls no "
+                "external source: no $http.send in its hooks, no integration bridge "
+                "call, no external host recorded in its manifest."
+            )
+        except Exception as e:
+            logger.debug(f"[A2APP] live-data check unavailable: {e}")
+            return None
 
     def _session_touches_living_ui(self, session_id: str) -> bool:
         try:
@@ -1341,6 +1589,24 @@ class AgentBase:
             # request says nothing about the next one.
             self._lui_run_writes.pop(session.id, None)
             self._lui_blocked_claims.pop(session.id, None)
+            self._lui_blocked_livedata.pop(session.id, None)
+            self._lui_blocked_continue.pop(session.id, None)
+            self._lui_blocked_ready.pop(session.id, None)
+            self._lui_run_verify.pop(session.id, None)
+            # FACTORY Phase 1 (closes I6): if this run belonged to a Living UI
+            # build and the machine says work should be in flight but isn't,
+            # the machine redispatches a fresh mission. The agent surrendering
+            # is no longer a terminal event — the system carries the arc.
+            try:
+                lui_project = getattr(session, "living_ui_project_id", None)
+                if lui_project:
+                    from app.factory.host_craftbot import get_factory_host
+
+                    get_factory_host().on_run_end(
+                        lui_project, (trigger.payload or {}) if trigger else {}
+                    )
+            except Exception as e:
+                logger.debug(f"[FACTORY] run-end hook failed: {e}")
             await self._on_run_end(session, trigger.payload or {})
             return
 
@@ -2009,10 +2275,24 @@ class AgentBase:
                         if schema
                         else f"Data model: run  node {_lui_cli} data {proj.path} schema\n"
                     )
+                    # Same principle as the schema: capabilities go IN the
+                    # prompt. Three builds stubbed the user's email feature
+                    # around an invented SMTP requirement because nothing in
+                    # context said send_gmail exists.
+                    caps = ""
+                    try:
+                        from app.living_ui.agent_view import capability_block
+
+                        cap = capability_block()
+                        if cap:
+                            caps = cap + "\n"
+                    except Exception:
+                        caps = ""
                     return (
                         f"[INTERACTING WITH LIVING UI: {proj.name} ({living_ui_project_id})]\n"
                         f"Project path: {proj.path}\n"
                         f"{model}"
+                        f"{caps}"
                         f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
                         f"references by name, e.g. --list \"To Do\". Only set fields the user asked for.\n"
                         f"AFTER A SUCCESSFUL WRITE the user is ALREADY shown exactly what changed, in\n"

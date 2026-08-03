@@ -14,6 +14,35 @@
  * Keep the bodies below trivial.
  */
 
+// Handler exceptions are otherwise INVISIBLE: PocketBase converts an uncaught
+// throw into a generic 404/500 with no log line — which reads exactly like a
+// missing route. An agent burned three rebuild cycles on "routerAdd isn't
+// activating" while its handler was throwing NotFound from a find* call on
+// zero rows. Log the REAL error server-side, response unchanged. Registered
+// FIRST so it wraps the guard and every app handler beneath it.
+routerUse((e) => {
+  try {
+    return e.next();
+  } catch (err) {
+    try {
+      const path = String((e.request && e.request.url && e.request.url.path) || '');
+      // PB's own CRUD/realtime endpoints surface their errors in responses
+      // already; logging them here would be noise. Custom routes are the
+      // ones whose failures vanish.
+      if (path.indexOf('/api/collections/') !== 0 && path.indexOf('/api/realtime') !== 0) {
+        console.error(
+          '[handler-error] ' + ((e.request && e.request.method) || '?') + ' ' + path +
+          ' threw: ' + err +
+          ' — if this is a find* call, PocketBase find helpers THROW on no rows (they never return null).'
+        );
+      }
+    } catch {
+      /* logging must never change the outcome */
+    }
+    throw err;
+  }
+});
+
 routerUse((e) => {
   const a2 = require(`${__hooks}/_a2app_lib.js`);
   return a2.guardRequest(e);

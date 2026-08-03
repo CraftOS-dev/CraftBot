@@ -7,10 +7,10 @@
  * Machine-readable failures: one line per error, `step: message`.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifySystemHashes } from '../lib/hashes.ts';
+import { fileMatchesCanon, recordFileHash, verifySystemHashes } from '../lib/hashes.ts';
 import { log } from '../lib/log.ts';
 import { ensurePbBinary } from './pb.ts';
 
@@ -183,6 +183,182 @@ function checkTransactionHandles(projectDir: string): void {
 }
 
 /**
+ * Egress scan (spec EXTERNAL-DATA-PLAN §4): derive the app's outbound surface.
+ *
+ * `capabilities.external_hosts` in manifest.json is written by the GATE, never
+ * declared by the agent — same lifecycle as `.lui/system-hashes.json`. One
+ * JSON field answers "what does this app talk to?" for build output, users,
+ * and (later) marketplace review. Born from the weather-tracker incident,
+ * where an app whose requirements promised live API data shipped
+ * `Math.random()` and nothing could see the difference.
+ *
+ * Scan rules:
+ * - Agent hook files only. `_*.js` system modules are hash-verified and talk
+ *   only to the loopback bridge via env vars — scanning them would produce
+ *   false "undeterminable destination" warnings.
+ * - Hosts come from `https?://` string literals in EVERY agent hook file
+ *   (comments stripped) — not only files containing `$http.send`. Literal
+ *   collection, not per-call URL resolution, because real hooks split code
+ *   across helpers: trading-view's yahoo.js takes `url` as a parameter, and
+ *   an observed weather app kept its URLs in a module that received `$http`
+ *   itself as a parameter — the send and the literal need not share a file.
+ * - Only a PROJECT with `$http.send` and no URL literal anywhere is genuinely
+ *   dark → each such call site is reported as unresolved (file:line).
+ *   Warning today; marketplace ingest is expected to reject it (tier 2).
+ */
+export interface EgressScan {
+  hosts: string[];
+  /** CraftBot integrations used via bridge.callIntegration('<id>', …) —
+   *  derived from code the same way hosts are. The manifest grant the bridge
+   *  fails closed on is WRITTEN from this: the code is the declaration.
+   *  (Observed live: a weather app's email feature was dead because nothing
+   *  in the platform could mint `capabilities.integrations` at all.) */
+  integrations: string[];
+  /** CraftBot ACTIONS used via bridge.callAction('<name>', …) — the
+   *  preferred integration surface (semantic params, CraftBot's own
+   *  implementation). capabilities.actions is written from this. */
+  actions: string[];
+  unresolved: { file: string; line: number }[];
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '0.0.0.0', '::1', '[::1]']);
+
+export function collectEgressHosts(projectDir: string): EgressScan {
+  const hooksDir = join(projectDir, 'pb', 'pb_hooks');
+  const hosts = new Set<string>();
+  const integrations = new Set<string>();
+  const actions = new Set<string>();
+  const darkCallSites: { file: string; line: number }[] = [];
+  let projectSawLiteral = false;
+  if (!existsSync(hooksDir)) return { hosts: [], integrations: [], actions: [], unresolved: [] };
+
+  for (const name of readdirSync(hooksDir)) {
+    if (!name.endsWith('.js') || name.startsWith('_')) continue;
+    const source = readFileSync(join(hooksDir, name), 'utf8');
+
+    // Strip block comments and whole-line // comments so a doc link does not
+    // count as egress. (Trailing // comments are left alone — cutting them
+    // naively would truncate the `//` inside 'https://…' string literals.)
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+
+    // Loopback literals (an app calling its own API) are not egress, but they
+    // DO prove destinations are visible.
+    let fileSawLiteral = false;
+    for (const m of code.matchAll(/['"`](https?:\/\/[^'"`\n$]+)/g)) {
+      try {
+        const host = new URL(m[1] ?? '').hostname.toLowerCase();
+        if (host === '') continue;
+        fileSawLiteral = true;
+        if (!LOOPBACK_HOSTS.has(host)) hosts.add(host);
+      } catch {
+        /* not a parseable URL — ignore */
+      }
+    }
+    if (fileSawLiteral) projectSawLiteral = true;
+
+    // Bridge integrations: the first argument of callIntegration is the id.
+    for (const m of code.matchAll(/callIntegration\(\s*['"`]([a-z][a-z0-9_]*)['"`]/g)) {
+      integrations.add(m[1] ?? '');
+    }
+    // Bridge actions: the first argument of callAction is the action name.
+    for (const m of code.matchAll(/callAction\(\s*['"`]([a-z][a-z0-9_]*)['"`]/g)) {
+      actions.add(m[1] ?? '');
+    }
+
+    // Call sites whose own file holds no literal — dark ONLY if the whole
+    // project turns out literal-free (decided after the loop).
+    if (!fileSawLiteral && source.includes('$http.send')) {
+      for (const call of source.matchAll(/\$http\.send\s*\(/g)) {
+        const line = source.slice(0, call.index ?? 0).split('\n').length;
+        darkCallSites.push({ file: name, line });
+      }
+    }
+  }
+  return {
+    hosts: [...hosts].sort(),
+    integrations: [...integrations].filter(Boolean).sort(),
+    actions: [...actions].filter(Boolean).sort(),
+    unresolved: projectSawLiteral ? [] : darkCallSites,
+  };
+}
+
+/** Frontend must not call external hosts directly (CORS breaks standalone
+ *  deploys; anything secret would be public). Warning-only: matches only
+ *  fetch('https://… — plain href links in JSX are legitimate. */
+function collectFrontendEgress(projectDir: string): { file: string; line: number; host: string }[] {
+  const appDir = join(projectDir, 'frontend', 'src', 'app');
+  const found: { file: string; line: number; host: string }[] = [];
+  if (!existsSync(appDir)) return found;
+  for (const rel of readdirSync(appDir, { recursive: true }) as string[]) {
+    if (!/\.(ts|tsx)$/.test(rel)) continue;
+    const abs = join(appDir, rel);
+    if (statSync(abs).isDirectory()) continue;
+    const source = readFileSync(abs, 'utf8');
+    for (const m of source.matchAll(/fetch\(\s*['"`](https?:\/\/[^'"`\n$]+)/g)) {
+      try {
+        const host = new URL(m[1] ?? '').hostname.toLowerCase();
+        if (LOOPBACK_HOSTS.has(host)) continue;
+        const line = source.slice(0, m.index ?? 0).split('\n').length;
+        found.push({ file: rel, line, host });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return found;
+}
+
+/** Write the derived host list into manifest.json's `capabilities` and
+ *  re-record its canon hash. Skips (with a warning) when the manifest does
+ *  not match canon — the tooling must never write on top of, and thereby
+ *  launder, an agent edit; the ownership step will report the tampering. */
+function syncEgressManifest(
+  projectDir: string,
+  hosts: string[],
+  integrations: string[],
+  actions: string[],
+): void {
+  const manifestPath = join(projectDir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+  const capabilities = { ...((manifest.capabilities as Record<string, unknown>) ?? {}) };
+  const same = (key: string, next: string[]): boolean => {
+    const current = Array.isArray(capabilities[key]) ? (capabilities[key] as string[]) : [];
+    return current.length === next.length && current.every((v, idx) => v === next[idx]);
+  };
+  if (
+    same('external_hosts', hosts) &&
+    same('integrations', integrations) &&
+    same('actions', actions)
+  ) {
+    return;
+  }
+
+  const clean = fileMatchesCanon(projectDir, 'manifest.json');
+  if (clean === false) {
+    log.warn('manifest.json differs from canon — skipping egress write (see ownership step)');
+    return;
+  }
+  if (clean === null) {
+    log.warn('no hash canon yet — skipping egress manifest write (create/kit-sync records it)');
+    return;
+  }
+
+  if (hosts.length === 0) delete capabilities.external_hosts;
+  else capabilities.external_hosts = hosts;
+  if (integrations.length === 0) delete capabilities.integrations;
+  else capabilities.integrations = integrations;
+  if (actions.length === 0) delete capabilities.actions;
+  else capabilities.actions = actions;
+  if (Object.keys(capabilities).length === 0) delete manifest.capabilities;
+  else manifest.capabilities = capabilities;
+
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  recordFileHash(projectDir, 'manifest.json');
+}
+
+/**
  * Append the offending SOURCE to every error that names a location, in any
  * gate step — agents fix the wrong thing when they only see line numbers.
  * Handles `path(line,col)` (tsc), `path:line:col` (esbuild/vite), and
@@ -210,6 +386,18 @@ function annotateErrors(output: string, searchDirs: string[]): string {
   return output
     .split('\n')
     .map((line) => {
+      // "apply" = migrate-up failure; "run" = the registration-time PANIC a
+      // syntactically-loaded-but-broken migration triggers. Checked FIRST:
+      // panic lines also carry goja's synthetic `pb.js:7:9` location, which
+      // the generic path:line:col matcher would grab (and fail to resolve).
+      const migration = line.match(/failed to (?:apply|run) migration ([\w.-]+\.js)/);
+      if (migration !== null) {
+        const content = readSource(join('pb', 'pb_migrations', migration[1] ?? ''));
+        if (content !== null) {
+          const head = content.split('\n').slice(0, 80).join('\n');
+          return `${line}\n    --- ${migration[1]} (the failing migration) ---\n${head}`;
+        }
+      }
       const paren = line.match(/^(.+?)\((\d+),(\d+)\): /);
       if (paren !== null) {
         return annotateAt(line, paren[1] ?? '', Number(paren[2]), Number(paren[3]));
@@ -217,14 +405,6 @@ function annotateErrors(output: string, searchDirs: string[]): string {
       const colon = line.match(/([\w./-]+\.(?:tsx?|css|js))[(:](\d+)[,:](\d+)/);
       if (colon !== null) {
         return annotateAt(line, colon[1] ?? '', Number(colon[2]), Number(colon[3]));
-      }
-      const migration = line.match(/failed to apply migration ([\w.-]+\.js)/);
-      if (migration !== null) {
-        const content = readSource(join('pb', 'pb_migrations', migration[1] ?? ''));
-        if (content !== null) {
-          const head = content.split('\n').slice(0, 80).join('\n');
-          return `${line}\n    --- ${migration[1]} (the failing migration) ---\n${head}`;
-        }
       }
       return line;
     })
@@ -236,12 +416,23 @@ function runStep(errors: GateError[], step: string, fn: () => void): void {
     fn();
     log.ok(step);
   } catch (err) {
-    const message =
-      err instanceof Error && 'stdout' in err
-        ? String((err as Error & { stdout?: unknown }).stdout ?? err.message)
-        : err instanceof Error
-          ? err.message
-          : String(err);
+    // A spawned tool's failure can live in stdout OR stderr — PocketBase
+    // PANICS to stderr with an empty stdout (e.g. a bad migration at hook
+    // registration). Reading only stdout produced a blank error, and an agent
+    // told "step failed: <nothing>" retries blind until it gives up. Never
+    // emit an empty message.
+    let message = '';
+    if (err instanceof Error) {
+      const spawned = err as Error & { stdout?: unknown; stderr?: unknown };
+      message = [spawned.stdout, spawned.stderr]
+        .map((s) => String(s ?? '').trim())
+        .filter((s) => s !== '')
+        .join('\n');
+      if (message === '') message = err.message;
+    } else {
+      message = String(err);
+    }
+    if (message.trim() === '') message = `${step}: failed with no output (exit status only)`;
     errors.push({ step, message: message.trim().slice(0, 4000) });
     log.error(`${step} failed`);
   }
@@ -343,25 +534,71 @@ export async function run(args: string[]): Promise<number> {
     try {
       // NOTE: `pocketbase migrate up` exits 0 even when a migration fails —
       // it only PRINTS the error. Scan output; never trust the exit code.
-      const out = execFileSync(
-        pbBin,
-        [
-          'migrate',
-          'up',
-          '--dir',
-          tempData,
-          '--migrationsDir',
-          join(projectDir, 'pb', 'pb_migrations'),
-          '--hooksDir',
-          join(projectDir, 'pb', 'pb_hooks'),
-        ],
-        { stdio: 'pipe', encoding: 'utf8' },
-      );
+      // NOTE: timeout is NOT optional. A Go-side nil panic (observed cause:
+      // `new Record('<collection id string>')` instead of the Collection
+      // object) leaves the process WEDGED — alive, silent, never exiting —
+      // and without a timeout this step blocks the whole gate forever.
+      let out = '';
+      try {
+        out = execFileSync(
+          pbBin,
+          [
+            'migrate',
+            'up',
+            '--dir',
+            tempData,
+            '--migrationsDir',
+            join(projectDir, 'pb', 'pb_migrations'),
+            '--hooksDir',
+            join(projectDir, 'pb', 'pb_hooks'),
+          ],
+          { stdio: 'pipe', encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' },
+        );
+      } catch (err) {
+        const spawned = err as Error & {
+          killed?: boolean;
+          signal?: string;
+          code?: string;
+          stdout?: unknown;
+          stderr?: unknown;
+        };
+        // Node's timeout error is inconsistent across versions: detect the
+        // kill by any of its three faces, not just `killed`.
+        const timedOut =
+          spawned.killed === true ||
+          spawned.signal === 'SIGKILL' ||
+          spawned.code === 'ETIMEDOUT';
+        if (timedOut) {
+          const partial = [spawned.stdout, spawned.stderr]
+            .map((s) => String(s ?? '').trim())
+            .filter((s) => s !== '')
+            .join('\n');
+          throw new Error(
+            'migrations ran for >120s and were killed — a migration or hook is ' +
+              'blocking the process. Known cause: `new Record(<id string>)` ' +
+              'nil-panics PocketBase and WEDGES it without exiting; the Record ' +
+              'constructor needs the Collection OBJECT ' +
+              '(`new Record(app.findCollectionByNameOrId(\'name\'))`).' +
+              (partial === '' ? '' : `\nlast output:\n${partial.slice(-2000)}`),
+          );
+        }
+        throw err;
+      }
       const failure = out.split('\n').find((l) => /^\s*Error[:\s]/.test(l));
       if (failure !== undefined) {
         throw new Error(
           `${failure.trim()}\nHint: relation fields need the target collection's ID — ` +
             `save the target first, then use app.findCollectionByNameOrId('<name>').id`,
+        );
+      }
+      // A Go panic that PocketBase "recovered" is still a broken migration —
+      // and the usual trigger is new Record(<string>) instead of the object.
+      const panicked = out.split('\n').find((l) => /RECOVERED FROM PANIC|^panic:/.test(l));
+      if (panicked !== undefined) {
+        throw new Error(
+          `${panicked.trim()}\nA migration crashed PocketBase internally. Known cause: ` +
+            `new Record(<id string>) — the Record constructor needs the Collection ` +
+            `OBJECT: new Record(app.findCollectionByNameOrId('name')).`,
         );
       }
     } finally {
@@ -374,6 +611,31 @@ export async function run(args: string[]): Promise<number> {
   runStep(errors, 'hooks (transaction handles)', () =>
     checkTransactionHandles(projectDir)
   );
+
+  runStep(errors, 'egress (external hosts)', () => {
+    const scan = collectEgressHosts(projectDir);
+    for (const u of scan.unresolved) {
+      log.warn(
+        `${u.file}:${u.line}: outbound call with undeterminable destination — ` +
+          `keep the base URL as a string literal in this file so it can be recorded`,
+      );
+    }
+    for (const f of collectFrontendEgress(projectDir)) {
+      log.warn(
+        `frontend/src/app/${f.file}:${f.line}: direct fetch to ${f.host} — ` +
+          `external calls belong in pb_hooks (CORS breaks standalone deploys; ` +
+          `anything secret would be public)`,
+      );
+    }
+    syncEgressManifest(projectDir, scan.hosts, scan.integrations, scan.actions);
+    log.info(scan.hosts.length === 0 ? 'no external hosts' : `talks to: ${scan.hosts.join(', ')}`);
+    if (scan.integrations.length > 0) {
+      log.info(`uses integrations: ${scan.integrations.join(', ')}`);
+    }
+    if (scan.actions.length > 0) {
+      log.info(`uses actions: ${scan.actions.join(', ')}`);
+    }
+  });
 
   runStep(errors, 'ownership (system files unmodified)', () => {
     const drift = verifySystemHashes(projectDir);

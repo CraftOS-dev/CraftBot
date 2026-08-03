@@ -21,6 +21,49 @@ const COMMANDS: Record<string, { summary: string }> = {
   'adapter-sync': { summary: 'Re-vendor only the system pb_hooks (A2APP adapter) — no rebuild' },
 };
 
+/**
+ * Errors must arrive TRUE or agents hallucinate around them. Node's fetch
+ * throws a bare `TypeError: fetch failed` and hides the real reason
+ * (ECONNREFUSED, ENOTFOUND, ETIMEDOUT…) in a nested `cause` /
+ * AggregateError. Observed live: an agent read "✗ fetch failed" from a
+ * connection-refused to its own STOPPED app and told the user "this
+ * environment has NO outbound internet access; the code is 100% correct."
+ * Unwrap the whole chain and, for connection failures to a local app, say
+ * the one sentence that matters.
+ */
+function describeError(err: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof AggregateError) {
+      for (const sub of current.errors) {
+        const msg = sub instanceof Error ? sub.message : String(sub);
+        if (msg) parts.push(msg);
+      }
+      current = undefined;
+    } else if (current instanceof Error) {
+      if (current.message) parts.push(current.message);
+      current = (current as Error & { cause?: unknown }).cause;
+    } else {
+      parts.push(String(current));
+      current = undefined;
+    }
+  }
+  let message = parts.join(' — caused by: ');
+  if (/ECONNREFUSED|ECONNRESET/.test(message)) {
+    message +=
+      '\nThe app is NOT RUNNING (connection refused is a dead local server, ' +
+      'not a network problem). Relaunch it with living_ui_notify_ready, then retry.';
+  } else if (/ENOTFOUND|EAI_AGAIN/.test(message)) {
+    message += '\nDNS lookup failed for the target host — check the hostname.';
+  } else if (/ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT/.test(message)) {
+    message += '\nThe target did not answer in time — it may be down or unreachable.';
+  }
+  return message || String(err);
+}
+
 async function main(): Promise<number> {
   const [, , name, ...args] = process.argv;
 
@@ -57,7 +100,7 @@ main().then(
     process.exitCode = code;
   },
   (err: unknown) => {
-    log.error(err instanceof Error ? err.message : String(err));
+    log.error(describeError(err));
     process.exitCode = 1;
   },
 );

@@ -99,10 +99,90 @@ def schema_block(base_url: str, max_chars: int = 2000) -> Optional[str]:
             fields.append(f"{field_name}({_type_label(spec)}){star}")
         if fields:
             lines.append(f"  {name}: {' '.join(fields)}")
+        else:
+            # Silently omitting an empty collection HID the evidence of a
+            # failed migration once (a weather app whose readings collection
+            # held only `id` rendered 0° everywhere). Show the anomaly — the
+            # agent can only reason about what it can see.
+            lines.append(f"  {name}: NO WRITABLE FIELDS — writes to it are silently dropped")
 
     block = "\n".join(lines)
     if len(block) > max_chars:  # very large apps: names only, still better than nothing
         block = "\n".join(f"  {n}: {len((e.get('fields') or {}))} fields" for n, e in entities.items())
+    return block
+
+
+_CAP_CACHE: Dict[str, tuple] = {}
+_CAP_TTL_SECONDS = 300
+
+
+def capability_block() -> Optional[str]:
+    """What the app CAN reach through the bridge — connected integrations
+    with their key actions, plus the facts that kill recurring myths.
+
+    Injected (not referenced): three separate builds invented an SMTP
+    requirement and stubbed the user's email feature because nothing in
+    context said `send_gmail` exists. Weak models fail on missing facts,
+    not on fifteen extra lines. ~300 tokens, cached 5 minutes.
+    """
+    cached = _CAP_CACHE.get("caps")
+    if cached is not None and time.time() - cached[0] < _CAP_TTL_SECONDS:
+        return cached[1]
+
+    block: Optional[str] = None
+    try:
+        from craftos_integrations import get_client, get_registered_platforms
+        from agent_core.core.action_framework.registry import ActionRegistry
+
+        connected, disconnected = [], []
+        for pid in get_registered_platforms():
+            try:
+                client = get_client(pid)
+                ok = bool(client and client.has_credentials())
+            except Exception:
+                ok = False
+            (connected if ok else disconnected).append(pid)
+
+        # Key actions per connected integration, from the registry's
+        # action_sets convention (["gmail_mail", "gmail"] → gmail). Sends and
+        # creates first — those are what apps reach for.
+        registry = ActionRegistry().list_all_actions()
+        by_integration: Dict[str, list] = {pid: [] for pid in connected}
+        for action_name, impls in registry.items():
+            impl = impls.get("all") or next(iter(impls.values()), None)
+            if impl is None:
+                continue
+            sets = set(getattr(impl.metadata, "action_sets", None) or [])
+            for pid in connected:
+                if pid in sets:
+                    by_integration[pid].append(action_name)
+        for pid in by_integration:
+            by_integration[pid].sort(
+                key=lambda n: (not n.startswith(("send_", "create_", "post_")), n)
+            )
+
+        lines = ["[INTEGRATIONS this app can use — bridge.callAction(name, params)]"]
+        for pid in sorted(connected):
+            names = by_integration.get(pid) or []
+            shown = ", ".join(names[:4]) + (", …" if len(names) > 4 else "")
+            lines.append(f"  connected: {pid} ({shown})" if names else f"  connected: {pid}")
+        if disconnected:
+            lines.append(
+                "  NOT connected (user must connect in CraftBot first): "
+                + ", ".join(sorted(disconnected))
+            )
+        lines.append(
+            "  FACTS: There is NO SMTP and NO API-key config anywhere in this platform —\n"
+            "  email IS callAction('send_gmail', {subject, body}, {confirmIrreversible: true});\n"
+            "  omit 'to' to email the user. Credentials are injected by the bridge; never\n"
+            "  ask the user for keys, never stub a feature 'until SMTP is configured'."
+        )
+        block = "\n".join(lines)
+    except Exception as e:
+        logger.debug(f"[AGENT_VIEW] capability block unavailable: {e}")
+        block = None
+
+    _CAP_CACHE["caps"] = (time.time(), block)
     return block
 
 
