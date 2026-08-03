@@ -52,7 +52,9 @@ routerAdd('GET', '/api/_a2app', (e) => {
   const a2 = require(`${__hooks}/_a2app_lib.js`);
   let manifest = {};
   try {
-    manifest = JSON.parse(toString($os.readFile($filepath.join(__hooks, '..', '..', 'manifest.json'))));
+    manifest = JSON.parse(
+      toString($os.readFile($filepath.join(__hooks, '..', '..', 'manifest.json'))),
+    );
   } catch {
     manifest = {};
   }
@@ -65,7 +67,6 @@ routerAdd('GET', '/api/_a2app', (e) => {
       name: manifest.name || null,
       livingUIVersion: manifest.livingUIVersion || null,
       kitVersion: manifest.kitVersion || null,
-      pbVersion: manifest.pbVersion || null,
     },
     schemaVersion: a2.schemaVersion(e.app),
     serverNow: a2.serverNowIso(),
