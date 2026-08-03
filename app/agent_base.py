@@ -306,7 +306,6 @@ class AgentBase:
         # actually written to a Living UI, and how many messages have been
         # withheld for misreporting it. Both reset when the run ends.
         self._lui_run_writes: Dict[str, list] = {}
-        self._lui_blocked_claims: Dict[str, int] = {}
 
         # action layer
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
@@ -1053,15 +1052,6 @@ class AgentBase:
             f"[ACTION] Ready to run {len(actions_with_input)} action(s): {action_names}"
         )
 
-        # A2APP: a message that misreports what happened is stopped BEFORE the
-        # user sees it, and the discrepancy is handed back to the agent to fix.
-        # Correcting it in front of the user (a System bubble contradicting the
-        # assistant) is worse than not saying it — the agent should just be
-        # right. See spec/A2APP-PLAN.md Phase 1 B10.
-        actions_with_input = self._gate_false_claims(session_id, actions_with_input)
-        if not actions_with_input:
-            return {}  # nothing ran; run continues so the agent can try again
-
         results = await self.action_manager.execute_actions_parallel(
             actions=actions_with_input,
             context=context,
@@ -1076,91 +1066,6 @@ class AgentBase:
         self._report_living_ui_writes(session_id, actions_with_input, results)
 
         return self._merge_action_outputs(results)
-
-    # Past-tense MUTATION verbs only. Recall is traded away for precision on
-    # purpose: a missed lie is no worse than today, but a wrongly withheld
-    # message is invisible to the user and strictly worse.
-    #
-    # "done" and "all set" were here and had to go — in a kanban app "Done" is
-    # a list name, so "Which list: To Do, In Progress or Done?" was blocked in
-    # testing. Swallowing a clarifying question is the worst outcome this gate
-    # can produce, so ambiguous words are out and questions are exempt.
-    _SUCCESS_CLAIM = re.compile(
-        r"\b(added|created|updated|deleted|removed|saved|scheduled|moved|renamed)\b",
-        re.IGNORECASE,
-    )
-
-    def _gate_false_claims(self, session_id: str, actions_with_input: list) -> list:
-        """Drop a `send_message` whose claim the record does not support.
-
-        Only ONE rule is enforced, and it needs no language understanding:
-        *the agent says it changed something, and nothing was successfully
-        written this run.* That is exact, and it covers the largest class of
-        false success. Fuzzier checks (does the prose's date match the stored
-        date?) are only LOGGED, until the telemetry says they would be right.
-
-        A blocked message is not shown to the user. The reason goes into the
-        event stream, so the agent reads it on its next turn and corrects
-        itself. After one correction attempt the message is allowed through
-        regardless — looping in silence is worse than one imprecise sentence.
-        """
-        writes = self._lui_run_writes.get(session_id) or []
-        if writes:
-            return actions_with_input  # something was written; nothing to dispute
-
-        kept = []
-        for action, params in actions_with_input:
-            if getattr(action, "name", None) != "send_message":
-                kept.append((action, params))
-                continue
-
-            message = str((params or {}).get("message") or "")
-            # A question is never an assertion that something changed, and
-            # withholding one strands the user waiting on an answer.
-            if message.rstrip().endswith("?"):
-                kept.append((action, params))
-                continue
-            if not self._SUCCESS_CLAIM.search(message):
-                kept.append((action, params))
-                continue
-            if not self._session_touches_living_ui(session_id):
-                kept.append((action, params))
-                continue
-
-            blocked = self._lui_blocked_claims.get(session_id, 0)
-            if blocked >= 1:
-                logger.warning(
-                    f"[A2APP] claim still unsupported after a correction; "
-                    f"allowing it through for session={session_id}"
-                )
-                kept.append((action, params))
-                continue
-
-            self._lui_blocked_claims[session_id] = blocked + 1
-            logger.warning(f"[A2APP] blocked unsupported claim: {message[:120]}")
-            if self.event_stream_manager:
-                self.event_stream_manager.log(
-                    kind="action_error",
-                    message=(
-                        "Your message was NOT sent. It says you changed something, but no "
-                        "write to this Living UI succeeded in this run. Either perform the "
-                        "write, or tell the user plainly what went wrong. Do not claim an "
-                        "action you did not complete."
-                    ),
-                    event_type=EventType.ACTION_END,
-                    display_message="message withheld — claim not supported by any write",
-                    action_name="send_message",
-                    action_output={"status": "blocked", "reason": "unsupported_claim"},
-                    task_id=session_id,
-                )
-        return kept
-
-    def _session_touches_living_ui(self, session_id: str) -> bool:
-        try:
-            session = self.session_manager.get(session_id)
-        except Exception:
-            return False
-        return bool(getattr(session, "living_ui_project_id", None)) if session else False
 
     # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
     # they change nothing and need no receipt.
@@ -1340,7 +1245,6 @@ class AgentBase:
             # The claim gate is scoped to a run: what was written for THIS
             # request says nothing about the next one.
             self._lui_run_writes.pop(session.id, None)
-            self._lui_blocked_claims.pop(session.id, None)
             await self._on_run_end(session, trigger.payload or {})
             return
 
