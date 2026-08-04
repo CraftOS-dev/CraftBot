@@ -30,7 +30,15 @@ interface Props {
 }
 
 /** User inactivity (no pointer/keyboard anywhere) before the mascot naps. */
-const SLEEP_AFTER_IDLE_MS = 60_000
+const SLEEP_AFTER_IDLE_MS = 30 * 60_000
+
+/** Beacon episode length (stand-taller ramp + 4 antenna pulses + return);
+ *  must cover the CSS `mascotBeaconStand` duration. */
+const BEACON_MS = 4800
+/** Odds that a given rest beat plays a beacon instead of a hop — kept low so
+ *  wandering/idling dominates and the beacon is a rare treat. Never overlaps
+ *  a hop (it replaces one for that beat). */
+const BEACON_CHANCE = 0.06
 
 /** Exit ("dive into the input box") animation length. The parent should
  *  keep the component mounted this long after setting `leaving`. */
@@ -48,6 +56,9 @@ export function DraftMascot({ size = 88, leaving = false }: Props) {
   const [sleeping, setSleeping] = useState(false)
   const [reaction, setReaction] = useState<ReactionKind | null>(null)
   const [facing, setFacing] = useState<'left' | 'right'>('right')
+  // Beacon episode — a standalone animation played ONLY on a rest beat, never
+  // concurrently with a hop/reaction/sleep (the wander loop drives it).
+  const [beacon, setBeacon] = useState(false)
 
   // Timer-loop mirrors (the wander loop lives outside React renders).
   const posRef = useRef(0)
@@ -58,6 +69,12 @@ export function DraftMascot({ size = 88, leaving = false }: Props) {
     typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   )
+
+  // A sleeping or departing mascot must not be left mid-beacon (the wander
+  // loop that would clear it is paused in both states).
+  useEffect(() => {
+    if (sleeping || leaving) setBeacon(false)
+  }, [sleeping, leaving])
 
   // ── Exit: crouch → spring up → dive down behind the input shell ────
   useEffect(() => {
@@ -106,6 +123,19 @@ export function DraftMascot({ size = 88, leaving = false }: Props) {
       // again soon rather than dropping the loop.
       if (!el || !stage || document.hidden || reactionRef.current) {
         scheduleNext(1000)
+        return
+      }
+      // Once in a while, spend this rest beat on a beacon instead of a hop.
+      // Because it replaces the hop (never runs alongside one) and the loop is
+      // already paused while sleeping/leaving/reacting, the beacon is a truly
+      // standalone animation.
+      if (Math.random() < BEACON_CHANCE) {
+        setBeacon(true)
+        timer = window.setTimeout(() => {
+          if (cancelled) return
+          setBeacon(false)
+          scheduleNext(pickPostHopRest())
+        }, BEACON_MS)
         return
       }
       const maxAmp = computeMaxAmplitude(stage.clientWidth, size)
@@ -163,6 +193,7 @@ export function DraftMascot({ size = 88, leaving = false }: Props) {
   const handleClick = () => {
     if (leaving) return
     setSleeping(false)
+    setBeacon(false) // a click ends any beacon so happy never pairs with it
     setReaction('happy')
     window.clearTimeout(reactionTimerRef.current)
     reactionTimerRef.current = window.setTimeout(() => setReaction(null), HAPPY_DURATION_MS)
@@ -188,6 +219,7 @@ export function DraftMascot({ size = 88, leaving = false }: Props) {
           facing={facing}
           reaction={reaction}
           eyeGroupRef={eyeGroupRef}
+          beacon={beacon}
         />
       </div>
     </div>

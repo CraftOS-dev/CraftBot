@@ -67,17 +67,6 @@ async def send_message(input_data: dict) -> dict:
             message, session_id=session_id
         )
 
-        # Mirror a final question onto the Living UI creation screen (no-op
-        # unless this session belongs to a Living UI project) so the user can
-        # answer from the Living UI page even with the chat panel closed.
-        if not continue_work and session_id:
-            try:
-                from app.living_ui import broadcast_living_ui_question
-
-                await broadcast_living_ui_question(session_id, message)
-            except Exception:
-                pass
-
     # Return 'success' for test compatibility, but keep 'ok' in production if needed
     status = "success" if simulated_mode else "ok"
     return {

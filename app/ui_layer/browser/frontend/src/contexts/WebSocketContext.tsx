@@ -17,6 +17,7 @@ import {
   markOptionSelected as messagesMarkOptionSelected,
   transferSession as messagesTransferSession,
 } from '../store/slices/messagesSlice'
+import { transferDraft as chatInputTransferDraft } from '../store/slices/chatInputSlice'
 import {
   selectAllMessages,
   selectLastMessageIdBySession,
@@ -209,6 +210,13 @@ interface WebSocketContextType extends WebSocketState {
   stopLivingUI: (projectId: string) => void
   deleteLivingUI: (projectId: string) => void
   setActiveLivingUI: (projectId: string | null) => void
+  updateLivingUITheme: (
+    projectId: string,
+    theme: {
+      themeId: string
+      customColors?: { bg: string; surface: string; text: string; accent: string }
+    },
+  ) => void
 }
 
 const defaultState: WebSocketState = {
@@ -313,6 +321,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           // later. Dropping it here instead caused the "Working…" row to
           // appear before/without the user's message.
           dispatch(messagesTransferSession({ from: 'new', to: session.id }))
+          // Carry over any composer text typed after the send but before
+          // this reply arrived, so it isn't lost when the route switches.
+          dispatch(chatInputTransferDraft({ from: 'new', to: session.id }))
           // Transfer the optimistic busy flag from the draft to the real
           // session so the typing indicator survives the handoff.
           dispatch(setSessionBusy({ sessionId: 'new', busy: false }))
@@ -659,6 +670,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     dispatch(livingUiSetActiveId(projectId))
   }, [dispatch])
 
+  const updateLivingUITheme = useCallback((
+    projectId: string,
+    theme: {
+      themeId: string
+      customColors?: { bg: string; surface: string; text: string; accent: string }
+    },
+  ) => {
+    if (client.isConnected) {
+      client.sendString(JSON.stringify({
+        type: 'living_ui_theme_update',
+        projectId,
+        theme,
+      }))
+    }
+  }, [])
+
   return (
     <WebSocketContext.Provider
       value={{
@@ -721,6 +748,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         stopLivingUI,
         deleteLivingUI,
         setActiveLivingUI,
+        updateLivingUITheme,
       }}
     >
       {children}

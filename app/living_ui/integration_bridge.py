@@ -12,10 +12,14 @@ Routes are registered on the browser adapter's aiohttp app.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict, Optional
 
 from aiohttp import web
 import httpx
+
+from app.errors import make_error
+from app.errors.web import error_json_response
 
 if TYPE_CHECKING:
     from app.living_ui.manager import LivingUIManager
@@ -24,6 +28,39 @@ try:
     from app.logger import logger
 except Exception:
     logger = logging.getLogger(__name__)
+
+
+# RFC 2606 / 6761 reserved names: values built on these are placeholders by
+# definition — "you@example.com" compiles, validates, and mails nobody. A
+# standards-based check, not a per-integration rule.
+_PLACEHOLDER_DOMAINS = (
+    "example.com", "example.org", "example.net", "example.edu",
+    ".example", ".test", ".invalid", "@example.",
+)
+
+
+def _dry_run_param_problems(input_schema: dict, params: dict) -> list:
+    """Pure param validation for dry-run: unknown keys against the action's
+    schema, and placeholder values that would 'succeed' into a void."""
+    problems = []
+    known = set(input_schema.keys())
+    for key in params.keys():
+        if known and key not in known:
+            problems.append(
+                f"unknown param '{key}' — this action's schema has: "
+                + ", ".join(sorted(known))
+            )
+    for key, value in params.items():
+        if isinstance(value, str):
+            lowered = value.lower()
+            if any(marker in lowered for marker in _PLACEHOLDER_DOMAINS):
+                problems.append(
+                    f"param '{key}' looks like a PLACEHOLDER ({value!r}) — "
+                    "RFC-reserved example domains reach nobody. Use a real "
+                    "value, or omit the param if the action resolves it "
+                    "(send_gmail with no 'to' goes to the account owner)."
+                )
+    return problems
 
 
 class IntegrationBridge:
@@ -38,12 +75,15 @@ class IntegrationBridge:
 
     def __init__(self, manager: "LivingUIManager"):
         self._manager = manager
-        self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=True)
+        # follow_redirects is OFF for the proxy: an allowed host could 302 to an
+        # attacker-controlled host and the injected credentials would follow it.
+        self._http_client = httpx.AsyncClient(timeout=30, follow_redirects=False)
 
     def register_routes(self, app: web.Application) -> None:
         """Register integration bridge routes on the aiohttp app."""
         app.router.add_get("/api/integrations/available", self._handle_available)
         app.router.add_post("/api/integrations/proxy", self._handle_proxy)
+        app.router.add_post("/api/integrations/action", self._handle_action)
         app.router.add_post("/api/bridge/llm", self._handle_llm)
         app.router.add_post("/api/bridge/vlm", self._handle_vlm)
         logger.info("[INTEGRATION_BRIDGE] Routes registered")
@@ -110,6 +150,39 @@ class IntegrationBridge:
                 {"error": "Missing required fields: integration, url"}, status=400
             )
 
+        # Gate 1 — capability. An app may only use integrations its manifest
+        # declares. Without this, any app that can reach the bridge can use
+        # every credential the user has connected: a kanban board could send
+        # mail as them. The declaration is the hook the Phase 5 consent flow
+        # attaches to; until then it is at least an explicit, reviewable list.
+        granted, why = self._project_grants(project_id, integration)
+        if not granted:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED (capability) project={project_id} "
+                f"integration={integration!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app is not permitted to use '{integration}': {why}"},
+                status=403,
+            )
+
+        # Gate 2 — destination. Without it this endpoint is a credential
+        # exfiltration primitive: `url` is caller-controlled and the user's real
+        # OAuth token is injected into whatever host is named, so one line in a
+        # third-party app's pb_hooks could ship a Gmail token anywhere. Fails
+        # CLOSED — an integration with no entry cannot be proxied at all.
+        allowed, resolved = self._resolve_destination(integration, url)
+        if not allowed:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED proxy from project={project_id} "
+                f"integration={integration!r} url={url!r}: {resolved}"
+            )
+            return web.json_response(
+                {"error": f"Destination not permitted for '{integration}': {resolved}"},
+                status=403,
+            )
+        url = resolved
+
         # Get auth headers from platform client
         auth_headers = self._get_auth_headers(integration)
         if auth_headers is None:
@@ -148,10 +221,166 @@ class IntegrationBridge:
             )
 
         except httpx.TimeoutException:
-            return web.json_response({"error": "External API timeout"}, status=504)
+            return error_json_response(
+                make_error("CONNECTION_TIMEOUT", target="the integration API"), status=504
+            )
         except Exception as e:
             logger.error(f"[INTEGRATION_BRIDGE] Proxy error: {e}")
-            return web.json_response({"error": f"Proxy error: {str(e)}"}, status=502)
+            return error_json_response(
+                make_error("PROXY_ERROR", detail=f"Proxy error: {str(e)}"), status=502
+            )
+
+    async def _handle_action(self, request: web.Request) -> web.Response:  # noqa: C901
+        """Execute one of CRAFTBOT'S OWN integration actions for a Living UI.
+
+        The raw proxy below makes apps speak each provider's native API —
+        which made an agent hand-roll Gmail MIME envelopes and, when its
+        invented endpoint 404'd, conclude the bridge was broken. CraftBot
+        already owns tested implementations of every integration operation
+        (send_gmail, send_slack_message, …): this endpoint exposes THEM, so
+        apps pass semantic params ({to, subject, body}) and provider-API
+        knowledge stays in one place.
+
+        Body: {"action": "send_gmail", "params": {...},
+               "confirm_irreversible": true?}
+        Grants: the gate derives capabilities.actions from callAction
+        literals in the app's hooks — same derive-from-code flow as
+        external_hosts/integrations. Only actions tied to a known
+        integration are callable; irreversible ones need the explicit flag.
+        """
+        project_id = self._validate_token(request)
+        if not project_id:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        name = str(data.get("action") or "")
+        params = data.get("params") or {}
+        if not name:
+            return web.json_response({"error": "Missing required field: action"}, status=400)
+        if not isinstance(params, dict):
+            return web.json_response({"error": "params must be an object"}, status=400)
+
+        dry_run = bool(data.get("dry_run") or data.get("dryRun"))
+
+        from agent_core.core.action_framework.registry import ActionRegistry
+
+        impl = ActionRegistry().get_action_implementation(name)
+        if impl is None:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED (unknown action) project={project_id} action={name!r}"
+            )
+            return web.json_response({"error": f"Unknown action '{name}'"}, status=404)
+
+        # Only INTEGRATION actions are exposed: the action's action_sets carry
+        # its integration id by convention (["gmail_mail", "gmail"] → gmail).
+        sets = set(getattr(impl.metadata, "action_sets", None) or [])
+        integration = next((i for i in sorted(self.PROXY_DESTINATIONS) if i in sets), None)
+        if integration is None:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED (not an integration action) "
+                f"project={project_id} action={name!r}"
+            )
+            return web.json_response(
+                {"error": f"'{name}' is not an integration action — only integration "
+                          "actions are callable through the bridge"},
+                status=403,
+            )
+
+        granted, why = self._project_action_grants(project_id, name)
+        if not granted:
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] BLOCKED (action) project={project_id} "
+                f"action={name!r}: {why}"
+            )
+            return web.json_response(
+                {"error": f"This app is not permitted to call '{name}': {why}"},
+                status=403,
+            )
+
+        if getattr(impl.metadata, "irreversible", False) and not data.get("confirm_irreversible"):
+            # A refused send with no server-side log line is how an app once
+            # shipped a cron that logged "sent" while nothing ever left.
+            logger.warning(
+                f"[INTEGRATION_BRIDGE] REFUSED (irreversible, no confirm) "
+                f"project={project_id} action={name!r}"
+            )
+            return web.json_response(
+                {"error": f"'{name}' is irreversible (it acts on the user's real "
+                          "account). Retry with \"confirm_irreversible\": true."},
+                status=400,
+            )
+
+        if dry_run:
+            # Everything above ran: token, action exists, integration mapped,
+            # grant present, irreversible confirmed. Now validate params
+            # WITHOUT executing, so build-time verification can exercise
+            # paths that must never fire for real (emails, posts, deletes).
+            problems = _dry_run_param_problems(
+                getattr(impl.metadata, "input_schema", None) or {}, params
+            )
+            if problems:
+                logger.warning(
+                    f"[INTEGRATION_BRIDGE] DRY-RUN found problems "
+                    f"project={project_id} action={name!r}: {problems}"
+                )
+                return web.json_response(
+                    {"error": "Dry-run found problems: " + "; ".join(problems)},
+                    status=400,
+                )
+            return web.json_response(
+                {
+                    "status": 200,
+                    "dry_run": True,
+                    "would_execute": name,
+                    "integration": integration,
+                    "note": "All checks passed (grant, params, confirmation). "
+                            "Nothing was executed.",
+                },
+                status=200,
+            )
+
+        try:
+            import asyncio as _asyncio
+            import inspect as _inspect
+
+            if _inspect.iscoroutinefunction(impl.handler):
+                result = await impl.handler(params)
+            else:
+                result = await _asyncio.to_thread(impl.handler, params)
+            return web.json_response({"status": 200, "data": result}, status=200)
+        except Exception as e:
+            logger.error(f"[INTEGRATION_BRIDGE] action '{name}' failed: {e}")
+            return web.json_response({"error": f"Action failed: {str(e)}"}, status=502)
+
+    def _project_action_grants(self, project_id: str, action_name: str) -> tuple:
+        """(ok, reason) — is `action_name` in the manifest's derived
+        capabilities.actions? Fails closed, mirror of _project_grants."""
+        import json as _json
+
+        try:
+            project = self._manager.get_project(project_id)
+        except Exception as e:
+            return False, f"unknown project ({e})"
+        if project is None:
+            return False, "unknown project"
+        try:
+            manifest_path = Path(project.path) / "manifest.json"
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"manifest unreadable ({e})"
+
+        declared = (manifest.get("capabilities") or {}).get("actions")
+        if not isinstance(declared, list) or action_name not in declared:
+            return False, (
+                f"'{action_name}' is not in capabilities.actions. The gate derives "
+                "the list from callAction literals in your hooks — call "
+                f"bridge.callAction('{action_name}', {{…}}) with a literal name and "
+                "relaunch with living_ui_notify_ready."
+            )
+        return True, ""
 
     async def _handle_llm(self, request: web.Request) -> web.Response:
         """Proxy LLM completion request through CraftBot's configured LLM."""
@@ -255,6 +484,119 @@ class IntegrationBridge:
 
         token = auth[7:]
         return self._manager.validate_bridge_token(token)
+
+    # Where each integration's credentials may be sent: (base, allowed hosts).
+    #
+    # `base` also REPAIRS the proxy. Callers pass a path — the shipped apps do
+    # `callIntegration('gmail','POST','/gmail/v1/users/me/messages/send',…)` —
+    # and nothing ever resolved it, so httpx got a relative URL and every call
+    # failed. crm-system even carries a "Gmail integration unavailable" fallback
+    # because of it. Resolving against `base` fixes that, and a path can never
+    # escape the base, so it is also the safe form.
+    #
+    # Host matching is exact-or-dot-suffix, so "api.github.com.evil.com" does
+    # not pass as "api.github.com". Omission denies — the safe direction.
+    PROXY_DESTINATIONS: Dict[str, tuple] = {
+        "github": ("https://api.github.com", ("api.github.com",)),
+        "gmail": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_calendar": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_docs": ("https://docs.googleapis.com", ("googleapis.com",)),
+        "google_drive": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_youtube": ("https://www.googleapis.com", ("googleapis.com",)),
+        "google_workspace": ("https://www.googleapis.com", ("googleapis.com",)),
+        "outlook": ("https://graph.microsoft.com", ("graph.microsoft.com",)),
+        "slack": ("https://slack.com", ("slack.com",)),
+        "discord": ("https://discord.com", ("discord.com", "discordapp.com")),
+        "notion": ("https://api.notion.com", ("api.notion.com",)),
+        "hubspot": ("https://api.hubapi.com", ("api.hubapi.com",)),
+        "jira": ("https://api.atlassian.com", ("atlassian.net", "api.atlassian.com")),
+        "linkedin": ("https://api.linkedin.com", ("api.linkedin.com",)),
+        "stripe": ("https://api.stripe.com", ("api.stripe.com",)),
+        "line": ("https://api.line.me", ("api.line.me",)),
+        "lark": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "lark_calendar": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "lark_drive": ("https://open.feishu.cn", ("open.feishu.cn", "open.larksuite.com")),
+        "telegram_bot": ("https://api.telegram.org", ("api.telegram.org",)),
+        "telegram_user": ("https://api.telegram.org", ("api.telegram.org",)),
+        "twitter": ("https://api.twitter.com", ("api.twitter.com", "api.x.com")),
+        "whatsapp_business": ("https://graph.facebook.com", ("graph.facebook.com",)),
+    }
+
+    def _project_grants(self, project_id: str, integration: str) -> tuple:
+        """(ok, reason) — does this project declare `integration` in its
+        manifest's `capabilities.integrations`? Fails closed."""
+        import json as _json
+
+        try:
+            project = self._manager.get_project(project_id)
+        except Exception as e:
+            return False, f"unknown project ({e})"
+        if project is None:
+            return False, "unknown project"
+
+        try:
+            manifest_path = Path(project.path) / "manifest.json"
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"manifest unreadable ({e})"
+
+        capabilities = manifest.get("capabilities") or {}
+        declared = capabilities.get("integrations")
+        # The grant is DERIVED, not hand-written: the validation gate scans
+        # the hooks for callIntegration('<id>' literals and writes the list
+        # into the (system-managed) manifest. So the fix for a missing grant
+        # is always the same: make the call in code, re-run the gate.
+        if not isinstance(declared, list):
+            return False, (
+                f"'{integration}' is not granted: the manifest has no "
+                "capabilities.integrations. The gate derives it from your "
+                f"hooks — call bridge.callIntegration('{integration}', …) with "
+                "a literal id and relaunch with living_ui_notify_ready."
+            )
+        if integration not in declared:
+            return False, (
+                f"'{integration}' is not in capabilities.integrations "
+                f"{declared}. The gate derives the list from callIntegration "
+                "literals in your hooks — use a literal id and relaunch with "
+                "living_ui_notify_ready."
+            )
+        return True, ""
+
+    def _resolve_destination(self, integration: str, url: str) -> tuple:
+        """(ok, resolved_url_or_reason) for this integration's credentials."""
+        from urllib.parse import urlparse
+
+        entry = self.PROXY_DESTINATIONS.get(integration)
+        if not entry:
+            return False, "integration has no permitted destinations"
+        base, allowed = entry
+
+        raw = (url or "").strip()
+        if not raw:
+            return False, "empty url"
+
+        # A path resolves against the base and cannot escape it. Note "//host"
+        # is protocol-relative, NOT a path — urljoin would happily send it to
+        # another host, so it must be rejected here.
+        if raw.startswith("/") and not raw.startswith("//"):
+            return True, base.rstrip("/") + raw
+
+        try:
+            parsed = urlparse(raw)
+        except Exception:
+            return False, "unparseable url"
+
+        if parsed.scheme != "https":
+            return False, f"scheme {parsed.scheme!r} is not https"
+
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return False, "no host in url"
+
+        for candidate in allowed:
+            if host == candidate or host.endswith("." + candidate):
+                return True, raw
+        return False, f"host {host!r} is not one of {', '.join(allowed)}"
 
     def _get_auth_headers(self, platform_id: str) -> Optional[dict]:
         """

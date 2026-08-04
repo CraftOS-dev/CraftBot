@@ -1,19 +1,26 @@
 """Living UI actions for agent to notify UI status and progress."""
 
+import logging
+from pathlib import Path
+
 from agent_core import action
+
+logger = logging.getLogger(__name__)
 
 
 @action(
     name="living_ui_scaffold",
     description=(
-        "Create and register a new Living UI project from the template. "
-        "Call this FIRST when building a Living UI from a chat request — i.e. "
-        "when your task instruction does NOT already contain a 'Project ID' and "
-        "'Project Path' (those come pre-scaffolded from the Create Living UI modal). "
-        "This copies the project template (backend/, frontend/, config/), allocates "
-        "ports, and registers the project so it appears in the user's Living UI list. "
-        "Returns the project_id and an absolute project_path — use project_path as the "
-        "base for ALL subsequent file operations so files land in the right folders."
+        "Create and register a new Living UI project from the template, then "
+        "dispatch the build to the project's dedicated session. Call this when "
+        "the user asks for a new Living UI in a regular chat — i.e. when your "
+        "task instruction does NOT already contain a 'Project ID' and 'Project "
+        "Path' (those come pre-scaffolded from the Create Living UI modal). "
+        "This copies the project template (backend/, frontend/, config/), "
+        "allocates ports, registers the project in the user's Living UI list, "
+        "and queues the build run in the project's own session. After it "
+        "returns, inform the user the build has started and end your turn — "
+        "do NOT write project files or call living_ui_notify_ready yourself."
     ),
     default=False,
     mode="CLI",
@@ -28,7 +35,11 @@ from agent_core import action
         "description": {
             "type": "string",
             "example": "A dashboard that forecasts stock performance.",
-            "description": "Short description of what the app does.",
+            "description": (
+                "Description of what the app does. Include EVERY requirement "
+                "the user has given so far — it becomes the build instruction "
+                "for the project's session."
+            ),
         },
         "features": {
             "type": "array",
@@ -41,6 +52,15 @@ from agent_core import action
             "example": "system",
             "description": "UI theme. Defaults to 'system'.",
         },
+        "auth_mode": {
+            "type": "string",
+            "enum": ["none", "multi-user"],
+            "example": "none",
+            "description": (
+                "Auth mode from the requirements: 'none' for a personal local "
+                "tool (default), 'multi-user' when the app needs accounts."
+            ),
+        },
     },
     output_schema={
         "status": {
@@ -51,12 +71,12 @@ from agent_core import action
         "project_id": {
             "type": "string",
             "example": "abc12345",
-            "description": "The created project ID. Pass this to living_ui_notify_ready.",
+            "description": "The created project ID.",
         },
         "project_path": {
             "type": "string",
             "example": "/workspace/living_ui/stock_forecaster_abc12345",
-            "description": "Absolute base path. Use this for ALL file operations.",
+            "description": "Absolute project path on disk.",
         },
         "frontend_port": {"type": "integer", "description": "Allocated frontend port."},
         "backend_port": {"type": "integer", "description": "Allocated backend port."},
@@ -77,9 +97,6 @@ async def living_ui_scaffold(input_data: dict) -> dict:
     description = input_data.get("description", "").strip()
     features = input_data.get("features") or []
     theme = input_data.get("theme", "system")
-    # _session_id is injected by the ActionManager; for a Living UI task it equals
-    # the task id, which the progress/todo broadcast hooks key off of.
-    session_id = input_data.get("_session_id")
     simulated_mode = input_data.get("simulated_mode", False)
 
     if not name or not description:
@@ -96,7 +113,11 @@ async def living_ui_scaffold(input_data: dict) -> dict:
         }
 
     try:
-        from app.living_ui import get_living_ui_manager, broadcast_living_ui_created
+        from app.living_ui import (
+            get_living_ui_manager,
+            broadcast_living_ui_created,
+            broadcast_living_ui_progress,
+        )
 
         manager = get_living_ui_manager()
         if not manager:
@@ -117,17 +138,43 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             description=description,
             features=features,
             theme=theme,
+            auth_mode=input_data.get("auth_mode", "none"),
         )
 
-        # Associate the project with the running task so the agent's todos and
-        # progress stream to the Living UI view, then mark it as in-progress.
-        if session_id:
-            manager.set_project_task(project.id, session_id)
-        manager.update_project_status(project.id, "creating")
-
-        # Register it in the browser's project list immediately (modal-parity).
+        # Register it in the browser's project list immediately and show the
+        # creation screen (modal-parity).
         await broadcast_living_ui_created(project.to_dict())
+        await broadcast_living_ui_progress(
+            project.id, "initializing", 10, "Project created, starting development..."
+        )
 
+        # Hand the build off to the project's dedicated session (parity with
+        # the browser "+" flow): start_development_run ensures the session
+        # exists, marks the project as creating, and fires a LIVING_UI_DEV
+        # trigger carrying the full build instruction, so todos/progress/
+        # questions stream to the Living UI view.
+        dev_session_id = await manager.start_development_run(project.id)
+        if dev_session_id:
+            return {
+                "status": "success",
+                "project_id": project.id,
+                "project_path": project.path,
+                "frontend_port": project.port,
+                "backend_port": project.backend_port,
+                "message": (
+                    f"Project '{project.name}' scaffolded at {project.path}. "
+                    f"The build has been dispatched to the project's dedicated "
+                    f"session — do NOT build it in this session, do NOT write "
+                    f"project files, and do NOT call living_ui_notify_ready "
+                    f"here. Tell the user the build has started and that "
+                    f"progress and any setup questions will appear in the "
+                    f"'{project.name}' Living UI tab, then end your turn."
+                ),
+            }
+
+        # Fallback — session runtime not bound (e.g. headless/test contexts):
+        # keep the legacy inline-build contract in the calling session.
+        manager.update_project_status(project.id, "creating")
         return {
             "status": "success",
             "project_id": project.id,
@@ -137,7 +184,7 @@ async def living_ui_scaffold(input_data: dict) -> dict:
             "message": (
                 f"Project '{project.name}' scaffolded at {project.path}. "
                 f"Use this absolute path as the base for ALL file operations "
-                f"(e.g. {project.path}/backend/models.py, {project.path}/frontend/). "
+                f"(e.g. {project.path}/frontend/src/app/, {project.path}/pb/pb_migrations/). "
                 f"Do NOT write to bare relative paths. When the build is complete, "
                 f'call living_ui_notify_ready(project_id="{project.id}").'
             ),
@@ -149,10 +196,13 @@ async def living_ui_scaffold(input_data: dict) -> dict:
 @action(
     name="living_ui_notify_ready",
     description=(
-        "Launch, verify, and serve a Living UI project. "
-        "Call this after building the Living UI code. "
-        "This action installs dependencies, runs tests, starts the backend and frontend, "
-        "and notifies the browser. Returns test errors if anything fails."
+        "Launch or RELAUNCH a Living UI project: installs dependencies, runs the "
+        "validation gate, restarts backend and frontend, notifies the browser. "
+        "Call this ONLY after CREATING or CHANGING the app's CODE (migrations, "
+        "hooks, frontend). An app that is already running does NOT need it — "
+        "adding, editing or deleting DATA never requires a relaunch, and calling "
+        "it then rebuilds and restarts a live app for no reason. "
+        "Returns test errors if anything fails."
     ),
     default=False,
     mode="CLI",
@@ -202,7 +252,7 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         }
 
     try:
-        from app.living_ui import get_living_ui_manager, broadcast_living_ui_ready
+        from app.living_ui import get_living_ui_manager
 
         manager = get_living_ui_manager()
         if not manager:
@@ -215,26 +265,366 @@ async def living_ui_notify_ready(input_data: dict) -> dict:
         result = await manager.launch_and_verify(project_id)
 
         if result["status"] == "success":
-            # Notify browser that the UI is ready
             url = result.get("url", "")
-            port = result.get("port", 0)
-            await broadcast_living_ui_ready(project_id, url, port)
+            _proj_ok = manager.get_project(project_id)
+            if _proj_ok is not None:
+                _proj_ok._gate_fp = None
+                _proj_ok._gate_fp_count = 0
+
+            # Launched, healthy, smoke-passed — but NOT yet feature-verified.
+            # Verification is its own visible step: living_ui_walk_verify.
+            # Tell the machine the pipeline is clean → it now expects a
+            # verifier verdict (and will redispatch if this run just stops).
+            try:
+                from app.factory.host_craftbot import get_factory_host
+
+                get_factory_host().report_launch_success(project_id)
+            except Exception:
+                pass
             return {
                 "status": "success",
-                "message": f"Living UI {project_id} is now ready at {url}",
+                "message": (
+                    f"App launched at {url} — gate, health and smoke checks "
+                    "passed. NOT VERIFIED YET: now call "
+                    f'living_ui_walk_verify(project_id="{project_id}") to run '
+                    "the independent verifier against the running app. The "
+                    "build is complete ONLY when that returns success — do "
+                    "NOT tell the user the app is ready before then."
+                ),
             }
         else:
             # Return errors directly so the agent can fix them
             errors = result.get("errors", [])
             errors_str = "\n".join(errors[:10])
+
+            # CIRCUIT BREAKER: detect fix attempts that change nothing. The
+            # fingerprint lives on the in-memory project (this module does not
+            # persist between action calls).
+            breaker_note = ""
+            project = manager.get_project(project_id)
+            if project is not None:
+                fp = hash((result.get("step"), errors_str))
+                same = getattr(project, "_gate_fp", None) == fp
+                count = (getattr(project, "_gate_fp_count", 0) + 1) if same else 1
+                project._gate_fp = fp
+                project._gate_fp_count = count
+                if count >= 6:
+                    breaker_note = (
+                        f"\n\nSTOP: the EXACT same error has now occurred {count} times "
+                        "in a row. The build is stuck — do NOT try again. Report the "
+                        "failure honestly to the user with a final send_message "
+                        "(state what is blocking and what you tried) and end the run."
+                    )
+                elif count >= 3:
+                    breaker_note = (
+                        f"\n\nWARNING: this is the IDENTICAL error {count} times in a "
+                        "row — your edits are NOT changing the outcome. Do not repeat "
+                        "the same fix. Re-read the annotated error above: the caret "
+                        "marks the EXACT offending expression (there may be several "
+                        "similar ones on the line — fix the one under the caret). "
+                        "Verify your edit actually changed that expression before "
+                        "re-running."
+                    )
             return {
                 "status": "error",
                 "message": f"Launch failed at step: {result.get('step', 'unknown')}",
                 "test_errors": errors[:10],
-                "details": f"Fix these errors and call living_ui_notify_ready again:\n{errors_str}",
+                "details": (
+                    f"Fix these errors and call living_ui_notify_ready again:\n{errors_str}"
+                    + breaker_note
+                ),
             }
     except Exception as e:
         return {"status": "error", "message": f"Failed to launch: {str(e)}"}
+
+
+@action(
+    name="living_ui_walk_verify",
+    description=(
+        "Run the independent walk-verify sub-agent against the RUNNING Living "
+        "UI project: a real browser (headless) drives the app "
+        "feature-by-feature against reference/requirements.md. A clean "
+        "verdict announces the app to the user — the ONLY way a Living UI "
+        "BUILD completes. Observed defects return the failure report: fix, "
+        "relaunch with living_ui_notify_ready, then call this again. "
+        "Requires the app to be running (living_ui_notify_ready first). "
+        "ONLY after building or modifying the app's CODE. NEVER after a data "
+        "change: it drives a real browser and CLICKS through the UI, including "
+        "buttons that create records, so running it against an app holding the "
+        "user's data can alter that data."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    input_schema={
+        "project_id": {
+            "type": "string",
+            "example": "abc12345",
+            "description": "The Living UI project ID (provided in task instruction).",
+        },
+    },
+    output_schema={
+        "status": {
+            "type": "string",
+            "example": "success",
+            "description": "'success' = app verified and announced ready.",
+        },
+        "message": {
+            "type": "string",
+            "example": "Living UI abc12345 is now ready (5 features walk-verified).",
+            "description": "Outcome summary.",
+        },
+        "test_errors": {
+            "type": "array",
+            "example": ["- Onboarding — FAIL — form does not save"],
+            "description": "Observed defects when verification fails.",
+        },
+    },
+    test_payload={
+        "project_id": "test123",
+        "simulated_mode": True,
+    },
+)
+async def living_ui_walk_verify(input_data: dict) -> dict:
+    """Independent feature verification of the running app; announces the
+    app on a clean verdict."""
+    project_id = input_data.get("project_id", "")
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "message": f"Living UI {project_id} verified (simulated).",
+        }
+    if not project_id:
+        return {"status": "error", "message": "project_id is required"}
+
+    try:
+        import asyncio as _asyncio
+
+        from app.living_ui import (
+            broadcast_living_ui_progress,
+            broadcast_living_ui_ready,
+            get_living_ui_manager,
+        )
+        from app.living_ui.walk_verify import run_walk_verify
+
+        manager = get_living_ui_manager()
+        project = manager.get_project(project_id) if manager else None
+        if project is None:
+            return {"status": "error", "message": f"Unknown project: {project_id}"}
+        if project.status != "running":
+            return {
+                "status": "error",
+                "message": (
+                    "The app is not running — call living_ui_notify_ready "
+                    "first, then verify."
+                ),
+            }
+        url = f"http://127.0.0.1:{project.port}"
+
+        try:
+            await broadcast_living_ui_progress(
+                project_id,
+                "verifying",
+                92,
+                "Walk-verify: independently testing features against "
+                "the requirements (this takes a minute)…",
+            )
+        except Exception:
+            pass
+        try:
+            # Belt-and-suspenders ceiling above the runner's own 30-min wall
+            # cap: even if the verifier wedges, the turn must end. Timeout =
+            # tooling failure (blocked), never an app defect.
+            report = await _asyncio.wait_for(run_walk_verify(project), timeout=2100)
+        except _asyncio.TimeoutError:
+            report = {"kind": "blocked", "passed": [], "defects": [],
+                      "raw": "walk_verify exceeded the 35-minute ceiling"}
+        except Exception as verify_err:
+            report = {"kind": "blocked", "passed": [], "defects": [],
+                      "raw": f"walk_verify crashed: {verify_err}"}
+
+        kind = (report or {}).get("kind")
+        passed_n = len((report or {}).get("passed") or [])
+        try:
+            if kind == "defects":
+                outcome = (
+                    f"Walk-verify: {len(report['defects']) or 'some'} "
+                    "feature(s) FAILED — fixing before launch"
+                )
+            elif kind == "pass":
+                outcome = f"Walk-verify PASSED: {passed_n} feature(s) work"
+            elif kind == "incomplete":
+                outcome = (
+                    f"Walk-verify: {passed_n} passed, coverage incomplete "
+                    "(some features NOT REACHED)"
+                )
+            else:
+                outcome = "Walk-verify BLOCKED (tooling) — smoke checks only"
+            await broadcast_living_ui_progress(project_id, "verifying", 96, outcome)
+        except Exception:
+            pass
+
+        # Distinguish a genuinely blocked verifier (browser/tooling died —
+        # legitimate announce-with-warning) from an UNPARSEABLE report (the
+        # sub-agent produced nonsense): announcing on nonsense is the
+        # fail-open hole the factory closes (FACTORY-PLAN §3.3).
+        if kind == "blocked":
+            from app.living_ui.walk_verify import _reads_as_blocked
+
+            raw_text = str((report or {}).get("raw") or "")
+            if raw_text.strip() and not _reads_as_blocked(raw_text):
+                kind = "unparseable"
+
+        if kind == "unparseable":
+            from app.factory.host_craftbot import get_factory_host
+
+            decision = get_factory_host().report_verify(project_id, "unparseable")
+            if decision is not None and decision.payload.get("redo") == "verify":
+                return {
+                    "status": "error",
+                    "message": (
+                        "The verifier's report was unparseable (not a browser "
+                        "failure). Call living_ui_walk_verify once more."
+                    ),
+                }
+            return {
+                "status": "error",
+                "message": (
+                    "The verifier's report was unparseable twice. The system has "
+                    "reported the build as stuck to the user. End the run."
+                ),
+            }
+
+        if kind == "defects":
+            # Observed misbehavior — the only thing that blocks a launch.
+            await manager.stop_project(project_id)
+            defects = report.get("defects") or []
+            raw = (report.get("raw") or "")[:2500]
+            # The browser report says WHAT failed; the server log says WHY
+            # (hook exceptions, bad queries — logged via the console.error
+            # pattern). Without it, agents invent causes: one read a bare
+            # failure and diagnosed "no outbound internet access".
+            #
+            # EVERYTHING LOCAL: action handlers run from REGISTRY-EXTRACTED
+            # SOURCE, not as this module — module-level imports/globals do
+            # not exist at execution time. A module-level `Path` silently
+            # broke this block once, and a module-level `logger` then took
+            # down every walk_verify call in a run.
+            server_log = ""
+            try:
+                from pathlib import Path as _Path
+
+                pb_log = _Path(str(project.path)) / "logs" / "pocketbase.log"
+                if pb_log.exists():
+                    lines = pb_log.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()[-400:]
+                    # Errors FIRST, then newest lines: a naive tail once
+                    # shipped realtime chatter while "cannot be blank" errors
+                    # sat just above the 30-line window.
+                    error_lines = [
+                        l for l in lines
+                        if any(k in l.lower() for k in ("error", "failed", "panic", "cannot be"))
+                    ][-25:]
+                    tail = [l for l in lines[-8:] if l not in error_lines]
+                    server_log = (
+                        "\n\npocketbase.log (recent — the server-side causes):\n"
+                        + "\n".join(error_lines + tail)
+                    )
+                else:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).warning(
+                        f"[WALK_VERIFY] no pocketbase.log at {pb_log} — "
+                        "defect report ships without server-side causes"
+                    )
+            except Exception as e:
+                # Never break the report — but never eat the reason either.
+                try:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).warning(
+                        f"[WALK_VERIFY] could not attach pocketbase.log: {e}"
+                    )
+                except Exception:
+                    pass
+            full_details = (
+                "The walk-verify report (a real browser drove the app):\n"
+                + raw
+                + server_log
+            )
+            # The MACHINE owns the fix arc now (FACTORY-PLAN Phase 1): it
+            # records the failure, applies caps, and dispatches a FRESH fix
+            # mission carrying this evidence. This run's job is over.
+            from app.factory.host_craftbot import get_factory_host
+
+            decision = get_factory_host().report_verify(
+                project_id, "defects", defects=defects, details=full_details,
+                walk_report=raw, server_log=server_log,
+            )
+            if decision is not None and decision.next_state == "stuck":
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
+                        "NOT working — and the retry cap is reached. The system "
+                        "has reported the build as stuck to the user, with the "
+                        "full history. Do NOT retry and do NOT send a status "
+                        "message. End the run."
+                    ),
+                    "test_errors": defects[:10] or [raw],
+                }
+            return {
+                "status": "error",
+                "message": (
+                    f"Walk-verify FAILED: {len(defects) or 'some'} feature(s) "
+                    "observed NOT working. The app was stopped. A FRESH fix "
+                    "mission carrying the full evidence has been queued by the "
+                    "system — do NOT fix in this run and do NOT send a status "
+                    "message. End the run now."
+                ),
+                "test_errors": defects[:10] or [raw],
+            }
+
+        # Clean verdict (pass / incomplete / tooling-blocked): the MACHINE
+        # announces to the user (FACTORY-PLAN §3.6 — no agent-authored
+        # status); this run just ends.
+        await broadcast_living_ui_ready(project_id, url, project.port)
+        if kind == "pass":
+            caveat = ""
+        elif kind == "incomplete":
+            caveat = (
+                f"Coverage incomplete: {passed_n} feature(s) verified; some "
+                "were NOT exercised (see the report). Unverified features may "
+                "not work yet."
+            )
+        elif kind == "blocked":
+            caveat = (
+                "The independent verifier could not run (browser/tooling "
+                "issue) — the app passed launch and smoke checks only; no "
+                "feature was browser-verified."
+            )
+        else:
+            caveat = "Verifier unavailable — smoke checks only."
+
+        from app.factory.host_craftbot import get_factory_host
+
+        get_factory_host().report_verify(
+            project_id, kind if kind in ("pass", "incomplete", "blocked") else "blocked",
+            url=url, verified=report.get("passed") or [], caveat=caveat,
+        )
+        return {
+            "status": "success",
+            "message": (
+                f"Living UI {project_id} is ready at {url}. The system has "
+                "announced this to the user (including any caveats). Do NOT "
+                "send your own summary — end the run, or answer only direct "
+                "questions."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"walk-verify failed to run: {str(e)}"}
 
 
 @action(
@@ -420,179 +810,16 @@ async def living_ui_report_progress(input_data: dict) -> dict:
         }
 
 
-@action(
-    name="living_ui_import_external",
-    description=(
-        "Import an external app as a Living UI project. "
-        "Use this when the user wants to add an existing app (Go, Node.js, Python, Rust, static site) "
-        "to their Living UI dashboard. The agent should first analyze the app source code to determine "
-        "the runtime, build/install command, start command, and health check strategy, then call this action."
-    ),
-    action_sets=["living_ui"],
-    input_schema={
-        "name": {
-            "type": "string",
-            "description": "Display name for the project.",
-            "example": "Glance Dashboard",
-        },
-        "description": {
-            "type": "string",
-            "description": "Brief app description.",
-            "example": "Self-hosted dashboard",
-        },
-        "source_path": {
-            "type": "string",
-            "description": "Absolute path to the app source code.",
-            "example": "/path/to/app",
-        },
-        "app_runtime": {
-            "type": "string",
-            "description": "Runtime: node, python, go, rust, docker, static, or unknown.",
-            "example": "go",
-        },
-        "install_command": {
-            "type": "string",
-            "description": "Command to install/build the app (empty if none needed).",
-            "example": "go build -o app .",
-        },
-        "start_command": {
-            "type": "string",
-            "description": "Command to start the app. Use {{PORT}} placeholder for port.",
-            "example": "./app --port {{PORT}}",
-        },
-        "health_strategy": {
-            "type": "string",
-            "description": "Health check: http_get, tcp, or process_alive.",
-            "example": "http_get",
-        },
-        "health_url": {
-            "type": "string",
-            "description": "Health check URL (for http_get). Use {{PORT}} placeholder.",
-            "example": "http://localhost:{{PORT}}/health",
-        },
-        "port_env_var": {
-            "type": "string",
-            "description": "Env var name for port injection (e.g., PORT). Empty if app uses command-line flag.",
-            "example": "PORT",
-        },
-        "project_id": {
-            "type": "string",
-            "description": (
-                "If the task instruction provided a pre-created project_id "
-                "(a tab already shown to the user), pass it here so the import "
-                "populates that tab. Omit otherwise."
-            ),
-            "example": "a1b2c3d4",
-        },
-    },
-    output_schema={
-        "status": {"type": "string", "example": "success"},
-        "project": {"type": "object", "description": "Project info dict."},
-    },
-)
-async def living_ui_import_external(input_data: dict) -> dict:
-    """Import an external app as a Living UI project."""
-    try:
-        from app.living_ui import get_living_ui_manager
-
-        manager = get_living_ui_manager()
-        if not manager:
-            return {"status": "error", "message": "Living UI manager not available."}
-
-        result = await manager.import_external_app(
-            name=input_data.get("name", "External App"),
-            description=input_data.get("description", ""),
-            source_path=input_data["source_path"],
-            app_runtime=input_data.get("app_runtime", "unknown"),
-            install_command=input_data.get("install_command", ""),
-            start_command=input_data.get("start_command", ""),
-            health_strategy=input_data.get("health_strategy", "tcp"),
-            health_url=input_data.get("health_url", ""),
-            port_env_var=input_data.get("port_env_var", "PORT"),
-            project_id=input_data.get("project_id") or None,
-        )
-        return result
-    except Exception as e:
-        return {"status": "error", "message": f"Import failed: {str(e)}"}
-
-
-@action(
-    name="living_ui_import_zip",
-    description=(
-        "Import a Living UI project from a ZIP file. "
-        "The ZIP should contain a previously exported Living UI project. "
-        "A new project ID and ports are allocated automatically. "
-        "After importing, launch the project with living_ui_notify_ready."
-    ),
-    action_sets=["living_ui"],
-    input_schema={
-        "zip_path": {
-            "type": "string",
-            "description": "Absolute path to the ZIP file.",
-            "example": "/path/to/project.zip",
-        },
-        "name": {
-            "type": "string",
-            "description": "Display name for the imported project (optional, auto-detected from manifest).",
-            "example": "My App",
-        },
-        "project_id": {
-            "type": "string",
-            "description": (
-                "If the task instruction provided a pre-created project_id "
-                "(a tab already shown to the user), pass it here so the import "
-                "populates that tab. Omit otherwise."
-            ),
-            "example": "a1b2c3d4",
-        },
-    },
-    output_schema={
-        "status": {"type": "string", "example": "success"},
-        "project_id": {"type": "string", "example": "a1b2c3d4"},
-        "message": {"type": "string"},
-    },
-)
-async def living_ui_import_zip(input_data: dict) -> dict:
-    """Import a Living UI project from a ZIP file."""
-    try:
-        from app.living_ui import get_living_ui_manager
-
-        manager = get_living_ui_manager()
-        if not manager:
-            return {"status": "error", "message": "Living UI manager not available."}
-
-        zip_path = input_data.get("zip_path", "")
-        name = input_data.get("name", "")
-        project_id = input_data.get("project_id") or None
-
-        if not zip_path:
-            return {"status": "error", "message": "zip_path is required."}
-
-        project = await manager.import_project_zip(zip_path, name, project_id)
-
-        # Clean up the ZIP file after successful import
-        import os
-
-        try:
-            os.unlink(zip_path)
-        except Exception:
-            pass
-
-        return {
-            "status": "success",
-            "project_id": project.id,
-            "message": f"Imported '{project.name}' ({project.id}). Call living_ui_notify_ready to launch it.",
-            "project": project.to_dict(),
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"ZIP import failed: {str(e)}"}
 
 
 @action(
     name="living_ui_http",
     description=(
-        "Send an HTTP request to a running Living UI project's backend. "
-        "Use this to read or modify data in your Living UI (e.g., add a card to a kanban, fetch a list). "
+        "FALLBACK ONLY — prefer the lui CLI via run_shell "
+        "(node <craftbot-root>/living-ui-v2/tools/src/cli.ts ops|run|data <project_path> — ABSOLUTE path; the exact commands are in the [INTERACTING WITH LIVING UI] note) to "
+        "operate a Living UI. Use this action only when the shell is "
+        "unavailable. Sends an HTTP request to a running Living UI project's "
+        "backend to read or modify data (e.g., add a card to a kanban, fetch a list). "
         "Pass the project_id and the API path (e.g., '/api/boards/2/cards'); the URL is resolved from the "
         "project's registered backend. This bypasses the loopback SSRF restriction safely because the "
         "target is a known Living UI process."
@@ -889,3 +1116,247 @@ def living_ui_http(input_data: dict) -> dict:
             "elapsed_ms": 0,
             "message": str(e),
         }
+
+
+@action(
+    name="living_ui_marketplace_list",
+    description=(
+        "List the Living UI marketplace catalogue: pre-built apps the user "
+        "can install by id. Use when the user asks what apps are available "
+        "or wants to install something by name (list first to resolve the id)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=True,
+    input_schema={},
+    output_schema={
+        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "apps": {
+            "type": "array",
+            "example": [{"id": "kanban-board", "name": "Kanban Board", "description": "Tasks in columns"}],
+            "description": "Catalogue entries (id, name, description, ...).",
+        },
+        "message": {"type": "string", "description": "Summary line."},
+    },
+    test_payload={"simulated_mode": True},
+)
+async def living_ui_marketplace_list(input_data: dict) -> dict:
+    """Fetch the marketplace catalogue (GitHub-hosted JSON)."""
+    if input_data.get("simulated_mode"):
+        return {"status": "success", "apps": [], "message": "0 apps (simulated)."}
+    import asyncio
+    import json as _json
+    import re as _re
+    import ssl
+    import urllib.request
+
+    CATALOGUE_URL = (
+        "https://raw.githubusercontent.com/CraftOS-dev/"
+        "living-ui-marketplace/main/catalogue.json"
+    )
+
+    def _fetch() -> dict:
+        try:
+            import certifi
+
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = ssl.create_default_context()
+        req = urllib.request.Request(CATALOGUE_URL, headers={"User-Agent": "CraftBot"})
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            raw = r.read().decode()
+        # Tolerate trailing commas in hand-edited JSON.
+        return _json.loads(_re.sub(r",\s*([}\]])", r"\1", raw))
+
+    try:
+        catalogue = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        apps = catalogue.get("apps", [])
+        return {
+            "status": "success",
+            "apps": apps,
+            "message": (
+                f"{len(apps)} marketplace app(s) available. Install with "
+                'living_ui_marketplace_install(app_id="<id>").'
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "apps": [], "message": f"Could not fetch catalogue: {e}"}
+
+
+@action(
+    name="living_ui_marketplace_install",
+    description=(
+        "Install a pre-built Living UI app from the marketplace by id "
+        "(resolve ids with living_ui_marketplace_list). Downloads the app, "
+        "registers it as a project, and runs the full launch pipeline. "
+        "Marketplace apps are pre-built — no walk-verify needed; report the "
+        "returned URL to the user."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    irreversible=True,
+    input_schema={
+        "app_id": {
+            "type": "string",
+            "example": "kanban-board",
+            "description": "The app id from the marketplace catalogue.",
+        },
+        "name": {
+            "type": "string",
+            "example": "My Kanban",
+            "description": "Optional display name (defaults to the catalogue name/app id).",
+        },
+        "description": {
+            "type": "string",
+            "example": "Team task board",
+            "description": "Optional project description.",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "message": {"type": "string", "description": "Outcome with the app URL on success."},
+        "project_id": {"type": "string", "description": "The new project id on success."},
+    },
+    test_payload={"app_id": "test-app", "simulated_mode": True},
+)
+async def living_ui_marketplace_install(input_data: dict) -> dict:
+    """Download, register and launch a marketplace app."""
+    app_id = (input_data.get("app_id") or "").strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "message": f"Installed '{app_id}' at http://localhost:3100 (simulated).",
+        }
+    if not app_id:
+        return {"status": "error", "message": "app_id is required"}
+
+    try:
+        from app.living_ui import (
+            broadcast_living_ui_created,
+            broadcast_living_ui_ready,
+            get_living_ui_manager,
+        )
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized."}
+
+        result = await manager.install_from_marketplace(
+            app_id=app_id,
+            app_name=input_data.get("name") or app_id,
+            app_description=input_data.get("description") or "",
+        )
+        if result.get("status") != "success":
+            return {
+                "status": "error",
+                "message": result.get("error") or "Installation failed.",
+            }
+
+        project = result.get("project") or {}
+        project_id = project.get("id", "")
+        url = result.get("url") or project.get("url") or ""
+        # Surface it in the sidebar + viewport like the UI-driven install.
+        try:
+            await broadcast_living_ui_created(project)
+            live = manager.get_project(project_id)
+            if live is not None and live.port:
+                await broadcast_living_ui_ready(project_id, url, live.port)
+        except Exception:
+            pass
+        return {
+            "status": "success",
+            "project_id": project_id,
+            "message": (
+                f"Marketplace app '{app_id}' installed and running at {url}. "
+                "Tell the user it is ready."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Install failed: {str(e)}"}
+
+
+@action(
+    name="living_ui_import_zip",
+    description=(
+        "Import a Living UI V2 project from an exported ZIP file (round-trip "
+        "with export): registers it as a NEW project with fresh identity and "
+        "port, strips shipped credentials, and re-vendors the kit. The "
+        "project is registered STOPPED — launch it with "
+        "living_ui_notify_ready, then living_ui_walk_verify. Only V2 Living "
+        "UI exports are supported (foreign apps/repos are not)."
+    ),
+    default=False,
+    mode="CLI",
+    action_sets=["living_ui"],
+    parallelizable=False,
+    irreversible=True,
+    input_schema={
+        "zip_path": {
+            "type": "string",
+            "example": "/Users/me/Downloads/my-app-export.zip",
+            "description": "Absolute path to the exported Living UI ZIP.",
+        },
+        "name": {
+            "type": "string",
+            "example": "My Imported App",
+            "description": "Optional display name (defaults to the export's name).",
+        },
+    },
+    output_schema={
+        "status": {"type": "string", "example": "success", "description": "'success' or 'error'."},
+        "project_id": {"type": "string", "description": "The new project id."},
+        "project_path": {"type": "string", "description": "Absolute project path."},
+        "message": {"type": "string", "description": "Next steps."},
+    },
+    test_payload={"zip_path": "/tmp/test.zip", "simulated_mode": True},
+)
+async def living_ui_import_zip(input_data: dict) -> dict:
+    """Import a V2 export ZIP as a new registered project."""
+    zip_path = (input_data.get("zip_path") or "").strip()
+    if input_data.get("simulated_mode"):
+        return {
+            "status": "success",
+            "project_id": "abc12345",
+            "project_path": "/workspace/living_ui/imported_abc12345",
+            "message": "Imported (simulated).",
+        }
+    if not zip_path:
+        return {"status": "error", "message": "zip_path is required"}
+
+    import os
+
+    if not os.path.isfile(zip_path):
+        return {"status": "error", "message": f"File not found: {zip_path}"}
+
+    try:
+        from app.living_ui import broadcast_living_ui_created, get_living_ui_manager
+
+        manager = get_living_ui_manager()
+        if not manager:
+            return {"status": "error", "message": "Living UI manager not initialized."}
+
+        project = await manager.import_project_zip(
+            zip_path, name=input_data.get("name")
+        )
+        try:
+            await broadcast_living_ui_created(project.to_dict())
+        except Exception:
+            pass
+        return {
+            "status": "success",
+            "project_id": project.id,
+            "project_path": project.path,
+            "message": (
+                f"Imported as '{project.name}' ({project.id}) at {project.path}. "
+                f"Now launch it: living_ui_notify_ready(project_id=\"{project.id}\"), "
+                f"then living_ui_walk_verify(project_id=\"{project.id}\")."
+            ),
+        }
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Import failed: {str(e)}"}

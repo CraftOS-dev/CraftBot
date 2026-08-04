@@ -19,6 +19,7 @@ from agent_core.core.protocols.context import ContextEngineProtocol
 from agent_core.core.protocols.llm import LLMInterfaceProtocol
 from agent_core.core.impl.llm import LLMCallType
 from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
+from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo
 from agent_core.core.prompts import SELECT_ACTION_PROMPT
 from agent_core.utils.logger import logger
 
@@ -377,13 +378,24 @@ class ActionRouter:
                 raise
             except RuntimeError as e:
                 # LLM provider error (empty response, API error, auth failure, etc.)
+                # — a recognized, user-actionable failure, not a code bug. The
+                # attempt-number bookkeeping stays in the log only; the
+                # user-facing message (ClassifiedError.info.message) stays
+                # short and skips it.
                 error_msg = str(e)
                 logger.error(
                     f"[ACTION ROUTER] LLM provider error on attempt {attempt + 1}: {error_msg}"
                 )
-                last_error = RuntimeError(
-                    f"Unable to generate action decision on attempt {attempt + 1}: {error_msg}. "
-                    f"Check LLM configuration, API credentials, and service availability."
+                last_error = ClassifiedError(
+                    ErrorInfo(
+                        category=ErrorCategory.UNKNOWN,
+                        code="ACTION_DECISION_FAILED",
+                        title="Action decision failed",
+                        message=(
+                            f"{error_msg.rstrip('.')}. Check LLM configuration, "
+                            f"API credentials, and service availability."
+                        ),
+                    )
                 )
                 # After 3 attempts, give up
                 if attempt >= max_retries - 1:

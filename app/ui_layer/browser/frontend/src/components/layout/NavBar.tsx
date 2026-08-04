@@ -25,7 +25,8 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { useSkillCreator } from '../../hooks'
 import { CreateLivingUIModal } from '../ui/CreateLivingUIModal'
 import { SkillCreatorModal } from '../ui/SkillCreatorModal'
-import type { LivingUICreateRequest, SessionInfo } from '../../types'
+import { LivingUIIcon } from '../ui/LivingUIIcon'
+import type { SessionInfo } from '../../types'
 import { useAppSelector } from '../../store/hooks'
 import { selectMainSession, selectChatSessions } from '../../store/selectors/sessions'
 import { selectLastMessageIdBySession } from '../../store/selectors/messages'
@@ -137,7 +138,6 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
   const navigate = useNavigate()
   const {
     livingUIProjects,
-    createLivingUI,
     deleteSession,
     renameSession,
     clearSession,
@@ -242,6 +242,21 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return location.pathname.startsWith(path)
   }
 
+  // The Living UI project currently open (from the route).
+  const activeLivingUIId = location.pathname.startsWith('/living-ui/')
+    ? location.pathname.slice('/living-ui/'.length)
+    : null
+
+  // When the open project sorts past the collapsed fold (e.g. a freshly
+  // created app the user was just auto-switched to), expand "Show more" so it
+  // is visible in its natural position. Only fires on navigation / list change,
+  // so a manual "Show less" afterwards is respected.
+  useEffect(() => {
+    if (!activeLivingUIId) return
+    const idx = livingUIProjects.findIndex(p => p.id === activeLivingUIId)
+    if (idx >= GROUP_PREVIEW_COUNT) setShowAllLivingUI(true)
+  }, [activeLivingUIId, livingUIProjects])
+
   const sessionPath = (sessionId: string) =>
     sessionId === 'main' ? '/' : `/session/${sessionId}`
 
@@ -291,9 +306,11 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
     return null
   }
 
-  const handleCreateSubmit = (data: LivingUICreateRequest) => {
-    createLivingUI(data)
-    setShowCreateModal(false)
+  // Auto-switch: the wizard/marketplace hand back the new projectId — open
+  // its tab so the user lands on the live build view immediately.
+  const handleProjectCreated = (projectId: string) => {
+    setLivingUIExpanded(true)
+    navigate(`/living-ui/${projectId}`)
   }
 
   // Lazy session creation: "New Chat" only opens the draft view at
@@ -624,7 +641,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       <span className={styles.livingUITabIcon}>
                         {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                           ? <Loader2 size={13} className={styles.spinner} />
-                          : <Box size={13} />}
+                          : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
                       </span>
                       <span className={styles.livingUITabLabel}>{project.name}</span>
                       {renderSessionDot(project.sessionId)}
@@ -740,7 +757,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
                       <span className={styles.flyoutItemIcon}>
                         {project.status === 'creating' || project.status === 'launching' || project.status === 'stopping'
                           ? <Loader2 size={13} className={styles.spinner} />
-                          : <Box size={13} />}
+                          : <LivingUIIcon icon={project.icon} projectId={project.id} size={13} />}
                       </span>
                       <span className={styles.flyoutItemLabel}>{project.name}</span>
                       {renderSessionDot(project.sessionId)}
@@ -784,7 +801,7 @@ export function NavBar({ collapsed = false, onToggleCollapsed }: NavBarProps) {
       <CreateLivingUIModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSubmit={handleCreateSubmit}
+        onInstalled={handleProjectCreated}
       />
 
       <SkillCreatorModal

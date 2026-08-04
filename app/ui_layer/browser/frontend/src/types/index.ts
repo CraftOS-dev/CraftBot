@@ -16,6 +16,7 @@ export interface ChatMessageOption {
   label: string
   value: string
   style?: 'primary' | 'danger' | 'default'
+  url?: string  // If set, clicking also opens this URL in a new tab (e.g. a billing link)
 }
 
 export interface ChatMessage {
@@ -27,9 +28,13 @@ export interface ChatMessage {
   sessionId: string
   attachments?: Attachment[]
   options?: ChatMessageOption[]
+  requiresChoice?: boolean  // True when options is a blocking choice (e.g. Continue/Stop) vs. convenience action links; absent/true means show "Please select a response to continue"
   optionSelected?: string  // Value of the option that was selected
   clientId?: string  // Client-generated UUID for reconciling optimistic pending messages with server echo
   pending?: boolean  // True while an optimistic message is awaiting server acknowledgment
+  errorCategory?: string  // ErrorCategory value (e.g. "auth", "rate_limit") when style === 'error'
+  errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
+  errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -178,7 +183,8 @@ export type WSMessageType =
   | 'living_ui_delete'
   | 'living_ui_state_update'
   | 'living_ui_data_changed'
-  | 'living_ui_question'
+  | 'living_ui_build_event'
+  | 'living_ui_build_events_replay'
   | 'living_ui_error'
   | 'prompt_enhanced'
 
@@ -739,9 +745,13 @@ export interface LivingUIProject {
   port?: number
   url?: string
   createdAt: number
-  icon?: string
+  /** "lucide:<Name>" or "file:<relpath>" (uploaded favicon). */
+  icon?: string | null
   features?: string[]
   error?: string
+  stylePack?: string
+  /** Server-persisted display theme; adopted when no local override exists. */
+  uiTheme?: { themeId?: string; customColors?: Record<string, string> } | null
 }
 
 export interface LivingUICreateRequest {
@@ -750,6 +760,34 @@ export interface LivingUICreateRequest {
   features?: string[]  // Optional, defaults to empty array
   dataSource?: string
   theme?: 'light' | 'dark' | 'system'
+  authMode?: 'none' | 'multi-user'
+  layout?: string
+  stylePack?: string
+  referenceFiles?: string[]
+}
+
+// One derived "the app is being built" event, produced read-only by the
+// backend construction observer (app/living_ui/construction_events.py) and
+// rendered in the construction dock's feed + CodePeek.
+export interface LivingUIBuildEvent {
+  id: string
+  ts: number
+  kind: 'file_write' | 'file_edit' | 'test_run' | 'scaffold' | 'read' | 'search' | 'run' | 'verify' | 'todo'
+  area: 'backend' | 'frontend' | 'tests' | 'docs' | 'config' | 'other'
+  label: string
+  file?: string
+  entities?: {
+    models?: string[]
+    routes?: string[]
+    components?: string[]
+    tests?: string[]
+  }
+  snippet?: string
+  tests?: { passed: number; failed: number }
+  /** Authoritative counts scanned from the project on disk at event time —
+   * the source of truth for the dock's summary chips (not the per-write
+   * entities above, which only describe what that one write touched). */
+  snapshot?: { collections: number; components: number; routes: number }
 }
 
 export interface LivingUIStatusUpdate {

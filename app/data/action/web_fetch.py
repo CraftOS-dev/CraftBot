@@ -99,6 +99,7 @@ def web_fetch(input_data: dict) -> dict:
     import tempfile
     from urllib.parse import urlparse
     from datetime import datetime, timezone
+    from app.errors import make_error as catalog_make_error
 
     # --- Helper functions (must be inside for sandboxed execution) ---
 
@@ -425,9 +426,11 @@ def web_fetch(input_data: dict) -> dict:
 
         error_type = type(e).__name__
         if "Timeout" in error_type:
-            msg = f"Request timed out after {timeout} seconds."
+            msg = catalog_make_error("CONNECTION_TIMEOUT", target=url).message
         elif "ConnectionError" in error_type:
-            msg = f"Connection error: {str(e)}"
+            msg = catalog_make_error(
+                "CONNECTION_FAILED", target=url, detail=str(e)
+            ).message
         elif "HTTPError" in error_type:
             msg = f"HTTP error: {str(e)}"
         else:

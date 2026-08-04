@@ -3,6 +3,7 @@ import { Copy, Check, Reply } from 'lucide-react'
 import { MarkdownContent, AttachmentDisplay, AttachmentPreviewModal, IconButton } from '../../components/ui'
 import type { Attachment, ChatMessage as ChatMessageType } from '../../types'
 import { useWebSocket } from '../../contexts/WebSocketContext'
+import { getErrorCategoryStyle } from '../../constants/errorCategories'
 import styles from './ChatPage.module.css'
 
 interface ChatMessageProps {
@@ -86,12 +87,23 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   }
 
   const isAgent = message.style === 'agent'
+  const errorStyle = message.style === 'error' ? getErrorCategoryStyle(message.errorCategory) : null
+  const ErrorIcon = errorStyle?.icon
 
   const bubbleContainer = (
     <div className={styles.messageBubbleContainer}>
       <div className={`${styles.message} ${styles[message.style]} ${message.pending ? styles.pending : ''}`}>
         <div className={styles.messageHeader}>
-          <span className={styles.sender}>{message.sender}</span>
+          <span className={styles.sender}>
+            {ErrorIcon && (
+              <ErrorIcon
+                size={14}
+                className={styles.errorCategoryIcon}
+                style={{ color: `var(${errorStyle.colorVar})` }}
+              />
+            )}
+            {message.sender}
+          </span>
           <span className={styles.timestamp}>
             {new Date(message.timestamp * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
           </span>
@@ -108,7 +120,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({
         </div>
         {message.options && message.options.length > 0 && (
           <div className={styles.messageOptions}>
-            <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+            {message.requiresChoice !== false && (
+              <span className={styles.optionsPrompt}>Please select a response to continue:</span>
+            )}
             {message.options.map((opt, index) => (
               <button
                 key={opt.value}
@@ -116,6 +130,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({
                 onClick={() => {
                   if (dispatchLockRef.current) return
                   dispatchLockRef.current = true
+                  if (opt.url) {
+                    window.open(opt.url, '_blank', 'noopener')
+                  }
                   onOptionClick?.(opt.value, message.messageId)
                 }}
                 disabled={!!selected}

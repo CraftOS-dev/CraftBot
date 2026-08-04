@@ -350,7 +350,9 @@ class ModelFactory:
             if not api_key:
                 if deferred:
                     return empty_context
-                raise ValueError("API key required for OpenAI")
+                from app.errors import CatalogError, make_error
+
+                raise CatalogError(make_error("CONFIG_NO_API_KEY", provider="OpenAI"))
 
             return {
                 "provider": provider,
@@ -371,7 +373,9 @@ class ModelFactory:
             if not api_key:
                 if deferred:
                     return empty_context
-                raise ValueError("API key required for Gemini")
+                from app.errors import CatalogError, make_error
+
+                raise CatalogError(make_error("CONFIG_NO_API_KEY", provider="Gemini"))
 
             return {
                 "provider": provider,
@@ -389,7 +393,9 @@ class ModelFactory:
             if not api_key:
                 if deferred:
                     return empty_context
-                raise ValueError("API key required for Anthropic")
+                from app.errors import CatalogError, make_error
+
+                raise CatalogError(make_error("CONFIG_NO_API_KEY", provider="Anthropic"))
 
             return {
                 "provider": provider,
@@ -407,7 +413,9 @@ class ModelFactory:
             if not api_key:
                 if deferred:
                     return empty_context
-                raise ValueError("API key required for BytePlus")
+                from app.errors import CatalogError, make_error
+
+                raise CatalogError(make_error("CONFIG_NO_API_KEY", provider="BytePlus"))
 
             return {
                 "provider": provider,
@@ -498,7 +506,14 @@ class ModelFactory:
             if not api_key:
                 if deferred:
                     return empty_context
-                raise ValueError(f"API key required for {provider}")
+                from app.errors import CatalogError, make_error
+
+                raise CatalogError(
+                    make_error(
+                        "CONFIG_NO_API_KEY",
+                        provider=_PROVIDER_DISPLAY.get(provider, provider),
+                    )
+                )
 
             return {
                 "provider": provider,

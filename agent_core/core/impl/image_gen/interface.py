@@ -57,16 +57,17 @@ _OPENAI_QUALITY_MAP: Dict[str, str] = {
 }
 
 
-def _classify_error(provider: str, exc: Exception, model: str) -> str:
-    """Render *exc* as a human-readable error string via the shared catalog.
+def _classified_error(provider: str, exc: Exception, model: str) -> "ClassifiedError":
+    """Classify *exc* via the shared catalog and wrap it as a ClassifiedError.
 
     Import deferred to call time — agent_core must stay importable without
     the host `app` package (all app.* imports in this package are
     function-local by convention).
     """
-    from app.i18n import classify_provider_error
+    from agent_core.core.errors import ClassifiedError
+    from app.i18n import classify_provider_error_info
 
-    return classify_provider_error(exc, provider=provider, model=model)
+    return ClassifiedError(classify_provider_error_info(exc, provider=provider, model=model))
 
 
 # ── File-path helpers ─────────────────────────────────────────────────────────
@@ -370,7 +371,7 @@ class ImageGenInterface:
                     quality=quality,
                 )
         except Exception as exc:
-            raise RuntimeError(_classify_error("openai", exc, self.model)) from exc
+            raise _classified_error("openai", exc, self.model) from exc
 
         usage = getattr(response, "usage", None)
         if usage is not None:
@@ -485,7 +486,7 @@ class ImageGenInterface:
                 safety_settings=safety_settings,
             )
         except Exception as exc:
-            raise RuntimeError(_classify_error("gemini", exc, self.model)) from exc
+            raise _classified_error("gemini", exc, self.model) from exc
 
         usage_md = result.get("usage_metadata") or {}
         if usage_md:
@@ -502,9 +503,19 @@ class ImageGenInterface:
         if not images_data:
             block_reason = result.get("block_reason")
             if block_reason:
-                raise RuntimeError(
-                    f"Gemini blocked the request (safety filter: {block_reason}). "
-                    "Try modifying your prompt or adjusting safety_filter_level."
+                from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo, Severity
+
+                raise ClassifiedError(
+                    ErrorInfo(
+                        category=ErrorCategory.BLOCKED,
+                        code="IMAGE_GEN_BLOCKED",
+                        title="Blocked by safety filter",
+                        message=(
+                            f"Gemini blocked the request (safety filter: {block_reason}). "
+                            "Try modifying your prompt or adjusting safety_filter_level."
+                        ),
+                        severity=Severity.ERROR,
+                    )
                 )
             raise RuntimeError(
                 "Gemini returned no image data — try rephrasing your prompt or "

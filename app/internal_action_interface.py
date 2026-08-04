@@ -138,17 +138,15 @@ class InternalActionInterface:
         if not cls.vlm_interface.is_initialized:
             from agent_core.core.models.model_registry import MODEL_REGISTRY
             from agent_core.core.models.types import InterfaceType
+            from app.errors import CatalogError, make_error
 
             provider = cls.vlm_interface.provider or "unknown"
             if MODEL_REGISTRY.get(provider, {}).get(InterfaceType.VLM) is None:
-                raise RuntimeError(
-                    f"VLM is not available for provider '{provider}'. "
-                    "Switch VLM provider in setting to the one "
-                    "that supports vision (e.g. anthropic, openai, gemini, byteplus)."
+                raise CatalogError(
+                    make_error("VLM_PROVIDER_UNAVAILABLE", provider=provider)
                 )
-            raise RuntimeError(
-                f"VLM for provider '{provider}' is not initialized. "
-                "Check that the API key is configured in app/config/settings.json."
+            raise CatalogError(
+                make_error("VLM_PROVIDER_NOT_INITIALIZED", provider=provider)
             )
 
     @classmethod

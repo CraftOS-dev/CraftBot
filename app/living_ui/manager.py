@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -61,6 +62,13 @@ class LivingUIProject:
     session_id: Optional[str] = None
     auto_launch: bool = False  # Auto-launch on CraftBot startup
     log_cleanup: bool = True  # Clean logs on restart
+    style_pack: str = ""  # wizard-chosen default style pack (host may override)
+    # Display icon: "lucide:<name>" (picker) or "file:<relpath>" (uploaded,
+    # doubles as the app's favicon).
+    icon: Optional[str] = None
+    # Server-side theme persistence: {"themeId": ..., "customColors": {...}}.
+    # The host adopts this absent a local (per-browser) override.
+    ui_theme: Optional[Dict[str, Any]] = None
     project_type: str = "native"  # 'native' or 'external'
     app_runtime: Optional[str] = (
         None  # 'go', 'node', 'python', 'rust', 'docker', 'static'
@@ -69,8 +77,6 @@ class LivingUIProject:
     tunnel_url: Optional[str] = None  # Public tunnel URL (NOT serialized)
     tunnel_process: Optional[subprocess.Popen] = None  # Tunnel process (NOT serialized)
     process: Optional[subprocess.Popen] = None  # Frontend process
-    backend_process: Optional[subprocess.Popen] = None  # Backend process
-    app_process: Optional[subprocess.Popen] = None  # Single process for external apps
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -91,8 +97,12 @@ class LivingUIProject:
             "sessionId": self.session_id,
             "autoLaunch": self.auto_launch,
             "logCleanup": self.log_cleanup,
+            "stylePack": self.style_pack,
+            "icon": self.icon,
+            "uiTheme": self.ui_theme,
             "projectType": self.project_type,
             "appRuntime": self.app_runtime,
+            "livingUIVersion": 2,
             "tunnelUrl": self.tunnel_url,
         }
 
@@ -100,16 +110,14 @@ class LivingUIProject:
 class LivingUIManager:
     """Manages Living UI project lifecycle."""
 
-    def __init__(self, workspace_root: Path, template_path: Path):
+    def __init__(self, workspace_root: Path):
         """
         Initialize the Living UI Manager.
 
         Args:
             workspace_root: Root directory for Living UI projects
-            template_path: Path to the Living UI template
         """
         self.workspace_root = Path(workspace_root)
-        self.template_path = Path(template_path)
         self.projects: Dict[str, LivingUIProject] = {}
         self._next_port = 3100
         self._port_range = (3100, 3199)
@@ -127,6 +135,13 @@ class LivingUIManager:
         # Ensure workspace directory exists
         self.living_ui_dir = self.workspace_root / "living_ui"
         self.living_ui_dir.mkdir(parents=True, exist_ok=True)
+
+        # V2 runner (PocketBase single-process projects). New projects are V2;
+        # V1 projects keep launching through the legacy pipeline.
+        from app.config import PROJECT_ROOT
+        from app.living_ui.v2_runner import V2Runner
+
+        self.v2_runner = V2Runner(Path(PROJECT_ROOT) / "living-ui-v2")
 
         # Load existing projects
         self._load_projects()
@@ -162,8 +177,26 @@ class LivingUIManager:
     def ensure_project_session(self, project: "LivingUIProject"):
         """Ensure the project's dedicated session exists and return it.
 
-        Creates the session on first use with the Living UI toolchain
-        preloaded (living-ui-creator skill + build action sets).
+        NO Living UI skill is preloaded. Which skill a run needs depends on
+        what is being ASKED, not on how the project arrived, so the agent picks
+        one per run. Ordinary data work needs none at all — the interaction
+        note carries the data model and the exact commands, and the app itself
+        publishes how to drive it at GET /api/_a2app/describe, which is also
+        the only copy an agent outside CraftBot can read.
+
+        System-dispatched runs whose purpose IS known (crash repair, a
+        development run) still declare their skill on the trigger via
+        `workflow_skills`, loaded at run start and unloaded at run end —
+        nothing has to infer what those runs are for.
+
+        This used to preload living-ui-creator unconditionally, because
+        originally every Living UI was one the agent had just written. Install
+        and import were added later and reused this helper, so an app that
+        arrived fully built still got a BUILD session — and the creator skill's
+        "Finish: launch, then verify" recipe permanently in its prompt. The
+        observed cost: asking a freshly installed habit tracker to record one
+        habit relaunched the app twice, re-ran the validation gate, and drove a
+        headless browser that clicked "Add habit" ten times against real data.
         """
         if not self._session_manager:
             return None
@@ -183,7 +216,7 @@ class LivingUIManager:
             title=project.name,
             session_id=project.session_id or f"lui_{project.id}",
             action_sets=["file_operations", "code_execution", "living_ui"],
-            selected_skills=["living-ui-creator"],
+            selected_skills=[],
             living_ui_project_id=project.id,
         )
         project.session_id = session.id
@@ -246,29 +279,17 @@ class LivingUIManager:
                         retry_counts.pop(project_id, None)
                         continue
 
-                    backend_dead = (
-                        project.backend_process is not None
-                        and project.backend_process.poll() is not None
-                    )
                     frontend_dead = (
                         project.process is not None
                         and project.process.poll() is not None
                     )
-
-                    # Also check via port if process handles are None
-                    # (can happen if manager was reloaded but processes survived)
-                    if not backend_dead and project.backend_port:
-                        if project.backend_process is None and not self._is_port_in_use(
-                            project.backend_port
-                        ):
-                            backend_dead = True
                     if not frontend_dead and project.port:
                         if project.process is None and not self._is_port_in_use(
                             project.port
                         ):
                             frontend_dead = True
 
-                    if not backend_dead and not frontend_dead:
+                    if not frontend_dead:
                         # Everything healthy, reset retry counter
                         if project_id in retry_counts:
                             logger.info(
@@ -279,12 +300,8 @@ class LivingUIManager:
 
                     # Something is dead
                     retries = retry_counts.get(project_id, 0)
-                    crash_target = []
-                    if backend_dead:
-                        crash_target.append("backend")
-                    if frontend_dead:
-                        crash_target.append("frontend")
-                    crash_str = " + ".join(crash_target)
+                    crash_target = ["app"]
+                    crash_str = "app"
 
                     if retries >= len(self.WATCHDOG_RETRY_DELAYS):
                         # Exhausted retries — escalate to agent
@@ -306,25 +323,23 @@ class LivingUIManager:
 
                     await asyncio.sleep(delay)
 
-                    # Attempt restart
+                    # Attempt restart (single PocketBase process)
                     restart_ok = True
-                    if backend_dead:
-                        project.backend_process = None
-                        success = await self.launch_backend(project_id)
-                        if not success:
-                            logger.error(
-                                f"[LIVING_UI:WATCHDOG] Backend restart failed for {project_id}"
-                            )
-                            restart_ok = False
-
-                    if frontend_dead:
-                        project.process = None
-                        success = await self._relaunch_frontend(project_id)
-                        if not success:
-                            logger.error(
-                                f"[LIVING_UI:WATCHDOG] Frontend restart failed for {project_id}"
-                            )
-                            restart_ok = False
+                    project.process = None
+                    try:
+                        if not project.bridge_token:
+                            project.bridge_token = secrets.token_urlsafe(32)
+                        project.process = await self.v2_runner.start(
+                            Path(project.path),
+                            project.port,
+                            bridge_token=project.bridge_token,
+                        )
+                        restart_ok = await self.v2_runner.wait_healthy(project.port)
+                    except Exception as e:
+                        logger.error(
+                            f"[LIVING_UI:WATCHDOG] restart failed for {project_id}: {e}"
+                        )
+                        restart_ok = False
 
                     if restart_ok:
                         logger.info(
@@ -338,73 +353,6 @@ class LivingUIManager:
             except Exception as e:
                 logger.error(f"[LIVING_UI:WATCHDOG] Unexpected error: {e}")
                 await asyncio.sleep(self.WATCHDOG_INTERVAL)
-
-    async def _relaunch_frontend(self, project_id: str) -> bool:
-        """
-        Relaunch just the frontend process for a project.
-
-        Lightweight alternative to launch_project — reuses existing port,
-        skips npm install, doesn't touch backend.
-        """
-        project = self.projects.get(project_id)
-        if not project:
-            return False
-
-        project_path = Path(project.path)
-        port = project.port
-        if not port:
-            return False
-
-        # Kill anything on the port first
-        if self._is_port_in_use(port):
-            self._kill_process_on_port(port)
-            await asyncio.sleep(1)
-
-        try:
-            # Open timestamped log file for subprocess output
-            frontend_log = self._create_frontend_log(project_path)
-            frontend_log_handle = open(frontend_log, "a", encoding="utf-8")
-            frontend_log_handle.write(
-                f"\n{'=' * 60}\n[{datetime.now().isoformat()}] "
-                f"Relaunching frontend on port {port}\n{'=' * 60}\n"
-            )
-            frontend_log_handle.flush()
-
-            process = subprocess.Popen(
-                ["npm", "run", "preview", "--", "--port", str(port)],
-                cwd=str(project_path),
-                stdout=frontend_log_handle,
-                stderr=frontend_log_handle,
-                shell=True if os.name == "nt" else False,
-            )
-
-            project.process = process
-
-            server_ready = await self._wait_for_server(port, timeout=15)
-            if not server_ready:
-                frontend_log_handle.flush()
-                try:
-                    recent = frontend_log.read_text(encoding="utf-8")[-500:]
-                except Exception:
-                    recent = ""
-                logger.error(
-                    f"[LIVING_UI] Frontend relaunch failed for {project_id}. Log tail:\n{recent}"
-                )
-                if process.poll() is None:
-                    process.terminate()
-                project.process = None
-                frontend_log_handle.close()
-                return False
-
-            project.url = f"http://localhost:{port}"
-            logger.info(
-                f"[LIVING_UI] Frontend relaunched for {project_id} on port {port}"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"[LIVING_UI] Frontend relaunch error for {project_id}: {e}")
-            return False
 
     async def _escalate_crash(self, project_id: str, crash_targets: List[str]) -> None:
         """
@@ -479,7 +427,6 @@ class LivingUIManager:
         project.status = "error"
         project.error = f"{crash_str} crashed after {len(self.WATCHDOG_RETRY_DELAYS)} restart attempts"
         project.process = None
-        project.backend_process = None
         self._save_projects()
 
         # Wake the project's session to investigate and fix
@@ -509,8 +456,10 @@ STEPS:
 4. Verify the project is running by checking that the restart succeeded
 
 Follow the living-ui-creator skill instructions for the project structure.
-The backend is a FastAPI app at {project.path}/backend/main.py
-The frontend is a Vite+React app at {project.path}/frontend/"""
+The app is a single PocketBase process; its log is {project.path}/logs/pocketbase.log
+and frontend console errors are in {project.path}/logs/frontend_console.log.
+Schema is in {project.path}/pb/pb_migrations/, hooks in {project.path}/pb/pb_hooks/,
+UI in {project.path}/frontend/src/app/."""
 
         try:
             session = self.ensure_project_session(project)
@@ -526,7 +475,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     description=task_instruction,
                     priority=30,  # Higher priority than normal creation runs
                     session_id=session.id,
-                    payload={"project_id": project_id},
+                    payload={
+                        "project_id": project_id,
+                        # This run writes code, so it needs the build skill —
+                        # loaded now, unloaded when the run ends.
+                        "workflow_skills": ["living-ui-creator"],
+                    },
                 )
             )
 
@@ -561,6 +515,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                             session_id=project_data.get("sessionId"),
                             auto_launch=project_data.get("autoLaunch", False),
                             log_cleanup=project_data.get("logCleanup", True),
+                            style_pack=project_data.get("stylePack", ""),
+                            icon=project_data.get("icon"),
+                            ui_theme=project_data.get("uiTheme"),
                             project_type=project_data.get("projectType", "native"),
                             app_runtime=project_data.get("appRuntime"),
                         )
@@ -661,6 +618,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     text=True,
                     shell=True,
                     timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
                 for line in result.stdout.split("\n"):
                     if "LISTENING" in line:
@@ -737,7 +697,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         try:
             if os.name == "nt":
                 subprocess.run(
-                    ["taskkill", "/F", "/PID", pid], capture_output=True, shell=True
+                    ["taskkill", "/F", "/PID", pid],
+                    capture_output=True,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
             else:
                 subprocess.run(["kill", "-9", pid], capture_output=True)
@@ -746,146 +711,200 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.warning(f"[LIVING_UI] Failed to kill process {pid}: {e}")
             return False
 
-    async def _wait_for_server(self, port: int, timeout: int = 10) -> bool:
-        """
-        Wait for a server to start listening on a port.
-
-        Args:
-            port: The port to check
-            timeout: Maximum seconds to wait
-
-        Returns:
-            True if server is responding, False if timeout
-        """
-        for _ in range(timeout * 2):
-            if self._is_port_in_use(port):
-                return True
-            await asyncio.sleep(0.5)
-        return False
-
-    async def _wait_for_health_check(self, url: str, timeout: int = 15) -> bool:
-        """
-        Wait for a server's health endpoint to respond.
-
-        Args:
-            url: The health check URL (e.g., http://localhost:3101/health)
-            timeout: Maximum seconds to wait
-
-        Returns:
-            True if health check passes, False if timeout
-        """
-        import urllib.request
-        import urllib.error
-
-        for _ in range(timeout * 2):
-            try:
-                req = urllib.request.Request(url, method="GET")
-                with urllib.request.urlopen(req, timeout=2) as response:
-                    if response.status == 200:
-                        return True
-            except (
-                urllib.error.URLError,
-                urllib.error.HTTPError,
-                TimeoutError,
-                OSError,
-            ):
-                pass
-            await asyncio.sleep(0.5)
-        return False
-
-    async def _run_backend_tests(
-        self, project_id: str, mode: str, port: int = 0
-    ) -> bool:
-        """
-        Run backend tests using test_runner.py.
-
-        Args:
-            project_id: Project ID to test
-            mode: "internal" (pre-server) or "external" (post-server HTTP tests)
-            port: Backend port (required for external mode)
-
-        Returns:
-            True if all tests pass, False otherwise
-        """
-        project = self.projects.get(project_id)
-        if not project:
-            return False
-
-        backend_path = Path(project.path) / "backend"
-        test_runner = backend_path / "test_runner.py"
-        if not test_runner.exists():
-            logger.warning(
-                f"[LIVING_UI] No test_runner.py for {project_id}, skipping {mode} tests"
-            )
-            return True  # No tests = pass (backwards compat with older projects)
-
-        logger.info(
-            f"[LIVING_UI] Running {mode} tests for {project.name} ({project_id})..."
-        )
-
-        cmd = [sys.executable, str(test_runner), f"--{mode}"]
-        if mode == "external" and port:
-            cmd.extend(["--port", str(port)])
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=str(backend_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-
-            stderr_str = stderr.decode("utf-8", errors="replace").strip()
-
-            if stderr_str:
-                # stderr contains the test runner's logging output
-                for line in stderr_str.split("\n")[-20:]:  # Last 20 lines
-                    logger.debug(f"[LIVING_UI:TEST] {line}")
-
-            if proc.returncode == 0:
-                logger.info(
-                    f"[LIVING_UI] {mode.capitalize()} tests passed for {project_id}"
-                )
-                return True
-            else:
-                # Read the detailed results file
-                if mode == "internal":
-                    results_file = backend_path / "logs" / "test_discovery.json"
-                else:
-                    results_file = backend_path / "logs" / "test_results.json"
-
-                error_details = ""
-                if results_file.exists():
-                    try:
-                        results = json.loads(results_file.read_text(encoding="utf-8"))
-                        errors = results.get("errors", [])
-                        error_details = "; ".join(
-                            f"[{e.get('test', '?')}] {e.get('error', '?')}"
-                            for e in errors[:5]
-                        )
-                    except Exception:
-                        pass
-
-                logger.error(
-                    f"[LIVING_UI] {mode.capitalize()} tests failed for {project_id}: {error_details or stderr_str[-500:]}"
-                )
-                return False
-
-        except asyncio.TimeoutError:
-            logger.error(
-                f"[LIVING_UI] {mode.capitalize()} tests timed out for {project_id}"
-            )
-            return False
-        except Exception as e:
-            logger.error(
-                f"[LIVING_UI] Failed to run {mode} tests for {project_id}: {e}"
-            )
-            return False
-
     # ========================================================================
     # Manifest-driven launch pipeline
     # ========================================================================
+
+    def _check_migration_divergence(self, project_path: Path) -> Optional[str]:
+        """A migration recorded as applied in the LIVE pb_data but missing
+        from pb_migrations/ bricks the app: at boot PocketBase re-runs the
+        renamed file as "new", collides with the existing schema ("Collection
+        name must be unique") and EXITS before serving /api/health. The gate
+        cannot see this — it migrates a fresh temp DB, where a rename is
+        harmless. Compare live history against the directory BEFORE boot.
+
+        Observed live (weather_tracker_4453c73c): 1700000001_weather_schema.js
+        renamed to ...0002 after a successful launch had applied it; every
+        boot after that died with only "/api/health not responding" surfaced.
+        """
+        import sqlite3 as _sqlite3
+
+        db = project_path / "pb" / "pb_data" / "data.db"
+        mig_dir = project_path / "pb" / "pb_migrations"
+        if not db.exists() or not mig_dir.is_dir():
+            return None  # fresh project — nothing applied yet
+        try:
+            conn = _sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                rows = conn.execute("SELECT file FROM _migrations").fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            # Fail OPEN: this check exists to explain a brick, never to cause
+            # a launch failure of its own.
+            logger.debug(f"[LIVING_UI:V2] migration-history check skipped: {e}")
+            return None
+        applied_js = {str(r[0]) for r in rows if str(r[0]).endswith(".js")}
+        on_disk = {p.name for p in mig_dir.glob("*.js")}
+        missing = sorted(applied_js - on_disk)
+        if not missing:
+            return None
+        return (
+            "Applied migration(s) missing from pb_migrations/: "
+            + ", ".join(missing)
+            + ". These already ran against this app's LIVE data — the filename "
+            "is the identity. Renaming or deleting an applied migration makes "
+            "every boot re-run its replacement into the existing schema, and "
+            "PocketBase exits before serving anything. Restore the original "
+            "filename(s) exactly as listed, and put schema changes in a NEW "
+            "migration file."
+        )
+
+    async def _launch_v2(self, project: LivingUIProject) -> dict:
+        """V2 launch pipeline: install → validation gate → serve → health.
+
+        One PocketBase process serves both the API and the built frontend
+        (living-ui-v2 spec D5); errors come back machine-readable so the
+        building agent can fix and retry.
+        """
+        from app.living_ui.v2_runner import V2RunnerUnavailable
+
+        project_path = Path(project.path)
+
+        def _fail(step: str, errors: list) -> dict:
+            project.status = "error"
+            project.error = "; ".join(str(e)[:500] for e in errors)
+            self._save_projects()
+            return {"status": "error", "step": step, "errors": errors}
+
+        try:
+            self.v2_runner.ensure_available()
+        except V2RunnerUnavailable as e:
+            return _fail("setup", [str(e)])
+
+        # Clear any stale process/port before relaunching.
+        if project.process and project.process.poll() is None:
+            self._terminate_process(project.process)
+        project.process = None
+        if not project.port:
+            project.port = self._allocate_port()
+        else:
+            self._kill_process_on_port(project.port)
+
+        # Renamed/deleted APPLIED migrations brick the boot with an error only
+        # pocketbase.log ever sees — catch them here, before any process spawns.
+        divergence = self._check_migration_divergence(project_path)
+        if divergence:
+            return _fail("validation", [divergence])
+
+        try:
+            await self.v2_runner.install(project_path)
+        except Exception as e:
+            return _fail("install", [str(e)])
+
+        gate = await self.v2_runner.gate(project_path)
+        if not gate.passed:
+            return _fail("validation", [gate.output])
+
+        if not project.bridge_token:
+            project.bridge_token = secrets.token_urlsafe(32)
+
+        # pocketbase.log is append-mode across launches: remember where THIS
+        # boot starts so failures below can quote only their own boot's lines.
+        pb_log_path = project_path / "logs" / "pocketbase.log"
+        pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
+
+        def _pb_log_since_boot(limit_lines: int = 30) -> str:
+            """Errors FIRST, then the newest lines. A naive tail once shipped
+            30 lines of realtime-subscription chatter while the actual
+            'cannot be blank' errors sat just above the window."""
+            try:
+                with open(pb_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(pb_log_offset)
+                    lines = f.read().splitlines()
+                error_lines = [
+                    l for l in lines
+                    if any(k in l.lower() for k in ("error", "failed", "panic", "cannot be"))
+                ][-limit_lines:]
+                tail = [l for l in lines[-10:] if l not in error_lines]
+                picked = error_lines + tail
+                return "\n".join(picked[-(limit_lines + 10):])
+            except Exception:
+                return ""
+
+        try:
+            project.process = await self.v2_runner.start(
+                project_path, project.port, bridge_token=project.bridge_token
+            )
+        except Exception as e:
+            return _fail("start", [str(e)])
+
+        if not await self.v2_runner.wait_healthy(project.port):
+            self._terminate_process(project.process)
+            project.process = None
+            # A dead health check with no cause starved the agent before —
+            # the boot abort (bad migration, hook panic) is in pocketbase.log
+            # and nowhere else. Ship this boot's lines with the failure.
+            errors = [f"/api/health not responding on :{project.port}"]
+            boot_log = _pb_log_since_boot()
+            if boot_log:
+                errors.append("pocketbase.log (this boot):\n" + boot_log)
+            return _fail("health", errors)
+
+        # A hook file that fails to load is a CORRUPT app, not a healthy one:
+        # every route/cron below the throwing line silently does not exist.
+        # Observed live: top-level setTimeout() killed ops.pb.js at line 57,
+        # health passed, and the app shipped with half its routes missing.
+        boot_log = _pb_log_since_boot(200)
+        load_failures = [
+            line for line in boot_log.splitlines() if "failed to execute" in line
+        ]
+        if load_failures:
+            self._terminate_process(project.process)
+            project.process = None
+            return _fail(
+                "hooks",
+                [
+                    "A hook file failed to load — every route and cron job "
+                    "defined after the throwing line DOES NOT EXIST in the "
+                    "running app:\n" + "\n".join(load_failures[:5]),
+                ],
+            )
+
+        # Walk-verify smoke pass (headless, invisible): app must mount with
+        # zero console errors. 'skipped' (no browser) never blocks a launch.
+        url = f"http://127.0.0.1:{project.port}"
+        verify_status, verify_detail = await self.v2_runner.verify(
+            Path(project.path), url
+        )
+        if verify_status == "fail":
+            self._terminate_process(project.process)
+            project.process = None
+            # The browser sees only status codes; the CAUSE (hook exception,
+            # bad query) is server-side. Ship this boot's log lines so the
+            # agent debugs evidence instead of inventing explanations.
+            errors = [verify_detail]
+            boot_log = _pb_log_since_boot()
+            if boot_log:
+                errors.append("pocketbase.log (this boot):\n" + boot_log)
+            return _fail("verify", errors)
+        if verify_status == "skipped":
+            logger.warning(
+                f"[LIVING_UI:V2] verify skipped for {project.id}: {verify_detail}"
+            )
+
+        project.status = "running"
+        project.url = f"http://127.0.0.1:{project.port}"
+        project.backend_url = project.url
+        project.error = None
+        self._save_projects()
+        logger.info(f"[LIVING_UI:V2] {project.name} running at {project.url}")
+        return {
+            "status": "success",
+            "url": project.url,
+            "backend_url": project.url,
+            "port": project.port,
+        }
 
     async def launch_and_verify(self, project_id: str) -> dict:
         """
@@ -920,598 +939,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 "errors": [f"Project path not found: {project.path}"],
             }
 
-        # Load manifest
-        manifest_path = project_path / "config" / "manifest.json"
-        if not manifest_path.exists():
-            return {
-                "status": "error",
-                "step": "setup",
-                "errors": ["config/manifest.json not found"],
-            }
-
-        try:
-            # Ensure ports are allocated and available
-            if not project.port:
-                project.port = self._allocate_port()
-            if not project.backend_port:
-                project.backend_port = self._allocate_port()
-
-            # Read manifest and resolve ports — always use project's current ports
-            # regardless of what's hardcoded in the manifest file
-            manifest_raw = manifest_path.read_text(encoding="utf-8")
-
-            # Extract old ports from manifest to do replacement
-            manifest_tmp = json.loads(manifest_raw)
-            old_ports = manifest_tmp.get("ports", {})
-            old_frontend = str(old_ports.get("frontend", old_ports.get("app", "")))
-            old_backend = str(old_ports.get("backend", ""))
-
-            # Replace old ports with current allocated ports in manifest and source files
-            if old_frontend and old_frontend != str(project.port):
-                manifest_raw = manifest_raw.replace(old_frontend, str(project.port))
-            if old_backend and old_backend != str(project.backend_port):
-                manifest_raw = manifest_raw.replace(
-                    old_backend, str(project.backend_port)
-                )
-
-            manifest = json.loads(manifest_raw)
-
-            # Write updated manifest back to disk so frontend can read correct ports
-            if old_frontend != str(project.port) or old_backend != str(
-                project.backend_port
-            ):
-                manifest_path.write_text(
-                    json.dumps(manifest, indent=2), encoding="utf-8"
-                )
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Updated manifest ports: frontend={project.port}, backend={project.backend_port}"
-                )
-        except Exception as e:
-            return {
-                "status": "error",
-                "step": "setup",
-                "errors": [f"Failed to parse manifest: {e}"],
-            }
-
-        pipeline = manifest.get("pipeline", {})
-        if not pipeline:
-            return {
-                "status": "error",
-                "step": "setup",
-                "errors": ["No pipeline defined in manifest"],
-            }
-
-        logger.info(
-            f"[LIVING_UI:PIPELINE] Starting launch pipeline for {project.name} ({project_id})"
-        )
-
-        # Ensure index.html has the CraftBot theme sync listener (self-healing for older installs)
-        self._patch_theme_listener(project_path)
-
-        # Check for single-process mode (external apps)
-        app_cfg = pipeline.get("app")
-        if app_cfg:
-            return await self._launch_single_process(
-                project_id, project, project_path, app_cfg
-            )
-
-        # Stop any existing processes from previous launch attempts
-        # This prevents orphan uvicorn/vite processes accumulating on repeated calls
-        if project.backend_process and project.backend_process.poll() is None:
-            logger.info(
-                "[LIVING_UI:PIPELINE] Killing existing backend process before relaunch"
-            )
-            project.backend_process.terminate()
-            project.backend_process = None
-        if project.process and project.process.poll() is None:
-            logger.info(
-                "[LIVING_UI:PIPELINE] Killing existing frontend process before relaunch"
-            )
-            project.process.terminate()
-            project.process = None
-
-        # Check if source files changed since last successful launch
-        files_changed = self._has_files_changed(project_path)
-
-        if not files_changed:
-            logger.info(
-                "[LIVING_UI:PIPELINE] No source changes detected — skipping tests/build, starting servers directly"
-            )
-            # Fast path — just start servers
-            return await self._launch_servers_only(
-                project_id, project, project_path, pipeline
-            )
-
-        # Clean up old log files so each launch starts fresh (if enabled)
-        if project.log_cleanup:
-            self._cleanup_project_logs(project_path)
-
-        # ================================================================
-        # PHASE 1: Parallel validation (collect ALL errors before starting)
-        # ================================================================
-
-        backend_cfg = pipeline.get("backend")
-        frontend_cfg = pipeline.get("frontend")
-
-        # Run backend and frontend validation tracks in parallel
-        backend_task = None
-        frontend_task = None
-
-        if backend_cfg:
-            backend_cwd = project_path / backend_cfg.get("cwd", "backend")
-            backend_task = asyncio.create_task(
-                self._validate_backend_track(
-                    project_id, project_path, backend_cfg, backend_cwd
-                )
-            )
-
-        if frontend_cfg:
-            frontend_cwd = project_path / frontend_cfg.get("cwd", ".")
-            if str(frontend_cwd) == ".":
-                frontend_cwd = project_path
-            frontend_task = asyncio.create_task(
-                self._validate_frontend_track(project_id, frontend_cfg, frontend_cwd)
-            )
-
-        # Wait for both tracks to complete
-        all_errors: List[str] = []
-
-        if backend_task:
-            backend_errors = await backend_task
-            all_errors.extend(backend_errors)
-
-        if frontend_task:
-            frontend_errors = await frontend_task
-            all_errors.extend(frontend_errors)
-
-        # If ANY errors from either track, return them all at once
-        if all_errors:
-            logger.error(
-                f"[LIVING_UI:PIPELINE] Validation failed with {len(all_errors)} error(s)"
-            )
-            for err in all_errors[:10]:
-                logger.error(f"[LIVING_UI:PIPELINE]   {err}")
-            project.status = "error"
-            project.error = f"{len(all_errors)} validation error(s)"
-            self._save_projects()
-            return {"status": "error", "step": "validation", "errors": all_errors}
-
-        logger.info("[LIVING_UI:PIPELINE] All validation passed, starting servers...")
-
-        # ================================================================
-        # PHASE 2: Start servers (sequential — needs running processes)
-        # ================================================================
-
-        # --- Start backend ---
-        if backend_cfg:
-            backend_cwd = project_path / backend_cfg.get("cwd", "backend")
-            backend_port = project.backend_port
-            if not backend_port:
-                backend_port = self._allocate_port()
-                project.backend_port = backend_port
-
-            if not await self._ensure_port_available(backend_port):
-                return {
-                    "status": "error",
-                    "step": "backend.port",
-                    "errors": [
-                        f"Port {backend_port} is occupied and could not be freed"
-                    ],
-                }
-
-            start_cmd = backend_cfg.get("start", "")
-            if not start_cmd:
-                return {
-                    "status": "error",
-                    "step": "backend.start",
-                    "errors": ["No start command in manifest"],
-                }
-
-            logs_dir = backend_cwd / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            log_file = logs_dir / "subprocess_output.log"
-
-            # Generate bridge token for integration proxy
-            from uuid import uuid4
-
-            project.bridge_token = str(uuid4())
-
-            backend_process = self._start_process(
-                backend_cwd, start_cmd, log_file, port=backend_port, project=project
-            )
-            project.backend_process = backend_process
-            logger.info(f"[LIVING_UI:PIPELINE] Backend starting on port {backend_port}")
-
-            # Health check
-            health_url = backend_cfg.get("health")
-            if health_url:
-                healthy = await self._wait_for_health_check(health_url, timeout=20)
-                if not healthy:
-                    log_tail = self._read_log_tail(log_file, 1000)
-                    if backend_process.poll() is not None:
-                        err = f"Backend process exited with code {backend_process.returncode}"
-                    else:
-                        err = f"Backend not responding at {health_url}"
-                        backend_process.terminate()
-                    project.backend_process = None
-                    return {
-                        "status": "error",
-                        "step": "backend.health",
-                        "errors": [err, log_tail],
-                    }
-
-            project.backend_url = f"http://localhost:{backend_port}"
-            logger.info(f"[LIVING_UI:PIPELINE] Backend healthy on port {backend_port}")
-
-            # Post-start tests (external smoke tests)
-            for test in backend_cfg.get("post_start_tests", []):
-                result = await self._run_pipeline_command(
-                    backend_cwd,
-                    test["command"],
-                    step_name=f"backend.post_start.{test['name']}",
-                )
-                if result["status"] == "error" and test.get("required", True):
-                    errors = (
-                        self._collect_test_errors(project_path, test["name"])
-                        or result["errors"]
-                    )
-                    await self.stop_backend(project_id)
-                    return {
-                        "status": "error",
-                        "step": f"backend.post_start.{test['name']}",
-                        "errors": errors,
-                    }
-
-        # --- Start frontend ---
-        if frontend_cfg:
-            frontend_cwd = project_path / frontend_cfg.get("cwd", ".")
-            if str(frontend_cwd) == ".":
-                frontend_cwd = project_path
-
-            frontend_port = project.port
-            if not frontend_port:
-                frontend_port = self._allocate_port()
-                project.port = frontend_port
-
-            if not await self._ensure_port_available(frontend_port):
-                await self.stop_backend(project_id)
-                return {
-                    "status": "error",
-                    "step": "frontend.port",
-                    "errors": [
-                        f"Port {frontend_port} is occupied and could not be freed"
-                    ],
-                }
-
-            start_cmd = frontend_cfg.get("start", "")
-            if not start_cmd:
-                await self.stop_backend(project_id)
-                return {
-                    "status": "error",
-                    "step": "frontend.start",
-                    "errors": ["No start command in manifest"],
-                }
-
-            frontend_log = self._create_frontend_log(project_path)
-
-            frontend_process = self._start_process(
-                frontend_cwd, start_cmd, frontend_log, port=frontend_port
-            )
-            project.process = frontend_process
-            project.port = frontend_port
-            logger.info(
-                f"[LIVING_UI:PIPELINE] Frontend starting on port {frontend_port}"
-            )
-
-            server_ready = await self._wait_for_server(frontend_port, timeout=15)
-            if not server_ready:
-                log_tail = self._read_log_tail(frontend_log, 1000)
-                if frontend_process.poll() is not None:
-                    err = f"Frontend process exited with code {frontend_process.returncode}"
-                else:
-                    err = f"Frontend not responding on port {frontend_port}"
-                    frontend_process.terminate()
-                project.process = None
-                await self.stop_backend(project_id)
-                return {
-                    "status": "error",
-                    "step": "frontend.health",
-                    "errors": [err, log_tail],
-                }
-
-            project.url = f"http://localhost:{frontend_port}"
-            logger.info(f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}")
-
-        # === SUCCESS ===
-        project.status = "running"
-        project.error = None
-        self._save_projects()
-        self._save_launch_timestamp(project_path)
-
-        logger.info(
-            f"[LIVING_UI:PIPELINE] Launch complete for {project.name} ({project_id})"
-        )
-        if project.url:
-            logger.info(f"[LIVING_UI:PIPELINE]   Frontend: {project.url}")
-        if project.backend_url:
-            logger.info(f"[LIVING_UI:PIPELINE]   Backend: {project.backend_url}")
-
-        return {
-            "status": "success",
-            "url": project.url,
-            "backend_url": project.backend_url,
-            "port": project.port,
-        }
-
-    async def _launch_servers_only(
-        self,
-        project_id: str,
-        project: "LivingUIProject",
-        project_path: Path,
-        pipeline: dict,
-    ) -> dict:
-        """Fast path: start servers without running tests/build (no source changes detected)."""
-        backend_cfg = pipeline.get("backend")
-        frontend_cfg = pipeline.get("frontend")
-
-        # Start backend
-        if backend_cfg:
-            backend_cwd = project_path / backend_cfg.get("cwd", "backend")
-            backend_port = project.backend_port
-            if not backend_port:
-                backend_port = self._allocate_port()
-                project.backend_port = backend_port
-
-            if not await self._ensure_port_available(backend_port):
-                return {
-                    "status": "error",
-                    "step": "backend.port",
-                    "errors": [f"Port {backend_port} occupied"],
-                }
-
-            start_cmd = backend_cfg.get("start", "")
-            if start_cmd:
-                logs_dir = backend_cwd / "logs"
-                logs_dir.mkdir(parents=True, exist_ok=True)
-                log_file = logs_dir / "subprocess_output.log"
-
-                # Generate bridge token for integration proxy
-                from uuid import uuid4
-
-                project.bridge_token = str(uuid4())
-
-                backend_process = self._start_process(
-                    backend_cwd, start_cmd, log_file, port=backend_port, project=project
-                )
-                project.backend_process = backend_process
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Backend starting on port {backend_port} (fast)"
-                )
-
-                health_url = backend_cfg.get("health")
-                if health_url:
-                    healthy = await self._wait_for_health_check(health_url, timeout=20)
-                    if not healthy:
-                        log_tail = self._read_log_tail(log_file, 1000)
-                        if backend_process.poll() is not None:
-                            err = f"Backend process exited with code {backend_process.returncode}"
-                        else:
-                            err = f"Backend not responding at {health_url}"
-                            backend_process.terminate()
-                        project.backend_process = None
-                        return {
-                            "status": "error",
-                            "step": "backend.health",
-                            "errors": [err, log_tail],
-                        }
-
-                project.backend_url = f"http://localhost:{backend_port}"
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Backend healthy on port {backend_port}"
-                )
-
-        # Start frontend
-        if frontend_cfg:
-            frontend_cwd = project_path / frontend_cfg.get("cwd", ".")
-            if str(frontend_cwd) == ".":
-                frontend_cwd = project_path
-
-            frontend_port = project.port
-            if not frontend_port:
-                frontend_port = self._allocate_port()
-                project.port = frontend_port
-
-            if not await self._ensure_port_available(frontend_port):
-                await self.stop_backend(project_id)
-                return {
-                    "status": "error",
-                    "step": "frontend.port",
-                    "errors": [f"Port {frontend_port} occupied"],
-                }
-
-            start_cmd = frontend_cfg.get("start", "")
-            if start_cmd:
-                frontend_log = self._create_frontend_log(project_path)
-                frontend_process = self._start_process(
-                    frontend_cwd, start_cmd, frontend_log, port=frontend_port
-                )
-                project.process = frontend_process
-                project.port = frontend_port
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Frontend starting on port {frontend_port} (fast)"
-                )
-
-                server_ready = await self._wait_for_server(frontend_port, timeout=15)
-                if not server_ready:
-                    log_tail = self._read_log_tail(frontend_log, 1000)
-                    if frontend_process.poll() is not None:
-                        err = f"Frontend process exited with code {frontend_process.returncode}"
-                    else:
-                        err = f"Frontend not responding on port {frontend_port}"
-                        frontend_process.terminate()
-                    project.process = None
-                    await self.stop_backend(project_id)
-                    return {
-                        "status": "error",
-                        "step": "frontend.health",
-                        "errors": [err, log_tail],
-                    }
-
-                project.url = f"http://localhost:{frontend_port}"
-                logger.info(
-                    f"[LIVING_UI:PIPELINE] Frontend ready on port {frontend_port}"
-                )
-
-        project.status = "running"
-        project.error = None
-        self._save_projects()
-        self._save_launch_timestamp(project_path)
-
-        logger.info(
-            f"[LIVING_UI:PIPELINE] Fast launch complete for {project.name} ({project_id})"
-        )
-        return {
-            "status": "success",
-            "url": project.url,
-            "backend_url": project.backend_url,
-            "port": project.port,
-        }
-
-    async def _validate_backend_track(
-        self, project_id: str, project_path: Path, backend_cfg: dict, backend_cwd: Path
-    ) -> List[str]:
-        """
-        Run backend validation: install → internal tests → unit + compatibility tests (parallel).
-        Returns list of error strings (empty = all passed).
-        """
-        errors: List[str] = []
-
-        # 1. Install
-        install_cmd = backend_cfg.get("install")
-        if install_cmd and backend_cwd.exists():
-            result = await self._run_pipeline_command(
-                backend_cwd, install_cmd, step_name="backend.install"
-            )
-            if result["status"] == "error":
-                errors.append(
-                    f"[backend.install] {result['errors'][0] if result.get('errors') else 'install failed'}"
-                )
-                return errors  # Can't test without dependencies
-
-        # 2. Internal tests (must run first — generates test_discovery.json)
-        tests = backend_cfg.get("tests", [])
-        internal_tests = [t for t in tests if t["name"] == "internal"]
-        other_tests = [t for t in tests if t["name"] != "internal"]
-
-        for test in internal_tests:
-            result = await self._run_pipeline_command(
-                backend_cwd, test["command"], step_name=f"backend.tests.{test['name']}"
-            )
-            if result["status"] == "error" and test.get("required", True):
-                detailed = self._collect_test_errors(project_path, test["name"])
-                errors.extend(detailed or result.get("errors", []))
-
-        # 3. Remaining tests in parallel (unit + compatibility)
-        if other_tests:
-            parallel_tasks = []
-            for test in other_tests:
-                parallel_tasks.append(
-                    self._run_pipeline_command(
-                        backend_cwd,
-                        test["command"],
-                        step_name=f"backend.tests.{test['name']}",
-                    )
-                )
-            results = await asyncio.gather(*parallel_tasks)
-
-            for test, result in zip(other_tests, results):
-                if result["status"] == "error" and test.get("required", True):
-                    detailed = self._collect_test_errors(project_path, test["name"])
-                    errors.extend(detailed or result.get("errors", []))
-
-        return errors
-
-    async def _validate_frontend_track(
-        self, project_id: str, frontend_cfg: dict, frontend_cwd: Path
-    ) -> List[str]:
-        """
-        Run frontend validation: install → build.
-        Returns list of error strings (empty = all passed).
-        """
-        errors: List[str] = []
-
-        # 1. Install
-        install_cmd = frontend_cfg.get("install")
-        if install_cmd:
-            needs_install = not (frontend_cwd / "node_modules").exists()
-            if needs_install:
-                result = await self._run_pipeline_command(
-                    frontend_cwd, install_cmd, step_name="frontend.install"
-                )
-                if result["status"] == "error":
-                    errors.append(
-                        f"[frontend.install] {result['errors'][0] if result.get('errors') else 'install failed'}"
-                    )
-                    return errors  # Can't build without dependencies
-
-        # 2. Build
-        build_cmd = frontend_cfg.get("build")
-        if build_cmd:
-            result = await self._run_pipeline_command(
-                frontend_cwd, build_cmd, step_name="frontend.build", timeout=240
-            )
-            if result["status"] == "error":
-                build_errors = result.get("errors", ["build failed"])
-                for err in build_errors:
-                    errors.append(f"[frontend.build] {err}")
-
-        return errors
-
-    async def _run_pipeline_command(
-        self, cwd: Path, command: str, step_name: str, timeout: int = 1200
-    ) -> dict:
-        """Run a single pipeline command. Returns {"status": "success"} or {"status": "error", ...}."""
-        command = self._resolve_python_in_command(command)
-
-        logger.info(f"[LIVING_UI:PIPELINE] [{step_name}] Running: {command}")
-
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                cwd=str(cwd),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            stdout_str = stdout.decode("utf-8", errors="replace").strip()
-            stderr_str = stderr.decode("utf-8", errors="replace").strip()
-
-            if proc.returncode == 0:
-                logger.info(f"[LIVING_UI:PIPELINE] [{step_name}] OK")
-                return {"status": "success"}
-            else:
-                # Combine stdout and stderr for error context
-                output = (stderr_str or stdout_str)[-1000:]
-                logger.error(
-                    f"[LIVING_UI:PIPELINE] [{step_name}] FAILED (exit code {proc.returncode})"
-                )
-                return {
-                    "status": "error",
-                    "step": step_name,
-                    "errors": [output]
-                    if output
-                    else [f"Command failed with exit code {proc.returncode}"],
-                }
-        except asyncio.TimeoutError:
-            logger.error(f"[LIVING_UI:PIPELINE] [{step_name}] TIMEOUT ({timeout}s)")
-            return {
-                "status": "error",
-                "step": step_name,
-                "errors": [f"Command timed out after {timeout}s"],
-            }
-        except Exception as e:
-            logger.error(f"[LIVING_UI:PIPELINE] [{step_name}] ERROR: {e}")
-            return {"status": "error", "step": step_name, "errors": [str(e)]}
+        return await self._launch_v2(project)
 
     async def _ensure_port_available(self, port: int) -> bool:
         """Ensure a port is available, killing orphan processes if needed."""
@@ -1535,21 +963,15 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         Store stub alias.
 
         On Windows, `%LocalAppData%\\Microsoft\\WindowsApps\\python.exe` is
-        an "App Execution Alias" stub that prints "Python was not found;
-        run without arguments to install from the Microsoft Store..." and
-        exits non-zero — even when the user HAS python.org's Python
+        an "App Execution Alias" stub that prints "Python was not found..."
+        and exits non-zero — even when the user HAS python.org's Python
         installed elsewhere. The stub is high on PATH so a naive
         `shutil.which("python")` returns it, leading to silent failures.
 
-        Strategy:
-          1. Walk every entry returned by `shutil.which`-style PATH lookup
-             (using PATHEXT-aware multi-candidate search) for both
-             `python3` and `python`.
-          2. Skip anything in WindowsApps (the Store-stub directory).
-          3. Validate each remaining candidate by running it with
-             `--version` and checking it actually printed "Python".
-          4. Fall back to the well-known python.org install locations.
-        Cached after first hit because shelling out to test takes a few ms.
+        Strategy: walk every PATH entry (PATHEXT-aware) for python3/python,
+        skip WindowsApps, validate candidates with `--version`, then fall
+        back to well-known python.org install locations. Cached after the
+        first hit.
         """
         if cls._python_path_cache:
             return cls._python_path_cache
@@ -1560,7 +982,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             # shutil.which returns ONLY the first match. We want to walk
             # every PATH entry so a Store stub doesn't shadow a real Python.
             path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-            exts = [""] + os.environ.get("PATHEXT", ".EXE;.BAT;.CMD").split(os.pathsep)
+            exts = [""] + os.environ.get("PATHEXT", ".EXE;.BAT;.CMD").split(
+                os.pathsep
+            )
             for d in path_dirs:
                 if not d:
                     continue
@@ -1600,6 +1024,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
             except Exception:
                 continue
@@ -1618,15 +1045,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         interpreter path.
 
         In source mode `sys.executable` is the running Python — correct.
-
         In a PyInstaller-frozen agent (`sys.frozen == True`),
-        `sys.executable` is the agent EXE itself, not a Python interpreter.
-        Substituting it would spawn the entire agent again with junk args,
-        which used to crash (run.py treats `-m pip install ...` as agent
-        CLI flags and falls into print_step → OSError 22). Find a real
-        system Python via `_find_real_python` (which skips the Microsoft
-        Store stub alias). Log loudly if absent so the failure mode is
-        "command not found" rather than "agent recursion crash".
+        `sys.executable` is the agent EXE itself, not a Python interpreter —
+        substituting it would spawn the entire agent again with junk args.
+        Find a real system Python via `_find_real_python` instead.
         """
         if not (
             command.startswith("pip ")
@@ -1655,6 +1077,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return f'"{py}" {command[7:]}'
         return command
 
+    @classmethod
     def _start_process(
         self,
         cwd: Path,
@@ -1713,162 +1136,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             )
         return process
 
-    def _collect_test_errors(self, project_path: Path, test_name: str) -> List[str]:
-        """Read test result JSON files and extract error messages."""
-        errors = []
-        # Map test names to result files
-        file_map = {
-            "internal": "test_discovery.json",
-            "unit": "test_unit.json",
-            "compatibility": "test_compatibility.json",
-            "external": "test_results.json",
-        }
-        result_file = (
-            project_path
-            / "backend"
-            / "logs"
-            / file_map.get(test_name, f"test_{test_name}.json")
-        )
-        if result_file.exists():
-            try:
-                data = json.loads(result_file.read_text(encoding="utf-8"))
-                for err in data.get("errors", []):
-                    errors.append(f"[{err.get('test', '?')}] {err.get('error', '?')}")
-            except Exception:
-                pass
-        return errors
-
-    @staticmethod
-    def _cleanup_project_logs(project_path: Path) -> None:
-        """Clean up old log files so each launch/restart starts fresh."""
-        log_files_to_clean = [
-            project_path / "backend" / "logs" / "subprocess_output.log",
-            project_path / "backend" / "logs" / "frontend_console.log",
-            project_path / "backend" / "logs" / "test_discovery.json",
-            project_path / "backend" / "logs" / "test_unit.json",
-            project_path / "backend" / "logs" / "test_compatibility.json",
-            project_path / "backend" / "logs" / "test_results.json",
-            project_path / "backend" / "logs" / "health_status.json",
-            project_path / "logs" / "frontend_output.log",  # Legacy non-timestamped
-            project_path / "backend" / "logs" / "latest.log",  # Legacy pointer file
-        ]
-        for log_file in log_files_to_clean:
-            try:
-                if log_file.exists():
-                    log_file.unlink()
-            except Exception:
-                pass
-        # Clean up old session logs — keep only the 5 most recent of each type
-        backend_logs_dir = project_path / "backend" / "logs"
-        if backend_logs_dir.exists():
-            session_logs = sorted(backend_logs_dir.glob("backend_*.log"), reverse=True)
-            for old_log in session_logs[5:]:
-                try:
-                    old_log.unlink()
-                except Exception:
-                    pass
-        frontend_logs_dir = project_path / "logs"
-        if frontend_logs_dir.exists():
-            session_logs = sorted(
-                frontend_logs_dir.glob("frontend_*.log"), reverse=True
-            )
-            for old_log in session_logs[5:]:
-                try:
-                    old_log.unlink()
-                except Exception:
-                    pass
-
-        logger.debug("[LIVING_UI:PIPELINE] Cleaned up old log files")
-
-    @staticmethod
     def _create_frontend_log(project_path: Path) -> Path:
         """Create a timestamped frontend log file path."""
         logs_dir = project_path / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return logs_dir / f"frontend_{timestamp}.log"
-
-    @staticmethod
-    def _has_files_changed(project_path: Path) -> bool:
-        """Check if any source files changed since last successful launch."""
-        last_launch_file = project_path / ".last_launch"
-        if not last_launch_file.exists():
-            return True  # No record = assume changed
-
-        try:
-            last_launch_time = last_launch_file.stat().st_mtime
-        except Exception:
-            return True
-
-        source_extensions = {
-            ".py",
-            ".ts",
-            ".tsx",
-            ".js",
-            ".jsx",
-            ".json",
-            ".html",
-            ".css",
-            ".md",
-        }
-        skip_dirs = {"node_modules", "__pycache__", "dist", "logs", ".git"}
-
-        for filepath in project_path.rglob("*"):
-            if filepath.is_file() and filepath.suffix in source_extensions:
-                if any(skip in filepath.parts for skip in skip_dirs):
-                    continue
-                if filepath.stat().st_mtime > last_launch_time:
-                    return True
-        return False
-
-    @staticmethod
-    def _patch_theme_listener(project_path: Path) -> None:
-        """Inject CraftBot theme-sync listener into index.html if not already present."""
-        index_html = project_path / "index.html"
-        if not index_html.exists():
-            return
-        try:
-            content = index_html.read_text(encoding="utf-8")
-            if "craftbot-theme-request" in content:
-                return  # Already patched
-            snippet = (
-                "\n    <!-- CraftBot theme sync -->\n"
-                "    <script>\n"
-                "    (function(){\n"
-                "      function applyTheme(t,v){\n"
-                '        document.documentElement.setAttribute("data-theme",t||"dark");\n'
-                '        if(v&&typeof v==="object"){\n'
-                '          var el=document.getElementById("craftbot-theme-vars")||document.createElement("style");\n'
-                '          el.id="craftbot-theme-vars";\n'
-                '          el.textContent=":root{"+Object.keys(v).map(function(k){return k+":"+v[k];}).join(";")+"}";'
-                '\n          if(!document.getElementById("craftbot-theme-vars"))document.head.appendChild(el);\n'
-                "        }\n"
-                "      }\n"
-                '      window.addEventListener("load",function(){\n'
-                '        try{window.parent.postMessage({type:"craftbot-theme-request"},"*");}catch(e){}\n'
-                "      });\n"
-                '      window.addEventListener("message",function(e){\n'
-                '        if(e.data&&e.data.type==="craftbot-theme")applyTheme(e.data.theme,e.data.cssVars);\n'
-                "      });\n"
-                '      var _t="dark";try{var _s=window.parent.localStorage.getItem("craftbot-theme");'
-                'if(_s==="light"||_s==="dark")_t=_s;}catch(e){}document.documentElement.setAttribute("data-theme",_t);\n'
-                "    })();\n"
-                "    </script>\n"
-            )
-            patched = content.replace("</body>", snippet + "</body>", 1)
-            index_html.write_text(patched, encoding="utf-8")
-            logger.info(f"[LIVING_UI] Patched theme listener into {index_html}")
-        except Exception as e:
-            logger.warning(f"[LIVING_UI] Could not patch index.html: {e}")
-
-    @staticmethod
-    def _save_launch_timestamp(project_path: Path) -> None:
-        """Save current time as last successful launch timestamp."""
-        last_launch_file = project_path / ".last_launch"
-        try:
-            last_launch_file.write_text(datetime.now().isoformat(), encoding="utf-8")
-        except Exception:
-            pass
 
     @staticmethod
     def _read_log_tail(log_file: Path, chars: int = 1000) -> str:
@@ -1878,184 +1151,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             return content[-chars:] if len(content) > chars else content
         except Exception:
             return "(could not read log)"
-
-    async def launch_backend(self, project_id: str) -> bool:
-        """
-        Launch the backend (FastAPI) server for a Living UI project.
-
-        The backend holds all state and persists to SQLite.
-        It should be launched before the frontend.
-
-        Args:
-            project_id: Project ID to launch backend for
-
-        Returns:
-            True if backend launch was successful
-        """
-        project = self.projects.get(project_id)
-        if not project:
-            logger.error(f"[LIVING_UI] Project not found: {project_id}")
-            return False
-
-        project_path = Path(project.path)
-        backend_path = project_path / "backend"
-
-        if not backend_path.exists():
-            logger.warning(f"[LIVING_UI] No backend directory for {project_id}")
-            return True  # Not an error, just no backend
-
-        # If backend port is occupied, allocate a new one instead of killing
-        backend_port = project.backend_port
-        if backend_port and self._is_port_in_use(backend_port):
-            logger.info(
-                f"[LIVING_UI] Port {backend_port} occupied, allocating a new port..."
-            )
-            self._release_port(backend_port)
-            backend_port = self._allocate_port()
-            project.backend_port = backend_port
-            logger.info(f"[LIVING_UI] Allocated new backend port: {backend_port}")
-
-        # Allocate port if needed
-        if not backend_port:
-            backend_port = self._allocate_port()
-            project.backend_port = backend_port
-
-        try:
-            # Start the FastAPI backend using uvicorn
-            logger.info(
-                f"[LIVING_UI] Starting backend for {project_id} on port {backend_port}"
-            )
-
-            # Backend has its own file-based logger (logger.py in template),
-            # but also capture subprocess stdout/stderr to a fallback log file
-            # so we can diagnose startup crashes before the app logger initializes
-            logs_dir = backend_path / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            subprocess_log = logs_dir / "subprocess_output.log"
-            subprocess_log_handle = open(subprocess_log, "a", encoding="utf-8")
-            subprocess_log_handle.write(
-                f"\n{'=' * 60}\n[{datetime.now().isoformat()}] Starting uvicorn on port {backend_port}\n{'=' * 60}\n"
-            )
-            subprocess_log_handle.flush()
-
-            # Generate bridge token for integration proxy
-            from uuid import uuid4
-
-            bridge_token = str(uuid4())
-            project.bridge_token = bridge_token
-
-            # Build env with integration bridge vars
-            bridge_port = int(os.environ.get("BROWSER_PORT", "7926"))
-            backend_env = os.environ.copy()
-            backend_env["CRAFTBOT_BRIDGE_URL"] = f"http://localhost:{bridge_port}"
-            backend_env["CRAFTBOT_BRIDGE_TOKEN"] = bridge_token
-
-            # Use python -m uvicorn to run the backend
-            if os.name == "nt":
-                # Windows
-                backend_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "uvicorn",
-                        "main:app",
-                        "--host",
-                        "0.0.0.0",
-                        "--port",
-                        str(backend_port),
-                    ],
-                    cwd=str(backend_path),
-                    env=backend_env,
-                    stdout=subprocess_log_handle,
-                    stderr=subprocess_log_handle,
-                    shell=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0,
-                )
-            else:
-                # Linux/Mac
-                backend_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "uvicorn",
-                        "main:app",
-                        "--host",
-                        "0.0.0.0",
-                        "--port",
-                        str(backend_port),
-                    ],
-                    cwd=str(backend_path),
-                    env=backend_env,
-                    stdout=subprocess_log_handle,
-                    stderr=subprocess_log_handle,
-                )
-
-            project.backend_process = backend_process
-
-            # Wait for health check to pass
-            health_url = f"http://localhost:{backend_port}/health"
-            logger.info(
-                f"[LIVING_UI] Waiting for backend health check at {health_url}..."
-            )
-            backend_ready = await self._wait_for_health_check(health_url, timeout=20)
-
-            if not backend_ready:
-                # Backend didn't start - read the subprocess log for diagnostics
-                subprocess_log_handle.flush()
-                try:
-                    recent_output = subprocess_log.read_text(encoding="utf-8")[-1000:]
-                except Exception:
-                    recent_output = "(could not read subprocess log)"
-                if backend_process.poll() is not None:
-                    logger.error(
-                        f"[LIVING_UI] Backend process exited with code {backend_process.returncode}. Log tail:\n{recent_output}"
-                    )
-                else:
-                    logger.error(
-                        f"[LIVING_UI] Backend not responding on port {backend_port}. Log tail:\n{recent_output}"
-                    )
-                    backend_process.terminate()
-                project.backend_process = None
-                subprocess_log_handle.close()
-                return False
-
-            project.backend_url = f"http://localhost:{backend_port}"
-            logger.info(
-                f"[LIVING_UI] Backend started successfully on port {backend_port}"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"[LIVING_UI] Failed to launch backend: {e}")
-            return False
-
-    async def stop_backend(self, project_id: str) -> bool:
-        """
-        Stop the backend server for a Living UI project.
-
-        Args:
-            project_id: Project ID to stop backend for
-
-        Returns:
-            True if stop was successful
-        """
-        project = self.projects.get(project_id)
-        if not project:
-            return False
-
-        if project.backend_process:
-            self._terminate_process(project.backend_process)
-            project.backend_process = None
-
-        # Also try to kill by port in case process reference is stale
-        if project.backend_port and self._is_port_in_use(project.backend_port):
-            self._kill_process_on_port(project.backend_port)
-
-        project.backend_url = None
-        logger.info(f"[LIVING_UI] Stopped backend for {project_id}")
-        return True
 
     def _terminate_process(self, process: subprocess.Popen) -> None:
         """Terminate a subprocess, killing the entire process tree on Windows."""
@@ -2067,6 +1162,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     ["taskkill", "/T", "/F", "/PID", str(process.pid)],
                     capture_output=True,
                     shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0,
                 )
             else:
                 process.terminate()
@@ -2107,8 +1205,17 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         else:
             # Windows: use netstat and taskkill
             try:
+                no_window = (
+                    subprocess.CREATE_NO_WINDOW
+                    if hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0
+                )
                 result = subprocess.run(
-                    ["netstat", "-ano"], capture_output=True, text=True, shell=True
+                    ["netstat", "-ano"],
+                    capture_output=True,
+                    text=True,
+                    shell=True,
+                    creationflags=no_window,
                 )
                 killed = False
                 for line in result.stdout.split("\n"):
@@ -2121,6 +1228,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                                 ["taskkill", "/T", "/F", "/PID", pid],
                                 capture_output=True,
                                 shell=True,
+                                creationflags=no_window,
                             )
                             logger.info(
                                 f"[LIVING_UI] Killed process tree {pid} on port {port}"
@@ -2181,7 +1289,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             if project.status == "running":
                 project.status = "stopped"
                 project.process = None
-                project.backend_process = None
                 project.url = None
                 project.backend_url = None
         self._save_projects()
@@ -2231,6 +1338,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         features: List[str] = None,
         data_source: Optional[str] = None,
         theme: str = "system",
+        auth_mode: str = "none",
+        style_pack: str = "",
     ) -> LivingUIProject:
         """
         Create a new Living UI project from template.
@@ -2247,53 +1356,112 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         """
         project_id = self._generate_id()
         sanitized_name = self._sanitize_name(name)
-        project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
+        folder = f"{sanitized_name}_{project_id}"
 
-        # Allocate ports
-        frontend_port = self._allocate_port()
-        backend_port = self._allocate_port()
+        # New projects are V2 (PocketBase single-process). The tools CLI does
+        # the real scaffolding: blueprint copy, kit vendoring, placeholder
+        # substitution, superuser bootstrap, system-file hash canon.
+        port = self._allocate_port()
+        if auth_mode not in ("none", "multi-user"):
+            auth_mode = "none"
 
-        # Copy template
         try:
-            shutil.copytree(self.template_path, project_path)
-            logger.info(f"[LIVING_UI] Copied template to {project_path}")
+            result = await self.v2_runner.scaffold(
+                name=name,
+                description=description,
+                parent_dir=self.living_ui_dir,
+                port=port,
+                project_id=project_id,
+                auth_mode=auth_mode,
+                folder=folder,
+                style=style_pack or None,
+            )
         except Exception as e:
-            self._release_port(frontend_port)
-            self._release_port(backend_port)
-            raise RuntimeError(f"Failed to copy template: {e}")
+            self._release_port(port)
+            raise RuntimeError(f"Failed to scaffold V2 project: {e}")
 
-        # Replace template placeholders (including ports for source code)
-        self._replace_placeholders(
-            project_path,
-            {
-                "{{PROJECT_ID}}": project_id,
-                "{{PROJECT_NAME}}": name,
-                "{{PROJECT_DESCRIPTION}}": description,
-                "{{PORT}}": str(frontend_port),
-                "{{BACKEND_PORT}}": str(backend_port),
-                "{{THEME}}": theme,
-                "{{CREATED_AT}}": datetime.now().isoformat(),
-                "{{FEATURES}}": ", ".join(features or []),
-            },
-        )
-
-        # Create project instance
         project = LivingUIProject(
             id=project_id,
             name=name,
             description=description,
-            path=str(project_path),
+            path=str(result.path),
             status="created",
-            port=frontend_port,
-            backend_port=backend_port,
+            style_pack=style_pack or "",
+            port=port,
+            backend_port=None,
             features=features or [],
             theme=theme,
         )
 
         self.projects[project_id] = project
         self._save_projects()
+        try:
+            self.ensure_project_session(project)
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] Could not ensure session for project {project_id}: {e}")
 
-        logger.info(f"[LIVING_UI] Created project: {name} ({project_id})")
+        logger.info(f"[LIVING_UI] Created V2 project: {name} ({project_id})")
+        return project
+
+    async def import_project_zip(
+        self, zip_path: str, name: Optional[str] = None
+    ) -> LivingUIProject:
+        """Import a V2 Living UI project from an exported ZIP.
+
+        Round-trip with export: new identity + port, shipped credentials
+        stripped, kit re-vendored and hashes re-canonized via kit-sync.
+        """
+        import tempfile
+        import zipfile
+
+        project_id = self._generate_id()
+        with tempfile.TemporaryDirectory() as tmp:
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(tmp)
+            root = Path(tmp)
+            candidates = [root] + [d for d in root.iterdir() if d.is_dir()]
+            src = next((c for c in candidates if (c / "manifest.json").exists()), None)
+            if src is None:
+                raise ValueError("ZIP does not contain a Living UI project (no manifest.json)")
+            manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+            if manifest.get("livingUIVersion") != 2:
+                raise ValueError("Only Living UI V2 projects can be imported")
+
+            display = name or manifest.get("name") or "Imported App"
+            port = self._allocate_port()
+            dest = self.living_ui_dir / f"{self._sanitize_name(display)}_{project_id}"
+            shutil.copytree(src, dest)
+
+        # Never trust shipped credentials or runtime state.
+        (dest / ".superuser").unlink(missing_ok=True)
+
+        # Rewrite identity + port (pipeline start command embeds the port).
+        old_port = manifest.get("port")
+        manifest["id"], manifest["name"], manifest["port"] = project_id, display, port
+        if isinstance(manifest.get("pipeline"), dict) and old_port:
+            manifest["pipeline"] = json.loads(
+                json.dumps(manifest["pipeline"]).replace(str(old_port), str(port))
+            )
+        (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+        # Kit re-vendor + hash re-canon (identity rewrite invalidated the canon).
+        await self.v2_runner.kit_sync(dest)
+
+        project = LivingUIProject(
+            id=project_id,
+            name=display,
+            description=manifest.get("description", ""),
+            path=str(dest),
+            status="stopped",
+            port=port,
+        )
+        self.projects[project_id] = project
+        self._save_projects()
+        try:
+            self.ensure_project_session(project)
+        except Exception as e:
+            logger.warning(f"[LIVING_UI] Could not ensure session for project {project_id}: {e}")
+        logger.info(f"[LIVING_UI] Imported V2 project: {display} ({project_id})")
         return project
 
     def create_placeholder_project(
@@ -2302,10 +1470,8 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         """Register a lightweight "creating" project so a tab/progress screen
         appears immediately, before the real import/install populates it.
 
-        Used by the import (ZIP/GitHub) and marketplace flows so they behave
-        like the form-create flow (which registers its project synchronously).
-        The actual importer — import_project_zip / import_external_app /
-        install_from_marketplace — must adopt this id (pass project_id=...) so
+        Used by async install flows (future V2 import/marketplace) so they
+        behave like the form-create flow; the installer must adopt this id so
         it overwrites this entry instead of creating a second tab.
 
         Intentionally NOT persisted to disk: a placeholder that never gets
@@ -2330,34 +1496,30 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
     def _replace_placeholders(
         self, directory: Path, replacements: Dict[str, str]
     ) -> None:
-        """Replace placeholders in all text files in directory."""
-        text_extensions = {
-            ".ts",
-            ".tsx",
-            ".js",
-            ".jsx",
-            ".json",
-            ".html",
-            ".css",
-            ".md",
-            ".py",
-            ".txt",
-            ".env",
-        }
+        """Replace template placeholders in all text files under directory.
 
+        Values substituted into .json files are JSON-escaped (a description
+        containing quotes/newlines must not break manifest.json)."""
+        text_extensions = {
+            ".ts", ".tsx", ".js", ".jsx", ".json", ".html",
+            ".css", ".md", ".py", ".txt", ".env",
+        }
         for filepath in directory.rglob("*"):
-            if filepath.is_file() and filepath.suffix in text_extensions:
-                try:
-                    content = filepath.read_text(encoding="utf-8")
-                    modified = False
-                    for placeholder, value in replacements.items():
-                        if placeholder in content:
-                            content = content.replace(placeholder, value)
-                            modified = True
-                    if modified:
-                        filepath.write_text(content, encoding="utf-8")
-                except Exception as e:
-                    logger.warning(f"[LIVING_UI] Failed to process {filepath}: {e}")
+            if not (filepath.is_file() and filepath.suffix in text_extensions):
+                continue
+            try:
+                content = filepath.read_text(encoding="utf-8")
+                modified = False
+                for placeholder, value in replacements.items():
+                    if placeholder in content:
+                        if filepath.suffix == ".json":
+                            value = json.dumps(value)[1:-1]
+                        content = content.replace(placeholder, value)
+                        modified = True
+                if modified:
+                    filepath.write_text(content, encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] Failed to process {filepath}: {e}")
 
     async def install_from_marketplace(
         self,
@@ -2365,7 +1527,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         app_name: str,
         app_description: str,
         custom_fields: Optional[Dict[str, str]] = None,
-        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace",
+        repo_url: str = "https://github.com/CraftOS-dev/living-ui-marketplace/",
         project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -2401,7 +1563,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             owner = parts[-2]
             repo = parts[-1]
             zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/main.zip"
-
             logger.info(f"[LIVING_UI:MARKETPLACE] Downloading {app_id} from {zip_url}")
 
             import ssl
@@ -2449,6 +1610,29 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
             logger.info(f"[LIVING_UI:MARKETPLACE] Extracted {app_id} to {project_path}")
 
+            # COMPATIBILITY GATE: this platform only runs Living UI V2
+            # projects (root manifest.json, livingUIVersion 2, PocketBase
+            # backend). Legacy V1 apps (config/manifest.json, FastAPI
+            # backend) are rejected until re-published as V2.
+            mf = project_path / "manifest.json"
+            is_v2 = False
+            if mf.exists():
+                try:
+                    is_v2 = json.loads(mf.read_text()).get("livingUIVersion") == 2
+                except Exception:
+                    is_v2 = False
+            if not is_v2:
+                shutil.rmtree(project_path, ignore_errors=True)
+                return {
+                    "status": "error",
+                    "error": (
+                        f"Marketplace app '{app_id}' is in the legacy V1 "
+                        "format and cannot run on this V2-only platform. It "
+                        "needs to be re-published as a V2 app in the "
+                        "marketplace."
+                    ),
+                }
+
             # Allocate ports
             frontend_port = self._allocate_port()
             backend_port = self._allocate_port()
@@ -2472,6 +1656,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
             self._replace_placeholders(project_path, replacements)
 
+            # Identity rewrite touched hash-canonized files (manifest.json):
+            # re-vendor the kit and re-canonize hashes, as zip import does.
+            await self.v2_runner.kit_sync(project_path)
+
             # Create project instance
             project = LivingUIProject(
                 id=project_id,
@@ -2485,6 +1673,10 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
             self.projects[project_id] = project
             self._save_projects()
+            try:
+                self.ensure_project_session(project)
+            except Exception as e:
+                logger.warning(f"[LIVING_UI] Could not ensure session for project {project_id}: {e}")
 
             logger.info(
                 f"[LIVING_UI:MARKETPLACE] Created project: {app_name} ({project_id})"
@@ -2532,6 +1724,16 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             if error:
                 self.projects[project_id].error = error
             self._save_projects()
+
+    def set_project_ui_theme(
+        self, project_id: str, ui_theme: Optional[Dict[str, Any]]
+    ) -> None:
+        """Persist the project's display theme ({"themeId", "customColors"})."""
+        project = self.projects.get(project_id)
+        if project is None:
+            return
+        project.ui_theme = ui_theme or None
+        self._save_projects()
 
     def get_project_by_session_id(
         self, session_id: str
@@ -2598,7 +1800,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                     description=task_instruction,
                     priority=50,
                     session_id=session.id,
-                    payload={"project_id": project_id},
+                    payload={
+                        "project_id": project_id,
+                        # This run writes code, so it needs the build skill —
+                        # loaded now, unloaded when the run ends.
+                        "workflow_skills": ["living-ui-creator"],
+                    },
                 )
             )
 
@@ -2637,14 +1844,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 project.process = None
                 actually_alive = False
 
-            if (
-                project.backend_process is not None
-                and project.backend_process.poll() is not None
-            ):
-                logger.warning(
-                    f"[LIVING_UI] Backend process dead for {project_id} (stale status)"
-                )
-                project.backend_process = None
                 actually_alive = False
 
             if (
@@ -2680,168 +1879,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
     # External app support
     # ------------------------------------------------------------------
 
-    async def _launch_single_process(
-        self,
-        project_id: str,
-        project: "LivingUIProject",
-        project_path: Path,
-        app_cfg: dict,
-    ) -> dict:
-        """Launch a single-process app with sidecar proxy for logging/health."""
-        # Allocate two ports: proxy (user-facing) and app (internal)
-        proxy_port = project.port
-        if not proxy_port:
-            proxy_port = self._allocate_port()
-            project.port = proxy_port
-
-        app_port = project.backend_port
-        if not app_port:
-            app_port = self._allocate_port()
-            project.backend_port = app_port
-
-        if not await self._ensure_port_available(proxy_port):
-            return {
-                "status": "error",
-                "step": "app.port",
-                "errors": [f"Port {proxy_port} occupied"],
-            }
-        if not await self._ensure_port_available(app_port):
-            return {
-                "status": "error",
-                "step": "app.port",
-                "errors": [f"Port {app_port} occupied"],
-            }
-
-        cwd = project_path / app_cfg.get("cwd", ".")
-
-        # Install step (optional)
-        install_cmd = app_cfg.get("install", "")
-        if install_cmd:
-            logger.info(f"[LIVING_UI:PIPELINE] [app.install] Running: {install_cmd}")
-            result = await self._run_pipeline_command(cwd, install_cmd, "app.install")
-            if result["status"] == "error":
-                return result
-
-        # Start the app on the internal port
-        start_cmd = app_cfg.get("start", "")
-        if not start_cmd:
-            return {
-                "status": "error",
-                "step": "app.start",
-                "errors": ["No start command in manifest"],
-            }
-
-        logs_dir = project_path / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        log_file = logs_dir / "app_output.log"
-
-        # Build extra env vars — use app_port for the app itself
-        extra_env = {}
-        for k, v in app_cfg.get("env", {}).items():
-            extra_env[k] = (
-                str(v)
-                .replace("{{PORT}}", str(app_port))
-                .replace("{{BACKEND_PORT}}", str(app_port))
-            )
-        # Always override PORT with the internal app port — manifest may have a stale hardcoded value
-        extra_env["PORT"] = str(app_port)
-
-        # Replace port placeholders in start command with internal app port
-        start_cmd = start_cmd.replace("{{PORT}}", str(app_port)).replace(
-            "{{BACKEND_PORT}}", str(app_port)
-        )
-
-        # Generate bridge token
-        from uuid import uuid4
-
-        project.bridge_token = str(uuid4())
-
-        app_process = self._start_process(
-            cwd,
-            start_cmd,
-            log_file,
-            port=app_port,
-            project=project,
-            extra_env=extra_env,
-        )
-        project.app_process = app_process
-        logger.info(f"[LIVING_UI:PIPELINE] App starting on internal port {app_port}")
-
-        # Health check on the app's internal port
-        health_cfg = app_cfg.get("health", {})
-        # Replace port placeholders in health URL with app_port
-        if isinstance(health_cfg, dict) and "url" in health_cfg:
-            health_cfg = dict(health_cfg)
-            health_cfg["url"] = (
-                health_cfg["url"]
-                .replace("{{PORT}}", str(app_port))
-                .replace("{{BACKEND_PORT}}", str(app_port))
-            )
-        elif isinstance(health_cfg, str):
-            health_cfg = health_cfg.replace("{{PORT}}", str(app_port)).replace(
-                "{{BACKEND_PORT}}", str(app_port)
-            )
-
-        healthy = await self._check_health_with_strategy(
-            health_cfg, app_port, app_process
-        )
-        if not healthy:
-            log_tail = self._read_log_tail(log_file, 1000)
-            if app_process.poll() is not None:
-                err = f"App process exited with code {app_process.returncode}"
-            else:
-                err = f"App not responding on port {app_port}"
-                app_process.terminate()
-            project.app_process = None
-            return {"status": "error", "step": "app.health", "errors": [err, log_tail]}
-
-        logger.info(f"[LIVING_UI:PIPELINE] App healthy on internal port {app_port}")
-
-        # Start the sidecar proxy on the user-facing port
-        sidecar_path = (
-            Path(__file__).parent.parent / "data" / "living_ui_sidecar" / "proxy.py"
-        )
-        if sidecar_path.exists():
-            sidecar_cmd = f'python "{sidecar_path}" --app-port {app_port} --proxy-port {proxy_port}'
-            sidecar_log = logs_dir / "sidecar_output.log"
-            sidecar_process = self._start_process(
-                project_path, sidecar_cmd, sidecar_log, port=proxy_port, project=project
-            )
-            project.process = sidecar_process  # Store sidecar as frontend process (gets stopped with stop_project)
-            logger.info(
-                f"[LIVING_UI:PIPELINE] Sidecar proxy starting: port {proxy_port} → app port {app_port}"
-            )
-
-            # Wait for sidecar to be ready
-            sidecar_healthy = await self._wait_for_health_check(
-                f"http://localhost:{proxy_port}/health", timeout=15
-            )
-            if not sidecar_healthy:
-                logger.warning(
-                    f"[LIVING_UI:PIPELINE] Sidecar not responding, app still accessible directly on port {app_port}"
-                )
-                project.url = f"http://localhost:{app_port}"
-            else:
-                project.url = f"http://localhost:{proxy_port}"
-                logger.info(f"[LIVING_UI:PIPELINE] Sidecar ready on port {proxy_port}")
-        else:
-            logger.warning(
-                "[LIVING_UI:PIPELINE] Sidecar proxy not found, running app without proxy"
-            )
-            project.url = f"http://localhost:{app_port}"
-
-        project.backend_url = f"http://localhost:{app_port}"
-        project.status = "running"
-        self._save_projects()
-
-        logger.info(f"[LIVING_UI:PIPELINE] App ready: {project.url}")
-        return {
-            "status": "success",
-            "url": project.url,
-            "port": proxy_port,
-        }
-
-    @staticmethod
     def _append_node_args(command: str, extra_args: str) -> str:
         """Append CLI args to an npm/pnpm/yarn run command using `--`, or to a direct binary call."""
         if re.match(r"^\s*(?:npm|pnpm|yarn)\s+run\s+\S+", command):
@@ -2929,108 +1966,34 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         return new_start, new_env
 
-    async def import_external_app(
-        self,
-        name: str,
-        description: str,
-        source_path: str,
-        app_runtime: str = "unknown",
-        install_command: str = "",
-        start_command: str = "",
-        health_strategy: str = "tcp",
-        health_url: str = "",
-        port_env_var: str = "PORT",
-        project_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Import an external app as a Living UI project."""
-        # Adopt the placeholder id when provided so the tab spawned at request
-        # time becomes this project instead of a second tab appearing.
-        project_id = project_id or self._generate_id()
-        sanitized_name = self._sanitize_name(name)
-        project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
+    async def _wait_for_server(self, port: int, timeout: int = 10) -> bool:
+        """Wait for a server to start listening on a port."""
+        for _ in range(timeout * 2):
+            if self._is_port_in_use(port):
+                return True
+            await asyncio.sleep(0.5)
+        return False
 
-        try:
-            # Copy source to workspace
-            shutil.copytree(source_path, project_path)
-            logger.info(f"[LIVING_UI] Copied external app to {project_path}")
-        except Exception as e:
-            return {"status": "error", "error": f"Failed to copy app: {e}"}
+    async def _wait_for_health_check(self, url: str, timeout: int = 15) -> bool:
+        """Wait for a server's health endpoint to respond with HTTP 200."""
+        import urllib.request
+        import urllib.error
 
-        # Allocate two ports: proxy (user-facing) and app (internal)
-        proxy_port = self._allocate_port()
-        app_port = self._allocate_port()
-
-        # Create config directory and manifest
-        config_dir = project_path / "config"
-        config_dir.mkdir(exist_ok=True)
-        logs_dir = project_path / "logs"
-        logs_dir.mkdir(exist_ok=True)
-
-        # Build health config — uses app_port (internal)
-        health_cfg: Any = {"strategy": health_strategy}
-        if health_strategy == "http_get":
-            health_cfg["url"] = health_url or "http://localhost:{{PORT}}"
-            health_cfg["timeout"] = 30
-
-        env_dict: Dict[str, str] = {port_env_var: "{{PORT}}"} if port_env_var else {}
-
-        # Auto-normalize Node.js dev-server start commands so the app binds to
-        # CraftBot's allocated port and doesn't pop a system browser tab.
-        if app_runtime == "node":
-            start_command, env_dict = self._normalize_node_start_command(
-                project_path, start_command, env_dict
-            )
-
-        # Generate manifest
-        manifest = {
-            "id": project_id,
-            "name": name,
-            "version": "1.0.0",
-            "description": description,
-            "projectType": "external",
-            "appRuntime": app_runtime,
-            "livingUIVersion": "1.0",
-            "ports": {"frontend": proxy_port, "backend": app_port},
-            "pipeline": {
-                "app": {
-                    "cwd": ".",
-                    "install": install_command,
-                    "start": start_command,
-                    "env": env_dict,
-                    "health": health_cfg,
-                }
-            },
-            "agentAwareness": {"enabled": False, "observationMode": "external"},
-        }
-
-        manifest_path = config_dir / "manifest.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2))
-
-        project = LivingUIProject(
-            id=project_id,
-            name=name,
-            description=description,
-            path=str(project_path),
-            status="created",
-            port=proxy_port,
-            backend_port=app_port,
-            project_type="external",
-            app_runtime=app_runtime,
-        )
-
-        # Preserve the session link from an adopted placeholder so todo/question
-        # broadcasts (keyed by session id) keep targeting this tab.
-        existing = self.projects.get(project_id)
-        if existing and existing.session_id:
-            project.session_id = existing.session_id
-        self.projects[project_id] = project
-        self._save_projects()
-
-        logger.info(f"[LIVING_UI] Imported external app: {name} ({project_id})")
-        return {
-            "status": "success",
-            "project": project.to_dict(),
-        }
+        for _ in range(timeout * 2):
+            try:
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    if response.status == 200:
+                        return True
+            except (
+                urllib.error.URLError,
+                urllib.error.HTTPError,
+                TimeoutError,
+                OSError,
+            ):
+                pass
+            await asyncio.sleep(0.5)
+        return False
 
     async def _check_health_with_strategy(
         self, health_cfg, port: int, process, timeout: int = 30
@@ -3086,13 +2049,12 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                 )
         logger.info("[LIVING_UI] All projects stopped")
 
-    async def stop_project(self, project_id: str, stop_backend: bool = True) -> bool:
+    async def stop_project(self, project_id: str) -> bool:
         """
-        Stop a running Living UI project (frontend and optionally backend).
+        Stop a running Living UI project (its single PocketBase process).
 
         Args:
             project_id: Project ID to stop
-            stop_backend: Whether to also stop the backend (default: True)
 
         Returns:
             True if stop was successful
@@ -3102,12 +2064,7 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             logger.error(f"[LIVING_UI] Project not found: {project_id}")
             return False
 
-        # Stop app process (external/single-process apps)
-        if project.app_process:
-            self._terminate_process(project.app_process)
-            project.app_process = None
-
-        # Stop frontend process
+        # Stop the app process
         if project.process:
             self._terminate_process(project.process)
             project.process = None
@@ -3117,10 +2074,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
             self._kill_process_on_port(project.port)
 
         project.url = None
-
-        # Stop backend if requested
-        if stop_backend:
-            await self.stop_backend(project_id)
 
         project.status = "stopped"
         self._save_projects()
@@ -3156,13 +2109,27 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
         if project.backend_port:
             self._release_port(project.backend_port)
 
-        # Delete project directory
-        project_path = Path(project.path)
-        if project_path.exists():
-            try:
-                shutil.rmtree(project_path)
-            except Exception as e:
-                logger.error(f"[LIVING_UI] Failed to delete project directory: {e}")
+        # Delete project directory. SAFETY: only ever delete inside the
+        # Living UI workspace. A never-adopted placeholder has path "" and
+        # Path("") == Path(".") == the process CWD — i.e. the CraftBot repo
+        # root; rmtree on it wiped the entire working tree twice
+        # (2026-07-25/26) before this guard existed.
+        if project.path:
+            project_path = Path(project.path).resolve()
+            living_root = self.living_ui_dir.resolve()
+            if living_root in project_path.parents:
+                if project_path.exists():
+                    try:
+                        shutil.rmtree(project_path)
+                    except Exception as e:
+                        logger.error(
+                            f"[LIVING_UI] Failed to delete project directory: {e}"
+                        )
+            else:
+                logger.error(
+                    f"[LIVING_UI] REFUSED to delete project directory outside "
+                    f"the Living UI workspace: {project.path!r}"
+                )
 
         # Delete the project's dedicated session (triggers + streams + rows)
         if project.session_id:
@@ -3250,118 +2217,6 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
 
         logger.info(f"[LIVING_UI] Exported project '{project.name}' to {zip_path}")
         return zip_path
-
-    async def import_project_zip(
-        self, zip_path: str, name: str = "", project_id: Optional[str] = None
-    ) -> "LivingUIProject":
-        """Import a Living UI project from a ZIP file.
-
-        The ZIP should contain a project directory structure with at least
-        a config/manifest.json. Ports are allocated automatically. When
-        project_id is provided, the import adopts that id (overwriting the
-        placeholder tab spawned at request time) instead of generating a new
-        one — preventing a duplicate tab.
-        """
-        zip_file = Path(zip_path)
-        if not zip_file.exists():
-            raise FileNotFoundError(f"ZIP file not found: {zip_path}")
-
-        # Extract to a temp directory first to inspect contents
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with zipfile.ZipFile(zip_file, "r") as zf:
-                zf.extractall(tmp_dir)
-
-            tmp_path = Path(tmp_dir)
-
-            # Check if files are nested inside a single directory
-            entries = list(tmp_path.iterdir())
-            if len(entries) == 1 and entries[0].is_dir():
-                extracted_root = entries[0]
-            else:
-                extracted_root = tmp_path
-
-            # Read manifest if it exists
-            manifest_path = extracted_root / "config" / "manifest.json"
-            manifest = {}
-            if manifest_path.exists():
-                try:
-                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-
-            # Determine project name
-            if not name:
-                name = manifest.get(
-                    "name", zip_file.stem.replace("livingui_", "").rsplit("_", 1)[0]
-                )
-            if not name:
-                name = "imported_project"
-
-            # Adopt the placeholder id when provided, else generate a new one
-            project_id = project_id or self._generate_id()
-            sanitized_name = self._sanitize_name(name)
-            project_path = self.living_ui_dir / f"{sanitized_name}_{project_id}"
-
-            # Copy to Living UI workspace
-            shutil.copytree(extracted_root, project_path)
-
-        # Allocate new ports
-        frontend_port = self._allocate_port()
-        backend_port = self._allocate_port()
-
-        # Update manifest with new ID and ports
-        manifest_path = project_path / "config" / "manifest.json"
-        if manifest_path.exists():
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                old_id = manifest.get("id", "")
-                old_port = str(
-                    manifest.get("ports", {}).get(
-                        "frontend", manifest.get("ports", {}).get("app", "")
-                    )
-                )
-                old_backend = str(manifest.get("ports", {}).get("backend", ""))
-
-                manifest_raw = manifest_path.read_text(encoding="utf-8")
-                if old_id:
-                    manifest_raw = manifest_raw.replace(old_id, project_id)
-                if old_port and old_port != str(frontend_port):
-                    manifest_raw = manifest_raw.replace(old_port, str(frontend_port))
-                if old_backend and old_backend != str(backend_port):
-                    manifest_raw = manifest_raw.replace(old_backend, str(backend_port))
-
-                manifest_path.write_text(manifest_raw, encoding="utf-8")
-                manifest = json.loads(manifest_raw)
-            except Exception as e:
-                logger.warning(f"[LIVING_UI] Could not update imported manifest: {e}")
-
-        # Determine project type from manifest
-        project_type = manifest.get("projectType", "native")
-        app_runtime = manifest.get("appRuntime")
-        description = manifest.get("description", "")
-
-        project = LivingUIProject(
-            id=project_id,
-            name=name,
-            description=description,
-            path=str(project_path),
-            status="ready",
-            port=frontend_port,
-            backend_port=backend_port,
-            project_type=project_type,
-            app_runtime=app_runtime,
-        )
-
-        # Preserve the session link from an adopted placeholder so todo/question
-        # broadcasts (keyed by session id) keep targeting this tab.
-        existing = self.projects.get(project_id)
-        if existing and existing.session_id:
-            project.session_id = existing.session_id
-        self.projects[project_id] = project
-        self._save_projects()
-
-        logger.info(f"[LIVING_UI] Imported project '{name}' ({project_id}) from ZIP")
-        return project
 
     def get_project_url(self, project_id: str) -> Optional[str]:
         """Get the URL for a running project."""
@@ -3514,6 +2369,9 @@ The frontend is a Vite+React app at {project.path}/frontend/"""
                         ],
                         capture_output=True,
                         timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                        if hasattr(subprocess, "CREATE_NO_WINDOW")
+                        else 0,
                     )
                 else:
                     subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)

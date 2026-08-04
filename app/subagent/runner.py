@@ -63,6 +63,10 @@ if TYPE_CHECKING:
 # Max LLM format-error retries per turn before the runner aborts the sub-agent.
 _MAX_PARSE_RETRIES = 3
 
+# Hard ceiling on ONE LLM round-trip. Generous (large prompts + slow
+# providers) but finite — the wall-clock cap depends on calls returning.
+_LLM_CALL_TIMEOUT_S = 300
+
 # Sub-agents only ever do action selection — never GUI or reasoning calls —
 # so a single call type covers their entire lifetime.
 _SUBAGENT_CALL_TYPE = LLMCallType.ACTION_SELECTION
@@ -263,7 +267,9 @@ class SubAgentRunner:
 
     async def _dispatch_action(self, sub: SubAgent, decision: Dict[str, Any]) -> None:
         action_name = decision.get("action_name") or ""
-        parameters = decision.get("parameters") or {}
+        # Models frequently emit "params" instead of "parameters" — accept both
+        # (dropping the payload silently starved every tool call of its input).
+        parameters = decision.get("parameters") or decision.get("params") or {}
         if not isinstance(parameters, dict):
             parameters = {}
 
@@ -281,6 +287,16 @@ class SubAgentRunner:
                 task_id=sub.id,
             )
             return
+
+        # Apply registry-forced parameters (e.g. shared-browser hygiene).
+        from app.subagent.registry import get_subagent_definition
+
+        try:
+            forced = get_subagent_definition(sub.agent_type).overrides_for(action_name)
+        except Exception:
+            forced = {}
+        if forced:
+            parameters = {**parameters, **forced}
 
         action = self.action_library.retrieve_action(action_name)
         if action is None:
@@ -415,14 +431,34 @@ class SubAgentRunner:
         ``system_prompt_for_new_session`` is passed every turn so the LLM
         interface can recreate the session if a context-overflow reset
         happened underneath us.
+
+        Hard per-call timeout: a connection that dies mid-request (e.g. a
+        laptop sleep/wake severing the socket) otherwise blocks this await
+        forever — and the runner's wall-clock cap is only checked BETWEEN
+        turns, so one dead socket wedged the whole session
+        (observed: 20260724181301, 19-minute hang).
         """
-        return await self.llm_interface.generate_response_with_session_async(
-            task_id=sub.id,
-            call_type=_SUBAGENT_CALL_TYPE,
-            user_prompt=user_prompt,
-            system_prompt_for_new_session=system_prompt,
-            prompt_name=f"SUBAGENT_{sub.agent_type.upper()}",
-        )
+        import asyncio
+
+        try:
+            return await asyncio.wait_for(
+                self.llm_interface.generate_response_with_session_async(
+                    task_id=sub.id,
+                    call_type=_SUBAGENT_CALL_TYPE,
+                    user_prompt=user_prompt,
+                    system_prompt_for_new_session=system_prompt,
+                    prompt_name=f"SUBAGENT_{sub.agent_type.upper()}",
+                ),
+                timeout=_LLM_CALL_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError as timeout_err:
+            raise LLMConsecutiveFailureError(
+                1,
+                last_error=TimeoutError(
+                    f"sub-agent LLM call exceeded {_LLM_CALL_TIMEOUT_S}s "
+                    "(connection presumed dead)"
+                ),
+            ) from timeout_err
 
     @staticmethod
     def _augment_with_retry_hint(base: str, attempt: int, error: str) -> str:
@@ -501,6 +537,14 @@ class SubAgentRunner:
         if not isinstance(parsed, dict):
             return None, "parsed value is not a dict"
         if "action_name" not in parsed:
+            # Salvage: models under repeated correction sometimes emit just the
+            # bare final-result object. Wrap it as an explicit terminator so a
+            # usable result is never thrown away over formatting.
+            if any(k in parsed for k in ("result", "verdicts", "summary")):
+                return {
+                    "action_name": "sub_task_end",
+                    "parameters": {"status": "completed", "result": json.dumps(parsed)},
+                }, None
             return None, "missing 'action_name' field"
         return parsed, None
 

@@ -17,7 +17,6 @@ class UIEventType(Enum):
     SYSTEM_MESSAGE = auto()
     ERROR_MESSAGE = auto()
     INFO_MESSAGE = auto()
-    LLM_FATAL_ERROR = auto()
 
     # Action events (per-session activity feed)
     # TASK_TOKEN_UPDATE is retained because app.usage.task_attribution

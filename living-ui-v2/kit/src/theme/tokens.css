@@ -1,0 +1,243 @@
+/*
+ * Living UI design tokens (spec K3). Components read ONLY these custom
+ * properties — never hardcoded colors. The host (or standalone bridge) sets
+ * data-theme; hosts may override any token via custom colors.
+ */
+:root,
+:root[data-theme='light'] {
+  /* Themes the internals of native controls (date picker popup, <select>
+     options, scrollbars). Without it they follow the OS scheme and render
+     mismatched — e.g. a dark date picker on a light app. */
+  color-scheme: light;
+  --lui-bg: #f7f7f8;
+  --lui-surface: #ffffff;
+  --lui-text: #1a1a1e;
+  --lui-muted: #6b7280;
+  --lui-border: #e5e7eb;
+  --lui-accent: #ff4f18;
+  --lui-accent-contrast: #ffffff;
+  --lui-radius: 0.5rem;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --lui-bg: #131316;
+  --lui-surface: #1d1d22;
+  --lui-text: #f2f2f5;
+  --lui-muted: #9ca3af;
+  --lui-border: #2e2e35;
+  --lui-accent: #ff4f18;
+  --lui-accent-contrast: #ffffff;
+}
+
+/* ---- Host style packs (LivingUIThemeModal presets; bridge sets data-style).
+   'craftbot' is the brand default (same as base). 'custom' uses the custom
+   color properties the bridge injects — no block needed here. */
+
+:root[data-style='normal'] { --lui-accent: #2563eb; }
+:root[data-style='normal'][data-theme='dark'] { --lui-accent: #3b82f6; }
+
+:root[data-style='ocean'] {
+  --lui-accent: #0284c7;
+  --lui-bg: #f0f7fb;
+  --lui-border: #d3e5ef;
+}
+:root[data-style='ocean'][data-theme='dark'] {
+  --lui-accent: #38bdf8;
+  --lui-bg: #0b1b26;
+  --lui-surface: #102635;
+  --lui-border: #1e3a4d;
+}
+
+:root[data-style='forest'] {
+  --lui-accent: #16a34a;
+  --lui-bg: #f2f8f2;
+  --lui-border: #d6e7d6;
+}
+:root[data-style='forest'][data-theme='dark'] {
+  --lui-accent: #4ade80;
+  --lui-bg: #0e1a12;
+  --lui-surface: #14261a;
+  --lui-border: #22402c;
+}
+
+:root[data-style='pastel'] {
+  --lui-accent: #a855f7;
+  --lui-bg: #faf7fd;
+  --lui-surface: #fffdfa;
+  --lui-border: #eadff5;
+}
+:root[data-style='pastel'][data-theme='dark'] {
+  --lui-accent: #c084fc;
+  --lui-bg: #1a1420;
+  --lui-surface: #251c2e;
+  --lui-border: #3a2d47;
+}
+
+:root[data-style='glass'] {
+  --lui-bg: #eef1f8;
+  --lui-surface: rgba(255, 255, 255, 0.72);
+  --lui-border: rgba(120, 130, 160, 0.25);
+  --lui-accent: #6366f1;
+}
+:root[data-style='glass'][data-theme='dark'] {
+  --lui-bg: #10131c;
+  --lui-surface: rgba(30, 36, 54, 0.72);
+  --lui-border: rgba(140, 150, 190, 0.22);
+  --lui-accent: #818cf8;
+}
+
+:root[data-style='classic'] {
+  --lui-bg: #f5f2ea;
+  --lui-surface: #fffdf7;
+  --lui-border: #ddd6c5;
+  --lui-accent: #b8860b;
+  --lui-radius: 0.25rem;
+}
+:root[data-style='classic'][data-theme='dark'] {
+  --lui-bg: #1c1a14;
+  --lui-surface: #26231b;
+  --lui-border: #3d3828;
+  --lui-accent: #d4a017;
+}
+
+:root[data-style='velvet'] {
+  --lui-bg: #f8f2f6;
+  --lui-surface: #fffbfe;
+  --lui-border: #e8d8e4;
+  --lui-accent: #9d174d;
+}
+:root[data-style='velvet'][data-theme='dark'] {
+  --lui-bg: #1c1018;
+  --lui-surface: #281826;
+  --lui-border: #43263c;
+  --lui-accent: #ec4899;
+}
+
+:root[data-style='ink'] {
+  --lui-bg: #ffffff;
+  --lui-surface: #ffffff;
+  --lui-border: #111111;
+  --lui-accent: #111111;
+  --lui-accent-contrast: #ffffff;
+  --lui-radius: 0;
+}
+:root[data-style='ink'][data-theme='dark'] {
+  --lui-bg: #0a0a0a;
+  --lui-surface: #0a0a0a;
+  --lui-border: #f5f5f5;
+  --lui-accent: #f5f5f5;
+  --lui-accent-contrast: #0a0a0a;
+}
+
+:root[data-style='acid'] {
+  --lui-bg: #fafff2;
+  --lui-surface: #ffffff;
+  --lui-border: #d9f99d;
+  --lui-accent: #65a30d;
+}
+:root[data-style='acid'][data-theme='dark'] {
+  --lui-bg: #131a0c;
+  --lui-surface: #1b2513;
+  --lui-border: #365314;
+  --lui-accent: #a3e635;
+  --lui-accent-contrast: #1a2e05;
+}
+
+:root[data-style='blueprint'] {
+  --lui-bg: #eef4fb;
+  --lui-surface: #ffffff;
+  --lui-border: #93c5fd;
+  --lui-accent: #1d4ed8;
+  --lui-radius: 0.125rem;
+}
+:root[data-style='blueprint'][data-theme='dark'] {
+  --lui-bg: #0b1526;
+  --lui-surface: #102039;
+  --lui-border: #1e40af;
+  --lui-accent: #60a5fa;
+}
+
+:root[data-style='modern'] {
+  --lui-bg: #f4f5fa;
+  --lui-surface: #ffffff;
+  --lui-border: #e2e4f0;
+  --lui-accent: #6366f1;
+  --lui-radius: 0.75rem;
+}
+:root[data-style='modern'][data-theme='dark'] {
+  --lui-bg: #12141d;
+  --lui-surface: #1a1d2a;
+  --lui-border: #2a2e42;
+  --lui-accent: #7c8aff;
+}
+
+:root[data-style='brutalist'] {
+  --lui-bg: #ffffff;
+  --lui-surface: #ffffff;
+  --lui-text: #0a0a0a;
+  --lui-border: #0a0a0a;
+  --lui-accent: #7c3aed;
+  --lui-radius: 0;
+}
+:root[data-style='brutalist'][data-theme='dark'] {
+  --lui-bg: #0a0a0a;
+  --lui-surface: #0a0a0a;
+  --lui-text: #fafafa;
+  --lui-border: #fafafa;
+  --lui-accent: #a78bfa;
+  --lui-accent-contrast: #0a0a0a;
+}
+
+:root[data-style='drafting'] {
+  --lui-bg: #e9ede4;
+  --lui-surface: #e9ede4;
+  --lui-text: #2e3528;
+  --lui-muted: #5b6552;
+  --lui-border: #2e3528;
+  --lui-accent: #3a4232;
+  --lui-radius: 0.25rem;
+}
+:root[data-style='drafting'][data-theme='dark'] {
+  --lui-bg: #232920;
+  --lui-surface: #232920;
+  --lui-text: #dde3d6;
+  --lui-muted: #9aa590;
+  --lui-border: #c8d0c0;
+  --lui-accent: #aab5a0;
+  --lui-accent-contrast: #232920;
+}
+
+:root[data-style='clay'] {
+  --lui-bg: #e4e6ec;
+  --lui-surface: #e4e6ec;
+  --lui-text: #3a3f4c;
+  --lui-border: #c9cdd8;
+  --lui-accent: #5b7cfa;
+  --lui-radius: 0.875rem;
+}
+:root[data-style='clay'][data-theme='dark'] {
+  --lui-bg: #23262e;
+  --lui-surface: #23262e;
+  --lui-text: #d5d8e0;
+  --lui-border: #343947;
+  --lui-accent: #7c96ff;
+}
+
+:root[data-style='atelier'] {
+  --lui-bg: #edeff2;
+  --lui-surface: #f8f9fb;
+  --lui-text: #1c1e22;
+  --lui-border: #d8dbe1;
+  --lui-accent: #17181b;
+  --lui-accent-contrast: #f8f9fb;
+  --lui-radius: 0.375rem;
+}
+:root[data-style='atelier'][data-theme='dark'] {
+  --lui-bg: #17181b;
+  --lui-surface: #202227;
+  --lui-text: #e8e9ec;
+  --lui-border: #33363d;
+  --lui-accent: #f2f2f4;
+  --lui-accent-contrast: #17181b;
+}

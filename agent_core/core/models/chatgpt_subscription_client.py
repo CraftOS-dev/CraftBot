@@ -599,6 +599,8 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
     entitlement. Surface that as a plan-explanation rather than a
     model-config error so the user knows to upgrade or switch auth.
     """
+    from agent_core.core.errors import ClassifiedError, ErrorCategory, ErrorInfo, Severity
+
     text = str(exc)
     if "ChatGPT account" not in text and "not supported when using Codex" not in text:
         return exc
@@ -612,15 +614,25 @@ def _translate_backend_error(exc: Exception, model: str) -> Exception:
     except Exception:
         pass
     if plan == "free" or not plan:
-        return RuntimeError(
+        message = (
             "ChatGPT subscription is connected but this account has no Plus/Pro/Team "
             "plan — the Codex backend rejects all models for Free-tier accounts. "
             "Upgrade at chat.openai.com, disconnect the subscription in Settings, "
             "or switch back to API-key auth."
         )
-    return RuntimeError(
-        f"ChatGPT subscription rejected model {model!r}: {text}. "
-        "Try a different model from the subscription list, or switch to API-key auth."
+    else:
+        message = (
+            f"ChatGPT subscription rejected model {model!r}: {text}. "
+            "Try a different model from the subscription list, or switch to API-key auth."
+        )
+    return ClassifiedError(
+        ErrorInfo(
+            category=ErrorCategory.CONFIG,
+            code="CHATGPT_SUBSCRIPTION_REJECTED",
+            title="Subscription plan rejected",
+            message=message,
+            severity=Severity.ERROR,
+        )
     )
 
 

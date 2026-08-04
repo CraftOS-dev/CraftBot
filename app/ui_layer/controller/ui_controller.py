@@ -317,8 +317,6 @@ class UIController:
             await self._agent.handle_limit_continue(session_id)
         elif value == "abort_limit":
             await self._agent.handle_limit_abort(session_id)
-        elif value == "llm_retry":
-            await self._agent.handle_llm_retry(session_id)
 
     async def handle_prompt_enhance(self, user_message: str) -> str:
         return await self._agent._handle_prompt_enhance(user_message=user_message)

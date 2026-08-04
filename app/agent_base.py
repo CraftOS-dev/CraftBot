@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import traceback
 import time
@@ -67,10 +68,15 @@ from craftos_integrations import (
 from app.internal_action_interface import InternalActionInterface
 
 from app.llm import LLMInterface
-from agent_core.core.impl.llm.errors import (
-    classify_llm_error_message,
-    LLMConsecutiveFailureError,
+from agent_core.core.errors import (
+    ClassifiedError,
+    ErrorCategory,
+    ErrorInfo,
+    ErrorInfoLike,
+    Severity,
+    redact,
 )
+from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
 from app.vlm_interface import VLMInterface
 from app.image_gen_interface import ImageGenInterface
 from app.video_gen_interface import VideoGenInterface
@@ -173,8 +179,9 @@ RUN_CARRY_KEYS = (
 # turn start: source value → (emoji, label). Without this, non-chat runs
 # (scheduler fires, background workflows) just start streaming actions
 # with no visible cause. Sources absent here stay silent — user messages
-# have their own chat bubble; continuations, restart notices and living-ui
-# plumbing are internal. Closed set keyed on the typed source enum.
+# have their own chat bubble; continuations, restart notices, living-ui
+# creation (adapter posts its own richer summary) and living-ui import are
+# handled elsewhere. Closed set keyed on the typed source enum.
 TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.SCHEDULED.value: ("⏰", "Scheduled task"),
     TriggerSource.SCHEDULED_ONCE.value: ("⏰", "Scheduled task"),
@@ -184,6 +191,10 @@ TRIGGER_ANNOUNCEMENTS: Dict[str, tuple[str, str]] = {
     TriggerSource.PROACTIVE_PLANNER.value: ("⚙️", "Proactive planning"),
     TriggerSource.ONBOARDING.value: ("⚙️", "Onboarding workflow"),
     TriggerSource.SKILL_WORKFLOW.value: ("⚙️", "Skill workflow"),
+    # NB: LIVING_UI_DEV (creation build) is NOT here — the adapter posts a
+    # richer "Living UI: <name> / <description> / Building your app now…"
+    # summary into the project session at creation, which would duplicate.
+    TriggerSource.LIVING_UI_CRASH_FIX.value: ("🔧", "Fixing your Living UI"),
 }
 
 
@@ -237,9 +248,6 @@ class AgentBase:
         self.db_interface = self._build_db_interface(
             data_dir=data_dir, chroma_path=chroma_path
         )
-
-        # Stores original run instructions keyed by session_id for LLM retry after failure
-        self._llm_retry_instructions: dict[str, str] = {}
 
         # LLM + prompt plumbing (may be deferred if API key not yet configured)
         self.llm = LLMInterface(
@@ -295,6 +303,11 @@ class AgentBase:
             self.llm,
             agent_file_system_path=AGENT_FILE_SYSTEM_PATH,
         )
+
+        # A2APP claim gate (spec A2APP-PLAN Phase 1 B10): what this run has
+        # actually written to a Living UI, and how many messages have been
+        # withheld for misreporting it. Both reset when the run ends.
+        self._lui_run_writes: Dict[str, list] = {}
 
         # action layer
         self.action_library = ActionLibrary(self.llm, db_interface=self.db_interface)
@@ -599,6 +612,23 @@ class AgentBase:
             # receives, so a cause that isn't in the stream does not exist
             # for the model.
             self._log_trigger_claim(trigger, session_id)
+
+            # FACTORY: a mission's RUN has actually started (vs. merely being
+            # queued). Without this marker, a run that later ends on a
+            # run_continuation trigger (which carries no mission id) could not
+            # be attributed to its mission — and a surrendered mission would
+            # silently suppress redispatch (observed: done machine with
+            # mission_id still set).
+            try:
+                mission_id = (trigger.payload or {}).get("factory_mission_id") if trigger else None
+                if mission_id:
+                    from app.factory.host_craftbot import get_factory_host
+
+                    project_id = (trigger.payload or {}).get("project_id")
+                    if project_id:
+                        get_factory_host().mission_run_started(str(project_id), str(mission_id))
+            except Exception as e:
+                logger.debug(f"[FACTORY] mission-start marker failed: {e}")
 
             # ----- Deferred user-message stream write -----
             # User messages enter the event stream HERE — at the start of
@@ -1050,7 +1080,141 @@ class AgentBase:
             is_running_task=True,
         )
 
+        # A2APP: when the agent writes to a Living UI, the SYSTEM reports what
+        # actually landed. See spec/A2APP-PLAN.md Phase 1 B10/B11.
+        self._report_living_ui_writes(session_id, actions_with_input, results)
+
+
         return self._merge_action_outputs(results)
+
+    # Recognises a WRITE through the lui CLI. Reads (list/get) are ignored:
+    # they change nothing and need no receipt.
+    _LUI_WRITE = re.compile(
+        r"cli\.ts\s+(?:data\s+\S+\s+(?P<collection>\S+)\s+(?P<verb>create|update|delete)"
+        r"|run\s+\S+\s+(?P<op>[\w.\-]+))"
+    )
+
+    def _report_living_ui_writes(
+        self, session_id: str, actions_with_input: list, results: list
+    ) -> None:
+        """Report what a turn changed, IN CRAFTBOT'S VOICE, and refresh the app.
+
+        Why the system writes it: in the incident that motivated A2APP the
+        agent wrote a card with an empty due date, read `"due_date":""` in its
+        own tool output, and told the user "scheduled for tomorrow". Guarding
+        the write stops the bad data; it does not stop the false sentence.
+
+        Why it is not a separate "System" speaker: it was, and it read badly —
+        the user saw a grey robot line restating what the assistant then said
+        again, less precisely ("due tomorrow" against the receipt's "due Fri 31
+        Jul") and padded with filler. Delivering the fact AS CraftBot removes
+        the duplication and the extra narration turn, and keeps the guarantee:
+        the words come from the stored record, not from the model.
+
+        One line per turn, not per write, so a turn that changes three things
+        does not produce three bubbles. (A bulk run spread over many turns
+        still yields many lines — see A2APP-PLAN for the open case.)
+
+        Also the only place `dispatch_living_ui_data_changed` fires on the CLI
+        path — previously it fired solely from the deprecated `living_ui_http`
+        action, so agent writes never refreshed the iframe.
+        """
+        try:
+            session = self.session_manager.get(session_id)
+        except Exception:
+            session = None
+        project_id = getattr(session, "living_ui_project_id", None) if session else None
+        if not project_id:
+            return
+
+        summaries = []
+        for (action, params), result in zip(actions_with_input, results):
+            try:
+                if getattr(action, "name", None) != "run_shell":
+                    continue
+                command = str((params or {}).get("command") or "")
+                match = self._LUI_WRITE.search(command)
+                if match is None:
+                    continue
+                summary = self._describe_write(session_id, project_id, match, result)
+                if summary:
+                    summaries.append(summary)
+            except Exception as e:  # a receipt must never break the turn
+                logger.debug(f"[A2APP] receipt skipped: {e}")
+
+        if not summaries:
+            return
+
+        if self.event_stream_manager:
+            text = summaries[0] if len(summaries) == 1 else "\n".join(f"• {s}" for s in summaries)
+            self.event_stream_manager.log(
+                kind="living_ui_write",
+                message=text,
+                event_type=EventType.AGENT_MESSAGE,
+                display_message=text,
+                task_id=session_id,
+            )
+
+        try:
+            from app.living_ui import dispatch_living_ui_data_changed
+
+            dispatch_living_ui_data_changed(project_id)
+        except Exception as e:
+            logger.debug(f"[A2APP] data-changed dispatch skipped: {e}")
+
+    def _describe_write(
+        self, session_id: str, project_id: str, match, result: dict
+    ) -> Optional[str]:
+        """One CLI write result -> one plain sentence, or None if there is
+        nothing the user needs to read."""
+        import json as _json
+
+        collection = match.group("collection")
+        verb = match.group("verb")
+        target = match.group("op") or f"{collection}.{verb}"
+        stdout = str((result or {}).get("stdout") or "")
+        stderr = str((result or {}).get("stderr") or "")
+        failed = (result or {}).get("status") == "error" or (result or {}).get(
+            "return_code"
+        ) not in (0, None)
+
+        # A failure the agent goes on to recover from is NOT an event in the
+        # user's world — it is an internal retry, and putting it in the chat
+        # reads like the assistant arguing with itself. The agent still sees it
+        # (action_end carries the full stderr) and so does anyone who opens the
+        # actions detail; the conversation stays about what the user asked for.
+        if failed:
+            logger.info(f"[A2APP] {target} rejected: {(stderr or stdout).strip()[:200]}")
+            return None
+
+        record = None
+        try:
+            parsed = _json.loads(stdout)
+            if isinstance(parsed, dict) and "id" in parsed:
+                record = parsed
+        except Exception:
+            record = None
+
+        summary = f"{target} ok"
+        if record is not None and collection:
+            try:
+                from app.living_ui import get_living_ui_manager
+                from app.living_ui.agent_view import humanise_write
+
+                mgr = get_living_ui_manager()
+                proj = mgr.get_project(project_id) if mgr else None
+                base = (proj.backend_url or proj.url) if proj else None
+                if base:
+                    summary = humanise_write(
+                        base.rstrip("/"), collection, verb or "create", record
+                    )
+            except Exception as e:
+                logger.debug(f"[A2APP] could not humanise receipt: {e}")
+
+        self._lui_run_writes.setdefault(session_id, []).append(
+            {"collection": collection, "verb": verb, "record": record, "summary": summary}
+        )
+        return summary
 
     def _merge_action_outputs(self, outputs: list) -> dict:
         """
@@ -1098,6 +1262,23 @@ class AgentBase:
         run_ends = bool(action_output.get("run_ends", False))
 
         if run_ends:
+            # The claim gate is scoped to a run: what was written for THIS
+            # request says nothing about the next one.
+            self._lui_run_writes.pop(session.id, None)
+            # FACTORY Phase 1 (closes I6): if this run belonged to a Living UI
+            # build and the machine says work should be in flight but isn't,
+            # the machine redispatches a fresh mission. The agent surrendering
+            # is no longer a terminal event — the system carries the arc.
+            try:
+                lui_project = getattr(session, "living_ui_project_id", None)
+                if lui_project:
+                    from app.factory.host_craftbot import get_factory_host
+
+                    get_factory_host().on_run_end(
+                        lui_project, (trigger.payload or {}) if trigger else {}
+                    )
+            except Exception as e:
+                logger.debug(f"[FACTORY] run-end hook failed: {e}")
             await self._on_run_end(session, trigger.payload or {})
             return
 
@@ -1332,87 +1513,164 @@ class AgentBase:
 
     # ----- Error Handling -----
 
+    @staticmethod
+    def _classify_react_error(
+        error: Exception,
+    ) -> tuple[bool, LLMConsecutiveFailureError | None, ErrorInfoLike | None]:
+        """Walk the exception chain (__cause__, __context__) once, looking for:
+
+        - `LLMConsecutiveFailureError` — the run is fatally halted (5 failed
+          attempts, or an immediate fail-fast category). Carries the *cause*
+          of the failure(s) in `.last_error_info` when known.
+        - `ClassifiedError` — a recognized, user-actionable failure that
+          didn't hit the consecutive-failure threshold (e.g. the action
+          router's own 3-attempt budget on an LLM provider error). Doesn't
+          halt the run.
+
+        Anything else is a genuinely unclassified exception — presentation
+        treats it as a critical, "broken agent loop" failure.
+
+        Returns (is_fatal, fatal_exc_or_None, classified_info_or_None).
+        """
+        seen: set[int] = set()
+        exc: BaseException | None = error
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
+            if isinstance(exc, LLMConsecutiveFailureError):
+                info = exc.last_error_info or AgentBase._consecutive_failure_fallback_info(exc)
+                return True, exc, info
+            if isinstance(exc, ClassifiedError):
+                return False, None, exc.info
+            cause = exc.__cause__ or exc.__context__
+            if cause is None or cause is exc:
+                break
+            exc = cause
+        return False, None, None
+
+    @staticmethod
+    def _consecutive_failure_fallback_info(
+        exc: LLMConsecutiveFailureError,
+    ) -> Optional[ErrorInfo]:
+        """Built when a fatal `LLMConsecutiveFailureError` has no classified
+        `last_error_info` but does carry a raw `last_error` (e.g. BytePlus
+        returning an empty response with no exception to classify — see
+        agent_core/core/impl/llm/interface.py's empty-response handling).
+
+        Folds the "gave up after repeated failures" fact into the SAME
+        message as the underlying cause, minor/system tier, instead of
+        showing it as a second, disconnected "Aborted after consecutive
+        failures." bubble with no information about what actually failed.
+        Returns None only when there's truly nothing to show (falls back to
+        the critical/unclassified tier).
+        """
+        if exc.last_error is None:
+            return None
+        raw = str(exc.last_error).rstrip(".")
+        suffix = (
+            "This can't be fixed by retrying."
+            if exc.is_immediate
+            else "Gave up after repeated failures."
+        )
+        return ErrorInfo(
+            category=ErrorCategory.UNKNOWN,
+            code="LLM_CONSECUTIVE_FAILURE",
+            title="Repeated failures",
+            message=f"{raw}. {suffix}",
+        )
+
+    @staticmethod
+    def _critical_fallback_info(raw_message: str) -> ErrorInfo:
+        """Built when NO recognized/classified error info is available —
+        i.e. a genuinely unexpected exception, not a known LLM/config
+        problem. Shown with full (redacted) technical detail and critical
+        (red) styling, per the "minor vs critical" presentation split:
+        recognized failures (bad key, no credits, misconfigured provider)
+        get a short, calm message; unrecognized ones get the raw detail so
+        it's clear something actually broke."""
+        return ErrorInfo(
+            category=ErrorCategory.INTERNAL,
+            code="INTERNAL_UNCLASSIFIED",
+            title="Unexpected error",
+            message=redact(raw_message),
+            severity=Severity.CRITICAL,
+        )
+
     async def _handle_react_error(
         self,
         error: Exception,
         session_id: str,
         action_output: dict,
     ) -> None:
-        """Handle errors during react execution."""
-        tb = traceback.format_exc()
-        logger.error(f"[REACT ERROR] {error}\n{tb}")
+        """Handle errors during react execution.
+
+        Presentation is split into two tiers:
+        - Minor/user errors (bad key, no credits, invalid model, a
+          misconfigured provider) — a short, actionable message using the
+          calm "system" bubble style, no raw exception text.
+        - Critical failures (anything not recognized as a classified LLM/
+          config problem — a genuine bug or crash) — full error detail with
+          the red "error" styling.
+
+        This is independent of whether the run halts: only a fatal
+        `LLMConsecutiveFailureError` halts the run (5 failed attempts, or an
+        immediate fail-fast category); everything else lets the react loop
+        continue to the next turn while still telling the user what happened.
+        """
+        is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
+        is_critical = classified_info is None
+        if is_critical:
+            # Nothing further down the stack classified/logged this in
+            # detail — this is the only place a full traceback gets
+            # captured, so it's worth the ERROR level here.
+            tb = traceback.format_exc()
+            logger.error(f"[REACT ERROR] {error}\n{tb}")
+            raw = str(fatal_exc) if fatal_exc is not None else (str(error) or "AI service error")
+            info = self._critical_fallback_info(raw)
+        else:
+            # Already logged with good detail by whichever layer classified
+            # it (interface.py / router.py) — avoid a second traceback dump.
+            logger.debug(f"[REACT ERROR] {error}")
+            info = classified_info
 
         if not session_id or not self.event_stream_manager:
             return
 
-        # Walk the exception chain (__cause__, __context__) to detect the
-        # fatal-LLM case. We need the LLMConsecutiveFailureError to surface
-        # the *cause* of the 5 failures (e.g. "rate-limited on Google AI
-        # Studio"), not the meta-message about retry counts.
-        is_fatal_llm_error = False
-        fatal_exc: LLMConsecutiveFailureError | None = None
-        seen: set[int] = set()
-        exc: BaseException | None = error
-        while exc is not None and id(exc) not in seen:
-            seen.add(id(exc))
-            if isinstance(exc, LLMConsecutiveFailureError):
-                is_fatal_llm_error = True
-                fatal_exc = exc
-                break
-            cause = exc.__cause__ or exc.__context__
-            if cause is None or cause is exc:
-                break
-            exc = cause
-
-        if (
-            is_fatal_llm_error
-            and fatal_exc is not None
-            and fatal_exc.last_error_info is not None
-        ):
-            cause_msg = fatal_exc.last_error_info.message
-            user_message = f"Aborted after consecutive failures. {cause_msg}"
-        elif is_fatal_llm_error and fatal_exc is not None:
-            user_message = str(fatal_exc)
-        else:
-            try:
-                user_message = classify_llm_error_message(error)
-            except Exception:
-                user_message = str(error) or "AI service error"
-
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
+            # event_type=EventType.INTERNAL (not ERROR): this event stays in
+            # the session stream for LLM self-correction/audit context, but
+            # EventType.ERROR IS dispatched by EventTransformer (see
+            # transformer.py's _DISPATCH) regardless of display_message, so
+            # using it here would let the background event watcher
+            # (ui_controller._watch_agent_events) render a second, undesired
+            # chat bubble a poll cycle after the one displayed directly
+            # below. EventType.INTERNAL maps to _build_hidden and is never
+            # surfaced — the same pattern already used by
+            # _send_limit_choice_message.
             self.event_stream_manager.log(
                 "error",
-                f"[REACT] {type(error).__name__}: {user_message}",
-                event_type=EventType.ERROR,
-                display_message=user_message,
+                f"[REACT] {type(error).__name__}: {info.message}",
+                event_type=EventType.INTERNAL,
+                display_message=None,
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-            if is_fatal_llm_error:
-                # Stop the run instead of re-queueing to prevent infinite retries.
+            if is_fatal:
+                # Stop the run instead of re-queueing to prevent infinite
+                # retries. The user resumes by sending a normal chat message
+                # — _handle_chat_message already resets the failure counter
+                # on intake, so no separate Retry action is needed.
                 logger.warning(
                     f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
                     f"session {session_id}."
                 )
                 self._emit_run_state(session_id, False)
-                self._llm_retry_instructions[session_id] = (
-                    "Continue where you left off — the previous attempt was "
-                    "aborted by an AI-provider failure."
-                )
-                if self.ui_controller:
-                    from app.ui_layer.events import UIEvent, UIEventType
-
-                    self.ui_controller.event_bus.emit(
-                        UIEvent(
-                            type=UIEventType.LLM_FATAL_ERROR,
-                            data={"session_id": session_id},
-                            task_id=session_id,
-                        )
-                    )
+                await self._display_react_error(session_id, info, critical=is_critical)
             else:
-                # Recoverable turn error: continue the run so the LLM sees
-                # the error event and can adapt.
+                # Recoverable turn error: still tell the user what happened,
+                # but let the run continue so the LLM sees the error event
+                # and can adapt.
+                await self._display_react_error(session_id, info, critical=is_critical)
                 await self.trigger_service.emit(
                     TriggerSpec(
                         source=TriggerSource.RUN_CONTINUATION,
@@ -1431,6 +1689,32 @@ class AgentBase:
                 exc_info=True,
             )
 
+    async def _display_react_error(
+        self, session_id: str, info: ErrorInfoLike, *, critical: bool
+    ) -> None:
+        """Show a single error bubble: calm "system" styling for a
+        recognized, user-actionable failure; red "error" styling with full
+        detail for an unclassified/critical one.
+
+        Displayed directly via the chat component (like
+        `_send_limit_choice_message`) instead of round-tripping through a
+        `UIEvent` on the event bus, so there's no ordering race with the
+        (invisible) event-stream log entry above.
+        """
+        if not (self.ui_controller and self.ui_controller.active_adapter):
+            logger.warning("[REACT ERROR] No active UI adapter - error not displayed")
+            return
+        from app.ui_layer.components.error_message import build_error_chat_message
+
+        chat = self.ui_controller.active_adapter.chat_component
+        message = build_error_chat_message(
+            info,
+            sender="Error" if critical else "System",
+            session_id=session_id,
+            style="error" if critical else "system",
+        )
+        await chat.append_message(message)
+
     # ----- Agent Limits -----
 
     async def _check_agent_limits(self, session_id: str) -> bool:
@@ -1448,7 +1732,12 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Action limit reached: 100% of the maximum actions ({max_actions} actions) has been used. Waiting for user decision.",
-                    event_type=EventType.SYSTEM,
+                    # EventType.INTERNAL (not SYSTEM): this is context-only —
+                    # EventType.SYSTEM IS dispatched to a chat bubble by
+                    # EventTransformer regardless of display_message, which
+                    # would double up with _send_limit_choice_message's own
+                    # chat bubble below.
+                    event_type=EventType.INTERNAL,
                     display_message=None,
                     task_id=session_id,
                 )
@@ -1462,7 +1751,10 @@ class AgentBase:
                 self.event_stream_manager.log(
                     "warning",
                     f"Token limit reached: 100% of the maximum tokens ({max_tokens} tokens) has been used. Waiting for user decision.",
-                    event_type=EventType.SYSTEM,
+                    # See the action-limit branch above: EventType.INTERNAL,
+                    # not SYSTEM, to avoid a second chat bubble alongside
+                    # _send_limit_choice_message's.
+                    event_type=EventType.INTERNAL,
                     display_message=None,
                     task_id=session_id,
                 )
@@ -1514,19 +1806,13 @@ class AgentBase:
         # Display message with options directly in the chat UI (awaited).
         if self.ui_controller and self.ui_controller.active_adapter:
             try:
-                from app.ui_layer.components.types import ChatMessage, ChatMessageOption
+                from app.ui_layer.components.types import ChatMessage
+                from app.ui_layer.components.error_message import continue_stop_options
                 from app.onboarding import onboarding_manager
                 import time as _time
 
                 agent_name = onboarding_manager.state.agent_name or "Agent"
-                options = [
-                    ChatMessageOption(
-                        label="Continue", value="continue_limit", style="primary"
-                    ),
-                    ChatMessageOption(
-                        label="Stop", value="abort_limit", style="danger"
-                    ),
-                ]
+                options = continue_stop_options()
                 await self.ui_controller.active_adapter.chat_component.append_message(
                     ChatMessage(
                         sender=agent_name,
@@ -1535,6 +1821,7 @@ class AgentBase:
                         timestamp=_time.time(),
                         session_id=session_id,
                         options=options,
+                        requires_choice=True,
                     )
                 )
             except Exception as e:
@@ -1607,28 +1894,6 @@ class AgentBase:
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-
-    async def handle_llm_retry(self, session_id: str) -> None:
-        """Retry after a fatal LLM failure. Resets the failure counter and resumes the run."""
-        self._llm_retry_instructions.pop(session_id, None)
-        try:
-            self.llm.reset_failure_counter()
-        except Exception as e:
-            logger.debug(f"[LLM_RETRY] Could not reset failure counter: {e}")
-
-        self._emit_run_state(session_id or MAIN_SESSION_ID, True)
-        await self.trigger_service.emit(
-            TriggerSpec(
-                source=TriggerSource.RUN_CONTINUATION,
-                description=(
-                    "Retry: the previous attempt was aborted by an AI-provider "
-                    "failure. Continue the work from where you left off based "
-                    "on the event stream."
-                ),
-                priority=5,
-                session_id=session_id or MAIN_SESSION_ID,
-            )
-        )
 
     # =====================================
     # Message intake
@@ -1738,17 +2003,69 @@ class AgentBase:
         try:
             from app.living_ui import get_living_ui_manager
 
+            from app.config import PROJECT_ROOT
+
+            _lui_cli = f"{PROJECT_ROOT}/living-ui-v2/tools/src/cli.ts"
             mgr = get_living_ui_manager()
             if mgr:
                 proj = mgr.get_project(living_ui_project_id)
                 if proj:
+                    # The DATA MODEL goes in the prompt, not behind a pointer.
+                    # Twice now the agent has ignored "Read LIVING_UI.md", never
+                    # run `lui ops`, and guessed collection names instead
+                    # (`items`, then `tasks`) — and once invented an enum value
+                    # (`priority: "normal"`) it could not have known was wrong.
+                    # Advisory text does not work on a weak model; context does.
+                    schema = None
+                    try:
+                        from app.living_ui.agent_view import schema_block
+
+                        base = proj.backend_url or proj.url
+                        if base:
+                            schema = schema_block(base.rstrip("/"))
+                    except Exception:
+                        schema = None
+
+                    model = (
+                        f"Data model (field(type), * = required):\n{schema}\n"
+                        if schema
+                        else f"Data model: run  node {_lui_cli} data {proj.path} schema\n"
+                    )
+                    # Same principle as the schema: capabilities go IN the
+                    # prompt. Three builds stubbed the user's email feature
+                    # around an invented SMTP requirement because nothing in
+                    # context said send_gmail exists.
+                    caps = ""
+                    try:
+                        from app.living_ui.agent_view import capability_block
+
+                        cap = capability_block()
+                        if cap:
+                            caps = cap + "\n"
+                    except Exception:
+                        caps = ""
                     return (
                         f"[INTERACTING WITH LIVING UI: {proj.name} ({living_ui_project_id})]\n"
                         f"Project path: {proj.path}\n"
-                        f"Read {proj.path}/LIVING_UI.md for app context.\n"
-                        f"If debugging issues, FIRST read these logs:\n"
-                        f"  - {proj.path}/backend/logs/subprocess_output.log (crashes, stack traces)\n"
-                        f"  - {proj.path}/backend/logs/frontend_console.log (frontend errors, network failures)"
+                        f"{model}"
+                        f"{caps}"
+                        f"Values: dates as ISO or 'tomorrow'/'next monday' (the CLI resolves them);\n"
+                        f"references by name, e.g. --list \"To Do\". Only set fields the user asked for.\n"
+                        f"AFTER A SUCCESSFUL WRITE the user is ALREADY shown exactly what changed, in\n"
+                        f"your voice, generated from the stored record. Do NOT send a message repeating\n"
+                        f"it — end the turn. Send a message only to add something that report does not\n"
+                        f"cover: a failure, a question, an answer to a question, or a summary of many\n"
+                        f"changes.\n"
+                        f"To OPERATE the app, use the lui CLI via run_shell with ABSOLUTE paths\n"
+                        f"(the shell's cwd is NOT the repo root):\n"
+                        f'  node {_lui_cli} data {proj.path} <collection> create --field "value"\n'
+                        f'  ALWAYS quote values — an unquoted # starts a shell comment and\n'
+                        f'  silently drops the rest of the command.\n'
+                        f"  node {_lui_cli} data {proj.path} <collection> list --limit 20\n"
+                        f"  node {_lui_cli} run {proj.path} <op-name> --param value\n"
+                        f"If debugging, read {proj.path}/logs/pocketbase.log and logs/frontend_console.log.\n"
+                        f"Using the app needs no skill. To CHANGE its code, or import/diagnose one,\n"
+                        f"load the right Living UI skill first (use_skill); list_skills shows all skills."
                     )
         except Exception:
             pass
@@ -2002,7 +2319,11 @@ class AgentBase:
             result = json.loads(response)
             return result.get("enhanced_prompt", "")
         except Exception as e:
-            logger.error(f"{classify_provider_error(error=e)}")
+            logger.error(
+                classify_provider_error(
+                    e, provider=self.llm.provider, model=getattr(self.llm, "model", "") or ""
+                )
+            )
 
     # =====================================
     # Hooks

@@ -5,7 +5,7 @@ Application-specific prompt templates.
 Contains prompt templates for Living UI and other application features.
 """
 
-LIVING_UI_TASK_INSTRUCTION = """Create a Living UI application.
+LIVING_UI_TASK_INSTRUCTION = """Create a Living UI application (V2 — PocketBase + React kit).
 
 Project ID: {project_id}
 Project Name: {project_name}
@@ -14,76 +14,61 @@ Features: {features}
 Theme: {theme}
 Project Path: {project_path}
 
-Follow the living-ui-creator skill instructions. Here's the workflow:
+Follow the living-ui-creator skill. Workflow:
 
 1. Read agent_file_system/GLOBAL_LIVING_UI.md — apply its colors, fonts, and rules
-2. Phase 0: Ask the user 2+ batches of questions about data, features, design, and layout
-3. Document requirements in LIVING_UI.md
-4. Break the app into features, then for each feature:
-   - Re-read LIVING_UI.md (check what's left) and GLOBAL_LIVING_UI.md (refresh design rules)
-   - Write backend tests first (backend/tests/)
-   - Create model + routes to pass tests
-   - Run pytest to verify
-   - Create frontend types + components
-   - Update LIVING_UI.md — mark this feature as done, add models/routes/components you created
-   Do NOT skip features listed in LIVING_UI.md. A working app with all planned features is the goal.
-5. Update LIVING_UI.md with implementation details
-6. Call living_ui_notify_ready(project_id="{project_id}")
+2. Read {project_path}/LIVING_UI.md (plan/index) and {project_path}/reference/requirements.md.
+   The creation wizard interviewed the user and synthesized requirements.md — it
+   is the BINDING spec: implement it EXACTLY and mirror its feature checklist into
+   LIVING_UI.md before coding. If requirements.md is absent, build from the
+   Description above; only ask the user (a FINAL send_message, continue_work=false)
+   when something is blocking and you cannot reasonably decide it yourself.
+3. This build IS substantial work — the standard run protocol applies as-is
+   (scope, plan, execute, verify, deliver). Do not skip it because these
+   numbered steps exist; they only describe the Living-UI-specific parts.
+4. OWNERSHIP RULE (the gate enforces this by hashing):
+   - You may edit ONLY: frontend/src/app/, pb/pb_migrations/, pb/pb_hooks/ (ops.pb.js
+     and new *.pb.js files), operations.json (non-system entries), LIVING_UI.md
+   - NEVER touch: frontend/src/kit/, frontend/src/main.tsx, frontend/src/config.gen.ts,
+     pb/pb_hooks/_system.pb.js, manifest.json, vite/tsconfig files.
+     Need a component variant? Wrap the kit component in frontend/src/app/ instead.
+5. Build order per feature:
+   - Schema: add a NEW migration in pb/pb_migrations/ (never edit an applied one);
+     follow the starter migration's field/rule pattern and the project's authMode
+   - Custom verbs (beyond CRUD): routerAdd route in pb/pb_hooks/ops.pb.js + a matching
+     entry in operations.json (the gate fails orphan ops; see items.clear-done example)
+   - UI: build in frontend/src/app/ from kit parts (import from '../kit/index.ts');
+     data via useCollection (realtime — never poll or reload); writes via
+     getPbClient().call(...) (errors toast automatically)
+   - Update LIVING_UI.md — mark the feature done, record entities/ops/components
+6. Quality bar: empty states with a next action, loading states, confirmation dialog
+   for destructive actions, toasts on CRUD, responsive layout, kit tokens only
+   (never hardcoded colors — theming is host-owned)
+7. FINISH — two steps, in order:
+   a. living_ui_notify_ready(project_id="{project_id}") — runs the validation
+      gate (types, build, migrations-on-fresh-db, ops structure, ownership),
+      launches, health-checks, smoke-verifies. On errors: read ALL of them,
+      fix ALL of them, call it again. Success = the app is RUNNING but NOT
+      yet verified.
+   b. living_ui_walk_verify(project_id="{project_id}") — an independent
+      verifier walks the RUNNING app in a real (headless) browser against
+      reference/requirements.md. Success = the app is announced to the user
+      and the build is COMPLETE. Failing features come back as a report:
+      fix them, then repeat (a) and (b).
 
-What a GOOD Living UI looks like:
-- Professional web app layout — proper spacing, visual hierarchy, sections, headers
-- Uses preset components (Button, Card, Input, Modal, Table from './components/ui') — never raw HTML
-- Thoughtful layout: sidebar or top nav, content area with grid/list views, detail panels or modals
-- Colors from GLOBAL_LIVING_UI.md applied consistently
-- Empty state when no data — the app launches with an empty database, users create their own content
-- "Add" actions open forms/modals with proper input fields — never auto-create with placeholder text
-- Every item is viewable, editable, and deletable through the UI
-- Error handling with toast notifications on API failures
-- Responsive design that works on different screen sizes
+RUN RULE: this run IS the build — there is no "continue in a later turn".
+The ONLY valid ways this run ends: a question to the user (a FINAL
+send_message, continue_work=false — the reply wakes the session) or
+living_ui_walk_verify returning success. Never end_turn mid-build.
 
-When pytest fails:
-- Read ALL errors carefully before fixing — fix ALL issues in one go, not one at a time
-- If you see an import error, check ALL files for the same pattern and fix them all
-- Maximum 3 pytest attempts per feature. If still failing after 3, review your approach
-- Common fix: relative imports (from . import X) → absolute imports (from X import Y)
+HONESTY RULE: the app is ready ONLY when living_ui_walk_verify returns
+status=success. If you cannot make it pass, tell the user the build FAILED and
+exactly what is blocking — NEVER claim the app is ready or usable when the
+launch failed. A false "ready" is the worst possible outcome.
 
-External integrations (Gmail, YouTube, Discord, Slack, etc.):
-- CraftBot has connected external services — use the integration bridge, NOT custom OAuth
-- Import: from services.integration_client import integration
-- Call: result = await integration.request("google_workspace", "GET", url)
-- NEVER build OAuth flows, ask for API keys, or store credentials
-- See the "External Integrations" section in SKILL.md for details and examples
+Schema gotcha: relation fields require the TARGET COLLECTION'S ID, not its
+name — save the target collection first, then reference
+app.findCollectionByNameOrId("<name>").id in the dependent collection.
 
-What to AVOID:
-- Flat list of items with no visual structure
-- Custom CSS when preset components exist
-- Hardcoded test data left in the database
-- Buttons that create items without user input
-- Everything crammed into one component file
-- Relative imports in backend code
-- Running uvicorn/npm manually — the launch pipeline handles this
-- Editing main.py, main.tsx, manifest.json, or tests/conftest.py — system managed
-- Rewriting conftest.py — it has the correct imports and test DB setup already
-
-Your todo list should follow this EXACT pattern — do NOT add extra sub-steps:
-Phase 0: Read global config
-Phase 0: Ask user batch 1 (data/features)
-Phase 0: Ask user batch 2 (design/layout)
-Phase 0: Document requirements in LIVING_UI.md
-Phase 1: Plan features
-Feature 1 - [name]: Backend (tests + model + routes + pytest)
-Feature 1 - [name]: Frontend (types + components + controller)
-Feature 2 - [name]: Backend (tests + model + routes + pytest)
-Feature 2 - [name]: Frontend (types + components + controller)
-Feature 3 - [name]: Backend (tests + model + routes + pytest)
-Feature 3 - [name]: Frontend (types + components + controller)
-... repeat for each feature ...
-Update LIVING_UI.md with implementation details
-Call living_ui_notify_ready
-
-IMPORTANT about features:
-- Each feature is a USER-FACING capability (e.g., "Board Items", "Media Attachments", "Search/Filter")
-- "Backend Setup" or "Frontend Setup" are NOT features — they are layers
-- Each feature MUST have BOTH backend AND frontend todos — never just one
-- Keep exactly 2 todos per feature (backend + frontend) — do NOT split into 10+ sub-steps
-- Write ALL tests for a feature at once, not one endpoint at a time"""
+Debugging: frontend runtime errors are relayed to {project_path}/logs/frontend_console.log;
+the PocketBase server log is {project_path}/logs/pocketbase.log."""
