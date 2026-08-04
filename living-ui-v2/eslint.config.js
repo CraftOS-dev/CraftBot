@@ -15,6 +15,10 @@ export default tseslint.config(
     files: ['**/pb_hooks/**/*.js', '**/pb_migrations/**/*.js'],
     rules: {
       '@typescript-eslint/triple-slash-reference': 'off',
+      // require() is not a style choice here. Hook callbacks run in isolated
+      // VMs that cannot see their own file's scope, so shared code is only
+      // reachable via require() INSIDE each callback. ESM is unavailable.
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
 );

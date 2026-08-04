@@ -109,8 +109,20 @@ def parse_check_report(text: str) -> Dict[str, Any]:
     """Classify a walk_verify result. kinds:
     pass | defects | incomplete (NOT REACHED, defect-free) | blocked."""
     text = text or ""
-    m = re.search(r"VERDICT:\s*(PASS|FAIL|BLOCKED)", text, re.IGNORECASE)
+    # The contract allows PASS|FAIL|BLOCKED, but sub-agents invent softeners —
+    # "VERDICT: INCOMPLETE" and "VERDICT: PARTIAL VERIFICATION" both observed
+    # live. An unknown word must NOT fall through to "blocked" (which
+    # announces the app with a misleading tooling-issue warning): treat the
+    # softeners as FAIL and let the defect / NOT-REACHED logic classify the
+    # report into the honest "incomplete" kind.
+    m = re.search(
+        r"VERDICT:\s*(PASS|FAIL|BLOCKED|INCOMPLETE|PARTIAL(?:\s+\w+)?)",
+        text,
+        re.IGNORECASE,
+    )
     verdict = m.group(1).upper() if m else None
+    if verdict is not None and verdict.startswith(("INCOMPLETE", "PARTIAL")):
+        verdict = "FAIL"
 
     # A FAIL whose body describes a blockage is a blockage wearing a FAIL
     # costume — never dispatch fixes for defects nobody observed.

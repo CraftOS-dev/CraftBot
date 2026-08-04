@@ -294,6 +294,73 @@ prices) is fetched by the BACKEND from keyless public APIs, cached, \
 degrading gracefully offline."""
 
 
+_MARKETPLACE_CACHE: Dict[str, Any] = {}
+_MARKETPLACE_TTL_SECONDS = 3600
+_MARKETPLACE_RAW_URL = (
+    "https://raw.githubusercontent.com/CraftOS-dev/living-ui-marketplace/main/catalogue.json"
+)
+
+
+def _marketplace_catalogue() -> List[Dict[str, Any]]:
+    """[{id, name, description, tags}] of ready-made marketplace apps, or [].
+
+    Local checkout first (developer machines), GitHub raw as fallback,
+    fail-open always — a missing catalogue must never block a build. Cached
+    an hour; the catalogue changes rarely.
+    """
+    import time as _time
+
+    cached = _MARKETPLACE_CACHE.get("apps")
+    if cached is not None and _time.time() - cached[0] < _MARKETPLACE_TTL_SECONDS:
+        return cached[1]
+
+    apps: List[Dict[str, Any]] = []
+    raw = None
+    for local in (
+        Path(__file__).resolve().parents[2].parent / "living-ui-marketplace" / "catalogue.json",
+    ):
+        try:
+            if local.exists():
+                raw = json.loads(local.read_text(encoding="utf-8"))
+                break
+        except Exception:
+            raw = None
+    if raw is None:
+        try:
+            import urllib.request
+
+            with urllib.request.urlopen(_MARKETPLACE_RAW_URL, timeout=4) as response:
+                raw = json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            logger.debug(f"[WIZARD] marketplace catalogue unavailable: {e}")
+            raw = None
+    if isinstance(raw, dict):
+        entries = raw.get("apps") or []
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("id") and entry.get("description"):
+                apps.append(
+                    {
+                        "id": entry["id"],
+                        "name": entry.get("name") or entry["id"],
+                        "description": str(entry["description"])[:200],
+                        "tags": entry.get("tags") or [],
+                    }
+                )
+
+    _MARKETPLACE_CACHE["apps"] = (_time.time(), apps)
+    return apps
+
+
+def _render_marketplace(apps: List[Dict[str, Any]]) -> str:
+    if not apps:
+        return ""
+    lines = ["\nMARKETPLACE — ready-made apps that can be installed instead of building:"]
+    for a in apps:
+        tags = (" [" + ", ".join(a["tags"][:4]) + "]") if a["tags"] else ""
+        lines.append(f"- {a['id']}: {a['name']} — {a['description']}{tags}")
+    return "\n".join(lines) + "\n"
+
+
 INTERVIEW_SYSTEM_PROMPT = f"""You are a requirements interviewer for a web-app builder. \
 The user described an app and picked configuration options; your questions close the \
 gaps between that input and a complete, buildable specification.
@@ -315,6 +382,13 @@ padding; each option is a real, distinct choice a user could want). The user can
 always type a free answer instead, so options should capture the most likely \
 answers.
 - Mark a question multiSelect when several options can genuinely combine.
+- MARKETPLACE CHECK: when the input includes a MARKETPLACE list and one app \
+on it clearly matches what the user described (same core purpose, not merely \
+a shared word), your FIRST question must present it BY NAME and offer exactly: \
+"Install <name> as-is (ready now)", "Install <name> and adapt it to my needs", \
+"Build a fresh app from scratch". Reusing a finished app is the user's \
+decision — never silently rebuild what exists, and never force the question \
+when nothing genuinely matches.
 
 Respond with STRICT JSON only (no prose, no markdown fence):
 {{"questions": [{{"id": "q1", "question": "...", "why": "one short sentence on why this matters", "multiSelect": false, "options": ["...", "...", "...", "..."]}}]}}"""
@@ -326,6 +400,7 @@ async def generate_interview(
     """Generate interview questions from the wizard configuration."""
     user_prompt = (
         _render_config(config, image_notes)
+        + _render_marketplace(_marketplace_catalogue())
         + "\n\nGenerate the interview questions now (STRICT JSON)."
     )
     raw = await _llm(
@@ -377,6 +452,17 @@ implementable exactly as written. If an interview answer implies a mechanism \
 the platform cannot execute (inbound webhooks, OAuth, token entry), translate \
 the INTENT into the platform's equivalent (bridge pull on load/refresh plus a \
 scheduled sync operation) and write THAT.
+
+If an interview answer chose to INSTALL a marketplace app (as-is or adapted), \
+the document's FIRST line must be exactly: \
+`MARKETPLACE DECISION: install <app-id>; adapt: <yes|no>` followed by a short \
+list of requested adaptations (if any). The builder installs that app via \
+living_ui_marketplace_install and applies only the adaptations — it must NOT \
+build from scratch.
+
+NEVER weaken a user-stated deliverable when rewriting: "email me" means the \
+user RECEIVES an email (via the bridge's send_gmail action) — not "queues", \
+"logs", or "prepares" one. Preserve user-visible outcomes verbatim.
 
 The document is markdown with EXACTLY these sections:
 

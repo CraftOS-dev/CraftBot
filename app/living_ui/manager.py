@@ -177,8 +177,26 @@ class LivingUIManager:
     def ensure_project_session(self, project: "LivingUIProject"):
         """Ensure the project's dedicated session exists and return it.
 
-        Creates the session on first use with the Living UI toolchain
-        preloaded (living-ui-creator skill + build action sets).
+        NO Living UI skill is preloaded. Which skill a run needs depends on
+        what is being ASKED, not on how the project arrived, so the agent picks
+        one per run. Ordinary data work needs none at all — the interaction
+        note carries the data model and the exact commands, and the app itself
+        publishes how to drive it at GET /api/_a2app/describe, which is also
+        the only copy an agent outside CraftBot can read.
+
+        System-dispatched runs whose purpose IS known (crash repair, a
+        development run) still declare their skill on the trigger via
+        `workflow_skills`, loaded at run start and unloaded at run end —
+        nothing has to infer what those runs are for.
+
+        This used to preload living-ui-creator unconditionally, because
+        originally every Living UI was one the agent had just written. Install
+        and import were added later and reused this helper, so an app that
+        arrived fully built still got a BUILD session — and the creator skill's
+        "Finish: launch, then verify" recipe permanently in its prompt. The
+        observed cost: asking a freshly installed habit tracker to record one
+        habit relaunched the app twice, re-ran the validation gate, and drove a
+        headless browser that clicked "Add habit" ten times against real data.
         """
         if not self._session_manager:
             return None
@@ -198,7 +216,7 @@ class LivingUIManager:
             title=project.name,
             session_id=project.session_id or f"lui_{project.id}",
             action_sets=["file_operations", "code_execution", "living_ui"],
-            selected_skills=["living-ui-creator"],
+            selected_skills=[],
             living_ui_project_id=project.id,
         )
         project.session_id = session.id
@@ -457,7 +475,12 @@ UI in {project.path}/frontend/src/app/."""
                     description=task_instruction,
                     priority=30,  # Higher priority than normal creation runs
                     session_id=session.id,
-                    payload={"project_id": project_id},
+                    payload={
+                        "project_id": project_id,
+                        # This run writes code, so it needs the build skill —
+                        # loaded now, unloaded when the run ends.
+                        "workflow_skills": ["living-ui-creator"],
+                    },
                 )
             )
 
@@ -692,6 +715,51 @@ UI in {project.path}/frontend/src/app/."""
     # Manifest-driven launch pipeline
     # ========================================================================
 
+    def _check_migration_divergence(self, project_path: Path) -> Optional[str]:
+        """A migration recorded as applied in the LIVE pb_data but missing
+        from pb_migrations/ bricks the app: at boot PocketBase re-runs the
+        renamed file as "new", collides with the existing schema ("Collection
+        name must be unique") and EXITS before serving /api/health. The gate
+        cannot see this — it migrates a fresh temp DB, where a rename is
+        harmless. Compare live history against the directory BEFORE boot.
+
+        Observed live (weather_tracker_4453c73c): 1700000001_weather_schema.js
+        renamed to ...0002 after a successful launch had applied it; every
+        boot after that died with only "/api/health not responding" surfaced.
+        """
+        import sqlite3 as _sqlite3
+
+        db = project_path / "pb" / "pb_data" / "data.db"
+        mig_dir = project_path / "pb" / "pb_migrations"
+        if not db.exists() or not mig_dir.is_dir():
+            return None  # fresh project — nothing applied yet
+        try:
+            conn = _sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                rows = conn.execute("SELECT file FROM _migrations").fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            # Fail OPEN: this check exists to explain a brick, never to cause
+            # a launch failure of its own.
+            logger.debug(f"[LIVING_UI:V2] migration-history check skipped: {e}")
+            return None
+        applied_js = {str(r[0]) for r in rows if str(r[0]).endswith(".js")}
+        on_disk = {p.name for p in mig_dir.glob("*.js")}
+        missing = sorted(applied_js - on_disk)
+        if not missing:
+            return None
+        return (
+            "Applied migration(s) missing from pb_migrations/: "
+            + ", ".join(missing)
+            + ". These already ran against this app's LIVE data — the filename "
+            "is the identity. Renaming or deleting an applied migration makes "
+            "every boot re-run its replacement into the existing schema, and "
+            "PocketBase exits before serving anything. Restore the original "
+            "filename(s) exactly as listed, and put schema changes in a NEW "
+            "migration file."
+        )
+
     async def _launch_v2(self, project: LivingUIProject) -> dict:
         """V2 launch pipeline: install → validation gate → serve → health.
 
@@ -723,6 +791,12 @@ UI in {project.path}/frontend/src/app/."""
         else:
             self._kill_process_on_port(project.port)
 
+        # Renamed/deleted APPLIED migrations brick the boot with an error only
+        # pocketbase.log ever sees — catch them here, before any process spawns.
+        divergence = self._check_migration_divergence(project_path)
+        if divergence:
+            return _fail("validation", [divergence])
+
         try:
             await self.v2_runner.install(project_path)
         except Exception as e:
@@ -735,6 +809,29 @@ UI in {project.path}/frontend/src/app/."""
         if not project.bridge_token:
             project.bridge_token = secrets.token_urlsafe(32)
 
+        # pocketbase.log is append-mode across launches: remember where THIS
+        # boot starts so failures below can quote only their own boot's lines.
+        pb_log_path = project_path / "logs" / "pocketbase.log"
+        pb_log_offset = pb_log_path.stat().st_size if pb_log_path.exists() else 0
+
+        def _pb_log_since_boot(limit_lines: int = 30) -> str:
+            """Errors FIRST, then the newest lines. A naive tail once shipped
+            30 lines of realtime-subscription chatter while the actual
+            'cannot be blank' errors sat just above the window."""
+            try:
+                with open(pb_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(pb_log_offset)
+                    lines = f.read().splitlines()
+                error_lines = [
+                    l for l in lines
+                    if any(k in l.lower() for k in ("error", "failed", "panic", "cannot be"))
+                ][-limit_lines:]
+                tail = [l for l in lines[-10:] if l not in error_lines]
+                picked = error_lines + tail
+                return "\n".join(picked[-(limit_lines + 10):])
+            except Exception:
+                return ""
+
         try:
             project.process = await self.v2_runner.start(
                 project_path, project.port, bridge_token=project.bridge_token
@@ -745,7 +842,34 @@ UI in {project.path}/frontend/src/app/."""
         if not await self.v2_runner.wait_healthy(project.port):
             self._terminate_process(project.process)
             project.process = None
-            return _fail("health", [f"/api/health not responding on :{project.port}"])
+            # A dead health check with no cause starved the agent before —
+            # the boot abort (bad migration, hook panic) is in pocketbase.log
+            # and nowhere else. Ship this boot's lines with the failure.
+            errors = [f"/api/health not responding on :{project.port}"]
+            boot_log = _pb_log_since_boot()
+            if boot_log:
+                errors.append("pocketbase.log (this boot):\n" + boot_log)
+            return _fail("health", errors)
+
+        # A hook file that fails to load is a CORRUPT app, not a healthy one:
+        # every route/cron below the throwing line silently does not exist.
+        # Observed live: top-level setTimeout() killed ops.pb.js at line 57,
+        # health passed, and the app shipped with half its routes missing.
+        boot_log = _pb_log_since_boot(200)
+        load_failures = [
+            line for line in boot_log.splitlines() if "failed to execute" in line
+        ]
+        if load_failures:
+            self._terminate_process(project.process)
+            project.process = None
+            return _fail(
+                "hooks",
+                [
+                    "A hook file failed to load — every route and cron job "
+                    "defined after the throwing line DOES NOT EXIST in the "
+                    "running app:\n" + "\n".join(load_failures[:5]),
+                ],
+            )
 
         # Walk-verify smoke pass (headless, invisible): app must mount with
         # zero console errors. 'skipped' (no browser) never blocks a launch.
@@ -756,7 +880,14 @@ UI in {project.path}/frontend/src/app/."""
         if verify_status == "fail":
             self._terminate_process(project.process)
             project.process = None
-            return _fail("verify", [verify_detail])
+            # The browser sees only status codes; the CAUSE (hook exception,
+            # bad query) is server-side. Ship this boot's log lines so the
+            # agent debugs evidence instead of inventing explanations.
+            errors = [verify_detail]
+            boot_log = _pb_log_since_boot()
+            if boot_log:
+                errors.append("pocketbase.log (this boot):\n" + boot_log)
+            return _fail("verify", errors)
         if verify_status == "skipped":
             logger.warning(
                 f"[LIVING_UI:V2] verify skipped for {project.id}: {verify_detail}"
@@ -1669,7 +1800,12 @@ UI in {project.path}/frontend/src/app/."""
                     description=task_instruction,
                     priority=50,
                     session_id=session.id,
-                    payload={"project_id": project_id},
+                    payload={
+                        "project_id": project_id,
+                        # This run writes code, so it needs the build skill —
+                        # loaded now, unloaded when the run ends.
+                        "workflow_skills": ["living-ui-creator"],
+                    },
                 )
             )
 

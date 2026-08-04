@@ -14,7 +14,11 @@ from agent_core import action
     input_schema={
         "to": {
             "type": "string",
-            "description": "Recipient email address.",
+            "description": (
+                "Recipient email address. OMIT to send to the user's own "
+                "address (the connected account) — never store or guess the "
+                "user's email."
+            ),
             "example": "user@example.com",
         },
         "subject": {
@@ -45,7 +49,8 @@ def send_gmail(input_data: dict) -> dict:
         unwrap_envelope=True,
         success_message="Email sent.",
         fail_message="Failed to send email.",
-        to=input_data["to"],
+        # Omitted/empty `to` → the client sends to the account owner.
+        to=input_data.get("to"),
         subject=input_data["subject"],
         body=input_data["body"],
         attachments=input_data.get("attachments"),

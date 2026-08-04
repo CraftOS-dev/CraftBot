@@ -23,6 +23,16 @@ See `reference/requirements.md` (binding). Feature checklist:
 
 Declared in `operations.json`; discoverable at `GET /api/_ops`.
 
+## External data
+
+| Source | Used for | Auth | Called from |
+|--------|----------|------|-------------|
+| (none yet — external APIs are called from pb_hooks via `$http.send`; list each source here) | | | |
+
+Rules: hooks only (never the frontend), always a `timeout`, non-200 → clean
+error + offline/empty state. Never substitute generated data for a real
+source. Scheduled syncs use `cronAdd`.
+
 ## Ownership map
 
 - Editable: `frontend/src/app/`, `pb/pb_migrations/`, `pb/pb_hooks/ops.pb.js`,

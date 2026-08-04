@@ -80,6 +80,12 @@ class V2Runner:
             # Without this, spawning node/npm/pocketbase from this windowless
             # process makes Windows flash a new console window per invocation.
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
+            # Own process group, so a timeout can kill the WHOLE TREE. Killing
+            # only the direct child (cli.ts) orphans its pocketbase grandchild
+            # — observed: a wedged `pocketbase migrate` surviving its parent's
+            # timeout kill and squatting forever.
+            kwargs["start_new_session"] = True
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(cwd) if cwd else None,
@@ -90,7 +96,19 @@ class V2Runner:
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            else:
+                import signal as _signal
+
+                try:
+                    os.killpg(proc.pid, _signal.SIGKILL)
+                except Exception:
+                    proc.kill()
             return 124, f"timed out after {timeout}s: {' '.join(map(str, cmd))}"
         return proc.returncode or 0, out.decode(errors="replace")
 
@@ -176,6 +194,29 @@ class V2Runner:
         if code != 0:
             raise RuntimeError(f"kit-sync failed:\n{out[-2000:]}")
 
+    async def adapter_sync(self, project_dir: Path) -> None:
+        """Bring the project's system pb_hooks up to the current adapter.
+
+        Without this, the A2APP layer reaches only apps that were installed or
+        imported AFTER it shipped: `kit_sync` is called from those two paths
+        alone, so an app a user already had would never gain the write guard,
+        the identity endpoint or `describe`, however often they opened it.
+
+        Safe on every launch: it replaces only the tooling-owned hook files
+        (agent-authored `ops.pb.js` and friends are untouched), needs no
+        rebuild because PocketBase reads hooks at runtime, and is idempotent.
+        Failure is NON-FATAL — an app that cannot be upgraded should still
+        start, just without the newer guard.
+        """
+        code, out = await self._run(
+            self._cli("adapter-sync", str(project_dir)), timeout=GATE_TIMEOUT_S
+        )
+        if code != 0:
+            logger.warning(
+                f"[LIVING_UI:V2] adapter-sync failed for {project_dir.name} "
+                f"(app will run with its existing adapter): {out[-300:]}"
+            )
+
     async def pb_binary(self) -> Path:
         code, out = await self._run(self._cli("pb", "path"), timeout=300)
         if code != 0:
@@ -247,6 +288,40 @@ class V2Runner:
         except Exception as e:
             logger.warning(f"[LIVING_UI:V2] could not persist .superuser: {e}")
 
+    def ensure_agent_token(self, project_dir: Path) -> str:
+        """Guarantee the project has an agent token, and return it.
+
+        This is the credential a NON-BROWSER client presents to write: the lui
+        CLI, CraftBot, or a third-party agent (spec A2APP-PLAN Phase 2 C4).
+
+        Threat model, stated plainly: the file is 0600 but any local process
+        running as this user can read it, so it is not a boundary against local
+        code. It is the same model Home Assistant and Obsidian's local API use,
+        and it is the right one for a loopback app. What it buys is a real
+        credential that can be handed to an external agent, and the foundation
+        for tightening collection rules (A4) and for remote access later.
+
+        The app's own frontend does NOT need it — browsers always send Origin
+        on writes, and a loopback Origin is trusted by the system middleware.
+        """
+        import secrets
+
+        token_file = project_dir / ".agent-token"
+        try:
+            existing = token_file.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+        except Exception:
+            pass
+
+        token = secrets.token_urlsafe(32)
+        try:
+            token_file.write_text(token + "\n", encoding="utf-8")
+            token_file.chmod(0o600)
+        except Exception as e:
+            logger.warning(f"[LIVING_UI:V2] could not persist .agent-token: {e}")
+        return token
+
     async def start(
         self, project_dir: Path, port: int, bridge_token: str = ""
     ) -> subprocess.Popen:
@@ -255,6 +330,11 @@ class V2Runner:
         pb_dir = project_dir / "pb"
         # Must happen BEFORE serve, or PocketBase opens its setup page.
         await self.ensure_superuser(project_dir)
+        # The credential non-browser clients present to write (Phase 2 C4).
+        self.ensure_agent_token(project_dir)
+        # Upgrade the in-app A2APP layer. This is the ONLY path that reaches an
+        # app the user already had — install and import cover new arrivals only.
+        await self.adapter_sync(project_dir)
         logs_dir = project_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(logs_dir / "pocketbase.log", "a")

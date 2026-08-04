@@ -46,6 +46,14 @@ export function loadOps(project: ProjectRef): Operation[] {
   return raw.operations ?? [];
 }
 
+/** The project's agent token, or null when the project predates it. */
+export function readAgentToken(project: ProjectRef): string | null {
+  const file = join(project.dir, '.agent-token');
+  if (!existsSync(file)) return null;
+  const value = readFileSync(file, 'utf8').trim();
+  return value === '' ? null : value;
+}
+
 /** Superuser token via the project-local .superuser file (absent on imports). */
 export async function authToken(project: ProjectRef): Promise<string | null> {
   const credFile = join(project.dir, '.superuser');
@@ -65,10 +73,23 @@ export async function request(
   method: string,
   path: string,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ status: number; body: string }> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  // Attribution: the app records this against every write (spec Phase 1 B6).
+  // Self-asserted and worthless against malice — exactly right against
+  // confusion, which is the real problem when several agents share one app.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-LUI-Agent': process.env['LUI_AGENT'] ?? 'lui-cli',
+  };
+  // Agent token (spec Phase 2 C4): the credential a non-browser client presents
+  // to write. Absent on projects that predate it — the app then does not
+  // require one, so this stays backwards compatible.
+  const agentToken = readAgentToken(project);
+  if (agentToken !== null) headers['X-LUI-Token'] = agentToken;
   const token = await authToken(project);
   if (token !== null) headers['Authorization'] = token;
+  if (extraHeaders !== undefined) Object.assign(headers, extraHeaders);
   const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await fetch(`${project.baseUrl}${path}`, init);

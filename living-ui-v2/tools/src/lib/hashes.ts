@@ -9,8 +9,11 @@ import { join, relative, sep } from 'node:path';
 
 const HASH_FILE = join('.lui', 'system-hashes.json');
 
-/** System-managed paths, relative to the project root (files or directories). */
-const SYSTEM_PATHS = [
+/** System-managed paths, relative to the project root (files or directories).
+ *  Exported because this list is also the delivery manifest: `kit-sync`
+ *  re-vendors every system file so the hashes it re-canonizes are hashes of
+ *  files it actually just wrote (see vendorSystemFilesInto). */
+export const SYSTEM_PATHS = [
   'frontend/src/kit',
   'frontend/src/main.tsx',
   'frontend/src/config.gen.ts',
@@ -20,6 +23,9 @@ const SYSTEM_PATHS = [
   'frontend/tsconfig.json',
   'pb/pb_hooks/_system.pb.js',
   'pb/pb_hooks/_craftbot_bridge.js',
+  'pb/pb_hooks/_a2app.pb.js',
+  'pb/pb_hooks/_a2app_lib.js',
+  'pb/pb_hooks/_a2app_rules.js',
   'manifest.json',
 ];
 
@@ -55,6 +61,31 @@ export function writeSystemHashes(projectDir: string): void {
   mkdirSync(join(projectDir, '.lui'), { recursive: true });
   const hashes = computeSystemHashes(projectDir);
   writeFileSync(join(projectDir, HASH_FILE), JSON.stringify(hashes, null, 2) + '\n');
+}
+
+/** Does `relPath` currently match its recorded canon hash?
+ *  true = clean, false = drifted, null = no canon recorded (fresh scaffold
+ *  mid-flight, or a path outside the canon). */
+export function fileMatchesCanon(projectDir: string, relPath: string): boolean | null {
+  const file = join(projectDir, HASH_FILE);
+  if (!existsSync(file)) return null;
+  const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+  const want = recorded[toPosix(relPath)];
+  if (want === undefined) return null;
+  const abs = join(projectDir, relPath);
+  if (!existsSync(abs)) return false;
+  return sha256(abs) === want;
+}
+
+/** Re-record the canon hash for ONE file the tooling itself just wrote
+ *  (e.g. the gate refreshing manifest.json's derived `capabilities`).
+ *  Never call this for agent-editable paths — it would canonize the edit. */
+export function recordFileHash(projectDir: string, relPath: string): void {
+  const file = join(projectDir, HASH_FILE);
+  if (!existsSync(file)) return; // no canon yet — create/kit-sync records it
+  const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+  recorded[toPosix(relPath)] = sha256(join(projectDir, relPath));
+  writeFileSync(file, JSON.stringify(recorded, null, 2) + '\n');
 }
 
 export interface OwnershipDrift {
