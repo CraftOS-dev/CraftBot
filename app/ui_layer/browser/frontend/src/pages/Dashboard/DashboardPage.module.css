@@ -235,6 +235,11 @@
   transition: width 0.3s ease;
 }
 
+.tokenCachedBar {
+  background: var(--color-success);
+  transition: width 0.3s ease;
+}
+
 .tokenRatioLabels {
   display: flex;
   justify-content: center;

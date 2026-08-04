@@ -431,6 +431,7 @@ class UIController:
             SkillCommand,
             CredCommand,
             UpdateCommand,
+            TokensCommand,
         )
 
         self._command_registry.register(HelpCommand(self))
@@ -443,6 +444,7 @@ class UIController:
         self._command_registry.register(SkillCommand(self))
         self._command_registry.register(CredCommand(self))
         self._command_registry.register(UpdateCommand(self))
+        self._command_registry.register(TokensCommand(self))
 
         # Register integration commands
         self._register_integration_commands()
