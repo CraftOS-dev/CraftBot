@@ -98,6 +98,11 @@ class ChatMessage:
     error_code: Optional[str] = None
     error_severity: Optional[str] = None
     requires_choice: bool = True
+    # True for a mid-run agent progress update (send_message with
+    # continue_work=true): the run keeps going after this bubble, so the
+    # frontend must NOT treat it as the run-ending reply that hides the
+    # "Working…" indicator.
+    continue_work: bool = False
 
     def __post_init__(self) -> None:
         """Generate message_id if not provided; normalize session id."""
@@ -149,6 +154,8 @@ class ChatMessage:
             data["errorSeverity"] = self.error_severity
         if self.options:
             data["requiresChoice"] = self.requires_choice
+        if self.continue_work:
+            data["continueWork"] = True
         return data
 
 

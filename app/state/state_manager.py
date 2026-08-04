@@ -137,6 +137,7 @@ class StateManager:
         content: str,
         session_id: Optional[str] = None,
         platform: Optional[str] = None,
+        continue_work: bool = False,
     ) -> None:
         """Record an agent message to a session's event stream.
 
@@ -144,6 +145,10 @@ class StateManager:
             content: The message content.
             session_id: The session the message belongs to (main if omitted).
             platform: Optional platform identifier (e.g., "Telegram").
+            continue_work: True when this is a mid-run progress update and
+                the agent keeps working after sending it (send_message's
+                continue_work=true). Carried on the event so the UI keeps
+                its "Working…" indicator up across the bubble.
         """
         target = session_id or MAIN_SESSION_ID
 
@@ -158,6 +163,7 @@ class StateManager:
             event_type=EventType.AGENT_MESSAGE,
             display_message=content,
             platform=platform,
+            continue_work=continue_work,
             task_id=target,
         )
 

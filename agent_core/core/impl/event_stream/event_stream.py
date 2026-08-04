@@ -178,6 +178,7 @@ class EventStream:
         action_input: Optional[dict] = None,
         action_output: Optional[dict] = None,
         platform: Optional[str] = None,
+        continue_work: Optional[bool] = None,
     ) -> int:
         """
         Append a new event to the stream and trigger summarization if needed.
@@ -207,6 +208,9 @@ class EventStream:
             action_input: Structured input dict for ACTION_START events.
             action_output: Structured output dict for ACTION_END events.
             platform: Originating/destination platform for chat messages.
+            continue_work: For AGENT_MESSAGE events: True when this is a
+                mid-run progress update and the agent keeps working after
+                sending it (drives the UI's persistent "Working…" row).
 
         Returns:
             The zero-based index of the event within ``tail_events``.
@@ -227,6 +231,7 @@ class EventStream:
             action_input=action_input,
             action_output=action_output,
             platform=platform,
+            continue_work=continue_work,
         )
         rec = EventRecord(event=ev)
 

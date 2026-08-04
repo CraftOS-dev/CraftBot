@@ -111,7 +111,11 @@ class EventTransformer:
     ) -> Optional[UIEvent]:
         return UIEvent(
             type=UIEventType.AGENT_MESSAGE,
-            data={"message": message, "session_id": session_id},
+            data={
+                "message": message,
+                "session_id": session_id,
+                "continue_work": bool(event.continue_work),
+            },
             timestamp=ts,
             task_id=session_id,
         )

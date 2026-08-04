@@ -104,7 +104,7 @@ async def send_message_with_attachment(input_data: dict) -> dict:
 
     # Use the do_chat_with_attachments method which handles browser/CLI fallback
     result = await internal_action_interface.InternalActionInterface.do_chat_with_attachments(
-        message, file_paths, session_id=session_id
+        message, file_paths, session_id=session_id, continue_work=continue_work
     )
 
     files_sent = result.get("files_sent", 0)

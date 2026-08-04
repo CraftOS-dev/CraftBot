@@ -419,17 +419,26 @@ export function Chat({ sessionId, placeholder }: ChatProps) {
   // replaces the tail, the row hides in the SAME commit that inserts the
   // bubble — one row swaps for another, one settle. Runs WITH actions never
   // took the live row (their collapsed chunk header carries the state).
+  //
+  // ONLY run-ending bubbles hide the row. A mid-run progress bubble
+  // (send_message continue_work=true, carried as message.continueWork) is
+  // NOT the end of the run: the agent keeps working after it, so hiding on
+  // it made "Working…" vanish for the whole next-turn LLM gap and reappear
+  // with the next action — the mid-task flicker this guards against. The
+  // run-end swap is unaffected: final bubbles have continueWork unset.
   const lastDisplayRow =
     displayRows.length > 0 ? displayRows[displayRows.length - 1] : null
-  const tailIsAgentBubble =
-    lastDisplayRow?.kind === 'message' && lastDisplayRow.message.style === 'agent'
+  const tailIsFinalAgentBubble =
+    lastDisplayRow?.kind === 'message' &&
+    lastDisplayRow.message.style === 'agent' &&
+    !lastDisplayRow.message.continueWork
   const tailIsUserMessage =
     lastDisplayRow?.kind === 'message' && lastDisplayRow.message.style === 'user'
   const showLiveRowEffective =
     connected &&
     (!isDraft || messages.length > 0) &&
     (busy || tailIsUserMessage) &&
-    !tailIsAgentBubble &&
+    !tailIsFinalAgentBubble &&
     (!tailChunk || tailChunk.expanded)
   const rowCount = displayRows.length + (showLiveRowEffective ? 1 : 0)
 

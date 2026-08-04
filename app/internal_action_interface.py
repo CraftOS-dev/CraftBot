@@ -341,6 +341,7 @@ class InternalActionInterface:
         message: str,
         platform: Optional[str] = None,
         session_id: Optional[str] = None,
+        continue_work: bool = False,
     ) -> None:
         """Record an agent-authored chat message to the event stream.
 
@@ -350,6 +351,8 @@ class InternalActionInterface:
                 source_platform (looked up via session_id) is used, falling
                 back to "CraftBot Interface".
             session_id: Optional task/session ID for multi-task isolation.
+            continue_work: True when this is a mid-run progress update and
+                the agent keeps working after sending it.
         """
         if InternalActionInterface.state_manager is None:
             raise RuntimeError(
@@ -359,7 +362,10 @@ class InternalActionInterface:
             platform, session_id
         )
         InternalActionInterface.state_manager.record_agent_message(
-            message, session_id=session_id, platform=resolved_platform
+            message,
+            session_id=session_id,
+            platform=resolved_platform,
+            continue_work=continue_work,
         )
 
     @staticmethod
@@ -390,6 +396,7 @@ class InternalActionInterface:
         message: str,
         file_paths: List[str],
         session_id: Optional[str] = None,
+        continue_work: bool = False,
     ) -> Dict[str, Any]:
         """
         Send a chat message with one or more attachments to the user.
@@ -398,6 +405,8 @@ class InternalActionInterface:
             message: The message content
             file_paths: List of paths to the files (absolute or relative to workspace)
             session_id: Optional task/session ID for multi-task isolation.
+            continue_work: True when this is a mid-run progress update and
+                the agent keeps working after sending it.
 
         Returns:
             Dict with 'success' (bool), 'files_sent' (int), and optionally 'errors' (list of str)
@@ -424,7 +433,11 @@ class InternalActionInterface:
         # Check if UI adapter supports attachments (browser adapter)
         if ui_adapter and hasattr(ui_adapter, "send_message_with_attachments"):
             return await ui_adapter.send_message_with_attachments(
-                message, file_paths, sender=agent_name, session_id=session_id
+                message,
+                file_paths,
+                sender=agent_name,
+                session_id=session_id,
+                continue_work=continue_work,
             )
         else:
             # Fallback: send message with attachment notes for non-browser adapters
@@ -441,6 +454,7 @@ class InternalActionInterface:
                 f"{message}\n\n{attachment_notes}",
                 session_id=session_id,
                 platform=resolved_platform,
+                continue_work=continue_work,
             )
             # For non-browser adapters, we can't verify files exist, so assume success
             return {"success": True, "files_sent": len(file_paths), "errors": None}

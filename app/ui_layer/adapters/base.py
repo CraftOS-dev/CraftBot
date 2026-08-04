@@ -298,6 +298,7 @@ class InterfaceAdapter(ABC):
                 "agent",
                 session_id=event.task_id,
                 options=options,
+                continue_work=bool(event.data.get("continue_work", False)),
             )
         )
 
@@ -428,6 +429,7 @@ class InterfaceAdapter(ABC):
         session_id: Optional[str] = None,
         options: Optional[List[ChatMessageOption]] = None,
         client_id: Optional[str] = None,
+        continue_work: bool = False,
     ) -> None:
         """
         Display a chat message.
@@ -439,6 +441,8 @@ class InterfaceAdapter(ABC):
             session_id: The chat session the message belongs to (main default)
             options: Optional list of interactive options/buttons
             client_id: Optional client-generated UUID for reconciling with optimistic UI
+            continue_work: True when this is a mid-run agent progress update
+                (the run keeps going after this message)
         """
         import time
 
@@ -451,6 +455,7 @@ class InterfaceAdapter(ABC):
                 session_id=session_id or "main",
                 options=options,
                 client_id=client_id,
+                continue_work=continue_work,
             )
         )
 

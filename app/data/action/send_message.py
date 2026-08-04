@@ -64,7 +64,7 @@ async def send_message(input_data: dict) -> dict:
         import app.internal_action_interface as internal_action_interface
 
         await internal_action_interface.InternalActionInterface.do_chat(
-            message, session_id=session_id
+            message, session_id=session_id, continue_work=continue_work
         )
 
     # Return 'success' for test compatibility, but keep 'ok' in production if needed

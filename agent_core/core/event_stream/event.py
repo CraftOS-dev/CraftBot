@@ -136,6 +136,12 @@ class Event:
         action_output: Structured output payload at action_end.
         platform: Originating/destination platform for chat messages
             (e.g., ``"Telegram"``, ``"CraftBot Interface"``).
+        continue_work: For AGENT_MESSAGE events only: True when the agent
+            sent this as a mid-run progress update (send_message with
+            continue_work=true) and will keep working afterwards. The UI
+            uses it to keep the run's "Working…" indicator up across the
+            bubble instead of treating every agent bubble as a run-ending
+            reply. None/False for final replies and non-chat events.
     """
 
     message: str
@@ -150,6 +156,7 @@ class Event:
     action_input: Optional[Dict[str, Any]] = None
     action_output: Optional[Dict[str, Any]] = None
     platform: Optional[str] = None
+    continue_work: Optional[bool] = None
 
     def display_text(self) -> Optional[str]:
         """
@@ -181,6 +188,7 @@ class Event:
             "action_input": self.action_input,
             "action_output": self.action_output,
             "platform": self.platform,
+            "continue_work": self.continue_work,
         }
 
     @classmethod
@@ -219,6 +227,7 @@ class Event:
             action_input=data.get("action_input"),
             action_output=data.get("action_output"),
             platform=data.get("platform"),
+            continue_work=data.get("continue_work"),
         )
 
     @property

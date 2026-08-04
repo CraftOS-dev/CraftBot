@@ -35,6 +35,7 @@ export interface ChatMessage {
   errorCategory?: string  // ErrorCategory value (e.g. "auth", "rate_limit") when style === 'error'
   errorCode?: string  // Stable error code (e.g. "LLM_AUTH", "CONFIG_NO_API_KEY")
   errorSeverity?: 'info' | 'warning' | 'error' | 'critical'
+  continueWork?: boolean  // True for a mid-run agent progress update (send_message continue_work=true): the run keeps going after this bubble, so it must NOT hide the "Working…" live row
 }
 
 // ─────────────────────────────────────────────────────────────────────

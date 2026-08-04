@@ -238,6 +238,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                         session_id=stored.session_id,
                         options=options,
                         option_selected=stored.option_selected,
+                        continue_work=stored.continue_work,
                     )
                 )
         except Exception:
@@ -281,6 +282,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                     attachments=attachments_data,
                     session_id=message.session_id,
                     options=options_data,
+                    continue_work=message.continue_work,
                 )
                 self._storage.insert_message(stored)
             except Exception:
@@ -378,6 +380,7 @@ class BrowserChatComponent(ChatComponentProtocol):
                         session_id=s.session_id,
                         options=options,
                         option_selected=s.option_selected,
+                        continue_work=s.continue_work,
                     )
                 )
             return messages
@@ -7505,6 +7508,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                             session_id=s.session_id,
                             options=options,
                             option_selected=s.option_selected,
+                            continue_work=s.continue_work,
                         )
                     )
 
@@ -7981,6 +7985,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         sender: Optional[str] = None,
         style: str = "agent",
         session_id: Optional[str] = None,
+        continue_work: bool = False,
     ) -> Dict[str, Any]:
         """
         Send a chat message with one or more attachments from the agent.
@@ -8024,6 +8029,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     style=style,
                     attachments=attachments,
                     session_id=session_id or "main",
+                    continue_work=continue_work,
                 )
                 await self._chat.append_message(chat_message)
 

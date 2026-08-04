@@ -292,6 +292,7 @@ class EventStreamManager:
         action_input: Optional[dict] = None,
         action_output: Optional[dict] = None,
         platform: Optional[str] = None,
+        continue_work: Optional[bool] = None,
         task_id: str | None = None,
     ) -> int:
         """
@@ -341,6 +342,7 @@ class EventStreamManager:
             action_input=action_input,
             action_output=action_output,
             platform=platform,
+            continue_work=continue_work,
         )
 
         # Also log to markdown files for persistence
