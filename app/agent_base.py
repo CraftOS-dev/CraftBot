@@ -629,7 +629,23 @@ class AgentBase:
             await self.state_manager.start_turn(session_id)
 
             # ----- The one turn pipeline -----
-            action_decisions, reasoning = await self._select_action(trigger_data)
+            try:
+                action_decisions, reasoning = await self._select_action(trigger_data)
+            except Exception as e:
+                # The LLM call that decides what to do next is what failed —
+                # unlike a downstream action/tool failure, there's no "let the
+                # LLM see the error and adapt" recovery available here, since
+                # reaching the LLM is exactly what just failed. Auto-triggering
+                # RUN_CONTINUATION would just repeat the same doomed call, and
+                # since LLMInterface._consecutive_failures is a shared, cross-
+                # turn counter, that second attempt tends to cross the fatal
+                # threshold moments later — producing a second, differently-
+                # worded message for the same underlying failure. Halt cleanly
+                # instead; the user resumes by sending a new chat message.
+                await self._handle_react_error(
+                    e, session_id, {}, allow_continuation=False
+                )
+                return
 
             prepared_actions = await self._retrieve_and_prepare_actions(
                 action_decisions
@@ -1426,6 +1442,8 @@ class AgentBase:
         error: Exception,
         session_id: str,
         action_output: dict,
+        *,
+        allow_continuation: bool = True,
     ) -> None:
         """Handle errors during react execution.
 
@@ -1437,10 +1455,14 @@ class AgentBase:
           config problem — a genuine bug or crash) — full error detail with
           the red "error" styling.
 
-        This is independent of whether the run halts: only a fatal
-        `LLMConsecutiveFailureError` halts the run (5 failed attempts, or an
-        immediate fail-fast category); everything else lets the react loop
-        continue to the next turn while still telling the user what happened.
+        This is independent of whether the run halts: a fatal
+        `LLMConsecutiveFailureError` (5 failed attempts, or an immediate
+        fail-fast category) always halts the run; everything else lets the
+        react loop continue to the next turn while still telling the user
+        what happened — UNLESS `allow_continuation=False` (set by `react()`
+        when the failure came from the action-decision LLM call itself:
+        auto-continuing would just repeat the same doomed call, which is how
+        a single provider outage used to surface as two separate messages).
         """
         is_fatal, fatal_exc, classified_info = self._classify_react_error(error)
         is_critical = classified_info is None
@@ -1481,15 +1503,21 @@ class AgentBase:
                 task_id=session_id,
             )
             self.state_manager.bump_event_stream()
-            if is_fatal:
+            if is_fatal or not allow_continuation:
                 # Stop the run instead of re-queueing to prevent infinite
                 # retries. The user resumes by sending a normal chat message
                 # — _handle_chat_message already resets the failure counter
                 # on intake, so no separate Retry action is needed.
-                logger.warning(
-                    f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
-                    f"session {session_id}."
-                )
+                if is_fatal:
+                    logger.warning(
+                        f"[REACT ERROR] LLMConsecutiveFailureError — halting run for "
+                        f"session {session_id}."
+                    )
+                else:
+                    logger.warning(
+                        f"[REACT ERROR] Action-decision call failed — halting run "
+                        f"for session {session_id} instead of auto-continuing."
+                    )
                 self._emit_run_state(session_id, False)
                 await self._display_react_error(session_id, info, critical=is_critical)
             else:
